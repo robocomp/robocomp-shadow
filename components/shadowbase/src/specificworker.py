@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2022 by YOUR NAME HERE
+#    Copyright (C) 2022 by Alejandro Torrejon Harto
 #
 #    This file is part of RoboComp
 #
@@ -25,6 +25,9 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 
+import serial
+import numpy as np
+
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
@@ -35,10 +38,177 @@ console = Console(highlight=False)
 # import librobocomp_innermodel
 
 
+
+
+''''ESTRUCTURA DE TELEGRAMAS/DATAGRAMA'''
+#___________________________________________
+#|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8    |
+#|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_HIGH|
+TELEGRAM_READ = bytearray([0xee,0x03])
+
+#______________________________________________________________________
+#|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N    |
+#|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_HIGH|
+TELEGRAM_WRITE = bytearray([0xee,0x10])
+
+
+''''REGISTROS DEL DRIVER'''
+R_SET_STATUS = bytearray([0x53, 0x00])          #uint16//SET ESTADO DEL DRIVER 0=STOP; 1=START; 2=CLEAN ALARMS
+R_GET_STATUS = bytearray([0x54, 0x00])          #ESTADO DEL DRIVER 0=STOP; 1=RUN
+R_SET_SPEED = bytearray([0x53, 0x04])           #int16//VELOCIDAD TARGET
+R_GET_SPEED = bytearray([0x54, 0x10])           #int16//VELOCIDAD ACTUAL
+R_GET_TEMPERATURE = bytearray([0x54, 0x04])     #int16//TEMPERATURA DEL MOTOR
+R_MAX_SPEED = bytearray([0x50, 0x1C])           #uint16//MAXIMA VELOCIDAD
+R_DIRECTION = bytearray([0x50, 0x28])           #uint16//DIRECCION DEL MOTOR 0=NORMAL; 1=INVERT
+R_ACCELERATION_MAX = bytearray([0x51, 0x08])    #uint16//MAXIMA ACELERACION
+R_DECELATION_MAX = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION   
+R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
+
+''''MATRIX DE CONVESION'''
+M_WHEELS = np.array[[1, 1, 1, 1], 
+                    [-1, 1, 1, -1], 
+                    [1, -1, 1, -1]]
+
+def start_diver(port=""):
+    print('Abriendo puerto serie con el driver')
+
+    self.driver = serial.Serial(
+        port=port,
+        baudrate=115200,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS,
+        timeout=0)
+    if self.driver.isOpen():
+        print("puerto abierto")
+        #imprimimos el arranque del driver
+        print_info = True
+        flag = False
+        while print_info:
+            text = self.driver.readline()
+            if text == '' and flag:
+                print_info =False
+            elif text != '':
+                print(text)
+                flag = True
+
+        print("Encendemos motores")
+        #arrancamos los driver con velocidad 0
+        write_register(R_SET_SPEED, False, [0,0,0,0])
+        write_register(R_SET_STATUS, False, [0,1,0,1])
+
+def stop_driver():
+    #paramos los driver con velocidad 0
+    write_register(R_SET_SPEED, False, [0,0,0,0])
+    write_register(R_SET_STATUS, False, [0,0,0,0])
+    #Confirmamos el estado
+    status = read_register(R_GET_STATUS, False)
+    if 1 in status:
+        print("Error al parar los motores")
+    else:
+        print("Motores parados, cerrando serie")
+        self.driver.close()
+        if not self.driver.isOpen():
+            print("Puerto cerrado correctamente")
+
+def shortto2bytes(short):
+    low = short & 0x00FF
+    high = short & 0xFF00
+    high = int(high/255)
+    return high, low
+    
+
+def read_register(add_register, single):
+    data = []
+    if self.driver.isOpen():
+        telegram = TELEGRAM_READ.copy()
+        telegram.extend(add_register)
+        if single:
+            telegram.extend([0,1])
+        else:
+            telegram.extend([0,2])
+        telegram.extend(shortto2bytes(Calc_Crc(telegram)))   
+        self.driver.flushInput()
+        read_data = True
+        while read_data:
+            text = self.driver.readline()
+            if text != '':
+                print(text)
+                telegram =bytearray (text)
+                if telegram[1] != 0x03:
+                    continue
+                crc_low = telegram.pop()
+                crc_high = telegram.pop()
+                tel_crc_high, tel_crc_low = shortto2bytes(Calc_Crc(telegram))
+                if crc_high != tel_crc_high or crc_low !=tel_crc_low:
+                    print("FALLO EN EL CRC")
+                    continue
+                for i in range(telegram[3]):
+                    data.append(telegram[i+3] * 255) + telegram[i+4]
+                    print(data)
+                read_data = True
+    else:
+        print("PRUERTO NO ABIERTO")
+    return data
+            
+    
+
+def write_register(add_register, single, tupla_data):
+    if self.driver.isOpen():
+        telegram = TELEGRAM_WRITE.copy()
+        telegram.extend(add_register)
+        if single:
+            telegram.extend([0,1])
+        else:
+            telegram.extend([0,2])
+        for data in tupla_data:
+            telegram.extend(shortto2bytes(data))
+        telegram.extend(shortto2bytes(Calc_Crc(telegram)))   
+        self.driver.write(telegram)
+    else:
+        print("PRUERTO NO ABIERTO")
+
+
+'''
+Function name: Calc_Crc(uint8_t\*pack_buff,uint8_tpack_len) Description:
+Modbus protocol CRC check incoming value: pack_buff, packet data,
+pack_len refers to the length of the data to be checked. Outgoing value: returns a twobyte CRC check code ***/ 
+'''
+def Calc_Crc(telegram):
+    num = len(telegram)
+    crc_result = 0xffff
+    crc_num = 0
+    xor_flag = 0
+    for i in range(num):
+        crc_result = crc_result ^ int(telegram[i])
+        crc_num = (crc_result & 0x0001); 
+        for m in range(8):
+            if (crc_num == 1):
+                xor_flag = 1
+            else:
+                xor_flag = 0
+            crc_result >>= 1
+            if(xor_flag):
+                crc_result = crc_result ^ 0xa001
+            crc_num =(crc_result & 0x0001)
+
+    return crc_result
+
+
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 2000
+        self.Period = 10
+        
+        #variables de clase
+        self.target = {'Speed' : [np.array[0, 0, 0], R_SET_SPEED], 'Status' : [0, R_SET_STATUS]}
+        self. newtarget = self.target.copy()
+        self.actual = {'Speed' : [0, R_GET_SPEED], 'Status' : [0, R_GET_STATUS], 'Temperature' : [0, R_GET_TEMPERATURE]}
+        self.driver=None
+
+
+        start_diver()
+
         if startup_check:
             self.startup_check()
         else:
@@ -47,6 +217,7 @@ class SpecificWorker(GenericWorker):
 
     def __del__(self):
         """Destructor"""
+        stop_driver()
 
     def setParams(self, params):
         # try:
@@ -73,7 +244,19 @@ class SpecificWorker(GenericWorker):
         # r = self.innermodel.transform('rgbd', z, 'laser')
         # r.printvector('d')
         # print(r[0], r[1], r[2])
-
+        for key, val in self.target:
+            if val[0] != self.newtarget[key][0]:
+                speeds = M_WHEELS@val[0]
+                m1 = speeds[0]
+                m2 = speeds[1]
+                m3 = speeds[2]
+                m4 = speeds[3]#mx se puede eliminar
+                write_register(val[1], False, [m1, m2])
+                write_register(val[1], False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+        for key, val in self.actual:
+            data = read_register(val[1],False)
+            data.extend(read_register(val[1],False))##########ver lo de la direccion del segundo driver######################################################################
+            print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
         return True
 
     def startup_check(self):
