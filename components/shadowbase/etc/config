@@ -1,0 +1,16 @@
+# Endpoints for implements interfaces
+DifferentialRobot.Endpoints=tcp -p 10851
+GenericBase.Endpoints=tcp -p 15534
+OmniRobot.Endpoints=tcp -p 10266
+
+
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+

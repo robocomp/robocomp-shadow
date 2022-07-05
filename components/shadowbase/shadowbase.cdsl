@@ -1,0 +1,13 @@
+import "OmniRobot.idsl";
+import "DifferentialRobot.idsl";
+import "GenericBase.idsl";
+
+Component viriatobase
+{
+	Communications
+	{
+		implements OmniRobot, DifferentialRobot, GenericBase;
+	};
+	language python;
+};
+
