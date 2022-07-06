@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.6)
-PROJECT(  viriatobase )
+PROJECT(  shadowbase )
 
 INCLUDE( /opt/robocomp/cmake/robocomp.cmake )
 
