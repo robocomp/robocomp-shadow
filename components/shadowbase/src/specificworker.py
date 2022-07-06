@@ -43,12 +43,12 @@ console = Console(highlight=False)
 ''''ESTRUCTURA DE TELEGRAMAS/DATAGRAMA'''
 #___________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8    |
-#|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_HIGH|
+#|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_LOW|
 TELEGRAM_READ = bytearray([0xee,0x03])
 
 #______________________________________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N    |
-#|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_HIGH|
+#|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_LOW|
 TELEGRAM_WRITE = bytearray([0xee,0x10])
 
 
@@ -64,38 +64,39 @@ R_ACCELERATION_MAX = bytearray([0x51, 0x08])    #uint16//MAXIMA ACELERACION
 R_DECELATION_MAX = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION   
 R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
 
-''''MATRIX DE CONVESION'''
-M_WHEELS = np.array[[1, 1, 1, 1], 
-                    [-1, 1, 1, -1], 
-                    [1, -1, 1, -1]]
+
 
 def start_diver(port=""):
-    print('Abriendo puerto serie con el driver')
+    if port == '':
+        print('no hay puerto asignado')
+    else:
 
-    self.driver = serial.Serial(
-        port=port,
-        baudrate=115200,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
-        bytesize=serial.EIGHTBITS,
-        timeout=0)
-    if self.driver.isOpen():
-        print("puerto abierto")
-        #imprimimos el arranque del driver
-        print_info = True
-        flag = False
-        while print_info:
-            text = self.driver.readline()
-            if text == '' and flag:
-                print_info =False
-            elif text != '':
-                print(text)
-                flag = True
+        print('Abriendo puerto serie con el driver')
 
-        print("Encendemos motores")
-        #arrancamos los driver con velocidad 0
-        write_register(R_SET_SPEED, False, [0,0,0,0])
-        write_register(R_SET_STATUS, False, [0,1,0,1])
+        self.driver = serial.Serial(
+            port=port,
+            baudrate=115200,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS,
+            timeout=0)
+        if self.driver.isOpen():
+            print("puerto abierto")
+            #imprimimos el arranque del driver
+            print_info = True
+            flag = False
+            while print_info:
+                text = self.driver.readline()
+                if text == '' and flag:
+                    print_info =False
+                elif text != '':
+                    print(text)
+                    flag = True
+
+            print("Encendemos motores")
+            #arrancamos los driver con velocidad 0
+            write_register(R_SET_SPEED, False, [0,0,0,0])
+            write_register(R_SET_STATUS, False, [0,1,0,1])
 
 def stop_driver():
     #paramos los driver con velocidad 0
@@ -197,34 +198,64 @@ def Calc_Crc(telegram):
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
+        print("Iniciando shadow")
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 10
         
         #variables de clase
-        self.target = {'Speed' : [np.array[0, 0, 0], R_SET_SPEED], 'Status' : [0, R_SET_STATUS]}
-        self. newtarget = self.target.copy()
+        self.targetSpeed = np.array([0, 0, 0])
+        self. newTargetSpeed = np.array([0, 0, 0])
         self.actual = {'Speed' : [0, R_GET_SPEED], 'Status' : [0, R_GET_STATUS], 'Temperature' : [0, R_GET_TEMPERATURE]}
         self.driver=None
 
-
-        start_diver()
 
         if startup_check:
             self.startup_check()
         else:
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
+        print("Shadow iniciado correctamente")
 
     def __del__(self):
+        print("Finalizando shadow")
         """Destructor"""
-        stop_driver()
+        if self.driver.isOpen():
+            stop_driver()
+        print("Shadow destruido")
 
     def setParams(self, params):
-        # try:
-        #	self.innermodel = InnerModel(params["InnerModelPath"])
-        # except:
-        #	traceback.print_exc()
-        #	print("Error reading config params")
+        print("Cargando parametros:")
+        try:
+            self.port = params["port"]
+            self.wheelRadius = float(params["wheelRadius"])
+            self.distAxes =  float(params["distAxes"])
+            self.axesLength =  float(params["axesLength"])
+
+            print("Parametros cargados:")
+            print("port: ", self.port)
+            print("wheelRadius: ", self.wheelRadius)
+            print("distAxes: ", self.distAxes)
+            print("axesLength: ", self.axesLength)
+
+            print("Paremetros cargados")
+
+        except:
+            print("Error reading config params")
+        print("creando matriz de conversion")
+        ll = 0.5*(self.distAxes + self.axesLength)
+
+        ''''MATRIZ DE CONVESION'''
+        self.m_wheels = np.array([[1, -1, 1, ll], 
+                                    [1, 1, -1, -ll], 
+                                    [1, 1, 1, ll],
+                                    [1, -1, -1, -ll]])
+        self.m_wheels = self.m_wheels * (1/(2 * np.pi * self.wheelRadius / 60)) # mm/s to rpm
+        print(self.m_wheels)
+
+        start_diver(self.port)
+
+        
+        
         return True
 
 
@@ -244,15 +275,16 @@ class SpecificWorker(GenericWorker):
         # r = self.innermodel.transform('rgbd', z, 'laser')
         # r.printvector('d')
         # print(r[0], r[1], r[2])
-        for key, val in self.target:
-            if val[0] != self.newtarget[key][0]:
-                speeds = M_WHEELS@val[0]
-                m1 = speeds[0]
-                m2 = speeds[1]
-                m3 = speeds[2]
-                m4 = speeds[3]#mx se puede eliminar
-                write_register(val[1], False, [m1, m2])
-                write_register(val[1], False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+    
+        if self.targetSpeed != self.newTargetSpeed:
+            speeds = self.m_wheels@self.targetSpeed
+            print("RPM",speeds)
+            m1 = speeds[0]
+            m2 = speeds[1]
+            m3 = speeds[2]
+            m4 = speeds[3]#mx se puede eliminar
+            write_register(val[1], False, [m1, m2])
+            write_register(val[1], False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
         for key, val in self.actual:
             data = read_register(val[1],False)
             data.extend(read_register(val[1],False))##########ver lo de la direccion del segundo driver######################################################################
@@ -302,7 +334,8 @@ class SpecificWorker(GenericWorker):
         # write your CODE here
         #
         state = RoboCompGenericBase.TBaseState()
-    return state
+        return state
+
     #
     # IMPLEMENTATION of resetOdometer method from DifferentialRobot interface
     #
@@ -341,10 +374,9 @@ class SpecificWorker(GenericWorker):
     #
     def DifferentialRobot_setSpeedBase(self, adv, rot):
     
-        #
-        # write your CODE here
-        #
-        pass
+        self.targetSpeed[0] = adv
+        self.targetSpeed[1] = 0
+        self.targetSpeed[2] = rot
 
 
     #
@@ -352,10 +384,9 @@ class SpecificWorker(GenericWorker):
     #
     def DifferentialRobot_stopBase(self):
     
-        #
-        # write your CODE here
-        #
-        pass
+        self.targetSpeed[0] = 0
+        self.targetSpeed[1] = 0
+        self.targetSpeed[2] = 0
 
 
     #
@@ -366,7 +397,7 @@ class SpecificWorker(GenericWorker):
         #
         # write your CODE here
         #
-            return [x, z, alpha]
+        return [x, z, alpha]
     #
     # IMPLEMENTATION of getBaseState method from GenericBase interface
     #
@@ -376,7 +407,7 @@ class SpecificWorker(GenericWorker):
         # write your CODE here
         #
         state = RoboCompGenericBase.TBaseState()
-    return state
+        return state
     #
     # IMPLEMENTATION of correctOdometer method from OmniRobot interface
     #
@@ -396,7 +427,7 @@ class SpecificWorker(GenericWorker):
         #
         # write your CODE here
         #
-            return [x, z, alpha]
+        return [x, z, alpha]
     #
     # IMPLEMENTATION of getBaseState method from OmniRobot interface
     #
@@ -406,7 +437,7 @@ class SpecificWorker(GenericWorker):
         # write your CODE here
         #
         state = RoboCompGenericBase.TBaseState()
-    return state
+        return state
     #
     # IMPLEMENTATION of resetOdometer method from OmniRobot interface
     #
@@ -444,11 +475,9 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setSpeedBase method from OmniRobot interface
     #
     def OmniRobot_setSpeedBase(self, advx, advz, rot):
-    
-        #
-        # write your CODE here
-        #
-        pass
+        self.targetSpeed[0] = advx
+        self.targetSpeed[1] = advz
+        self.targetSpeed[2] = rot
 
 
     #
@@ -456,10 +485,9 @@ class SpecificWorker(GenericWorker):
     #
     def OmniRobot_stopBase(self):
     
-        #
-        # write your CODE here
-        #
-        pass
+        self.targetSpeed[0] = 0
+        self.targetSpeed[1] = 0
+        self.targetSpeed[2] = 0
 
 
     # ===================================================================

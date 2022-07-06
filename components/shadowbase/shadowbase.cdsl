@@ -2,7 +2,7 @@ import "OmniRobot.idsl";
 import "DifferentialRobot.idsl";
 import "GenericBase.idsl";
 
-Component viriatobase
+Component shadowbase
 {
 	Communications
 	{

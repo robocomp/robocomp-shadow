@@ -1,10 +1,13 @@
 # Endpoints for implements interfaces
-DifferentialRobot.Endpoints=tcp -p 10851
-GenericBase.Endpoints=tcp -p 15534
-OmniRobot.Endpoints=tcp -p 10266
+DifferentialRobot.Endpoints=tcp -p 12599
+GenericBase.Endpoints=tcp -p 18036
+OmniRobot.Endpoints=tcp -p 14701
 
 
-
+port=/dev/ttyUSB0
+wheelRadius=76.2
+distAxes=380.0
+axesLength=422.0
 
 
 Ice.Warn.Connections=0
