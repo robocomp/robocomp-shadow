@@ -65,7 +65,13 @@ R_DECELATION_MAX = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION
 R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
 
 
-
+'''
+PRE:-
+POST:-
+DESC: Establece la conexión con el driver asigando al puerto "port", 
+      habiliando al variable self.driver y poniendo el motor a 0 y
+      el registro de funcionamiento a ON
+'''
 def start_diver(port=""):
     if port == '':
         print('no hay puerto asignado')
@@ -98,6 +104,12 @@ def start_diver(port=""):
             write_register(R_SET_SPEED, False, [0,0,0,0])
             write_register(R_SET_STATUS, False, [0,1,0,1])
 
+'''
+PRE: self.driver abierto
+POST:-
+DESC: Cierra la conexión con el driver (variable self.driver)
+      además pondra el motor a 0 y el registro de funcionamiento a OFF
+'''
 def stop_driver():
     #paramos los driver con velocidad 0
     write_register(R_SET_SPEED, False, [0,0,0,0])
@@ -112,6 +124,11 @@ def stop_driver():
         if not self.driver.isOpen():
             print("Puerto cerrado correctamente")
 
+'''
+PRE:-
+POST: Devuelve dosr variables enteras fragmentos del short
+DESC: Fragmenta los dos brtes del short en dos bytes independientes
+'''
 def shortto2bytes(short):
     low = short & 0x00FF
     high = short & 0xFF00
@@ -119,6 +136,12 @@ def shortto2bytes(short):
     return high, low
     
 
+'''
+PRE: self.driver abierto
+POST: Devuelve una lista de los datos leidos
+DESC: Lee los registros del driver, "add_register"=dirección de comienzo
+      "single"=true un solo registro, =false dos registros contiguos(M1 y M2)
+'''
 def read_register(add_register, single):
     data = []
     if self.driver.isOpen():
@@ -153,7 +176,13 @@ def read_register(add_register, single):
     return data
             
     
-
+'''
+PRE: self.driver abierto & len("tupla_data")<=2
+POST: -
+DESC: Escribe los registros del driver, "add_register"=dirección de comienzo
+      "single"=true un solo registro, =false dos registros contiguos(M1 y M2), 
+      "tupla_data" datos a escribir
+'''
 def write_register(add_register, single, tupla_data):
     if self.driver.isOpen():
         telegram = TELEGRAM_WRITE.copy()
@@ -237,7 +266,7 @@ class SpecificWorker(GenericWorker):
             print("distAxes: ", self.distAxes)
             print("axesLength: ", self.axesLength)
 
-            print("Paremetros cargados")
+            start_diver(self.port)  
 
         except:
             print("Error reading config params")
@@ -252,30 +281,12 @@ class SpecificWorker(GenericWorker):
         self.m_wheels = self.m_wheels * (1/(2 * np.pi * self.wheelRadius / 60)) # mm/s to rpm
         print(self.m_wheels)
 
-        start_diver(self.port)
-
-        
-        
         return True
 
 
     @QtCore.Slot()
     def compute(self):
-        print('SpecificWorker.compute...')
-        # computeCODE
-        # try:
-        #   self.differentialrobot_proxy.setSpeedBase(100, 0)
-        # except Ice.Exception as e:
-        #   traceback.print_exc()
-        #   print(e)
-
-        # The API of python-innermodel is not exactly the same as the C++ version
-        # self.innermodel.updateTransformValues('head_rot_tilt_pose', 0, 0, 0, 1.3, 0, 0)
-        # z = librobocomp_qmat.QVec(3,0)
-        # r = self.innermodel.transform('rgbd', z, 'laser')
-        # r.printvector('d')
-        # print(r[0], r[1], r[2])
-    
+   
         if self.targetSpeed != self.newTargetSpeed:
             speeds = self.m_wheels@self.targetSpeed
             print("RPM",speeds)
@@ -283,8 +294,9 @@ class SpecificWorker(GenericWorker):
             m2 = speeds[1]
             m3 = speeds[2]
             m4 = speeds[3]#mx se puede eliminar
-            write_register(val[1], False, [m1, m2])
-            write_register(val[1], False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+            write_register(R_SET_SPEED, False, [m1, m2])
+            write_register(R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+            print("Modificamos velocidades: ", self.targetSpeed)
         for key, val in self.actual:
             data = read_register(val[1],False)
             data.extend(read_register(val[1],False))##########ver lo de la direccion del segundo driver######################################################################
