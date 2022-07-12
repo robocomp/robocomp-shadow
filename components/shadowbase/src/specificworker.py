@@ -19,6 +19,9 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from time import sleep
+
+
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
@@ -44,12 +47,12 @@ console = Console(highlight=False)
 #___________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8    |
 #|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_LOW|
-TELEGRAM_READ = bytearray([0xee,0x03])
+CODE_TELEGRAM_READ = bytearray([0x03])
 
 #______________________________________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N    |
 #|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_LOW|
-TELEGRAM_WRITE = bytearray([0xee,0x10])
+CODE_TELEGRAM_WRITE = bytearray([0x10])
 
 
 ''''REGISTROS DEL DRIVER'''
@@ -63,167 +66,7 @@ R_DIRECTION = bytearray([0x50, 0x28])           #uint16//DIRECCION DEL MOTOR 0=N
 R_ACCELERATION_MAX = bytearray([0x51, 0x08])    #uint16//MAXIMA ACELERACION
 R_DECELATION_MAX = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION   
 R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
-
-
-'''
-PRE:-
-POST:-
-DESC: Establece la conexión con el driver asigando al puerto "port", 
-      habiliando al variable self.driver y poniendo el motor a 0 y
-      el registro de funcionamiento a ON
-'''
-def start_diver(port=""):
-    if port == '':
-        print('no hay puerto asignado')
-    else:
-
-        print('Abriendo puerto serie con el driver')
-
-        self.driver = serial.Serial(
-            port=port,
-            baudrate=115200,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            bytesize=serial.EIGHTBITS,
-            timeout=0)
-        if self.driver.isOpen():
-            print("puerto abierto")
-            #imprimimos el arranque del driver
-            print_info = True
-            flag = False
-            while print_info:
-                text = self.driver.readline()
-                if text == '' and flag:
-                    print_info =False
-                elif text != '':
-                    print(text)
-                    flag = True
-
-            print("Encendemos motores")
-            #arrancamos los driver con velocidad 0
-            write_register(R_SET_SPEED, False, [0,0,0,0])
-            write_register(R_SET_STATUS, False, [0,1,0,1])
-
-'''
-PRE: self.driver abierto
-POST:-
-DESC: Cierra la conexión con el driver (variable self.driver)
-      además pondra el motor a 0 y el registro de funcionamiento a OFF
-'''
-def stop_driver():
-    #paramos los driver con velocidad 0
-    write_register(R_SET_SPEED, False, [0,0,0,0])
-    write_register(R_SET_STATUS, False, [0,0,0,0])
-    #Confirmamos el estado
-    status = read_register(R_GET_STATUS, False)
-    if 1 in status:
-        print("Error al parar los motores")
-    else:
-        print("Motores parados, cerrando serie")
-        self.driver.close()
-        if not self.driver.isOpen():
-            print("Puerto cerrado correctamente")
-
-'''
-PRE:-
-POST: Devuelve dosr variables enteras fragmentos del short
-DESC: Fragmenta los dos brtes del short en dos bytes independientes
-'''
-def shortto2bytes(short):
-    low = short & 0x00FF
-    high = short & 0xFF00
-    high = int(high/255)
-    return high, low
-    
-
-'''
-PRE: self.driver abierto
-POST: Devuelve una lista de los datos leidos
-DESC: Lee los registros del driver, "add_register"=dirección de comienzo
-      "single"=true un solo registro, =false dos registros contiguos(M1 y M2)
-'''
-def read_register(add_register, single):
-    data = []
-    if self.driver.isOpen():
-        telegram = TELEGRAM_READ.copy()
-        telegram.extend(add_register)
-        if single:
-            telegram.extend([0,1])
-        else:
-            telegram.extend([0,2])
-        telegram.extend(shortto2bytes(Calc_Crc(telegram)))   
-        self.driver.flushInput()
-        read_data = True
-        while read_data:
-            text = self.driver.readline()
-            if text != '':
-                print(text)
-                telegram =bytearray (text)
-                if telegram[1] != 0x03:
-                    continue
-                crc_low = telegram.pop()
-                crc_high = telegram.pop()
-                tel_crc_high, tel_crc_low = shortto2bytes(Calc_Crc(telegram))
-                if crc_high != tel_crc_high or crc_low !=tel_crc_low:
-                    print("FALLO EN EL CRC")
-                    continue
-                for i in range(telegram[3]):
-                    data.append(telegram[i+3] * 255) + telegram[i+4]
-                    print(data)
-                read_data = True
-    else:
-        print("PRUERTO NO ABIERTO")
-    return data
-            
-    
-'''
-PRE: self.driver abierto & len("tupla_data")<=2
-POST: -
-DESC: Escribe los registros del driver, "add_register"=dirección de comienzo
-      "single"=true un solo registro, =false dos registros contiguos(M1 y M2), 
-      "tupla_data" datos a escribir
-'''
-def write_register(add_register, single, tupla_data):
-    if self.driver.isOpen():
-        telegram = TELEGRAM_WRITE.copy()
-        telegram.extend(add_register)
-        if single:
-            telegram.extend([0,1])
-        else:
-            telegram.extend([0,2])
-        for data in tupla_data:
-            telegram.extend(shortto2bytes(data))
-        telegram.extend(shortto2bytes(Calc_Crc(telegram)))   
-        self.driver.write(telegram)
-    else:
-        print("PRUERTO NO ABIERTO")
-
-
-'''
-Function name: Calc_Crc(uint8_t\*pack_buff,uint8_tpack_len) Description:
-Modbus protocol CRC check incoming value: pack_buff, packet data,
-pack_len refers to the length of the data to be checked. Outgoing value: returns a twobyte CRC check code ***/ 
-'''
-def Calc_Crc(telegram):
-    num = len(telegram)
-    crc_result = 0xffff
-    crc_num = 0
-    xor_flag = 0
-    for i in range(num):
-        crc_result = crc_result ^ int(telegram[i])
-        crc_num = (crc_result & 0x0001); 
-        for m in range(8):
-            if (crc_num == 1):
-                xor_flag = 1
-            else:
-                xor_flag = 0
-            crc_result >>= 1
-            if(xor_flag):
-                crc_result = crc_result ^ 0xa001
-            crc_num =(crc_result & 0x0001)
-
-    return crc_result
-
+R_ID = bytearray([0x30, 0x01])                  #
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -249,7 +92,7 @@ class SpecificWorker(GenericWorker):
         print("Finalizando shadow")
         """Destructor"""
         if self.driver.isOpen():
-            stop_driver()
+            self.stop_driver(self.driver, 0xee)
         print("Shadow destruido")
 
     def setParams(self, params):
@@ -266,10 +109,14 @@ class SpecificWorker(GenericWorker):
             print("distAxes: ", self.distAxes)
             print("axesLength: ", self.axesLength)
 
-            start_diver(self.port)  
+            self.driver = self.start_diver(self.port,0xee)  
+            if self.driver == None:
+                print("NO se conecto, cerrando preograma")
+                exit(-1)
 
         except:
             print("Error reading config params")
+
         print("creando matriz de conversion")
         ll = 0.5*(self.distAxes + self.axesLength)
 
@@ -284,9 +131,218 @@ class SpecificWorker(GenericWorker):
         return True
 
 
+    ##############################FUNCIONES DEL DRIVER######################################
+    '''
+    PRE:-
+    POST:-
+    DESC: Establece la conexión con el driver asigando al puerto "port", 
+        habiliando al variable self.driver y poniendo el motor a 0 y
+        el registro de funcionamiento a ON
+    '''
+    def start_diver(self, port="", id=0xee):
+        if port == "":
+            print('No hay puerto asignado')
+        else:
+            print('Abriendo puerto serie con el driver')
+
+            driver = serial.Serial(
+                port=port,
+                baudrate=115200,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                bytesize=serial.EIGHTBITS,
+                timeout=0)
+
+            if driver.isOpen():
+                print("Puerto abierto")
+                #imprimimos el arranque del driver
+                sleep(1)
+                #imprimimos el arranque del driver si se estaria arancando
+                print_info = True
+                flag = False
+                timeout=0
+                while print_info and timeout<25:
+                    text = driver.readline()
+                    if text == "b''" and flag:
+                        print_info =False
+                    elif text != "b''":
+                        print(text)
+                        flag = True
+                    timeout=timeout+1
+
+                print("Encendemos motores")
+                #arrancamos los driver con velocidad 0
+                self.write_register(driver, id, R_SET_SPEED, False, [0,0,0,0])
+                self.write_register(driver, id, R_SET_STATUS, False, [0,1,0,1])
+        return driver
+
+    '''
+    PRE: self.driver abierto
+    POST:-
+    DESC: Cierra la conexión con el driver (variable self.driver)
+        además pondra el motor a 0 y el registro de funcionamiento a OFF
+    '''
+    def stop_driver(self, driver, id=0xee):
+        #paramos los driver con velocidad 0
+        self.write_register(driver, id, R_SET_SPEED, False, [0,0,0,0])
+        self.write_register(driver, id, R_SET_STATUS, False, [0,0,0,0])
+        #Confirmamos el estado
+        status = self.read_register(driver, id, R_GET_STATUS, False)
+        if 1 in status:
+            print("Error al parar los motores")
+        else:
+            print("Motores parados, cerrando serie")
+            self.driver.close()
+            if not self.driver.isOpen():
+                print("Puerto cerrado correctamente")
+
+    '''
+    PRE:-
+    POST: Devuelve dosr variables enteras fragmentos del short
+    DESC: Fragmenta los dos brtes del short en dos bytes independientes
+    '''
+    def shortto2bytes(short):
+        low = short & 0x00FF
+        high = short & 0xFF00
+        high = int(high/2**8)
+        return high, low
+        
+
+    '''
+    PRE: self.driver abierto
+    POST: Devuelve una lista de los datos leidos
+    DESC: Lee los registros del driver, "add_register"=dirección de comienzo
+        "single"=true un solo registro, =false dos registros contiguos(M1 y M2)
+    '''
+    def read_register(self, driver, id=0xee, add_register=R_GET_STATUS, single=False):
+        data = []
+        if driver.isOpen():
+            telegram = bytearray(id)
+            telegram.extend(CODE_TELEGRAM_READ)
+            telegram.extend(add_register)
+            if single:
+                telegram.extend([0,1])
+            else:
+                telegram.extend([0,2])
+            telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
+            # driver.flushInput()
+            # driver.reset_input_buffer()
+            # driver.reset_output_buffer()
+            driver.write(telegram)
+
+            read_data = True
+            while read_data:
+                sleep(0.5)
+                text = driver.readline()
+                telegram = bytearray (driver.readline())
+                if len(telegram) > 0:
+                    print("respuesta recivida: ", telegram)
+                    if telegram[1] != CODE_TELEGRAM_READ:
+                        continue
+                    crc_low = telegram.pop()
+                    crc_high = telegram.pop()
+                    tel_crc_high, tel_crc_low = self.shortto2bytes(self.Calc_Crc(telegram))
+                    if crc_high != tel_crc_high or crc_low !=tel_crc_low:
+                        print("FALLO EN EL CRC")
+                        continue
+                    for i in range(int(telegram[2]/2)):
+                        data.append(int(telegram[i+3] * 2**8) + telegram[i+4])
+                        print(data)
+                    read_data = False
+        else:
+            print("PRUERTO NO ABIERTO")
+        return data
+                
+        
+    '''
+    PRE: self.driver abierto & len("tupla_data")<=2
+    POST: -
+    DESC: Escribe los registros del driver, "add_register"=dirección de comienzo
+        "single"=true un solo registro, =false dos registros contiguos(M1 y M2), 
+        "tupla_data" datos a escribir
+    '''
+    def write_register(self, driver, id=0xee, add_register=R_SET_STATUS, single=False, tupla_data=[0,0]):
+        if driver.isOpen():
+            telegram = bytearray(id)
+            telegram.extend(CODE_TELEGRAM_WRITE)
+            telegram.extend(add_register)
+            if single:
+                telegram.extend([0,1,2])
+            else:
+                telegram.extend([0,2,4])
+            for data in tupla_data:
+                telegram.extend(self.shortto2bytes(data))
+            telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
+            driver.write(telegram)
+            print("envio, escritura: ", telegram)
+            sleep(0.5)
+            print("respuesta, escritura: ", driver.readline())
+        else:
+            print("PRUERTO NO ABIERTO")
+
+
+    '''
+    Function name: Calc_Crc(uint8_t\*pack_buff,uint8_tpack_len) Description:
+    Modbus protocol CRC check incoming value: pack_buff, packet data,
+    pack_len refers to the length of the data to be checked. Outgoing value: returns a twobyte CRC check code ***/ 
+    '''
+    def Calc_Crc(telegram):
+        num = len(telegram)
+        crc_result = 0xffff
+        crc_num = 0
+        xor_flag = 0
+        for i in range(num):
+            crc_result = crc_result ^ int(telegram[i])
+            crc_num = (crc_result & 0x0001); 
+            for m in range(8):
+                if (crc_num == 1):
+                    xor_flag = 1
+                else:
+                    xor_flag = 0
+                crc_result >>= 1
+                if(xor_flag):
+                    crc_result = crc_result ^ 0xa001
+                crc_num =(crc_result & 0x0001)
+
+        return crc_result
+        
+
+    def test_function(self):
+        for i in range(256):
+            leer_id = bytearray([i,0x03,0x30,0x01,0x00,0x01])
+            leer_id.extend(self.Calc_Crc(leer_id))
+            self.driver.write(leer_id)
+            print(leer_id)
+            print("leer id: ", self.driver.readline())
+            sleep(0.1)
+
+
+        print("ID", self.read_register(R_ID,True))
+        print("velocidad max", self.read_register(R_MAX_SPEED,True))
+        '''
+        for x in range(10):
+            print("ponemos velocidad")
+            write_register(R_SET_SPEED,True,[0,10])
+            for i in range(100):
+                print("velocidad", read_register(R_GET_SPEED,True))
+
+                print("aumentamos velocidad")
+                write_register(R_SET_SPEED,True,[0,10])
+                sleep(2)
+                print("velocidad", read_register(R_GET_SPEED,True))
+                sleep(2)
+                print("quitamos velocidad")
+                write_register(R_SET_SPEED,True,[0,0])
+                sleep(2)
+        '''
+
+
+    #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
    
+        self.test_function()
+        '''
         if self.targetSpeed != self.newTargetSpeed:
             speeds = self.m_wheels@self.targetSpeed
             print("RPM",speeds)
@@ -294,20 +350,17 @@ class SpecificWorker(GenericWorker):
             m2 = speeds[1]
             m3 = speeds[2]
             m4 = speeds[3]#mx se puede eliminar
-            write_register(R_SET_SPEED, False, [m1, m2])
-            write_register(R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+            self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m1, m2])
+            self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
             print("Modificamos velocidades: ", self.targetSpeed)
         for key, val in self.actual:
-            data = read_register(val[1],False)
-            data.extend(read_register(val[1],False))##########ver lo de la direccion del segundo driver######################################################################
+            data = self.read_register(self.driver, 0xee, val[1],False)
+            data.extend(self.read_register(self.driver, 0xee, val[1],False))##########ver lo de la direccion del segundo driver######################################################################
             print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
+        '''
         return True
 
     def startup_check(self):
-        print(f"Testing RoboCompDifferentialRobot.TMechParams from ifaces.RoboCompDifferentialRobot")
-        test = ifaces.RoboCompDifferentialRobot.TMechParams()
-        print(f"Testing RoboCompGenericBase.TBaseState from ifaces.RoboCompGenericBase")
-        test = ifaces.RoboCompGenericBase.TBaseState()
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
         QTimer.singleShot(200, QApplication.instance().quit)
@@ -318,109 +371,7 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
 
     #
-    # IMPLEMENTATION of correctOdometer method from DifferentialRobot interface
-    #
-    def DifferentialRobot_correctOdometer(self, x, z, alpha):
-    
-        #
-        # write your CODE here
-        #
-        pass
-
-
-    #
-    # IMPLEMENTATION of getBasePose method from DifferentialRobot interface
-    #
-    def DifferentialRobot_getBasePose(self):
-    
-        #
-        # write your CODE here
-        #
-            return [x, z, alpha]
-    #
-    # IMPLEMENTATION of getBaseState method from DifferentialRobot interface
-    #
-    def DifferentialRobot_getBaseState(self):
-    
-        #
-        # write your CODE here
-        #
-        state = RoboCompGenericBase.TBaseState()
-        return state
-
-    #
-    # IMPLEMENTATION of resetOdometer method from DifferentialRobot interface
-    #
-    def DifferentialRobot_resetOdometer(self):
-    
-        #
-        # write your CODE here
-        #
-        pass
-
-
-    #
-    # IMPLEMENTATION of setOdometer method from DifferentialRobot interface
-    #
-    def DifferentialRobot_setOdometer(self, state):
-    
-        #
-        # write your CODE here
-        #
-        pass
-
-
-    #
-    # IMPLEMENTATION of setOdometerPose method from DifferentialRobot interface
-    #
-    def DifferentialRobot_setOdometerPose(self, x, z, alpha):
-    
-        #
-        # write your CODE here
-        #
-        pass
-
-
-    #
-    # IMPLEMENTATION of setSpeedBase method from DifferentialRobot interface
-    #
-    def DifferentialRobot_setSpeedBase(self, adv, rot):
-    
-        self.targetSpeed[0] = adv
-        self.targetSpeed[1] = 0
-        self.targetSpeed[2] = rot
-
-
-    #
-    # IMPLEMENTATION of stopBase method from DifferentialRobot interface
-    #
-    def DifferentialRobot_stopBase(self):
-    
-        self.targetSpeed[0] = 0
-        self.targetSpeed[1] = 0
-        self.targetSpeed[2] = 0
-
-
-    #
-    # IMPLEMENTATION of getBasePose method from GenericBase interface
-    #
-    def GenericBase_getBasePose(self):
-    
-        #
-        # write your CODE here
-        #
-        return [x, z, alpha]
-    #
-    # IMPLEMENTATION of getBaseState method from GenericBase interface
-    #
-    def GenericBase_getBaseState(self):
-    
-        #
-        # write your CODE here
-        #
-        state = RoboCompGenericBase.TBaseState()
-        return state
-    #
+   
     # IMPLEMENTATION of correctOdometer method from OmniRobot interface
     #
     def OmniRobot_correctOdometer(self, x, z, alpha):
@@ -436,9 +387,10 @@ class SpecificWorker(GenericWorker):
     #
     def OmniRobot_getBasePose(self):
     
-        #
-        # write your CODE here
-        #
+        x=0
+        z=0
+        alpha=0
+
         return [x, z, alpha]
     #
     # IMPLEMENTATION of getBaseState method from OmniRobot interface
@@ -505,14 +457,6 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
-
-    ######################
-    # From the RoboCompDifferentialRobot you can use this types:
-    # RoboCompDifferentialRobot.TMechParams
-
-    ######################
-    # From the RoboCompGenericBase you can use this types:
-    # RoboCompGenericBase.TBaseState
 
     ######################
     # From the RoboCompOmniRobot you can use this types:
