@@ -1,12 +1,10 @@
 import "OmniRobot.idsl";
-import "DifferentialRobot.idsl";
-import "GenericBase.idsl";
 
 Component shadowbase
 {
 	Communications
 	{
-		implements OmniRobot, DifferentialRobot, GenericBase;
+		implements OmniRobot;
 	};
 	language python;
 };

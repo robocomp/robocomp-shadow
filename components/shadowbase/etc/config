@@ -1,7 +1,5 @@
 # Endpoints for implements interfaces
-DifferentialRobot.Endpoints=tcp -p 12599
-GenericBase.Endpoints=tcp -p 18036
-OmniRobot.Endpoints=tcp -p 14701
+OmniRobot.Endpoints=tcp -p 10032
 
 
 port=/dev/ttyUSB0

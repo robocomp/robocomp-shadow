@@ -3,4 +3,4 @@ PROJECT(  shadowbase )
 
 INCLUDE( /opt/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior DifferentialRobot GenericBase OmniRobot )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior GenericBase OmniRobot )
