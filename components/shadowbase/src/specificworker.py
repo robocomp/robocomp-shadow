@@ -19,6 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from logging import exception
 from time import sleep
 
 
@@ -30,6 +31,7 @@ import interfaces as ifaces
 
 import serial
 import numpy as np
+import traceback
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -67,6 +69,7 @@ R_ACCELERATION_MAX = bytearray([0x51, 0x08])    #uint16//MAXIMA ACELERACION
 R_DECELATION_MAX = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION   
 R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
 R_ID = bytearray([0x30, 0x01])                  #
+R_MODE = bytearray([0x30, 0x08]) 
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -99,23 +102,28 @@ class SpecificWorker(GenericWorker):
         print("Cargando parametros:")
         try:
             self.port = params["port"]
+            self.maxSpeed = int(params["maxSpeed"])
+            self.idDrivers = [int(params["idDriver1"]), int(params["idDriver2"])]
             self.wheelRadius = float(params["wheelRadius"])
             self.distAxes =  float(params["distAxes"])
             self.axesLength =  float(params["axesLength"])
 
             print("Parametros cargados:")
             print("port: ", self.port)
+            print("maxSpeed: ", self.maxSpeed)
+            print("Drivers ID: ", self.idDrivers)
             print("wheelRadius: ", self.wheelRadius)
             print("distAxes: ", self.distAxes)
             print("axesLength: ", self.axesLength)
 
-            self.driver = self.start_diver(self.port,0xee)  
+            self.driver = self.start_diver(self.port,self.idDrivers)  
             if self.driver == None:
-                print("NO se conecto, cerrando preograma")
+                print("NO se conecto, cerrando programa")
                 exit(-1)
 
-        except:
-            print("Error reading config params")
+        except exception as e:
+            print("Error reading config params or start motor")
+            print(e)
 
         print("creando matriz de conversion")
         ll = 0.5*(self.distAxes + self.axesLength)
@@ -139,7 +147,8 @@ class SpecificWorker(GenericWorker):
         habiliando al variable self.driver y poniendo el motor a 0 y
         el registro de funcionamiento a ON
     '''
-    def start_diver(self, port="", id=0xee):
+    def start_diver(self, port="", drivers=[0xee]):
+        driver = None
         if port == "":
             print('No hay puerto asignado')
         else:
@@ -172,8 +181,11 @@ class SpecificWorker(GenericWorker):
 
                 print("Encendemos motores")
                 #arrancamos los driver con velocidad 0
-                self.write_register(driver, id, R_SET_SPEED, False, [0,0,0,0])
-                self.write_register(driver, id, R_SET_STATUS, False, [0,1,0,1])
+                for id in drivers:
+                    self.write_register(driver, id, R_SET_SPEED, False, [0,0])
+                    self.write_register(driver, id, R_SET_STATUS, False, [1,1])
+            else:
+                print("No se pudo habrir el puerto")
         return driver
 
     '''
@@ -182,29 +194,31 @@ class SpecificWorker(GenericWorker):
     DESC: Cierra la conexión con el driver (variable self.driver)
         además pondra el motor a 0 y el registro de funcionamiento a OFF
     '''
-    def stop_driver(self, driver, id=0xee):
+    def stop_driver(self, driver, drivers=[0xee]):
         #paramos los driver con velocidad 0
-        self.write_register(driver, id, R_SET_SPEED, False, [0,0,0,0])
-        self.write_register(driver, id, R_SET_STATUS, False, [0,0,0,0])
-        #Confirmamos el estado
-        status = self.read_register(driver, id, R_GET_STATUS, False)
-        if 1 in status:
-            print("Error al parar los motores")
-        else:
-            print("Motores parados, cerrando serie")
-            self.driver.close()
-            if not self.driver.isOpen():
-                print("Puerto cerrado correctamente")
+        for id in drivers:
+            self.write_register(driver, id, R_SET_SPEED, False, [0,0])
+            self.write_register(driver, id, R_SET_STATUS, False, [0,0])
+            #Confirmamos el estado
+            status = self.read_register(driver, id, R_GET_STATUS, False)
+            if 1 in status:
+                print("Error al parar los motores")
+            else:
+                print("Motores parado")
+        print("Cerramos serie")
+        self.driver.close()
 
     '''
     PRE:-
     POST: Devuelve dosr variables enteras fragmentos del short
     DESC: Fragmenta los dos brtes del short en dos bytes independientes
     '''
-    def shortto2bytes(short):
-        low = short & 0x00FF
+    def shortto2bytes(self, short):
+        print(short)
+        low = int(short & 0x00FF)
         high = short & 0xFF00
         high = int(high/2**8)
+        print(high, low)
         return high, low
         
 
@@ -217,7 +231,7 @@ class SpecificWorker(GenericWorker):
     def read_register(self, driver, id=0xee, add_register=R_GET_STATUS, single=False):
         data = []
         if driver.isOpen():
-            telegram = bytearray(id)
+            telegram = bytearray([id])
             telegram.extend(CODE_TELEGRAM_READ)
             telegram.extend(add_register)
             if single:
@@ -263,13 +277,14 @@ class SpecificWorker(GenericWorker):
     '''
     def write_register(self, driver, id=0xee, add_register=R_SET_STATUS, single=False, tupla_data=[0,0]):
         if driver.isOpen():
-            telegram = bytearray(id)
+            telegram = bytearray([id])
             telegram.extend(CODE_TELEGRAM_WRITE)
             telegram.extend(add_register)
             if single:
                 telegram.extend([0,1,2])
             else:
                 telegram.extend([0,2,4])
+            print("envi", telegram)
             for data in tupla_data:
                 telegram.extend(self.shortto2bytes(data))
             telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
@@ -286,7 +301,7 @@ class SpecificWorker(GenericWorker):
     Modbus protocol CRC check incoming value: pack_buff, packet data,
     pack_len refers to the length of the data to be checked. Outgoing value: returns a twobyte CRC check code ***/ 
     '''
-    def Calc_Crc(telegram):
+    def Calc_Crc(self, telegram):
         num = len(telegram)
         crc_result = 0xffff
         crc_num = 0
@@ -308,17 +323,19 @@ class SpecificWorker(GenericWorker):
         
 
     def test_function(self):
-        for i in range(256):
-            leer_id = bytearray([i,0x03,0x30,0x01,0x00,0x01])
-            leer_id.extend(self.Calc_Crc(leer_id))
-            self.driver.write(leer_id)
-            print(leer_id)
-            print("leer id: ", self.driver.readline())
-            sleep(0.1)
+        for i in range(1,3):
+            self.write_register(self.driver, i, R_SET_SPEED,False,[10,10])
+            sleep(2)
+            print("ID", self.read_register(self.driver,i, R_ID,True))
+
+    
+        sleep(5) 
+        for i in range(1,3):
+            self.write_register(self.driver, i, R_SET_SPEED,False,[0,0])
 
 
-        print("ID", self.read_register(R_ID,True))
-        print("velocidad max", self.read_register(R_MAX_SPEED,True))
+       # print("ID", self.read_register(self.driver, i, R_ID,True))
+        #print("velocidad max", self.read_register(self.driver, i, R_MAX_SPEED,True))
         '''
         for x in range(10):
             print("ponemos velocidad")
@@ -340,24 +357,24 @@ class SpecificWorker(GenericWorker):
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
-   
-        self.test_function()
-        '''
-        if self.targetSpeed != self.newTargetSpeed:
-            speeds = self.m_wheels@self.targetSpeed
-            print("RPM",speeds)
-            m1 = speeds[0]
-            m2 = speeds[1]
-            m3 = speeds[2]
-            m4 = speeds[3]#mx se puede eliminar
-            self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m1, m2])
-            self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
-            print("Modificamos velocidades: ", self.targetSpeed)
-        for key, val in self.actual:
-            data = self.read_register(self.driver, 0xee, val[1],False)
-            data.extend(self.read_register(self.driver, 0xee, val[1],False))##########ver lo de la direccion del segundo driver######################################################################
-            print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
-        '''
+        if self.driver != None:
+            self.test_function()
+            '''
+            if self.targetSpeed != self.newTargetSpeed:
+                speeds = self.m_wheels@self.targetSpeed
+                print("RPM",speeds)
+                m1 = speeds[0]
+                m2 = speeds[1]
+                m3 = speeds[2]
+                m4 = speeds[3]#mx se puede eliminar
+                self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m1, m2])
+                self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+                print("Modificamos velocidades: ", self.targetSpeed)
+            for key, val in self.actual:
+                data = self.read_register(self.driver, 0xee, val[1],False)
+                data.extend(self.read_register(self.driver, 0xee, val[1],False))##########ver lo de la direccion del segundo driver######################################################################
+                print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
+            '''
         return True
 
     def startup_check(self):

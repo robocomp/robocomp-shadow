@@ -3,6 +3,9 @@ OmniRobot.Endpoints=tcp -p 10032
 
 
 port=/dev/ttyUSB0
+idDriver1=1
+idDriver2=2
+maxSpeed=500
 wheelRadius=76.2
 distAxes=380.0
 axesLength=422.0
