@@ -214,11 +214,9 @@ class SpecificWorker(GenericWorker):
     DESC: Fragmenta los dos brtes del short en dos bytes independientes
     '''
     def shortto2bytes(self, short):
-        print(short)
         low = int(short & 0x00FF)
         high = short & 0xFF00
         high = int(high/2**8)
-        print(high, low)
         return high, low
         
 
@@ -242,16 +240,18 @@ class SpecificWorker(GenericWorker):
             # driver.flushInput()
             # driver.reset_input_buffer()
             # driver.reset_output_buffer()
+            print("Telegrama de peticion: ", telegram)
             driver.write(telegram)
 
             read_data = True
             while read_data:
                 sleep(0.5)
-                text = driver.readline()
                 telegram = bytearray (driver.readline())
                 if len(telegram) > 0:
                     print("respuesta recivida: ", telegram)
-                    if telegram[1] != CODE_TELEGRAM_READ:
+                    print(telegram[1], " - ", CODE_TELEGRAM_READ)
+                    if telegram[1] != CODE_TELEGRAM_READ[0] :
+                        print("temegrama no apto")
                         continue
                     crc_low = telegram.pop()
                     crc_high = telegram.pop()
@@ -259,9 +259,10 @@ class SpecificWorker(GenericWorker):
                     if crc_high != tel_crc_high or crc_low !=tel_crc_low:
                         print("FALLO EN EL CRC")
                         continue
-                    for i in range(int(telegram[2]/2)):
-                        data.append(int(telegram[i+3] * 2**8) + telegram[i+4])
-                        print(data)
+                    for i in range(0, telegram[2], 2):
+                        print(telegram[i+3], " - ", telegram[i+4] )
+                        data.append(np.int16(int(telegram[i+3] * 2**8) + telegram[i+4]))
+                        #print(data)
                     read_data = False
         else:
             print("PRUERTO NO ABIERTO")
@@ -280,11 +281,13 @@ class SpecificWorker(GenericWorker):
             telegram = bytearray([id])
             telegram.extend(CODE_TELEGRAM_WRITE)
             telegram.extend(add_register)
-            if single:
+            if len(tupla_data)==1:
                 telegram.extend([0,1,2])
-            else:
+            elif(len(tupla_data)==2):
                 telegram.extend([0,2,4])
-            print("envi", telegram)
+            else:
+                print("Faltan o sobran datos de registro")
+                return -2
             for data in tupla_data:
                 telegram.extend(self.shortto2bytes(data))
             telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
@@ -292,8 +295,10 @@ class SpecificWorker(GenericWorker):
             print("envio, escritura: ", telegram)
             sleep(0.5)
             print("respuesta, escritura: ", driver.readline())
+            return 0
         else:
             print("PRUERTO NO ABIERTO")
+            return-1
 
 
     '''
@@ -323,36 +328,24 @@ class SpecificWorker(GenericWorker):
         
 
     def test_function(self):
-        for i in range(1,3):
+        for i in self.idDrivers:
+            print("ponemos velocidad")
             self.write_register(self.driver, i, R_SET_SPEED,False,[10,10])
             sleep(2)
+            self.write_register(self.driver, i, R_SET_SPEED,False,[-25,5])
+            sleep(2)
             print("ID", self.read_register(self.driver,i, R_ID,True))
-
-    
-        sleep(5) 
-        for i in range(1,3):
+            print("vel", self.read_register(self.driver,i, R_GET_SPEED,False))
             self.write_register(self.driver, i, R_SET_SPEED,False,[0,0])
 
 
-       # print("ID", self.read_register(self.driver, i, R_ID,True))
-        #print("velocidad max", self.read_register(self.driver, i, R_MAX_SPEED,True))
-        '''
-        for x in range(10):
-            print("ponemos velocidad")
-            write_register(R_SET_SPEED,True,[0,10])
-            for i in range(100):
-                print("velocidad", read_register(R_GET_SPEED,True))
+    
+        sleep(5) 
+        for i in self.idDrivers:
+            self.write_register(self.driver, i, R_SET_SPEED,False,[0,0])
+        sleep(2) 
 
-                print("aumentamos velocidad")
-                write_register(R_SET_SPEED,True,[0,10])
-                sleep(2)
-                print("velocidad", read_register(R_GET_SPEED,True))
-                sleep(2)
-                print("quitamos velocidad")
-                write_register(R_SET_SPEED,True,[0,0])
-                sleep(2)
-        '''
-
+       
 
     #######################################COMPUTE###########################################
     @QtCore.Slot()
