@@ -182,8 +182,8 @@ class SpecificWorker(GenericWorker):
                 print("Encendemos motores")
                 #arrancamos los driver con velocidad 0
                 for id in drivers:
-                    self.write_register(driver, id, R_SET_SPEED, False, [0,0])
-                    self.write_register(driver, id, R_SET_STATUS, False, [1,1])
+                    self.write_register(driver, id, R_SET_SPEED, [0,0])
+                    self.write_register(driver, id, R_SET_STATUS, [1,1])
             else:
                 print("No se pudo habrir el puerto")
         return driver
@@ -197,8 +197,8 @@ class SpecificWorker(GenericWorker):
     def stop_driver(self, driver, drivers=[0xee]):
         #paramos los driver con velocidad 0
         for id in drivers:
-            self.write_register(driver, id, R_SET_SPEED, False, [0,0])
-            self.write_register(driver, id, R_SET_STATUS, False, [0,0])
+            self.write_register(driver, id, R_SET_SPEED, [0,0])
+            self.write_register(driver, id, R_SET_STATUS, [0,0])
             #Confirmamos el estado
             status = self.read_register(driver, id, R_GET_STATUS, False)
             if 1 in status:
@@ -276,7 +276,7 @@ class SpecificWorker(GenericWorker):
         "single"=true un solo registro, =false dos registros contiguos(M1 y M2), 
         "tupla_data" datos a escribir
     '''
-    def write_register(self, driver, id=0xee, add_register=R_SET_STATUS, single=False, tupla_data=[0,0]):
+    def write_register(self, driver, id=0xee, add_register=R_SET_STATUS, tupla_data=[0,0]):
         if driver.isOpen():
             telegram = bytearray([id])
             telegram.extend(CODE_TELEGRAM_WRITE)
@@ -330,19 +330,19 @@ class SpecificWorker(GenericWorker):
     def test_function(self):
         for i in self.idDrivers:
             print("ponemos velocidad")
-            self.write_register(self.driver, i, R_SET_SPEED,False,[10,10])
+            self.write_register(self.driver, i, R_SET_SPEED,[10,10])
             sleep(2)
-            self.write_register(self.driver, i, R_SET_SPEED,False,[-25,5])
+            self.write_register(self.driver, i, R_SET_SPEED,[-25,5])
             sleep(2)
             print("ID", self.read_register(self.driver,i, R_ID,True))
             print("vel", self.read_register(self.driver,i, R_GET_SPEED,False))
-            self.write_register(self.driver, i, R_SET_SPEED,False,[0,0])
+            self.write_register(self.driver, i, R_SET_SPEED,[0,0])
 
 
     
         sleep(5) 
         for i in self.idDrivers:
-            self.write_register(self.driver, i, R_SET_SPEED,False,[0,0])
+            self.write_register(self.driver, i, R_SET_SPEED,[0,0])
         sleep(2) 
 
        
@@ -351,23 +351,20 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         if self.driver != None:
-            self.test_function()
-            '''
-            if self.targetSpeed != self.newTargetSpeed:
+            #self.test_function()
+            
+            if np.array_equal(self.targetSpeed, self.newTargetSpeed):
                 speeds = self.m_wheels@self.targetSpeed
                 print("RPM",speeds)
-                m1 = speeds[0]
-                m2 = speeds[1]
-                m3 = speeds[2]
-                m4 = speeds[3]#mx se puede eliminar
-                self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m1, m2])
-                self.write_register(self.driver, 0xee, R_SET_SPEED, False, [m3, m4]) ##########ver lo de la direccion del segundo driver##########################################################################
+                for i in range(len(self.idDrivers)):
+                    self.write_register(self.driver,  self.idDrivers[i], R_SET_SPEED, [speeds[i*2], speeds[(i*2)+1]])
+                
                 print("Modificamos velocidades: ", self.targetSpeed)
             for key, val in self.actual:
                 data = self.read_register(self.driver, 0xee, val[1],False)
                 data.extend(self.read_register(self.driver, 0xee, val[1],False))##########ver lo de la direccion del segundo driver######################################################################
                 print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
-            '''
+            
         return True
 
     def startup_check(self):
