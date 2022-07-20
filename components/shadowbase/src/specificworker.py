@@ -78,9 +78,9 @@ class SpecificWorker(GenericWorker):
         self.Period = 10
         
         #variables de clase
-        self.targetSpeed = np.array([0, 0, 0])
-        self. newTargetSpeed = np.array([0, 0, 0])
-        self.actual = {'Speed' : [0, R_GET_SPEED], 'Status' : [0, R_GET_STATUS], 'Temperature' : [0, R_GET_TEMPERATURE]}
+        self.targetSpeed = np.array([[0.0], [0.0], [0.0]])
+        self. newTargetSpeed = np.array([[0.0], [0.0], [0.0]])
+        self.actual = {'Speed' : [ np.array([[0.0], [0.0], [0.0], [0.0]]), R_GET_SPEED], 'Status' : [[0,0], R_GET_STATUS], 'Temperature' : [[0,0,0,0], R_GET_TEMPERATURE]}
         self.driver=None
 
 
@@ -95,7 +95,7 @@ class SpecificWorker(GenericWorker):
         print("Finalizando shadow")
         """Destructor"""
         if self.driver.isOpen():
-            self.stop_driver(self.driver, 0xee)
+            self.stop_driver(self.driver, self.idDrivers)
         print("Shadow destruido")
 
     def setParams(self, params):
@@ -108,13 +108,21 @@ class SpecificWorker(GenericWorker):
             self.distAxes =  float(params["distAxes"])
             self.axesLength =  float(params["axesLength"])
 
-            print("Parametros cargados:")
-            print("port: ", self.port)
-            print("maxSpeed: ", self.maxSpeed)
-            print("Drivers ID: ", self.idDrivers)
-            print("wheelRadius: ", self.wheelRadius)
-            print("distAxes: ", self.distAxes)
-            print("axesLength: ", self.axesLength)
+            self.show_params(True)
+
+            print("creando matriz de conversion")
+            ll = 0.5*(self.distAxes + self.axesLength)
+
+            ''''MATRIZ DE CONVESION'''
+            self.m_wheels = np.array([[1.0, -1.0, ll], 
+                                        [1.0, 1.0, -ll], 
+                                        [1.0, 1.0, ll],
+                                        [1.0, -1.0, -ll]])
+            #self.m_wheels_inv = np.linalg.inv(self.m_wheels)
+            self.m_wheels = self.m_wheels * (1/(2 * np.pi * self.wheelRadius / 60)) # mm/s to rpm
+            #self.m_wheels_inv = self.m_wheels_inv * ((2 * np.pi * self.wheelRadius / 60)) # rpm to mm/s
+            print(self.m_wheels)
+           #print(self.m_wheels_inv)
 
             self.driver = self.start_diver(self.port,self.idDrivers)  
             if self.driver == None:
@@ -125,16 +133,7 @@ class SpecificWorker(GenericWorker):
             print("Error reading config params or start motor")
             print(e)
 
-        print("creando matriz de conversion")
-        ll = 0.5*(self.distAxes + self.axesLength)
-
-        ''''MATRIZ DE CONVESION'''
-        self.m_wheels = np.array([[1, -1, 1, ll], 
-                                    [1, 1, -1, -ll], 
-                                    [1, 1, 1, ll],
-                                    [1, -1, -1, -ll]])
-        self.m_wheels = self.m_wheels * (1/(2 * np.pi * self.wheelRadius / 60)) # mm/s to rpm
-        print(self.m_wheels)
+        
 
         return True
 
@@ -172,9 +171,9 @@ class SpecificWorker(GenericWorker):
                 timeout=0
                 while print_info and timeout<25:
                     text = driver.readline()
-                    if text == "b''" and flag:
+                    if len(text) == 0 and flag:
                         print_info =False
-                    elif text != "b''":
+                    elif len(text) > 0:
                         print(text)
                         flag = True
                     timeout=timeout+1
@@ -182,6 +181,7 @@ class SpecificWorker(GenericWorker):
                 print("Encendemos motores")
                 #arrancamos los driver con velocidad 0
                 for id in drivers:
+                    self.write_register(driver, id, R_ACCELERATION_MAX, [self.maxSpeed,self.maxSpeed])
                     self.write_register(driver, id, R_SET_SPEED, [0,0])
                     self.write_register(driver, id, R_SET_STATUS, [1,1])
             else:
@@ -249,7 +249,7 @@ class SpecificWorker(GenericWorker):
                 telegram = bytearray (driver.readline())
                 if len(telegram) > 0:
                     print("respuesta recivida: ", telegram)
-                    print(telegram[1], " - ", CODE_TELEGRAM_READ)
+                    #print(telegram[1], " - ", CODE_TELEGRAM_READ)
                     if telegram[1] != CODE_TELEGRAM_READ[0] :
                         print("temegrama no apto")
                         continue
@@ -260,7 +260,7 @@ class SpecificWorker(GenericWorker):
                         print("FALLO EN EL CRC")
                         continue
                     for i in range(0, telegram[2], 2):
-                        print(telegram[i+3], " - ", telegram[i+4] )
+                        #print(telegram[i+3], " - ", telegram[i+4] )
                         data.append(np.int16(int(telegram[i+3] * 2**8) + telegram[i+4]))
                         #print(data)
                     read_data = False
@@ -345,26 +345,57 @@ class SpecificWorker(GenericWorker):
             self.write_register(self.driver, i, R_SET_SPEED,[0,0])
         sleep(2) 
 
-       
+    def show_params(self, advanced=False):
+        print("------------------------------")
+        print("Lista de parametros:")
+        if advanced:
+            print("port: ", self.port)
+            print("maxSpeed: ", self.maxSpeed)
+            print("Drivers ID: ", self.idDrivers)
+            print("wheelRadius: ", self.wheelRadius)
+            print("distAxes: ", self.distAxes)
+            print("axesLength: ", self.axesLength)
+        print("Estados drivers: ", self.actual["Status"][0])   
+        print("Velocidad objetivo (advx, advz, rot): ", self.targetSpeed)
+        print("Velocidad (advx, advz, rot): ", self.actual["Speed"][0])
+        print("Temperaruta motores: ", self.actual["Temperature"][0])
+        print("------------------------------")
+    
+    def set_actualSpeed(self,data):
+        print("M1 ", data[0], "M2 ", data[1], "M3 ", data[2], "M4 ", data[3])
+
+        self.actual["Speed"][0]
+
+
 
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
         if self.driver != None:
             #self.test_function()
-            
-            if np.array_equal(self.targetSpeed, self.newTargetSpeed):
+        
+            if  not np.array_equal(self.targetSpeed, self.newTargetSpeed):
+                
                 speeds = self.m_wheels@self.targetSpeed
+                
                 print("RPM",speeds)
                 for i in range(len(self.idDrivers)):
-                    self.write_register(self.driver,  self.idDrivers[i], R_SET_SPEED, [speeds[i*2], speeds[(i*2)+1]])
+                    self.write_register(self.driver,  self.idDrivers[i], R_SET_SPEED, [int(speeds[i*2][0]), int(speeds[(i*2)+1][0])])
                 
                 print("Modificamos velocidades: ", self.targetSpeed)
-            for key, val in self.actual:
-                data = self.read_register(self.driver, 0xee, val[1],False)
-                data.extend(self.read_register(self.driver, 0xee, val[1],False))##########ver lo de la direccion del segundo driver######################################################################
-                print(key, ": M1 ", data[0], ": M2 ", data[1], ": M3 ", data[2], ": M4 ", data[3])
-            
+            for key, val in self.actual.items():
+                val[0] = []
+                data = [[]]
+                print("Actualizamos: ", key)
+                for id in self.idDrivers:
+                    data.extend(self.read_register(self.driver, id, val[1], len(val[0])))
+                   
+                if (key=="Speed"):
+                    #data = self.m_wheels_inv@data
+                    pass
+                
+                val[0].extend(data)
+            self.show_params(False)
         return True
 
     def startup_check(self):
