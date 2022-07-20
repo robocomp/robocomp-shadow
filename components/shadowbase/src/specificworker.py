@@ -251,14 +251,14 @@ class SpecificWorker(GenericWorker):
                     print("respuesta recivida: ", telegram)
                     #print(telegram[1], " - ", CODE_TELEGRAM_READ)
                     if telegram[1] != CODE_TELEGRAM_READ[0] :
-                        print("temegrama no apto")
-                        continue
+                        print("temegrama no apto reintentando")
+                        return self.read_register(driver, id, add_register, single)
                     crc_low = telegram.pop()
                     crc_high = telegram.pop()
                     tel_crc_high, tel_crc_low = self.shortto2bytes(self.Calc_Crc(telegram))
                     if crc_high != tel_crc_high or crc_low !=tel_crc_low:
-                        print("FALLO EN EL CRC")
-                        continue
+                        print("FALLO EN EL CRC REINTENTANDO")
+                        return self.read_register(driver, id, add_register, single)
                     for i in range(0, telegram[2], 2):
                         #print(telegram[i+3], " - ", telegram[i+4] )
                         data.append(np.int16(int(telegram[i+3] * 2**8) + telegram[i+4]))
@@ -385,7 +385,7 @@ class SpecificWorker(GenericWorker):
                 print("Modificamos velocidades: ", self.targetSpeed)
             for key, val in self.actual.items():
                 val[0] = []
-                data = [[]]
+                data = []
                 print("Actualizamos: ", key)
                 for id in self.idDrivers:
                     data.extend(self.read_register(self.driver, id, val[1], len(val[0])))
