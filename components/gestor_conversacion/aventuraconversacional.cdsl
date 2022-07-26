@@ -1,0 +1,15 @@
+import "EmotionalMotor.idsl";
+import "Speech.idsl";
+import "Conversation.idsl";
+import "AgenteConversacional.idsl";
+
+Component aventuraconversacional
+{
+    Communications
+    {
+    	implements Conversation;
+        requires EmotionalMotor, Speech, AgenteConversacional;
+    };
+    language python;
+};
+
