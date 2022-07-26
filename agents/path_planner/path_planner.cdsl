@@ -1,0 +1,13 @@
+import "Laser.idsl";
+
+Component path_planner
+{
+    Communications
+    {
+    	requires Laser;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+

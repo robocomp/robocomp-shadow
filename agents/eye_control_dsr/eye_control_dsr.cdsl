@@ -1,0 +1,15 @@
+import "JointMotorSimple.idsl";
+import "MoveTowards.idsl";
+
+Component eye_control_dsr
+{
+    Communications
+    {
+        requires JointMotorSimple, MoveTowards;
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+
+};
+
