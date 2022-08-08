@@ -73,9 +73,9 @@ void SpecificWorker::initialize(int period)
 
 		//dsr update signals
 		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
 //		connect(G.get(), &DSR::DSRGraph::update_attrs_signal, this, &SpecificWorker::add_or_assign_attrs_slot);
-//		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 //		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -609,6 +609,25 @@ void SpecificWorker::create_follow_people_mission(uint64_t person_id)
 
 }
 
+void SpecificWorker::create_recognize_people_mission(uint64_t person_id)
+{
+    temporary_plan.new_plan(Plan::Actions::RECOGNIZE_PEOPLE);
+    custom_widget.textedit_current_plan->appendPlainText("-> New temporary plan: RECOGNIZE PEOPLE");
+    custom_widget.textedit_current_plan->appendPlainText(QString::fromStdString(temporary_plan.pprint()));
+
+    if (not temporary_plan.is_valid()) //resetea el valor de la y cuando pones la x
+        temporary_plan.new_plan(Plan::Actions::RECOGNIZE_PEOPLE);
+    auto to_recognize_person_node = G->get_node(person_id);
+    auto to_recognize_person_node_id = to_recognize_person_node->id();
+
+    std::ostringstream oss;
+    oss << to_recognize_person_node_id;
+    std::string intAsString(oss.str());
+
+    temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
+    temporary_plan.insert_attribute("destiny", "floor");
+    custom_widget.textedit_current_plan->appendPlainText("-> New attribute 'person_name' in Recognize People plan");
+}
 
 //    connect(point_dialog.goto_spinbox_coordX, qOverload<int>(&QSpinBox::valueChanged), [this](int v) {
 //        if (not temporary_plan.is_valid()) //resetea el valor de la y cuando pones la x
@@ -728,7 +747,37 @@ uint64_t SpecificWorker::node_string2id(Plan currentPlan)
 ////////////////////////////////////////////////////////////////////////////////////////////
 /// Asynchronous changes on G nodes from G signals
 ////////////////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::add_or_assign_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+{
+    // If interacting edge is created, insert a recognizer mission to get person name
+    if(type == "interacting")
+    {
+        create_recognize_people_mission(to);
+        if(temporary_plan.is_complete())
+        {
+            insert_intention_node(temporary_plan);
+            auto temp_plan = temporary_plan;
+            plan_buffer.put(std::move(temp_plan));
+            custom_widget.textedit_current_plan->verticalScrollBar()->setValue(custom_widget.textedit_current_plan->verticalScrollBar()->maximum());
+        }
+        else
+            qWarning() << __FUNCTION__ << "Plan is not complete. Mission cannot be created";
+    }
+}
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if(edge_tag == "interacting")
+    {
+        if(auto intention = G->get_node(robot_current_intention_name); intention.has_value())
+        {
 
+            auto mind = G->get_node(robot_mind_name);
+            if (auto has_mind_intention = G->get_edge(mind.value().id(),intention.value().id(),"has");has_mind_intention.has_value())
+                G->delete_edge(mind.value().id(),intention.value().id(), "has");
+            G->delete_node(intention.value().id());
+        }
+    }
+}
 void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::string &type)
 {
 //    if(type == rgbd_type_name and id == cam_api->get_id())

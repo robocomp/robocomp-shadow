@@ -130,6 +130,7 @@ int ::face_id_agent::run(int argc, char* argv[])
 	int status=EXIT_SUCCESS;
 
 	RoboCompCameraSimple::CameraSimplePrxPtr camerasimple_proxy;
+	RoboCompImageComparison::ImageComparisonPrxPtr imagecomparison_proxy;
 	RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr realsensefaceid_proxy;
 
 	string proxy, tmp;
@@ -153,6 +154,22 @@ int ::face_id_agent::run(int argc, char* argv[])
 
 	try
 	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "ImageComparisonProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy ImageComparisonProxy\n";
+		}
+		imagecomparison_proxy = Ice::uncheckedCast<RoboCompImageComparison::ImageComparisonPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy ImageComparison: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("ImageComparisonProxy initialized Ok!");
+
+
+	try
+	{
 		if (not GenericMonitor::configGetString(communicator(), prefix, "RealSenseFaceIDProxy", proxy, ""))
 		{
 			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy RealSenseFaceIDProxy\n";
@@ -167,7 +184,7 @@ int ::face_id_agent::run(int argc, char* argv[])
 	rInfo("RealSenseFaceIDProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(camerasimple_proxy,realsensefaceid_proxy);
+	tprx = std::make_tuple(camerasimple_proxy,imagecomparison_proxy,realsensefaceid_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
