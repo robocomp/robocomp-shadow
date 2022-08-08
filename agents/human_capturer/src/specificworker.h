@@ -27,11 +27,11 @@
 
 #define M_PI 3.14159265358979323846
 #include <genericworker.h>
-#include "/home/robocomp/robocomp/components/robocomp-viriato/etc/graph_names.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/graph_names.h"
 #include "hungarian-algorithm-cpp/Hungarian.h"
 #include <dsr/api/dsr_api.h>
 #include <dsr/gui/dsr_gui.h>
-#include "/home/robocomp/robocomp/components/robocomp-giraff/etc/plan.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/plan.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include <opencv2/opencv.hpp>
 #include <fps/fps.h>

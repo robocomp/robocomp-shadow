@@ -32,6 +32,7 @@
 #include <CommonBehavior.h>
 
 #include <CameraSimple.h>
+#include <ImageComparison.h>
 #include <RealSenseFaceID.h>
 
 
@@ -39,7 +40,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompCameraSimple::CameraSimplePrxPtr,RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCameraSimple::CameraSimplePrxPtr,RoboCompImageComparison::ImageComparisonPrxPtr,RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -56,6 +57,7 @@ public:
 
 
 	RoboCompCameraSimple::CameraSimplePrxPtr camerasimple_proxy;
+	RoboCompImageComparison::ImageComparisonPrxPtr imagecomparison_proxy;
 	RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr realsensefaceid_proxy;
 
 

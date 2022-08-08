@@ -30,7 +30,14 @@
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
+#include <opencv2/opencv.hpp>
+#include <opencv2/objdetect.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/features2d.hpp>
+#include <opencv2/imgproc.hpp>
 #include <doublebuffer/DoubleBuffer.h>
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/plan.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/graph_names.h"
 
 class SpecificWorker : public GenericWorker
 {
@@ -59,11 +66,25 @@ private:
 	bool qscene_2d_view;
 	bool osg_3d_view;
 
+    DoubleBuffer<uint64_t, uint64_t> person_buffer;
+
+    std::optional<RoboCompRealSenseFaceID::ROIdata> detectAndDraw( cv::Mat& img, cv::CascadeClassifier& cascade, double scale );
+    optional<cv::Mat> get_face_ID_image();
+    optional<cv::Mat> get_person_ROI_from_node(DSR::Node person_node);
+    cv::Point2i get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi);
+    bool check_if_max_correlation_in_face(cv::Mat person_roi, cv::Point2i max_corr_point);
+
+    bool found_person = false;
+
+    int try_counter_with_match = 0;
+    int try_counter_without_match = 0;
+    double scale=1;
+
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
-	void modify_node_slot(std::uint64_t, const std::string &type){};
-	void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
+	void modify_node_slot(std::uint64_t id, const std::string &type);
+	void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
 
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};

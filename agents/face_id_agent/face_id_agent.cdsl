@@ -1,11 +1,12 @@
 import "RealSenseFaceID.idsl";
 import "CameraSimple.idsl";
+import "ImageComparison.idsl";
 
 Component face_id_agent
 {
     Communications
     {
-        requires RealSenseFaceID, CameraSimple;
+        requires RealSenseFaceID, CameraSimple, ImageComparison;
     };
     language Cpp11;
     gui Qt(QMainWindow);

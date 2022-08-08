@@ -3,7 +3,7 @@ CommonBehavior.Endpoints=tcp -p 10010
 # Proxies for required interfaces
 
 CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
-HumanCameraBodyProxy = humancamerabody:tcp -h 192.168.3.29 -p 11279
+HumanCameraBodyProxy = humancamerabody:tcp -h 192.168.0.30 -p 11279
 JointMotorSimpleProxy = jointmotorsimple:tcp -h localhost -p 10086
 RealSenseFaceIDProxy = realsensefaceid:tcp -h 192.168.3.5 -p 11070
 AprilTagsServerProxy = apriltagsserver:tcp -h 192.168.3.5 -p 12555
