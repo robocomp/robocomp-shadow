@@ -608,6 +608,8 @@ class SpecificWorker(GenericWorker):
             intention_data = json.loads(intention_node.attrs['current_intention'].value)
             if(list(intention_data.keys())[0] == "FOLLOW_PEOPLE"):
                 self.act_chased_person = int(intention_data["FOLLOW_PEOPLE"]["person_node_id"])
+            if (list(intention_data.keys())[0] == "TALKING_WITH_PEOPLE"):
+                self.act_chased_person = int(intention_data["TALKING_WITH_PEOPLE"]["person_node_id"])
 
         if type == "person":
             # try:
@@ -665,11 +667,13 @@ class SpecificWorker(GenericWorker):
 
 
     def update_edge(self, fr: int, to: int, type: str):
-
-        console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        if(type == "interacting"):
+            self.act_chased_person = to
+        # console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
 
     def delete_edge(self, fr: int, to: int, type: str):
-        console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
+        if(type == "interacting"):
+            self.act_chased_person = None

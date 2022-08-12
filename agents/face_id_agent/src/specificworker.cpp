@@ -80,8 +80,8 @@ void SpecificWorker::initialize(int period)
 		std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
 
 		//dsr update signals
-		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+//		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 //		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
 //		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 //		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
@@ -121,42 +121,51 @@ void SpecificWorker::compute()
     // check if somebody to recognize exists
     if (auto person_o = person_buffer.try_get(); person_o.has_value())
     {
-            std::cout << "PERSON ID:" << person_o.value() << std::endl;
+        bool found_person = false;
+        std::cout << "PERSON ID:" << person_o.value() << std::endl;
+        while(found_person == false)
+        {
             if(auto person_node = G->get_node(person_o.value()); person_node.has_value())
             {
-                while(found_person == false)
+                if(auto person_gray_roi = get_person_ROI_from_node(person_node.value()); person_gray_roi.has_value())
                 {
-                    if(auto person_gray_roi = get_person_ROI_from_node(person_node.value()); person_gray_roi.has_value())
+                    // Get Face ID image from G
+                    if(auto face_id_image = get_face_ID_image(); face_id_image.has_value())
                     {
-                        // Get Face ID image from G
-                        if(auto face_id_image = get_face_ID_image(); face_id_image.has_value())
+                        // Get recognised people from Face ID
+                        auto recognised_people = this->realsensefaceid_proxy->authenticate();
+                        // If somebody was recognised, read each one to associate the name to people from G
+                        if (recognised_people.size() > 0)
                         {
-                            // Get recognised people from Face ID
-                            auto recognised_people = this->realsensefaceid_proxy->authenticate();
-                            // If somebody was recognised, read each one to associate the name to people from G
-                            if (recognised_people.size() > 0)
+                            for (auto identified_person: recognised_people)
                             {
-                                for (auto identified_person: recognised_people)
+                                // Get face image with Face ID image and rectangle data given by Face ID component
+                                if(identified_person.faceROI.x + identified_person.faceROI.width < face_id_image.value().cols && identified_person.faceROI.y + identified_person.faceROI.height < face_id_image.value().rows)
                                 {
-                                    // Get face image with Face ID image and rectangle data given by Face ID component
+//                                    qInfo() << identified_person.faceROI.x << identified_person.faceROI.y << identified_person.faceROI.width << identified_person.faceROI.height;
+//                                    qInfo() << face_id_image.value().cols << face_id_image.value().rows;
                                     auto personROI = face_id_image.value()(cv::Rect(identified_person.faceROI.x, identified_person.faceROI.y, identified_person.faceROI.width, identified_person.faceROI.height));
                                     // Generate gray ROI to avoid matching problems at calculating correlation, due to image color differences between Face ID and depth cameras
-                                    cv::Mat LAB_personROI, LAB_personROI_CH_L, LAB_personROI_CH_A, LAB_personROI_CH_B;
+                                    cv::Mat LAB_personROI, LAB_personROI_CH_L;
                                     cv::cvtColor(personROI, LAB_personROI, cv::COLOR_RGB2Lab);
                                     extractChannel(LAB_personROI, LAB_personROI_CH_L, 0);
                                     cv::imwrite("LAB_personROI.png", LAB_personROI_CH_L);
                                     // Get max correlation point in image
-                                    auto max_correlation_point = get_max_correlation_point(LAB_personROI_CH_L, person_gray_roi.value());
-                                    auto is_point_in_face = check_if_max_correlation_in_face(person_gray_roi.value(), max_correlation_point);
-                                    cv::circle(person_gray_roi.value(), max_correlation_point, 10, cv::Scalar(255, 0, 0), 2);
-                                    cv::imwrite("person_LAB_face_roi.png", person_gray_roi.value());
-                                    if(is_point_in_face)
+                                    if(auto max_correlation_point = get_max_correlation_point(LAB_personROI_CH_L, person_gray_roi.value()); max_correlation_point.has_value())
                                     {
+                                        auto is_point_in_face = check_if_max_correlation_in_face(person_gray_roi.value(), max_correlation_point.value());
+                                        cv::circle(person_gray_roi.value(), max_correlation_point.value(), 10, cv::Scalar(255, 0, 0), 2);
+                                        cv::imwrite("person_LAB_face_roi.png", person_gray_roi.value());
+                                        if(is_point_in_face)
+                                        {
 //                                        if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); !person_name.has_value())
 //                                        {
+                                            qInfo() << "############# POINT IN FACE #############";
                                             found_person = true;
                                             try_counter_with_match = 0;
+                                            try_counter_without_match = 0;
                                             G->add_or_modify_attrib_local<person_name_att>(person_node.value(), identified_person.name);
+                                            G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), true);
                                             G->update_node(person_node.value());
                                             return;
 //                                        }
@@ -164,31 +173,32 @@ void SpecificWorker::compute()
 //                                    {
 //                                        if(person_name.value() !=)
 //                                    }
+                                        }
                                     }
-
                                 }
-                                qInfo() << "NO SE HA DETECTADO A LA PERSONA";
-                                try_counter_with_match += 1;
-                                if(try_counter_with_match == 5)
-                                {
-                                    try_counter_with_match = 0;
-                                    return;
-                                }
+                                else continue;
                             }
-                            else
+                            qInfo() << "NO SE HA DETECTADO A LA PERSONA";
+                            try_counter_with_match += 1;
+                            if(try_counter_with_match == 10)
                             {
-                                qInfo() << "PERSONA DESCONOCIDA";
-                                try_counter_without_match += 1;
-                                if(try_counter_without_match == 5)
-                                {
-                                    try_counter_with_match = 0;
-                                    return;
-                                }
+                                try_counter_with_match = 0;
                             }
-                        } else return;
-                    } else return;
+                        }
+                        else
+                        {
+                            qInfo() << "PERSONA DESCONOCIDA";
+                            try_counter_without_match += 1;
+                            if(try_counter_without_match == 5)
+                            {
+                                try_counter_without_match = 0;
+                                return;
+                            }
+                        }
+                    }
                 }
             } else return;
+        }
     } else return;
 }
 
@@ -198,10 +208,10 @@ std::optional<cv::Mat> SpecificWorker::get_person_ROI_from_node(DSR::Node person
                 person_node); person_ROI_data_att.has_value())
     {
         if (auto person_ROI_width_att = G->get_attrib_by_name<person_image_width_att>(
-                    person_node); person_ROI_width_att.has_value())
+                    person_node); person_ROI_width_att.has_value() && person_ROI_width_att.value() > 0)
         {
             if (auto person_ROI_height_att = G->get_attrib_by_name<person_image_height_att>(
-                        person_node); person_ROI_height_att.has_value())
+                        person_node); person_ROI_height_att.has_value() && person_ROI_height_att.value() > 0)
             {
                 auto leader_ROI_data = person_ROI_data_att.value().get();
 
@@ -224,10 +234,10 @@ std::optional<cv::Mat> SpecificWorker::get_face_ID_image()
 {
     if(auto face_id_camera = G->get_node("giraff_camera_face_id"); face_id_camera.has_value())
     {
-        if(auto id_image_height = G->get_attrib_by_name<cam_rgb_height_att>(face_id_camera.value()); id_image_height.has_value())
+        if(auto id_image_height = G->get_attrib_by_name<cam_rgb_height_att>(face_id_camera.value()); id_image_height.has_value() && id_image_height.value() > 0)
         {
             if (auto id_image_width = G->get_attrib_by_name<cam_rgb_width_att>(
-                        face_id_camera.value()); id_image_width.has_value())
+                        face_id_camera.value()); id_image_width.has_value() && id_image_width.value() > 0)
             {
                 if (auto id_image_data = G->get_attrib_by_name<cam_rgb_att>(face_id_camera.value()); id_image_data.has_value())
                 {
@@ -244,14 +254,18 @@ std::optional<cv::Mat> SpecificWorker::get_face_ID_image()
     else return{};
 }
 
-cv::Point2i SpecificWorker::get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi)
+std::optional<cv::Point2i> SpecificWorker::get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi)
 {
-    cv::Mat result;
-    cv::matchTemplate(person_roi, face_person_roi, result, cv::TM_CCOEFF);
-    cv::Point2i max_point_correlated, min_point_correlated, roi_center;
-    double max_value, min_value;
-    cv::minMaxLoc(result, &min_value, &max_value, &min_point_correlated, &max_point_correlated, cv::Mat());
-    return cv::Point2i (max_point_correlated.x + face_person_roi.cols / 2, max_point_correlated.y + face_person_roi.rows / 2);
+    if(person_roi.cols >= face_person_roi.cols && person_roi.rows >= face_person_roi.rows)
+    {
+        cv::Mat result;
+        cv::matchTemplate(person_roi, face_person_roi, result, cv::TM_CCOEFF);
+        cv::Point2i max_point_correlated, min_point_correlated, roi_center;
+        double max_value, min_value;
+        cv::minMaxLoc(result, &min_value, &max_value, &min_point_correlated, &max_point_correlated, cv::Mat());
+        return cv::Point2i (max_point_correlated.x + face_person_roi.cols / 2, max_point_correlated.y + face_person_roi.rows / 2);
+    }
+    else return{};
 }
 
 bool SpecificWorker::check_if_max_correlation_in_face(cv::Mat person_roi, cv::Point2i max_corr_point)
@@ -286,9 +300,8 @@ std::optional<RoboCompRealSenseFaceID::ROIdata> SpecificWorker::detectAndDraw( c
     // Detect faces of different sizes using cascade classifier
     cascade.detectMultiScale(smallImg, faces, 1.1, 2, 0 | cv::CASCADE_SCALE_IMAGE, cv::Size(30, 30));
     // Draw circles around the faces
-    if(faces.size() > 0)
+    if(faces.size() > 0 && faces[0].width > 0 && faces[0].height > 0)
     {
-        std::vector<cv::Mat> vector_faces;
         cv::Rect r = faces[0];
         RoboCompRealSenseFaceID::ROIdata face_data;
         face_data.x = r.x*scale;
@@ -335,30 +348,36 @@ std::optional<RoboCompRealSenseFaceID::ROIdata> SpecificWorker::detectAndDraw( c
     // Show Processed Image with detected faces
 }
 
-void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+//void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+//{
+//    if(type=="intention")
+//    {
+//        qInfo() << "################ SE ENTERA ################";
+//        if (auto intention = G->get_node(id); intention.has_value())
+//        {
+//            std::optional<std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
+//            if (plan.has_value())
+//            {
+//                Plan my_plan(plan.value());
+//                if(my_plan.get_action() == "RECOGNIZE_PEOPLE")
+//                {
+//                    auto person_id = my_plan.get_attribute("person_node_id");
+//                    uint64_t value;
+//                    std::istringstream iss(person_id.toString().toUtf8().constData());
+//                    iss >> value;
+//                    person_buffer.put(std::move(value));
+//                }
+//            }
+//        }
+//    }
+//}
+void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-    if(type=="intention")
+    if(type == recognizing_type_name)
     {
-        qInfo() << "################ SE ENTERA ################";
-        if (auto intention = G->get_node(id); intention.has_value())
-        {
-            std::optional<std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
-            if (plan.has_value())
-            {
-                Plan my_plan(plan.value());
-                if(my_plan.get_action() == "RECOGNIZE_PEOPLE")
-                {
-                    auto person_id = my_plan.get_attribute("person_node_id");
-                    uint64_t value;
-                    std::istringstream iss(person_id.toString().toUtf8().constData());
-                    iss >> value;
-                    person_buffer.put(std::move(value));
-                }
-            }
-        }
+        person_buffer.put(std::move(to));
     }
 }
-
 int SpecificWorker::startup_check()
 {
 	std::cout << "Startup check" << std::endl;

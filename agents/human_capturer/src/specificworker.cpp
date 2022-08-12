@@ -29,14 +29,19 @@
 #include <cppitertools/range.hpp>
 
 // Values to determine exists in the world 
-int max_lambda_value = 25;
-int min_lambda_value = -25;
-int hits_to_reach_top_thr = 25;
+int max_lambda_value = 15;
+int min_lambda_value = -15;
+int max_interaction_value = 10;
+int min_interaction_value = -10;
+int hits_to_reach_top_thr = 15;
+int hits_to_reach_top_thr_int = 10;
 int min_insert_dist_thr = 1000;
 float top_thr = 0.7;
 float bot_thr = 0.3;
 auto s = -hits_to_reach_top_thr/(log(1/top_thr-1));
+auto s_int = -hits_to_reach_top_thr_int/(log(1/top_thr-1));
 auto integrator = [](auto x){return 1/(1 + exp(-x/s));};
+auto integrator_int = [](auto x){return 1/(1 + exp(-x/s_int));};
 
 cv::RNG rng(12345);
 cv::Scalar color_1 = cv::Scalar( rng.uniform(0, 256), rng.uniform(0,256), rng.uniform(0,256));
@@ -225,10 +230,10 @@ void SpecificWorker::update_graph(const std::vector<PersonData> &people_list)
     if (auto robot_node_o = G->get_node(robot_name); not robot_node_o.has_value())
     { qWarning() << "No robot node found. Returning"; return;}
     else robot_node = robot_node_o.value();
-//    DSR::Node intention_node;
-//    if (auto intention_node_o = G->get_node(current_intention_name); not intention_node_o.has_value())
-//    { qWarning() << "No intetntion node for now";}
-//    else intention_node = intention_node_o.value();
+    DSR::Node intention_node;
+    if (auto intention_node_o = G->get_node(robot_current_intention_name); not intention_node_o.has_value())
+    { qWarning() << "No intetntion node for now";}
+    else intention_node = intention_node_o.value();
 
     // If there's some people in image, proceed to try to match, add or remove
     if(not people_list.empty())
@@ -286,16 +291,14 @@ void SpecificWorker::update_graph(const std::vector<PersonData> &people_list)
                         // If somebody is being followed but is lost, insert "lost" edge to avoid make it dissappear from graph
                         try
                         {
-//                            if (auto intention_node_person_edge = G->get_edge(intention_node.id(), person.id(), following_action_type_name);
-//                                    intention_node_person_edge.has_value() and
-//                                    G->get_attrib_by_name<lambda_cont_att>(person).value() < -23)
-//                            {
-//                                DSR::Edge lost_edge = DSR::Edge::create<lost_edge_type>(intention_node.id(), person.id());
-//                                if (G->insert_or_assign_edge(lost_edge))
-//                                    std::cout << __FUNCTION__ << " Edge successfully inserted: " << std::endl;
-//                                else
-//                                    std::cout << __FUNCTION__ << " Fatal error inserting new edge: " << std::endl;
-//                            }
+                            if (auto intention_node_person_edge = G->get_edge(robot_node.id(), person.id(), following_action_type_name); intention_node_person_edge.has_value() and G->get_attrib_by_name<lambda_cont_att>(person).value() == min_lambda_value + 1)
+                            {
+                                DSR::Edge lost_edge = DSR::Edge::create<lost_edge_type>(robot_node.id(), person.id());
+                                if (G->insert_or_assign_edge(lost_edge))
+                                    std::cout << __FUNCTION__ << " Edge successfully inserted: " << std::endl;
+                                else
+                                    std::cout << __FUNCTION__ << " Fatal error inserting new edge: " << std::endl;
+                            }
 //                            else if (auto lost_person_edge = G->get_edge(intention_node.id(), person.id(), "lost"); not lost_person_edge.has_value())
 //                                remove_person(people_in_graph[i], false);
                             remove_person(people_in_graph[i], false);
@@ -576,6 +579,20 @@ std::int32_t SpecificWorker::decrease_lambda_cont(std::int32_t lambda_cont)
     if(nlc > min_lambda_value) {return nlc;}
     else {return min_lambda_value;}
 }
+std::int32_t SpecificWorker::increase_interaction_cont(std::int32_t interact_cont)
+// Increases inter_cont in 1, to the maximum value and returns the new value. Returns the new inter_cont value.
+{
+    std::int32_t nlc = interact_cont + 1;
+    if(nlc < max_interaction_value) {return nlc;}
+    else {return max_interaction_value;}
+}
+std::int32_t SpecificWorker::decrease_interaction_cont(std::int32_t interact_cont)
+// Decreases inter_cont in 1, to the minimun value and returns the new value. Returns the new inter_cont value.
+{
+    std::int32_t nlc = interact_cont - 1;
+    if(nlc > min_interaction_value) {return nlc;}
+    else {return min_interaction_value;}
+}
 float SpecificWorker::distance_3d(cv::Point3f p1, cv::Point3f p2)
 {
 //    cout << "p1: " << p1 << endl;
@@ -711,58 +728,98 @@ float SpecificWorker::calculate_orientation(RoboCompHumanCameraBody::Person pers
     bool left_found= false, base_found= false, right_found = false;
     cv::Point3f base_p, right_p, left_p;
 
-    for(auto item : person_tjoints)
+//    for(auto item : person_tjoints)
+//    {
+//        std::string key = item.first;
+//
+//        // Base point
+//        if (base_found == false && key.compare("17")==0)
+//        {
+//            std::cout << "CENTER JOINT NUMBER:" << key << std::endl;
+//            base_found = true;
+//            base_p = dictionary_values_to_3d_point(item.second);
+//            // cout << "KEYPOINT BASEP: "<< key <<endl;
+//        }
+//
+//        // Right point
+//        if (right_found == false &&  (key.compare("12")==0))
+//        {
+//            std::cout << "RIGHT JOINT NUMBER:" << key << std::endl;
+//            right_found= true;
+//            right_p = dictionary_values_to_3d_point(item.second);
+//            // cout << "KEYPOINT RIGHTP: "<< key <<endl;
+//        }
+//
+//        // Left point
+//        if (left_found == false && (key.compare("11")==0))
+//        {
+//            std::cout << "LEFT JOINT NUMBER:" << key << std::endl;
+//            left_found = true;
+//            left_p = dictionary_values_to_3d_point(item.second);
+//            // cout << "KEYPOINT LEFTP: "<< key <<endl;
+//        }
+//
+//        if(base_found == true && right_found == true && left_found == true)
+//        {
+//            break;
+//        }
+//    }
+
+    if(person_tjoints.find("0") != person_tjoints.end() && person_tjoints.find("1") != person_tjoints.end() && person_tjoints.find("2") != person_tjoints.end())
     {
-        if(item.second.x != 0.0 && item.second.y != 0.0 && item.second.z != 0.0)
+        base_p = dictionary_values_to_3d_point(person_tjoints.find("0")->second);
+        left_p = dictionary_values_to_3d_point(person_tjoints.find("1")->second);
+        right_p = dictionary_values_to_3d_point(person_tjoints.find("2")->second);
+    }
+    else
+    {
+        // Base point
+        if (person_tjoints.find("17") != person_tjoints.end())
+            base_p = dictionary_values_to_3d_point(person_tjoints.find("17")->second);
+        else if (person_tjoints.find("6") != person_tjoints.end())
+            base_p = dictionary_values_to_3d_point(person_tjoints.find("6")->second);
+        else if (person_tjoints.find("5") != person_tjoints.end())
+            base_p = dictionary_values_to_3d_point(person_tjoints.find("5")->second);
+        else if (person_tjoints.find("2") != person_tjoints.end())
+            base_p = dictionary_values_to_3d_point(person_tjoints.find("2")->second);
+        else if (person_tjoints.find("1") != person_tjoints.end())
+            base_p = dictionary_values_to_3d_point(person_tjoints.find("1")->second);
+        else
         {
-            std::string key = item.first;
-
-            // Base point
-
-//        if (base_found == false && (key.compare("17")==0 || key.compare("0")==0 || key.compare("5")==0 || key.compare("2")==0 || key.compare("1")==0))
-            if (base_found == false && key.compare("17")==0)
-            {
-                std::cout << "CENTER JOINT NUMBER:" << key << std::endl;
-                base_found = true;
-                base_p = dictionary_values_to_3d_point(item.second);
-                // cout << "KEYPOINT BASEP: "<< key <<endl;
-            }
-
-            // Right point
-
-            if (right_found == false &&  (key.compare("12")==0))
-            {
-                std::cout << "RIGHT JOINT NUMBER:" << key << std::endl;
-                right_found= true;
-                right_p = dictionary_values_to_3d_point(item.second);
-                // cout << "KEYPOINT RIGHTP: "<< key <<endl;
-            }
-
-            // Left point
-
-            if (left_found == false && (key.compare("11")==0))
-            {
-                std::cout << "LEFT JOINT NUMBER:" << key << std::endl;
-                left_found = true;
-                left_p = dictionary_values_to_3d_point(item.second);
-                // cout << "KEYPOINT LEFTP: "<< key <<endl;
-            }
-
-            if(base_found == true && right_found == true && left_found == true)
-            {
-                break;
-            }
-
-            // cout << "CLAVE: " << key << ", VALOR: (" << item.second.x << "," <<item.second.y << "," <<item.second.z << ")" << endl;
+            cout << "Base points not found. Can't calculate orientation." << endl;
+            return 0.0;
         }
 
+
+        // Right point
+        if (person_tjoints.find("12") != person_tjoints.end())
+            right_p = dictionary_values_to_3d_point(person_tjoints.find("12")->second);
+        else if (person_tjoints.find("4") != person_tjoints.end())
+            right_p = dictionary_values_to_3d_point(person_tjoints.find("4")->second);
+        else
+        {
+            cout << "Right points not found. Can't calculate orientation." << endl;
+            return 0.0;
+        }
+
+        // Left point
+        if (person_tjoints.find("11") != person_tjoints.end())
+            left_p = dictionary_values_to_3d_point(person_tjoints.find("11")->second);
+        else if (person_tjoints.find("3") != person_tjoints.end())
+            left_p = dictionary_values_to_3d_point(person_tjoints.find("3")->second);
+        else
+        {
+            cout << "Left points not found. Can't calculate orientation." << endl;
+            return 0.0;
+        }
     }
 
-    if(base_found == false || right_found == false || left_found == false)
-    {
-         cout << "Points not found. Can't calculate orientation." << endl;
-        return 0.0;
-    }
+//    if(base_found == false || right_found == false || left_found == false)
+//    {
+//         cout << "Points not found. Can't calculate orientation." << endl;
+//        return 0.0;
+//    }
+
     qInfo() << "LEFT P:" << left_p.x << left_p.y;
     qInfo() << "RIGHT P:" << right_p.x << right_p.y;
     qInfo() << "BASE P:" << base_p.x << base_p.y;
@@ -1117,15 +1174,11 @@ void SpecificWorker::remove_person(DSR::Node person_node, bool direct_remove)
             {
                 if(auto person_lc = G->get_attrib_by_name<lambda_cont_att>(person_node); person_lc.has_value())
                 {
-                    if(auto person_id = G->get_attrib_by_name<person_id_att>(person_node); person_id.has_value())
-                    {
-                        //                cout << "calculating lambda value for person " << person_id.value() << endl;
-                        nlc = decrease_lambda_cont(person_lc.value());
-                        //                cout << "//////////////// NLC decreasing:   " << nlc << endl;
-                        G->add_or_modify_attrib_local<lambda_cont_att>(person_node, nlc);
-                        G->update_node(person_node);
-                        score = integrator(nlc);
-                    }
+                    nlc = decrease_lambda_cont(person_lc.value());
+                    //                cout << "//////////////// NLC decreasing:   " << nlc << endl;
+                    G->add_or_modify_attrib_local<lambda_cont_att>(person_node, nlc);
+                    G->update_node(person_node);
+                    score = integrator(nlc);
                 }
             }
 
@@ -1237,14 +1290,14 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 {
     static std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
 
-    if(auto robot_node = G->get_node(robot_name); robot_node.has_value())
+    if (auto robot_node = G->get_node(robot_name); robot_node.has_value())
     {
 //            if(auto lost_edge = G->get_edge(robot_node.value().id(), node.id(), "lost"); lost_edge.has_value())
 //            {
 //                return;
 //            }
         // Modify distance from human to robot
-        float dist_to_robot = sqrt(pow(persondata.personCoords_robot.x,2) + pow(persondata.personCoords_robot.y,2));
+        float dist_to_robot = sqrt(pow(persondata.personCoords_robot.x, 2) + pow(persondata.personCoords_robot.y, 2));
         G->add_or_modify_attrib_local<distance_to_robot_att>(node, dist_to_robot);
         G->add_or_modify_attrib_local<person_pixel_x_att>(node, persondata.pixels.x);
         G->add_or_modify_attrib_local<person_pixel_y_att>(node, persondata.pixels.y);
@@ -1254,7 +1307,7 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 
         // Memory for leader ROIs, for oclussion dealing test
         auto t_end = std::chrono::high_resolution_clock::now();
-        double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
+        double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 //            leader_ROI_memory.insert(leader_ROI_memory.cbegin(), persondata.image);
 //            if (leader_ROI_memory.size() > memory_size and elapsed_time_ms > 1000)
 //            {
@@ -1262,61 +1315,91 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 //                leader_ROI_memory.pop_back();
 //            }
 
-//          std::cout << "ORIENTATION: " << persondata.orientation << std::endl;
-//        auto interacting_edges = G->get_edges_by_type("interacting");
-//        qInfo() << "INTERACTING EDGES:" << interacting_edges.size();
-        if (persondata.orientation > (2 * M_PI - (M_PI / 3)) or persondata.orientation < (M_PI / 3))
+        // Check person orientation to know if is interested on interacting with robot
+        if (auto person_ic = G->get_attrib_by_name<inter_cont_att>(node); person_ic.has_value())
         {
-            if(auto interacting_edges = G->get_edges_by_type("interacting"); interacting_edges.size() == 0)
+//            //////////// FOR TESTING ////////////
+//            persondata.orientation = M_PI/5;
+
+            int nic = 0;
+            if ((persondata.orientation > (2 * M_PI - (M_PI / 4)) or persondata.orientation < (M_PI / 4)) && persondata.orientation != 0)
             {
                 G->add_or_modify_attrib_local<is_ready_att>(node, true);
-                DSR::Edge edge = DSR::Edge::create<interacting_edge_type>(robot_node.value().id(), node.id());
-                if (G->insert_or_assign_edge(edge))
+                // Inter_cont increment
+                nic = increase_interaction_cont(person_ic.value());
+                if (nic == max_interaction_value)
                 {
-                    std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id() << "->" << node.id()
-                              << " type: interacting_edge" << std::endl;
-                }
-                else
-                {
-                    std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id() << "->" << node.id()
-                              << " type: interacting_edge" << std::endl;
-                    std::terminate();
+                    if (auto interacting_edges = G->get_edges_by_type(interacting_type_name); interacting_edges.size() == 0)
+                    {
+                        if (auto recognizing_edges = G->get_edges_by_type(recognizing_type_name); recognizing_edges.size() == 0)
+                        {
+                            DSR::Edge edge = DSR::Edge::create<recognizing_edge_type>(robot_node.value().id(), node.id());
+                            if (G->insert_or_assign_edge(edge))
+                            {
+                                std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id()
+                                          << "->" << node.id()
+                                          << " type: recognizing_edge_type" << std::endl;
+                            }
+                            else
+                            {
+                                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id()
+                                          << "->" << node.id()
+                                          << " type: recognizing_edge_type" << std::endl;
+                                std::terminate();
+                            }
+                        }
+                    }
                 }
             }
-        }
-        else
-        {
-            G->delete_edge(robot_node.value().id(), node.id(), "interacting");
-            G->add_or_modify_attrib_local<is_ready_att>(node, false);
-        }
-
-        G->update_node(node);
-
-        std::vector<float> new_position_vector_robot = {persondata.personCoords_world.x, persondata.personCoords_world.y, persondata.personCoords_world.z};
-        std::vector<float> orientation_vector = {0.0, persondata.orientation, 0.0};
-        try
-        {
-            if(auto edge_robot = rt->get_edge_RT(robot_node.value(), node.id()); edge_robot.has_value())
+            else
             {
-                if(auto last_pos = G->get_attrib_by_name<rt_translation_att>(edge_robot.value()); last_pos.has_value())
+                G->add_or_modify_attrib_local<is_ready_att>(node, false);
+                nic = decrease_interaction_cont(person_ic.value());
+                float int_score = integrator_int(nic);
+                if (int_score <= bot_thr)
+                {
+                    G->add_or_modify_attrib_local<checked_face_att>(node, false);
+                    if(auto interacting_existing_edge = G->get_edge(robot_node.value().id(), node.id(), interacting_type_name))
+                        G->delete_edge(robot_node.value().id(), node.id(), interacting_type_name);
+                    else if(auto recognizing_existing_edge = G->get_edge(robot_node.value().id(), node.id(), recognizing_type_name))
+                        G->delete_edge(robot_node.value().id(), node.id(), recognizing_type_name);
+                }
+            }
+            G->add_or_modify_attrib_local<inter_cont_att>(node, nic);
+        }
+
+        std::vector<float> new_position_vector_robot = {persondata.personCoords_world.x,
+                                                        persondata.personCoords_world.y,
+                                                        persondata.personCoords_world.z};
+        std::vector<float> orientation_vector = {0.0, persondata.orientation, 0.0};
+        try {
+            if (auto edge_robot = rt->get_edge_RT(robot_node.value(), node.id()); edge_robot.has_value())
+            {
+                if (auto last_pos = G->get_attrib_by_name<rt_translation_att>(edge_robot.value()); last_pos.has_value())
                 {
                     auto last_pos_value = last_pos.value().get();
-//            if (auto pos_edge_world = inner_eigen->transform(world_name, node.name()); pos_edge_world.has_value())
+                    if (auto last_orientation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value()); last_orientation.has_value())
+                    {
+                        auto last_orientation_value = last_orientation.value().get();
+                        //            if (auto pos_edge_world = inner_eigen->transform(world_name, node.name()); pos_edge_world.has_value())
 //            {
 //                                std::vector<float> new_robot_pos = {(alpha * new_position_vector_robot[0]) + (beta * pos_edge_world.value().x()),
 //                                                    (alpha * new_position_vector_robot[1]) + (beta * pos_edge_world.value().y()),
 //                                                    (alpha * new_position_vector_robot[2]) +
 //                                                    (beta * pos_edge_world.value().z())};
-                std::vector<float> new_robot_pos = {(alpha * new_position_vector_robot[0]) + (beta * last_pos_value[0]),
-                                                    (alpha * new_position_vector_robot[1]) + (beta * last_pos_value[1]),
-                                                    (alpha * new_position_vector_robot[2]) +
-                                                    (beta * last_pos_value[2])};
-//                        std::vector<float> new_robot_pos = {(new_position_vector_robot[0]) , (new_position_vector_robot[1]) , (new_position_vector_robot[2])};
-//                    qInfo() << "WORLD POS FILTERED: " <<  new_robot_pos[0] << new_robot_pos[1] << new_robot_pos[2];
-                std::cout << "ROTACIÖN: " << orientation_vector[1] << endl;
-                if(persondata.orientation != 0)
-                    G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(), orientation_vector);
-                G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(), new_robot_pos);
+                        std::vector<float> new_robot_pos =
+                        {
+                                (alpha * new_position_vector_robot[0]) + (beta * last_pos_value[0]),
+                                (alpha * new_position_vector_robot[1]) + (beta * last_pos_value[1]),
+                                (alpha * new_position_vector_robot[2]) +
+                                (beta * last_pos_value[2])};
+                        std::vector<float> new_robot_orientation = {0.0, (alpha * orientation_vector[1]) +
+                                                                         (beta * last_orientation_value[1]), 0.0};
+                        std::cout << "ROTACIÖN: " << orientation_vector[1] << endl;
+                        if (persondata.orientation != 0)
+                            G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
+                                                                                     new_robot_orientation);
+                        G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(), new_robot_pos);
 
 //                        if(auto edge_robot_world = rt->get_edge_RT(node_value, robot_node.value().id()); edge_robot_world.has_value())
 //                        {
@@ -1334,33 +1417,22 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 //                            }
 //                        }
 
-                if (G->insert_or_assign_edge(edge_robot.value())) {
-                    qInfo() << __FUNCTION__ << "UPDATED" << new_robot_pos[0] << new_robot_pos[1
-                    ];
-                } else {
-                    std::terminate();
-                }
-//                        G->update_node(world_node.value());
-                G->update_node(node);
+                        if (G->insert_or_assign_edge(edge_robot.value()))
+                            qInfo() << __FUNCTION__ << "UPDATED" << new_robot_pos[0] << new_robot_pos[1];
+                        else
+                            std::terminate();
 
-                auto check_pos = G->get_attrib_by_name<rt_translation_att>(edge_robot.value()).value().get();
-//                    qInfo() << "CHECK POS: " << check_pos[0] << check_pos[1] << check_pos[2];
-
-                // Lambda_cont increment
-                if (auto person_lc = G->get_attrib_by_name<lambda_cont_att>(node); person_lc.has_value())
-                {
-                    int nlc = increase_lambda_cont(person_lc.value());
-                    G->add_or_modify_attrib_local<lambda_cont_att>(node, nlc);
-                    G->update_node(node);
-                }
+                        // Lambda_cont increment
+                        if (auto person_lc = G->get_attrib_by_name<lambda_cont_att>(node); person_lc.has_value()) {
+                            int nlc = increase_lambda_cont(person_lc.value());
+                            G->add_or_modify_attrib_local<lambda_cont_att>(node, nlc);
+                        }
+                    }
                 }
             }
-
         }
-        catch(int e)
-        {
-            cout << e << endl;
-        }
+        catch (int e) {cout << e << endl;}
+        G->update_node(node);
     }
 }
 void SpecificWorker::insert_mind(std::uint64_t parent_id, std::int32_t person_id)
@@ -1419,11 +1491,14 @@ void SpecificWorker::insert_person(const vector<PersonData> &people_data, bool d
                     person_name_idx += 1;
                     std::string person_id_str = std::to_string(id);
                     std::string node_name = "person_" + person_id_str;
+                    std::string empty_name = "";
                     DSR::Node new_node = DSR::Node::create<person_node_type>(node_name);
                     G->add_or_modify_attrib_local<person_id_att>(new_node, id);
                     G->add_or_modify_attrib_local<level_att>(new_node, robot_level.value() + 1);
                     G->add_or_modify_attrib_local<is_followed_att>(new_node, false);
                     G->add_or_modify_attrib_local<is_lost_att>(new_node, false);
+                    G->add_or_modify_attrib_local<person_name_att>(new_node, empty_name);
+                    G->add_or_modify_attrib_local<checked_face_att>(new_node, false);
                     G->add_or_modify_attrib_local<person_pixel_x_att>(new_node, new_person.pixels.x);
                     G->add_or_modify_attrib_local<person_pixel_y_att>(new_node, new_person.pixels.y);
                     G->add_or_modify_attrib_local<person_image_att>(new_node, new_person.image.image);
@@ -1450,6 +1525,7 @@ void SpecificWorker::insert_person(const vector<PersonData> &people_data, bool d
                         lc = 1;
                     G->add_or_modify_attrib_local<parent_att>(new_node, robot_node.value().id());
                     G->add_or_modify_attrib_local<lambda_cont_att>(new_node, lc);
+                    G->add_or_modify_attrib_local<inter_cont_att>(new_node, 0);
                     G->add_or_modify_attrib_local<distance_to_robot_att>(new_node, new_person.personCoords_robot.y);
                     G->add_or_modify_attrib_local<pos_x_att>(new_node, pos_x);
                     G->add_or_modify_attrib_local<pos_y_att>(new_node, pos_y);
@@ -1596,17 +1672,36 @@ void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string 
         }
     }
 }
-void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
-    if(type == following_action_type_name)
+    if (std::count(att_names.begin(), att_names.end(), "checked_face"))
     {
-
+        if(auto person_node = G->get_node(id); person_node.has_value())
+        {
+            G->delete_edge(G->get_node(robot_name).value().id(), person_node.value().id(), recognizing_type_name);
+            DSR::Edge interacting_edge = DSR::Edge::create<interacting_edge_type>(G->get_node(robot_name).value().id(), person_node.value().id());
+            if (G->insert_or_assign_edge(interacting_edge))
+            {
+                std::cout << __FUNCTION__ << " Edge successfully inserted: " << std::endl;
+            }
+            else
+            {
+                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << std::endl;
+            }
+        }
     }
 }
-void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
-{
-
-}
+//void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+//{
+//    if(type == interacting_type_name)
+//    {
+//        G->delete_edge(from, to, recognizing_type_name);
+//    }
+//}
+//void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+//{
+//
+//}
 
 int SpecificWorker::startup_check()
 {

@@ -107,11 +107,17 @@ void SpecificWorker::initialize(int period)
         setWindowTitle(QString::fromStdString(agent_name + "-" + std::to_string(agent_id)));
 
         //dsr update signals
-        connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot, Qt::QueuedConnection);
-        //connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
+//        connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot, Qt::QueuedConnection);
+//        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot, Qt::QueuedConnection);
+//        //connect(G.get(), &DSR::DSRGraph::update_attrs_signal, this, &SpecificWorker::add_or_assign_attrs_slot);
+//        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+//        connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot, Qt::QueuedConnection);
+
+        connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot);
+        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
         //connect(G.get(), &DSR::DSRGraph::update_attrs_signal, this, &SpecificWorker::add_or_assign_attrs_slot);
-        //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-        connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot, Qt::QueuedConnection);
+        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
         //Inner Api
         inner_eigen = G->get_inner_eigen_api();
@@ -161,7 +167,7 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-
+    qInfo() << "###############" << locked_advance << "###############";
     // Check for existing path_to_target_nodes
     if(robot_is_active = true)
     {
@@ -190,7 +196,7 @@ void SpecificWorker::compute()
                 auto robot_pose_3d = inner_eigen->transform(world_name, robot_name).value();
                 auto robot_nose = Eigen::Vector2f(nose_3d.x(), nose_3d.y());
                 auto robot_pose = Eigen::Vector2f(robot_pose_3d.x(), robot_pose_3d.y());
-                qInfo() << "R NOSE" << robot_nose.x() << robot_nose.y() << robot_pose.x() << robot_pose.y() << current_target.x() << current_target.y();
+//                qInfo() << "R NOSE" << robot_nose.x() << robot_nose.y() << robot_pose.x() << robot_pose.y() << current_target.x() << current_target.y();
                 auto speeds = update(path, QPolygonF(), robot_pose, robot_nose, current_target);
                 auto[adv, side, rot] =  send_command_to_robot(speeds);
 
@@ -206,7 +212,7 @@ void SpecificWorker::compute()
 ////                            robot_is_active = true;
 ////                        }
 //                }
-                print_current_state(path, robot_pose, adv, side, rot);
+//                print_current_state(path, robot_pose, adv, side, rot);
 //            }
             //else
             //{} // check elapsed time since last reading. Stop the robot if too long
@@ -240,7 +246,7 @@ void SpecificWorker::remove_trailing_path(const std::vector<Eigen::Vector2f> &pa
     std::vector<float> y_values;  y_values.reserve(path.size());
     std::transform(closest_point_to_robot, path.cend(), std::back_inserter(y_values),
                    [](const auto &value) { return value.y(); });
-    qInfo() << __FUNCTION__ << " new paths " << x_values.size() << y_values.size();
+//    qInfo() << __FUNCTION__ << " new paths " << x_values.size() << y_values.size();
     if (auto node_path = G->get_node(current_path_name); node_path.has_value())
         //if (auto node_paths = G->get_nodes_by_type(path_to_target_type_name); not node_paths.empty())
     {
@@ -248,7 +254,7 @@ void SpecificWorker::remove_trailing_path(const std::vector<Eigen::Vector2f> &pa
         G->add_or_modify_attrib_local<path_x_values_att>(node_path.value(), x_values);
         G->add_or_modify_attrib_local<path_y_values_att>(node_path.value(), y_values);
         G->update_node(node_path.value());
-        qInfo() << "-------------UPDATE PATH (rm trail)---------------";
+//        qInfo() << "-------------UPDATE PATH (rm trail)---------------";
     }
     else
         std::cout << __FUNCTION__ << "No path target " << std::endl;
@@ -264,7 +270,7 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
                                                        const Eigen::Vector2f &robot_nose, const Eigen::Vector2f &target)
 {
     static float adv_vel_ant = 0;
-    qDebug() << " Controller - "<< __FUNCTION__;
+//    qDebug() << " Controller - "<< __FUNCTION__;
 
     // now y is forward direction and x is pointing rightwards
     float advVel = 0.f, sideVel = 0.f, rotVel = 0.f;
@@ -288,7 +294,7 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
         custom_widget.startButton->setText("Start");
         return std::make_tuple(0,0,0);  //adv, side, rot
     }
-    qInfo() << "PATH DATA: "<< path.size() << path.front().x() << path.front().y();
+//    qInfo() << "PATH DATA: "<< path.size() << path.front().x() << path.front().y();
 
     // lambda to convert from Eigen to QPointF
     auto to_QPointF = [](const Eigen::Vector2f &a){ return QPointF(a.x(), a.y());};
@@ -326,20 +332,20 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
         auto dist_to_path = line.distance(robot_pose);
         auto robot_projection_in_path = line.projection(robot_pose);
         auto point_at_robot_nose = inner_eigen->transform(world_name, Mat::Vector3d((double)robot_pose.x(), (double)robot_pose.y() + 500, 0), robot_name).value();
-        qInfo() << __FUNCTION__ << "ROBOT POSE:" << robot_pose.x() <<  robot_pose.y();
-        qInfo() << __FUNCTION__ << "ROBOT NOSE:" << point_at_robot_nose.x() <<  point_at_robot_nose.y();
-        qInfo() << __FUNCTION__ << "ROBOT PROJECTION:" << robot_projection_in_path.x() <<  robot_projection_in_path.y();
+//        qInfo() << __FUNCTION__ << "ROBOT POSE:" << robot_pose.x() <<  robot_pose.y();
+//        qInfo() << __FUNCTION__ << "ROBOT NOSE:" << point_at_robot_nose.x() <<  point_at_robot_nose.y();
+//        qInfo() << __FUNCTION__ << "ROBOT PROJECTION:" << robot_projection_in_path.x() <<  robot_projection_in_path.y();
 
 
 //    auto path_point_respect_to_robot = robot_projection_in_path - robot_pose;
         Eigen::Vector2f point_a{robot_pose.x() - (float)point_at_robot_nose.x(), robot_pose.y() - (float)point_at_robot_nose.y()};
         Eigen::Vector2f point_b{robot_pose.x() - robot_projection_in_path.x(), robot_pose.y() - robot_projection_in_path.y()};
 
-        qInfo() << __FUNCTION__ << "POINT A:" << point_a.x() <<  point_a.y();
-        qInfo() << __FUNCTION__ << "POINT B:" << point_b.x() <<  point_b.y();
-        qInfo() << __FUNCTION__ << "POINT A norm:" << point_a.norm();
-        qInfo() << __FUNCTION__ << "POINT B norm:" << point_b.norm();
-        qInfo() << __FUNCTION__ << "POINT dot:" << point_a.dot(point_b);
+//        qInfo() << __FUNCTION__ << "POINT A:" << point_a.x() <<  point_a.y();
+//        qInfo() << __FUNCTION__ << "POINT B:" << point_b.x() <<  point_b.y();
+//        qInfo() << __FUNCTION__ << "POINT A norm:" << point_a.norm();
+//        qInfo() << __FUNCTION__ << "POINT B norm:" << point_b.norm();
+//        qInfo() << __FUNCTION__ << "POINT dot:" << point_a.dot(point_b);
 
 
         auto angle_respect_next_point = acos(point_a.dot(point_b) / (point_a.norm() * point_b.norm()));
@@ -347,8 +353,8 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
         auto proyection_to_robot_reference = inner_eigen->transform(robot_name, Mat::Vector3d((double)robot_projection_in_path.x(), (double)robot_projection_in_path.y() + 500, 0), world_name).value();
         auto angle_sign = proyection_to_robot_reference.x()/ abs(proyection_to_robot_reference.x());
         sideVel = angle_sign * dist_to_path * sin(angle_respect_next_point);
-        qInfo() << __FUNCTION__ << "SIDE VEL:" << sideVel;
-        qInfo() << __FUNCTION__ << "angle_respect_next_point:" << angle_respect_next_point;
+//        qInfo() << __FUNCTION__ << "SIDE VEL:" << sideVel;
+//        qInfo() << __FUNCTION__ << "angle_respect_next_point:" << angle_respect_next_point;
         if(sideVel > 500) sideVel = 500;
         else if(sideVel < -500) sideVel = -500;
     }
@@ -366,7 +372,7 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
     advVel = std::min(consts.max_adv_speed * exponentialFunction(rotVel, consts.advance_gaussian_cut_x, consts.advance_gaussian_cut_y, 0),
                       euc_dist_to_target);
 
-    qInfo() << __FUNCTION__ << "VELOCIDAD LATERAL QUE SALE:" <<  sideVel;
+//    qInfo() << __FUNCTION__ << "VELOCIDAD LATERAL QUE SALE:" <<  sideVel;
 //    return std::make_tuple(0, 0, 0);
     return std::make_tuple(advVel, sideVel, rotVel);
 }
@@ -423,9 +429,13 @@ std::vector<QPointF> SpecificWorker::get_points_along_extended_robot_polygon(int
 std::tuple<float, float, float> SpecificWorker::send_command_to_robot(const std::tuple<float, float, float> &speeds) //adv, side, rot
 {
     auto &[adv_, side_, rot_] = speeds;
+
     if(auto robot_node = G->get_node(robot_name); robot_node.has_value())
     {
-        G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) adv_);
+        if(locked_advance)
+            G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) 0);
+        else
+            G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) adv_);
         G->add_or_modify_attrib_local<robot_ref_rot_speed_att>(robot_node.value(), (float) rot_);
         G->add_or_modify_attrib_local<robot_ref_side_speed_att>(robot_node.value(), (float) side_);
         G->update_node(robot_node.value());
@@ -486,16 +496,29 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
     // For taking intention node id for removing at ending mission
     if (type == intention_type_name)
     {
-        plan_node_id = id;
+        if (auto intention = G->get_node(id); intention.has_value())
+        {
+            std::optional<std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
+            if (plan.has_value())
+            {
+                Plan current_plan = plan.value();
+                auto action_name = current_plan.get_action();
+                auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
+                if (action_name == follow_action_name)
+                    locked_advance = false;
+                else return;
+                plan_node_id = id;
+            }
+        }
     }
 
     if (type == path_to_target_type_name)
     {
         if( auto node = G->get_node(id); node.has_value())
         {
-            if(auto intention_node = G->get_node(plan_node_id); intention_node.has_value())
-            {
-                qInfo() << __FUNCTION__ << "HAY NODO INTENCIÓN";
+//            if(auto intention_node = G->get_node(plan_node_id); intention_node.has_value())
+//            {
+//                qInfo() << __FUNCTION__ << "HAY NODO INTENCIÓN";
                 auto x_values = G->get_attrib_by_name<path_x_values_att>(node.value());
                 auto y_values = G->get_attrib_by_name<path_y_values_att>(node.value());
                 auto is_cyclic_o = G->get_attrib_by_name<path_is_cyclic_att>(node.value());
@@ -525,10 +548,10 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
                     auto cyclic = G->get_attrib_by_name<path_is_cyclic_att>(node.value()); //
                     robot_is_active = true;
                 }
-            }
+//            }
             else
             {
-                qInfo() << "PARA ROBOT";
+//                qInfo() << "PARA ROBOT";
                 robot_is_active = false;
             }
         }
@@ -567,7 +590,22 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
 //        }
 //    }
 }
-
+void SpecificWorker::add_or_assign_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+{
+    if(type == interacting_type_name)
+    {
+        std::cout << "ENTRA DONDE NO DEBE: " << type << std::endl;
+        locked_advance = true;
+    }
+}
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    std::cout << "EDGE TAG: " << edge_tag << std::endl;
+    if(edge_tag == interacting_type_name)
+    {
+        locked_advance = false;
+    }
+}
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {
     if(from == plan_node_id)

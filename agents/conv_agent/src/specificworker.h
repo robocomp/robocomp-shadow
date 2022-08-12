@@ -31,8 +31,8 @@
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
-#include "/home/robocomp/robocomp/components/robocomp-giraff/etc/graph_names.h"
-#include "/home/robocomp/robocomp/components/robocomp-giraff/etc/plan.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/graph_names.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/plan.h"
 
 class SpecificWorker : public GenericWorker
 {
@@ -67,8 +67,8 @@ private:
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
 	void modify_node_slot(std::uint64_t id, const std::string &type);
-	void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+	void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
+	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
 	void del_node_slot(std::uint64_t from);
@@ -80,9 +80,10 @@ private:
     void start_mission(int intention);
     void stop_mission();
     void insert_intention_node(const Plan &plan);
+    uint64_t node_string2id(Plan currentPlan);
 
     // Person data
-    string interest_person_name;
+    std::string interest_person_name;
     uint64_t interest_person_node_id;
     uint64_t interest_robot_intention_node_id;
 

@@ -73,10 +73,10 @@ void SpecificWorker::initialize(int period)
 
 		//dsr update signals
 		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot);
-		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_attrs_signal, this, &SpecificWorker::add_or_assign_attrs_slot);
-		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-//		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+//		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
+//		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
+//		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
 		using opts = DSR::DSRViewer::view;
@@ -347,7 +347,6 @@ void SpecificWorker::create_bouncer_mission()
     custom_widget.textedit_current_plan->appendPlainText("-> New temporary plan: BOUNCE");
     custom_widget.textedit_current_plan->appendPlainText(QString::fromStdString(temporary_plan.pprint()));
 }
-
 void SpecificWorker::create_path_mission()
 {
     custom_widget.stacked_widget->setCurrentIndex(1);
@@ -467,7 +466,6 @@ void SpecificWorker::create_path_mission()
         draw_oval();
     });
 }
-
 void SpecificWorker::create_goto_mission() {
     static QGraphicsEllipseItem *target_scene;
     custom_widget.stacked_widget->setCurrentIndex(0);
@@ -552,7 +550,10 @@ void SpecificWorker::create_follow_people_mission(uint64_t person_id)
         std::string intAsString(oss.str());
 
         temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
-        temporary_plan.insert_attribute("destiny", "floor");
+        if(auto person_name = G->get_attrib_by_name<person_name_att>(followed_person_node.value()); person_name.has_value())
+        {
+            temporary_plan.insert_attribute("person_name",  QString::fromStdString(person_name.value()));
+        }
         custom_widget.textedit_current_plan->appendPlainText("-> New attribute 'person_name' in Follow People plan");
         if (target_scene != nullptr)
             widget_2d->scene.removeItem(target_scene);
@@ -608,9 +609,9 @@ void SpecificWorker::create_follow_people_mission(uint64_t person_id)
 //        target_scene->setZValue(100);
 
 }
-
 void SpecificWorker::create_recognize_people_mission(uint64_t person_id)
 {
+    interacting_person_id = person_id;
     temporary_plan.new_plan(Plan::Actions::RECOGNIZE_PEOPLE);
     custom_widget.textedit_current_plan->appendPlainText("-> New temporary plan: RECOGNIZE PEOPLE");
     custom_widget.textedit_current_plan->appendPlainText(QString::fromStdString(temporary_plan.pprint()));
@@ -627,6 +628,30 @@ void SpecificWorker::create_recognize_people_mission(uint64_t person_id)
     temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
     temporary_plan.insert_attribute("destiny", "floor");
     custom_widget.textedit_current_plan->appendPlainText("-> New attribute 'person_name' in Recognize People plan");
+}
+void SpecificWorker::create_talking_people_mission(uint64_t person_id)
+{
+    temporary_plan.new_plan(Plan::Actions::TALKING_WITH_PEOPLE);
+    custom_widget.textedit_current_plan->appendPlainText("-> New temporary plan: TALKING WITH PEOPLE");
+    custom_widget.textedit_current_plan->appendPlainText(QString::fromStdString(temporary_plan.pprint()));
+
+    if (not temporary_plan.is_valid()) //resetea el valor de la y cuando pones la x
+        temporary_plan.new_plan(Plan::Actions::TALKING_WITH_PEOPLE);
+    if(auto to_recognize_person_node = G->get_node(person_id); to_recognize_person_node.has_value())
+    {
+        auto to_recognize_person_node_id = to_recognize_person_node->id();
+        if(auto person_name = G->get_attrib_by_name<person_name_att>(to_recognize_person_node.value()); person_name.has_value())
+        {
+            std::ostringstream oss;
+            oss << to_recognize_person_node_id;
+            std::string intAsString(oss.str());
+
+            temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
+            temporary_plan.insert_attribute("person_name",  QString::fromStdString(person_name.value()));
+            temporary_plan.insert_attribute("destiny", "floor");
+            custom_widget.textedit_current_plan->appendPlainText("-> New attribute 'person_name' in Recognize People plan");
+        }
+    }
 }
 
 //    connect(point_dialog.goto_spinbox_coordX, qOverload<int>(&QSpinBox::valueChanged), [this](int v) {
@@ -770,13 +795,48 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
     {
         if(auto intention = G->get_node(robot_current_intention_name); intention.has_value())
         {
-
-            auto mind = G->get_node(robot_mind_name);
-            if (auto has_mind_intention = G->get_edge(mind.value().id(),intention.value().id(),"has");has_mind_intention.has_value())
-                G->delete_edge(mind.value().id(),intention.value().id(), "has");
-            G->delete_node(intention.value().id());
+            slot_stop_mission();
         }
     }
+}
+void SpecificWorker::del_node_slot(std::uint64_t from)
+{
+    if(current_plan.get_action()=="FOLLOW_PEOPLE")
+    {
+        auto person_id = current_plan.get_attribute("person_node_id");
+        if(from == from_variant_to_uint64(person_id))
+        {
+            DSR::Node new_virtual_node = DSR::Node::create<virtual_person_node_type>("followed_person");
+            G->add_or_modify_attrib_local<person_name_att>(new_virtual_node, current_plan.get_attribute("person_name").toString().toStdString());
+            G->insert_node(new_virtual_node);
+            G->update_node(new_virtual_node);
+            DSR::Edge lost_edge = DSR::Edge::create<lost_edge_type>(G->get_node("robot").value().id(), new_virtual_node.id());
+            if (G->insert_or_assign_edge(lost_edge))
+            {
+                std::cout << __FUNCTION__ << " Edge successfully inserted: " << G->get_node("robot").value().id() << "->" << new_virtual_node.id()
+                          << " type: lost" << std::endl;
+            }
+            else
+            {
+                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node("robot").value().id() << "->" << new_virtual_node.id()
+                          << " type: lost" << std::endl;
+            }
+            DSR::Edge has_edge = DSR::Edge::create<has_edge_type>(G->get_node(robot_mind_name).value().id(), new_virtual_node.id());
+            if (G->insert_or_assign_edge(has_edge))
+            {
+                std::cout << __FUNCTION__ << " Edge successfully inserted: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
+                          << " type: has" << std::endl;
+            }
+            else
+            {
+                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
+                          << " type: has" << std::endl;
+            }
+            slot_stop_mission();
+        }
+
+    }
+
 }
 void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::string &type)
 {
@@ -800,6 +860,14 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
                 auto stop_follow_action_name = QString::fromStdString("ASK_FOR_STOP_FOLLOWING");
                 if (action_name == follow_action_name)
                 {
+                    if(auto lost_person_in_mind = G->get_node("followed_person"); lost_person_in_mind.has_value())
+                    {
+                        if (auto has_edge = G->get_edge(G->get_node(robot_mind_name).value().id(),lost_person_in_mind.value().id(),"has");has_edge.has_value())
+                            G->delete_edge(G->get_node(robot_mind_name).value().id(),lost_person_in_mind.value().id(),"has");
+                        if (auto lost_edge = G->get_edge(G->get_node(robot_name).value().id(),lost_person_in_mind.value().id(),"lost");lost_edge.has_value())
+                            G->delete_edge(G->get_node(robot_name).value().id(),lost_person_in_mind.value().id(),"lost");
+                        G->delete_node(lost_person_in_mind.value().id());
+                    }
                     auto followed_person_id = node_string2id(received_plan);
                     create_follow_people_mission(followed_person_id);
                     if(temporary_plan.is_complete())
@@ -874,6 +942,32 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
         }
     }
 }
+void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
+{
+    if(interacting_person_id == id)
+    {
+        qInfo() << "2";
+        if (std::count(att_names.begin(), att_names.end(), "checked_face"))
+        {
+            qInfo() << "3";
+            if(auto checked_face_value = G->get_attrib_by_name<checked_face_att>(G->get_node(interacting_person_id).value()); checked_face_value.has_value() && checked_face_value.value() == true)
+            {
+                qInfo() << "4";
+                slot_stop_mission();
+                create_talking_people_mission(interacting_person_id);
+                if(temporary_plan.is_complete())
+                {
+                    insert_intention_node(temporary_plan);
+                    auto temp_plan = temporary_plan;
+                    plan_buffer.put(std::move(temp_plan));
+                    custom_widget.textedit_current_plan->verticalScrollBar()->setValue(custom_widget.textedit_current_plan->verticalScrollBar()->maximum());
+                }
+                else
+                    qWarning() << __FUNCTION__ << "Plan is not complete. Mission cannot be created";
+            }
+        }
+    }
+}
 void SpecificWorker::insert_intention_node(const Plan &plan)
 {
     // Check if there is not 'intention' node yet in G
@@ -910,23 +1004,7 @@ void SpecificWorker::insert_intention_node(const Plan &plan)
                     auto follow_plan = plan;
                     auto person_id_str = follow_plan.get_attribute("person_node_id");
                     auto person_id = from_variant_to_uint64(person_id_str);
-//                    if(auto person_node = G->get_node(person_id); person_node.has_value())
-//                    {
-//                        DSR::Edge edge = DSR::Edge::create<following_action_edge_type>(intention_node.id(), person_node.value().id());
-//                        if (G->insert_or_assign_edge(edge))
-//                        {
-//                            std::cout << __FUNCTION__ << " Edge successfully inserted: " << intention_node.id() << "->" << person_node.value().id()
-//                                      << " type: floowing" << std::endl;
-//                            G->add_or_modify_attrib_local<current_intention_att>(intention_node, plan.to_json());
-//                            G->update_node(intention_node);
-//                        }
-//                        else
-//                        {
-//                            std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << intention_node.id() << "->" << person_node.value().id()
-//                                      << " type: floowing" << std::endl;
-//                        std::terminate();
-//                    }
-//                    }
+
                 }
 
             } else
@@ -1040,8 +1118,6 @@ void SpecificWorker::slot_stop_mission()
         auto id_value = from_variant_to_uint64(person_id);
         if (auto followed_person_node = G->get_node(id_value); followed_person_node.has_value())
         {
-            qInfo() << "#############" << "DELETING EDGES" << "#############";
-            G->delete_edge(G->get_node("robot").value().id(), followed_person_node.value().id(), "lost");
             G->delete_edge(G->get_node("robot").value().id(), followed_person_node.value().id(), following_action_type_name);
         }
     }

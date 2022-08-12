@@ -31,8 +31,8 @@
 #include <doublebuffer/DoubleBuffer.h>
 #include <localPerson.h>
 #include <QGraphicsPolygonItem>
-#include "/home/robocomp/robocomp/components/robocomp-giraff/etc/graph_names.h"
-#include "/home/robocomp/robocomp/components/robocomp-giraff/etc/plan.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/graph_names.h"
+#include "/home/robocomp/robocomp/components/robocomp-shadow/etc/plan.h"
 #include <custom_widget.h>
 #include <grid2d/grid.h>
 #include <collisions.h>
@@ -58,7 +58,7 @@ class SpecificWorker : public GenericWorker
         void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
         void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
         void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
         void del_node_slot(std::uint64_t from);
         void new_target_from_mouse(int pos_x, int pos_y, std::uint64_t id);
 
@@ -220,7 +220,6 @@ private:
         Pose2D last_target;
         Pose2D robot_pose;
         float act_grid_dist_to_robot = 0.f;
-
         QRectF act_grid;
 
         //local widget
@@ -244,6 +243,7 @@ private:
         void run_current_plan(const QPolygonF &laser_poly);
         void update_grid();
         bool run_plan = false;
+        void reset_to_quiet_state();
 
         std::vector<QGraphicsItem *> path_paint;
 

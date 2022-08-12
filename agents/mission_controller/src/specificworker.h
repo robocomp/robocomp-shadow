@@ -80,10 +80,10 @@ private:
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
 	void add_or_assign_node_slot(std::uint64_t id, const std::string &type);
-	void add_or_assign_attrs_slot(std::uint64_t id, const std::map<std::string, DSR::Attribute> &attribs){};
+    void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
 	void add_or_assign_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
     void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
-	void del_node_slot(std::uint64_t from){};     
+	void del_node_slot(std::uint64_t from);
 	bool startup_check_flag;
 	Eigen::IOFormat OctaveFormat, CommaInitFmt;
 
@@ -113,12 +113,16 @@ private:
     void create_goto_mission();
     void create_follow_people_mission(uint64_t person_id = 0);
     void create_recognize_people_mission(uint64_t person_id);
+    void create_talking_people_mission(uint64_t person_id);
     void create_bouncer_mission();
     void create_path_mission();
     AbstractGraphicViewer *pathfollow_draw_widget;
 
     // People
     void people_checker();
+
+    // ID
+    uint64_t interacting_person_id;
 
     //Path
     std::vector<Eigen::Vector2f> path;  // check if can be made local

@@ -92,7 +92,7 @@ void SpecificWorker::initialize(int period)
 		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
         //connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-        //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -357,7 +357,11 @@ void SpecificWorker::compute()
     auto [laser_polygon, laser_data] = read_laser(false);
     if(target.is_active())
     {
-        if(current_plan.get_action() == QString::fromStdString("FOLLOW_PEOPLE"))
+        if(auto interacting_edge = G->get_edge(G->get_node(robot_name).value().id(), followed_person_id, interacting_type_name); interacting_edge.has_value())
+        {
+            run_current_plan(laser_polygon);
+        }
+        else if(current_plan.get_action() == QString::fromStdString("FOLLOW_PEOPLE"))
         {
             try
             {
@@ -416,6 +420,7 @@ void SpecificWorker::compute()
                 std::cout << "Problema siguiendo el plan." << std::endl;
             }
         }
+
     }
 //    else //DELETE PATH TARGET INACTIVE
 //    {
@@ -805,9 +810,7 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
     }
     else if(dist_along_path(path)>constants.min_dist_to_first_point && path.size()>2){
         Eigen::Vector2f r_p = robot_pose.get_pos();
-        qInfo()<< "D1" << path.size();
         path.erase(std::remove_if(path.begin(), path.end(), [r=r_p,c=constants](auto a){return ((a-r).norm()<c.min_dist_to_first_point);}), path.end());
-        qInfo()<< "D2" << path.size();
     }
     else
     {
@@ -1147,64 +1150,75 @@ void SpecificWorker::new_target_from_mouse(int pos_x, int pos_y, std::uint64_t i
 ////////////////////////////////////////////////////////////////////////////////////////////////777
 void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string &type)
 {
-    if (type == intention_type_name) {
-        grid.clear();
-        exist_grid = false;
-        generated_grid = false;
-        if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+    if (type == intention_type_name)
+    {
+        if (auto intention = G->get_node(id); intention.has_value())
         {
-            G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
-            G->update_node(grid_node.value());
-        }
-        static std::random_device rd;
-        static std::mt19937 mt(rd());
-        static std::normal_distribution<double> normal_dist(0.0, constants.lidar_noise_sigma);
-        plan_node_id = id;
-        float x, y;
-
-        if (auto intention = G->get_node(id); intention.has_value()) {
-            std::optional <std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
-            if (plan.has_value()) {
-                current_plan = plan.value();
-                auto action_name = current_plan.get_action();
-                auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
-                if (action_name == follow_action_name) {
-                    followed_person_id = node_string2id(current_plan);
-                    if (auto followed_person_node = G->get_node(followed_person_id); followed_person_node.has_value()) {
-                        if (auto person_pose = inner_eigen->transform(robot_name,
-                                                                      followed_person_node.value().name()); person_pose.has_value()) {
-                            x = person_pose.value().x();
-                            y = person_pose.value().y();
-                        } else {
-                            return;
-                        }
-                    }
-                } else //MISSION GOTO...
+            if(intention.value().name() == robot_current_intention_name)
+            {
+                grid.clear();
+                exist_grid = false;
+                generated_grid = false;
+                if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
                 {
-                    x = current_plan.get_attribute("x").toFloat();
-                    y = current_plan.get_attribute("y").toFloat();
+                    G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
+                    G->update_node(grid_node.value());
                 }
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::normal_distribution<double> normal_dist(0.0, constants.lidar_noise_sigma);
 
-                //ADDING NOISE
-                QLineF r_to_target(QPointF(x, y), robot_pose.to_qpoint());
-                auto t = r_to_target.pointAt(constants.final_distance_to_target / r_to_target.length());
-                t += QPointF(normal_dist(mt), normal_dist(mt)); // Adding noise to target
+                plan_node_id = id;
+                float x, y;
+                std::optional <std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
+                if (plan.has_value()) {
+                    current_plan = plan.value();
+                    auto action_name = current_plan.get_action();
+                    auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
+                    auto talking_with_people_action_name = QString::fromStdString("TALKING_WITH_PEOPLE");
+                    if (action_name == follow_action_name or action_name == talking_with_people_action_name)
+                    {
+                        followed_person_id = node_string2id(current_plan);
+                        if (auto followed_person_node = G->get_node(followed_person_id); followed_person_node.has_value())
+                        {
+                            if (auto person_pose = inner_eigen->transform(robot_name,
+                                                                          followed_person_node.value().name()); person_pose.has_value())
+                            {
+                                x = person_pose.value().x();
+                                y = person_pose.value().y();
+                            }
+                            else
+                            {
+                                return;
+                            }
+                        }
+                        //ADDING NOISE
+                        QLineF r_to_target(QPointF(x, y), robot_pose.to_qpoint());
+                        auto t = r_to_target.pointAt(constants.final_distance_to_target / r_to_target.length());
+                        t += QPointF(normal_dist(mt), normal_dist(mt)); // Adding noise to target
 
-                //SET MISSION TARGET BEFORE PERSON POSITION
-                auto ponderated_target_pos = target_before_objetive(robot_pose.get_pos(),
-                                                                    Eigen::Vector2f{t.x(), t.y()});
-                last_relevant_person_pos = target.get_pos();
+                        //SET MISSION TARGET BEFORE PERSON POSITION
+                        auto ponderated_target_pos = target_before_objetive(robot_pose.get_pos(),
+                                                                            Eigen::Vector2f{t.x(), t.y()});
+                        last_relevant_person_pos = target.get_pos();
 
-                // draw target
-                if (target_draw != nullptr) delete target_draw;
-                target_draw = widget_2d->scene.addEllipse(ponderated_target_pos.x() - 100,
-                                                          ponderated_target_pos.y() - 100, 200,
-                                                          200, QPen(QColor("magenta")), QBrush(QColor("magenta")));
-                target_draw->setZValue(10);
-                target.set_pos(ponderated_target_pos);
-                target.set_active(true);
-            } else
-                return;
+                        // draw target
+                        if (target_draw != nullptr) delete target_draw;
+                        target_draw = widget_2d->scene.addEllipse(ponderated_target_pos.x() - 100,
+                                                                  ponderated_target_pos.y() - 100, 200,
+                                                                  200, QPen(QColor("magenta")), QBrush(QColor("magenta")));
+                        target_draw->setZValue(10);
+                        target.set_pos(ponderated_target_pos);
+                        target.set_active(true);
+                    }
+//                    else //MISSION GOTO...
+//                    {
+//                        x = current_plan.get_attribute("x").toFloat();
+//                        y = current_plan.get_attribute("y").toFloat();
+//                    }
+                }
+                else return;
+            }
         }
     }
     else if (type == path_to_target_type_name)
@@ -1249,6 +1263,42 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
     static std::random_device rd;
     static std::mt19937 mt(rd());
     static std::normal_distribution<double> normal_dist(0.0, constants.target_noise_sigma);
+    if(type == interacting_type_name)
+    {
+        float x, y;
+        followed_person_id = to;
+        if (auto followed_person_node = G->get_node(followed_person_id); followed_person_node.has_value())
+        {
+            if (auto person_pose = inner_eigen->transform(robot_name,
+                                                          followed_person_node.value().name()); person_pose.has_value())
+            {
+                x = person_pose.value().x();
+                y = person_pose.value().y();
+            }
+            else
+            {
+                return;
+            }
+        }
+        //ADDING NOISE
+        QLineF r_to_target(QPointF(x, y), robot_pose.to_qpoint());
+        auto t = r_to_target.pointAt(constants.final_distance_to_target / r_to_target.length());
+        t += QPointF(normal_dist(mt), normal_dist(mt)); // Adding noise to target
+
+        //SET MISSION TARGET BEFORE PERSON POSITION
+        auto ponderated_target_pos = target_before_objetive(robot_pose.get_pos(),
+                                                            Eigen::Vector2f{t.x(), t.y()});
+        last_relevant_person_pos = target.get_pos();
+
+        // draw target
+        if (target_draw != nullptr) delete target_draw;
+        target_draw = widget_2d->scene.addEllipse(ponderated_target_pos.x() - 100,
+                                                  ponderated_target_pos.y() - 100, 200,
+                                                  200, QPen(QColor("magenta")), QBrush(QColor("magenta")));
+        target_draw->setZValue(10);
+        target.set_pos(ponderated_target_pos);
+        target.set_active(true);
+    }
     if(from == 200 and to == followed_person_id and type == "RT")
     {
         float x,y;
@@ -1305,22 +1355,32 @@ void SpecificWorker::del_node_slot(std::uint64_t from)
 {
     if(from == plan_node_id)
     {
-        if(auto path_d = G->get_node(current_path_name); path_d.has_value())
-            G->delete_node(path_d.value().id());
         current_plan = {};
-        target.set_active(false);
-        exist_grid = false;
-        generated_grid=false;
-        path.clear();
         grid.clear();
-        for(auto p : path_paint)
-            widget_2d->scene.removeItem(p);
-        path_paint.clear();
-        followed_person_id = 0;
-
+        reset_to_quiet_state();
     }
 }
-
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if(auto robot_intention = G->get_node(robot_current_intention_name); !robot_intention.has_value())
+        if(edge_tag == interacting_type_name)
+        {
+            reset_to_quiet_state();
+        }
+}
+void SpecificWorker::reset_to_quiet_state()
+{
+    if(auto path_d = G->get_node(current_path_name); path_d.has_value())
+        G->delete_node(path_d.value().id());
+    target.set_active(false);
+    exist_grid = false;
+    generated_grid=false;
+    path.clear();
+    for(auto p : path_paint)
+        widget_2d->scene.removeItem(p);
+    path_paint.clear();
+    followed_person_id = 0;
+}
 ///////////////////////////////////////////////////
 /// GUI
 //////////////////////////////////////////////////

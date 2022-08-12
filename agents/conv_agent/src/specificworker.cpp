@@ -84,9 +84,9 @@ void SpecificWorker::initialize(int period)
 
 		//dsr update signals
 		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
-//		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+//		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -117,16 +117,16 @@ void SpecificWorker::initialize(int period)
 		timer.start(Period);
         hide();
 
-        auto person_nodes = G->get_nodes_by_type(person_type_name);
-        for(auto person : person_nodes)
-        {
-            if(auto person_name = G->get_attrib_by_name<person_name_att>(person); person_name.has_value())
-            {
-                interest_person_name = person_name.value();
-                interest_person_node_id = person.id();
-                this->conversation_proxy->lost(person_name.value(), "person");
-            }
-        }
+//        auto person_nodes = G->get_nodes_by_type(person_type_name);
+//        for(auto person : person_nodes)
+//        {
+//            if(auto person_name = G->get_attrib_by_name<person_name_att>(person); person_name.has_value())
+//            {
+//                interest_person_name = person_name.value();
+//                interest_person_node_id = person.id();
+//                this->conversation_proxy->lost(person_name.value(), "person");
+//            }
+//        }
 	}
 }
 
@@ -149,15 +149,9 @@ void SpecificWorker:: start_mission(int intention)
         switch (intention)
         {
             case 0:
-                qInfo() << "############################";
-                qInfo() << "CREATING ASK FOR FOLLOW PLAN";
-                qInfo() << "############################";
                 create_ask_for_follow_plan();
                 break;
             case 1:
-                qInfo() << "############################";
-                qInfo() << "CREATING ASK FOR STOP FOLLOWING PLAN";
-                qInfo() << "############################";
                 create_ask_for_stop_following_plan();
                 break;
         }
@@ -182,13 +176,13 @@ void SpecificWorker::stop_mission()
     {
         if(auto intention_parent_id = G->get_attrib_by_name<parent_att>(intention.value()); intention_parent_id.has_value())
         {
-            if(auto person_mind = G->get_node(intention_parent_id.value()); person_mind.has_value())
-            {
-                if (auto has_mind_intention = G->get_edge(person_mind.value().id(),intention.value().id(),"has");has_mind_intention.has_value())
-                    G->delete_edge(person_mind.value().id(),intention.value().id(), "has");
+//            if(auto person_mind = G->get_node(intention_parent_id.value()); person_mind.has_value())
+//            {
+//                if (auto has_mind_intention = G->get_edge(person_mind.value().id(),intention.value().id(),"has");has_mind_intention.has_value())
+//                    G->delete_edge(person_mind.value().id(),intention.value().id(), "has");
 
                 G->delete_node(intention.value().id());
-            }
+//            }
         }
     }
     else
@@ -208,6 +202,7 @@ void SpecificWorker::create_ask_for_follow_plan()
     std::string intAsString(oss.str());
 
     temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
+//    temporary_plan.insert_attribute("person_name",  QString::fromStdString(intAsString));
     std::cout << "PLAN: " << temporary_plan.pprint() << std::endl;
     return;
 }
@@ -225,7 +220,6 @@ void SpecificWorker::create_ask_for_stop_following_plan()
     std::cout << "PLAN: " << temporary_plan.pprint() << std::endl;
     return;
 }
-
 void SpecificWorker::insert_intention_node(const Plan &plan)
 {
     if(auto interested_person_node = G->get_node(interest_person_node_id); interested_person_node.has_value())
@@ -297,57 +291,136 @@ void SpecificWorker::insert_intention_node(const Plan &plan)
         }
     }
 }
-
+uint64_t SpecificWorker::node_string2id(Plan currentPlan)
+{
+    auto person_id = currentPlan.get_attribute("person_node_id");
+    uint64_t value;
+    std::istringstream iss(person_id.toString().toUtf8().constData());
+    iss >> value;
+    return value;
+}
 void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
 {
-    if(type == "intention")
+    if(type == intention_type_name)
     {
-        if(auto node = G->get_node(id); node.has_value())
+        if(auto intention_node = G->get_node(id); intention_node.has_value())
         {
-//            if(auto node_name = G->get_attrib_by_name<name_att>(node.value()); node_name.has_value())
-//            {
-                if(node.value().name() == robot_current_intention_name)
-                    interest_robot_intention_node_id = id;
-//            }
+            if(intention_node.value().name() == robot_current_intention_name)
+            {
+                std::optional <std::string> plan = G->get_attrib_by_name<current_intention_att>(intention_node.value());
+                if (plan.has_value())
+                {
+                    Plan received_plan =plan.value();
+                    auto action_name = received_plan.get_action();
+                    auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
+                    if (action_name == follow_action_name)
+                    {
+                        interest_robot_intention_node_id = id;
+                        current_plan = received_plan;
+//                        interest_person_name = current_plan.get_attribute("person_name").toString().toStdString();
+//                        interest_person_node_id = node_string2id(current_plan);
+                        if(action_name == follow_action_name)
+                        {
+                            this->conversation_proxy->following(interest_person_name, "person");
+                        }
+                    }
+//                    if(action_name == follow_action_name)
+//                        {
+//                            this->conversation_proxy->following(interest_person_name, "person");
+//                        }
+//                    auto talking_with_people_action_name = QString::fromStdString("TALKING_WITH_PEOPLE");
+//                    if (action_name == talking_with_people_action_name or action_name == follow_action_name)
+//                    {
+//                        qInfo() << "5";
+//                        interest_robot_intention_node_id = id;
+//                        current_plan = received_plan;
+//                        interest_person_name = current_plan.get_attribute("person_name").toString().toStdString();
+//                        interest_person_node_id = node_string2id(current_plan);
+//                        if (action_name == talking_with_people_action_name)
+//                        {
+//                            qInfo() << "6";
+//                            std::cout << interest_person_name << std::endl;
+//                            qInfo() << interest_person_node_id;
+//                            this->conversation_proxy->sayHi(interest_person_name, "person");
+//                            this->conversation_proxy->listenToHuman();
+//                        }
+//                        else if(action_name == follow_action_name)
+//                        {
+//                            qInfo() << "7";
+//                            this->conversation_proxy->following(interest_person_name, "person");
+//                        }
+//                    }
+                }
+            }
         }
     }
 }
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {
-    if(from == interest_robot_intention_node_id)
+    if(from == interest_robot_intention_node_id or from == interest_person_node_id)
     {
         stop_mission();
     }
 }
-
-void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
+void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-    if(auto person_node = G->get_node(id); person_node.has_value())
+    if(type == interacting_type_name)
     {
-        // Check if the attribute that changed is the name of the person. That means that Face ID identified the person
-//        if(person_node.value().type() == person_type_name)
-        if(person_node.value().type() == person_type_name)
+        if(auto person_interacting_node = G->get_node(to); person_interacting_node.has_value())
         {
-            if(std::find(att_names. begin(), att_names. end(), "person_name") != att_names. end())
+            interest_person_node_id = to;
+            if(auto person_name = G->get_attrib_by_name<person_name_att>(person_interacting_node.value()); person_name.has_value())
             {
-                if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); person_name.has_value())
+                std::string person_name_o = person_name.value();
+                if(auto lost_followed_person = G->get_node("followed_person"); lost_followed_person.has_value())
                 {
-                    interest_person_name = person_name.value();
-                    interest_person_node_id = person_node.value().id();
-                    this->conversation_proxy->lost(person_name.value(), "person");
+                    if(auto lost_followed_person_name = G->get_attrib_by_name<person_name_att>(lost_followed_person.value()); lost_followed_person_name.has_value())
+                    {
+                        std::string lost_followed_person_name_o = lost_followed_person_name.value();
+                        if(person_name_o == lost_followed_person_name_o)
+                        {
+                            qInfo() << "######################## ENCONTRADO ########################";
+                            start_mission(0);
+                        }
+                    }
                 }
-            }
-            if(std::find(att_names. begin(), att_names. end(), "is_ready") != att_names. end())
-            {
-                if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); person_name.has_value())
-                {
-                    this->conversation_proxy->listenToHuman();
-                }
-
+                else
+                    this->conversation_proxy->sayHi(interest_person_name, "person");
+                this->conversation_proxy->listenToHuman();
+                interest_person_name = person_name.value();
             }
         }
     }
 }
+
+//void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
+//{
+//    if(auto person_node = G->get_node(id); person_node.has_value())
+//    {
+//        // Check if the attribute that changed is the name of the person. That means that Face ID identified the person
+////        if(person_node.value().type() == person_type_name)
+//        if(person_node.value().type() == person_type_name)
+//        {
+//            if(std::find(att_names. begin(), att_names. end(), "person_name") != att_names. end())
+//            {
+//                if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); person_name.has_value())
+//                {
+//                    interest_person_name = person_name.value();
+//                    interest_person_node_id = person_node.value().id();
+//                    this->conversation_proxy->lost(person_name.value(), "person");
+//                }
+//            }
+//            if(std::find(att_names. begin(), att_names. end(), "is_ready") != att_names. end())
+//            {
+//                if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); person_name.has_value())
+//                {
+//                    this->conversation_proxy->listenToHuman();
+//                }
+//
+//            }
+//        }
+//    }
+//}
 
 int SpecificWorker::startup_check()
 {
@@ -373,8 +446,8 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
         switch (intention) {
             case 0:
                 cout << "Seguir" << endl;
-                this->conversation_proxy->talking(interest_person_name, "person", "seguir");
-                stop_mission();
+                this->conversation_proxy->following(interest_person_name, "person");
+//                stop_mission();
                 create_ask_for_follow_plan();
                 start_mission(0);
                 break;
@@ -390,7 +463,7 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
 //                break;
             case 2:
                 cout << "Dejar de seguir" << endl;
-                this->conversation_proxy->talking(interest_person_name, "person", "no_seguir");
+                this->conversation_proxy->stopFollowing(interest_person_name, "person");
                 stop_mission();
                 create_ask_for_stop_following_plan();
                 start_mission(1);
@@ -406,7 +479,17 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
                 this->conversation_proxy->talking(interest_person_name, "person", "preguntar");
                 break;
             case -99:
-                this->conversation_proxy->talking(interest_person_name, "person", "no identifica");
+//                qInfo() << "#######################################";
+//                qInfo() << "############ ENTRA #############";
+//                qInfo() << "#######################################";
+//                if(auto interacting_edge = G->get_edge(G->get_node(robot_name).value().id(), interest_person_node_id, interacting_type_name))
+//                {
+//                    qInfo() << "#######################################";
+//                    qInfo() << "############ ENTRA #############";
+//                    qInfo() << "#######################################";
+//                    this->conversation_proxy->listenToHuman();
+//                }
+
 //                isListening = false;
                 break;
         }
@@ -422,5 +505,6 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
 // this->conversation_proxy->isTalking(...)
 // this->conversation_proxy->listenToHuman(...)
 // this->conversation_proxy->lost(...)
+// this->conversation_proxy->sayHi(...)
 // this->conversation_proxy->talking(...)
 

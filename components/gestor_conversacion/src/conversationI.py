@@ -56,5 +56,11 @@ class ConversationI(Conversation):
     def lost(self, name, role, c):
         return self.worker.Conversation_lost(name, role)
 
+    def sayHi(self, name, role, c):
+        return self.worker.Conversation_sayHi(name, role)
+
+    def stopFollowing(self, name, role, c):
+        return self.worker.Conversation_stopFollowing(name, role)
+
     def talking(self, name, role, conversation, c):
         return self.worker.Conversation_talking(name, role, conversation)
