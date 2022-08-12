@@ -1,6 +1,9 @@
 # human_capturer
 Intro to component here
 
+For using Hungarian Algorithm, execute in src folder:
+
+git clone https://github.com/mcximing/hungarian-algorithm-cpp.git
 
 ## Configuration parameters
 As any other component, *human_capturer* needs a configuration file to start. In

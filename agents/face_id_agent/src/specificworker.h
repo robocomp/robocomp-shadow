@@ -69,12 +69,12 @@ private:
     DoubleBuffer<uint64_t, uint64_t> person_buffer;
 
     std::optional<RoboCompRealSenseFaceID::ROIdata> detectAndDraw( cv::Mat& img, cv::CascadeClassifier& cascade, double scale );
-    optional<cv::Mat> get_face_ID_image();
-    optional<cv::Mat> get_person_ROI_from_node(DSR::Node person_node);
-    cv::Point2i get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi);
+    std::optional<cv::Mat> get_face_ID_image();
+    std::optional<cv::Mat> get_person_ROI_from_node(DSR::Node person_node);
+    std::optional<cv::Point2i> get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi);
     bool check_if_max_correlation_in_face(cv::Mat person_roi, cv::Point2i max_corr_point);
 
-    bool found_person = false;
+
 
     int try_counter_with_match = 0;
     int try_counter_without_match = 0;
@@ -83,9 +83,9 @@ private:
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
-	void modify_node_slot(std::uint64_t id, const std::string &type);
+	void modify_node_slot(std::uint64_t id, const std::string &type){};
 	void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
 	void del_node_slot(std::uint64_t from){};     

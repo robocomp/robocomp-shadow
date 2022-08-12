@@ -97,9 +97,9 @@ class SpecificWorker : public GenericWorker
         std::unique_ptr<DSR::DSRViewer> graph_viewer;
         QHBoxLayout mainLayout;
         void modify_node_slot(std::uint64_t, const std::string &type);
-        void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
-        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
+        void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
+        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
         void del_node_slot(std::uint64_t from){};
         bool startup_check_flag;
 
@@ -153,6 +153,8 @@ class SpecificWorker : public GenericWorker
         RoboCompHumanCameraBody::PeopleData test_person();
         std::int32_t increase_lambda_cont(std::int32_t lambda_cont);
         std::int32_t decrease_lambda_cont(std::int32_t lambda_cont);
+        std::int32_t increase_interaction_cont(std::int32_t interact_cont);
+        std::int32_t decrease_interaction_cont(std::int32_t interact_cont);
         cv::Point3f dictionary_values_to_3d_point(RoboCompHumanCameraBody::KeyPoint item);
         cv::Point3f cross_product(cv::Point3f p1, cv::Point3f p2);
         float get_degrees_between_vectors(cv::Point2f vector_1, cv::Point2f vector_2, std::string format);

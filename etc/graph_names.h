@@ -67,6 +67,8 @@ const std::string think_type_name = "thinks";
 const std::string has_type_name = "has";
 const std::string in_type_name = "in";
 const std::string attention_action_type_name = "attention_action";
+const std::string recognizing_type_name = "recognizing";
+const std::string interacting_type_name = "interacting";
 const std::string goto_action_type_name = "goto_action";
 const std::string following_action_type_name = "following_action";
 

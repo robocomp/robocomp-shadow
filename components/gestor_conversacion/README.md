@@ -1,6 +1,9 @@
 # aventuraconversacional
 Intro to component here
 
+For using omnidirectional microphone, execute in src folder:
+
+git clone https://github.com/respeaker/usb_4_mic_array.git
 
 ## Configuration parameters
 As any other component, *aventuraconversacional* needs a configuration file to start. In

@@ -76,6 +76,7 @@ for i, microphone_name in enumerate(sr.Microphone.list_microphone_names()):
     if "ReSpeaker 4 Mic Array (UAC1.0)" in microphone_name:
         print("Micrófono seleccionado")
         m = sr.Microphone(device_index=i, sample_rate=16000)
+        # m = sr.Microphone(device_index=i)
 
 class Line:
     def __init__(self):
@@ -137,9 +138,13 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # print("De qué hablamos?")
-        # tema = input()
-        # self.inicio_lineas(tema)
+    # Event list:
+    # 0: start listening process
+    # 1: start listening process
+    # 2: start listening process
+    # 3: start listening process
+    # 4: start listening process
+    # 5: start listening process
         if not self.process_queue:
             pass
         else:
@@ -158,6 +163,8 @@ class SpecificWorker(GenericWorker):
                     self.lost_conversation(process[1])
                 #     self.isLost = True
                 # self.lost_process()
+            elif process[0] == 5:
+                self.sayHi_conversation(process[1])
             self.process_queue.pop(0)
 
     def startup_check(self):
@@ -358,28 +365,38 @@ class SpecificWorker(GenericWorker):
         self.isTalking = talking
 
     def Conversation_talking(self, name, role, conversation):
-        if conversation == "seguir":
-            self.process_queue.append([1, name, role, conversation])
-        elif conversation == "no_seguir":
-            self.process_queue.append([3, name, role, conversation])            
         # elif conversation == "permiso":
         #     self.process_queue.append([1, name, role, conversation])
             # cadena = "Ey "+ name + ". ¿Puedes dejarme pasar, por favor?."
             # self.talker(cadena)
-        elif conversation == "hablar":
+        if conversation == "hablar":
             self.process_queue.append([2, name, role, conversation])
 
     def Conversation_following(self, name, role):
-    
-        #
-        # write your CODE here
-        #
-        pass
+        for process in self.process_queue:
+            if 1 in process:
+                return
+        self.process_queue.append([1, name, role])
+
+    def Conversation_stopFollowing(self, name, role):
+        for process in self.process_queue:
+            if 3 in process:
+                return
+        self.process_queue.append([3, name, role])
+
+    def Conversation_sayHi(self, name, role):
+        print("ENTRA")
+        for process in self.process_queue:
+            if 5 in process:
+                return
+        self.process_queue.append([5, name, role])
     
     def listenToHuman(self):
         grabacion = self.recorder()
         if grabacion == 0:
-            pass
+            print("NO OYE NÁ")
+            self.agenteconversacional_proxy.asynchronousIntentionReceiver(-99)
+            return
         else:
             split_response = grabacion.split(" ")
             for x in split_response:
@@ -395,6 +412,7 @@ class SpecificWorker(GenericWorker):
                     print("deja de seguirme")
                     self.agenteconversacional_proxy.asynchronousIntentionReceiver(2) 
                     return
+        print("NO OYE NÁ")
         self.agenteconversacional_proxy.asynchronousIntentionReceiver(-99)
 
     def follow_conversation(self, name):
@@ -410,6 +428,10 @@ class SpecificWorker(GenericWorker):
 
     def lost_conversation(self, name):
         cadena = "Espera " + name
+        self.talker(cadena)
+
+    def sayHi_conversation(self, name):
+        cadena = "Hola. " + name + ".¿Qué necesitas?"
         self.talker(cadena)
 
     def lost_process(self):
