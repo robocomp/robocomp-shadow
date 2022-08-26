@@ -1,0 +1,11 @@
+import "SoundRotation.idsl";
+
+Component keyword_identifier
+{
+    Communications
+    {
+        requires SoundRotation;
+    };
+    language python;
+};
+

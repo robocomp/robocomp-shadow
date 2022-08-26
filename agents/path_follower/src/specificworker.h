@@ -136,7 +136,7 @@ class SpecificWorker : public GenericWorker
             float times_final_distance_to_target_before_zero_rotation = 3;
             float advance_gaussian_cut_x = 0.7;
             float advance_gaussian_cut_y = 0.3;
-            float final_distance_to_target = 200; // mm
+            float final_distance_to_target = 500; // mm
         };
         CONSTANTS consts;
 

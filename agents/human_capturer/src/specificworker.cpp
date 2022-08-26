@@ -208,8 +208,8 @@ std::vector<SpecificWorker::PersonData> SpecificWorker::build_local_people_data(
             {
                 new_person.personCoords_robot = get<0>(pos.value());
                 new_person.personCoords_world = get<1>(pos.value());
-//                qInfo() << __FUNCTION__ << " Person pos robot: " << new_person.personCoords_robot.x << " " << new_person.personCoords_robot.y << " " << new_person.personCoords_robot.z;
-//                qInfo() << __FUNCTION__ << " Person pos world: " << new_person.personCoords_world.x << " " << new_person.personCoords_world.y << " " << new_person.personCoords_world.z;
+                qInfo() << __FUNCTION__ << " Person pos robot: " << new_person.personCoords_robot.x << " " << new_person.personCoords_robot.y << " " << new_person.personCoords_robot.z;
+                qInfo() << __FUNCTION__ << " Person pos world: " << new_person.personCoords_world.x << " " << new_person.personCoords_world.y << " " << new_person.personCoords_world.z;
                 new_person.pixels = get<2>(pos.value());
                 new_people_vector.push_back(new_person);
             }
@@ -430,7 +430,7 @@ SpecificWorker::position_filter(const std::tuple<std::vector<cv::Point3f>, std::
 
     person_pos = person_pos / i;
     person_pos.y = best_pos_value;
-    person_pos.z = 1;
+//    person_pos.z = 1;
 
     Eigen::Vector3f pose_aux = {person_pos.x, person_pos.y, person_pos.z};
     auto person_pos_double = pose_aux.cast <double>();
@@ -442,7 +442,8 @@ SpecificWorker::position_filter(const std::tuple<std::vector<cv::Point3f>, std::
         final_point.z = person_world_pos->z();
     }
     else { qWarning() << __FUNCTION__ << "Error. Transforming person_pos_double"; return {};};
-
+    std::cout << "FINAL POINT: " << final_point.x << " " << final_point.y << " " << final_point.z << std::endl;
+    std::cout << "NORMAL POINT: " << person_pos.x << " " << person_pos.y << " " << person_pos.z << std::endl;
     if(person_pos != zero_pos and person_pix != zero_pix)
         return std::make_tuple(person_pos, final_point, person_pix);
     else
@@ -768,8 +769,8 @@ float SpecificWorker::calculate_orientation(RoboCompHumanCameraBody::Person pers
     if(person_tjoints.find("0") != person_tjoints.end() && person_tjoints.find("1") != person_tjoints.end() && person_tjoints.find("2") != person_tjoints.end())
     {
         base_p = dictionary_values_to_3d_point(person_tjoints.find("0")->second);
-        left_p = dictionary_values_to_3d_point(person_tjoints.find("1")->second);
         right_p = dictionary_values_to_3d_point(person_tjoints.find("2")->second);
+        left_p = dictionary_values_to_3d_point(person_tjoints.find("1")->second);
     }
     else
     {
@@ -793,9 +794,9 @@ float SpecificWorker::calculate_orientation(RoboCompHumanCameraBody::Person pers
 
         // Right point
         if (person_tjoints.find("12") != person_tjoints.end())
-            right_p = dictionary_values_to_3d_point(person_tjoints.find("12")->second);
+            left_p = dictionary_values_to_3d_point(person_tjoints.find("12")->second);
         else if (person_tjoints.find("4") != person_tjoints.end())
-            right_p = dictionary_values_to_3d_point(person_tjoints.find("4")->second);
+            left_p = dictionary_values_to_3d_point(person_tjoints.find("4")->second);
         else
         {
             cout << "Right points not found. Can't calculate orientation." << endl;
@@ -804,9 +805,9 @@ float SpecificWorker::calculate_orientation(RoboCompHumanCameraBody::Person pers
 
         // Left point
         if (person_tjoints.find("11") != person_tjoints.end())
-            left_p = dictionary_values_to_3d_point(person_tjoints.find("11")->second);
+            right_p = dictionary_values_to_3d_point(person_tjoints.find("11")->second);
         else if (person_tjoints.find("3") != person_tjoints.end())
-            left_p = dictionary_values_to_3d_point(person_tjoints.find("3")->second);
+            right_p = dictionary_values_to_3d_point(person_tjoints.find("3")->second);
         else
         {
             cout << "Left points not found. Can't calculate orientation." << endl;
@@ -1322,7 +1323,7 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 //            persondata.orientation = M_PI/5;
 
             int nic = 0;
-            if ((persondata.orientation > (2 * M_PI - (M_PI / 4)) or persondata.orientation < (M_PI / 4)) && persondata.orientation != 0)
+            if ((persondata.orientation > (2 * M_PI - (M_PI / 3)) or persondata.orientation < (M_PI / 3)) && persondata.orientation != 0)
             {
                 G->add_or_modify_attrib_local<is_ready_att>(node, true);
                 // Inter_cont increment
@@ -1395,7 +1396,6 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
                                 (beta * last_pos_value[2])};
                         std::vector<float> new_robot_orientation = {0.0, (alpha * orientation_vector[1]) +
                                                                          (beta * last_orientation_value[1]), 0.0};
-                        std::cout << "ROTACIÖN: " << orientation_vector[1] << endl;
                         if (persondata.orientation != 0)
                             G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
                                                                                      new_robot_orientation);
@@ -1676,17 +1676,21 @@ void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::
 {
     if (std::count(att_names.begin(), att_names.end(), "checked_face"))
     {
+        
         if(auto person_node = G->get_node(id); person_node.has_value())
         {
-            G->delete_edge(G->get_node(robot_name).value().id(), person_node.value().id(), recognizing_type_name);
-            DSR::Edge interacting_edge = DSR::Edge::create<interacting_edge_type>(G->get_node(robot_name).value().id(), person_node.value().id());
-            if (G->insert_or_assign_edge(interacting_edge))
+            if(auto is_checked_face = G->get_attrib_by_name<checked_face_att>(person_node.value()); (is_checked_face.has_value() && is_checked_face == true))
             {
-                std::cout << __FUNCTION__ << " Edge successfully inserted: " << std::endl;
-            }
-            else
-            {
-                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << std::endl;
+                G->delete_edge(G->get_node(robot_name).value().id(), person_node.value().id(), recognizing_type_name);
+                DSR::Edge interacting_edge = DSR::Edge::create<interacting_edge_type>(G->get_node(robot_name).value().id(), person_node.value().id());
+                if (G->insert_or_assign_edge(interacting_edge))
+                {
+                    std::cout << __FUNCTION__ << " Edge successfully inserted: " << std::endl;
+                }
+                else
+                {
+                    std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << std::endl;
+                }
             }
         }
     }

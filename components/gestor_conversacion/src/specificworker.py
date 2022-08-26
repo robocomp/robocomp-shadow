@@ -40,6 +40,7 @@ import time
 import speech_recognition as sr
 import random
 import json
+from pixel_ring import pixel_ring
 
 # Speech imports
 
@@ -73,9 +74,9 @@ for path in os.listdir(lines_path):
 r = sr.Recognizer()
 for i, microphone_name in enumerate(sr.Microphone.list_microphone_names()):
     print(microphone_name)
-    if "ReSpeaker 4 Mic Array (UAC1.0)" in microphone_name:
+    if "Voice Tracker II" in microphone_name:
         print("Micrófono seleccionado")
-        m = sr.Microphone(device_index=i, sample_rate=16000)
+        m = sr.Microphone(device_index=i, sample_rate=8000)
         # m = sr.Microphone(device_index=i)
 
 class Line:
@@ -183,13 +184,15 @@ class SpecificWorker(GenericWorker):
     def recorder(self):
         # data = input()
         # return data
-
         with m as source:
             r.adjust_for_ambient_noise(source)
+            pixel_ring.set_brightness(10)
+            pixel_ring.set_color(None, r=0, g=255, b=0)
             # print("Grabando")
             # self.emotionalmotor_proxy.listening(True)
             audio = r.listen(source, phrase_time_limit=3)
             # self.emotionalmotor_proxy.listening(False)
+            pixel_ring.listen()
             try:
                 record = r.recognize_google(audio, language="es-ES")
                 return record
@@ -205,9 +208,12 @@ class SpecificWorker(GenericWorker):
         with m as source:
             r.adjust_for_ambient_noise(source)
             print("Grabando")
+            pixel_ring.set_brightness(10)
+            pixel_ring.set_color(None, r=0, g=255, b=0)
             # self.emotionalmotor_proxy.listening(True)
             audio = r.listen(source, phrase_time_limit=1.5)
             # self.emotionalmotor_proxy.listening(False)
+            pixel_ring.listen()
             try:
                 record = r.recognize_google(audio, language="es-ES")
                 return record
