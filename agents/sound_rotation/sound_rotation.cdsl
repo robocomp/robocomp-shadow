@@ -1,0 +1,13 @@
+import "SoundRotation.idsl";
+
+Component sound_rotation
+{
+    Communications
+    {
+        implements SoundRotation;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
