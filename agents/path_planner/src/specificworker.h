@@ -196,6 +196,7 @@ private:
         // Relevant node IDs
         u_int64_t followed_person_id = 0;
         u_int64_t grid_id = 0;
+        u_int64_t path_id = 0;
         std::uint64_t plan_node_id;
 
         Eigen::Vector2f grid_first_person_pos;
@@ -233,6 +234,7 @@ private:
 
 
         DoubleBuffer<Plan, Plan> plan_buffer;
+        DoubleBuffer<std::string, std::string> own_mission_buffer;
         void json_to_plan(const std::string &plan_string, Plan &plan);
 
         //Path planner

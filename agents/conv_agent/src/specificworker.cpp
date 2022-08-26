@@ -362,32 +362,45 @@ void SpecificWorker::del_node_slot(std::uint64_t from)
         stop_mission();
     }
 }
+
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if(edge_tag == interacting_type_name)
+    {
+        qInfo() << __FUNCTION__ << "LLEGA";
+    }
+}
+
 void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
     if(type == interacting_type_name)
     {
-        if(auto person_interacting_node = G->get_node(to); person_interacting_node.has_value())
+        qInfo() << __FUNCTION__ << "LLEGA";
+        if(auto edge = G->get_edge(from, to, type); edge.has_value())
         {
-            interest_person_node_id = to;
-            if(auto person_name = G->get_attrib_by_name<person_name_att>(person_interacting_node.value()); person_name.has_value())
+            if(auto person_interacting_node = G->get_node(to); person_interacting_node.has_value())
             {
-                std::string person_name_o = person_name.value();
-                if(auto lost_followed_person = G->get_node("followed_person"); lost_followed_person.has_value())
+                interest_person_node_id = to;
+                if(auto person_name = G->get_attrib_by_name<person_name_att>(person_interacting_node.value()); person_name.has_value())
                 {
-                    if(auto lost_followed_person_name = G->get_attrib_by_name<person_name_att>(lost_followed_person.value()); lost_followed_person_name.has_value())
+                    interest_person_name = person_name.value();
+                    std::string person_name_o = person_name.value();
+                    if(auto lost_followed_person = G->get_node("followed_person"); lost_followed_person.has_value())
                     {
-                        std::string lost_followed_person_name_o = lost_followed_person_name.value();
-                        if(person_name_o == lost_followed_person_name_o)
+                        if(auto lost_followed_person_name = G->get_attrib_by_name<person_name_att>(lost_followed_person.value()); lost_followed_person_name.has_value())
                         {
-                            qInfo() << "######################## ENCONTRADO ########################";
-                            start_mission(0);
+                            std::string lost_followed_person_name_o = lost_followed_person_name.value();
+                            if(person_name_o == lost_followed_person_name_o)
+                            {
+                                qInfo() << "######################## ENCONTRADO ########################";
+                                start_mission(0);
+                            }
                         }
                     }
+                    else
+                        this->conversation_proxy->sayHi(interest_person_name, "person");
+                    this->conversation_proxy->listenToHuman();
                 }
-                else
-                    this->conversation_proxy->sayHi(interest_person_name, "person");
-                this->conversation_proxy->listenToHuman();
-                interest_person_name = person_name.value();
             }
         }
     }

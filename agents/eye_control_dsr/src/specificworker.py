@@ -152,9 +152,9 @@ class SpecificWorker(GenericWorker):
             # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
         except RuntimeError as e:
             print(e)
@@ -378,7 +378,7 @@ class SpecificWorker(GenericWorker):
     def slot_change_pos(self, pos):   # comes in degrees -150 .. 150. Sent in radians -2.62 .. 2.62
         servo_node = self.g.get_node("servo")
         servo_node.attrs['servo_ref_pos'] = Attribute(float(0.1), self.agent_id)
-        servo_node.attrs['servo_ref_speed'] = Attribute(float(0.1), self.agent_id)
+        servo_node.attrs['servo_ref_speed'] = Attribute(float(0.0), self.agent_id)
         self.g.update_node(servo_node)
 
     @QtCore.Slot()
@@ -616,6 +616,7 @@ class SpecificWorker(GenericWorker):
             self.obtencion_datos()
             person_node = self.g.get_node(id)
             if (self.act_chased_person != None) and (person_node!= None) and (person_node.id == self.act_chased_person):
+                print("ENTRANDO")
                 puntoMedioX = person_node.attrs['person_pixel_x'].value
                 if(puntoMedioX!=self.last_puntoMedioX):
                     self.last_puntoMedioX = puntoMedioX
@@ -669,11 +670,13 @@ class SpecificWorker(GenericWorker):
     def update_edge(self, fr: int, to: int, type: str):
         if(type == "interacting"):
             self.act_chased_person = to
+            print("PERSONA SEGUIDA:", self.act_chased_person)
         # console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
 
     def delete_edge(self, fr: int, to: int, type: str):
-        if(type == "interacting"):
+        if(type == "interacting" and self.g.get_edge(fr, to, "following_action") == None):
             self.act_chased_person = None
+            self.slot_change_pos(0)

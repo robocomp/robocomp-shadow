@@ -212,7 +212,7 @@ void SpecificWorker::compute()
 ////                            robot_is_active = true;
 ////                        }
 //                }
-//                print_current_state(path, robot_pose, adv, side, rot);
+               print_current_state(path, robot_pose, adv, side, rot);
 //            }
             //else
             //{} // check elapsed time since last reading. Stop the robot if too long
@@ -312,8 +312,21 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
     else tangent = QLineF(to_QPointF(*(closest_point_to_nose - 1)), to_QPointF(*(closest_point_to_nose + 1)));
     QLineF robot_to_nose(to_QPointF(robot_pose), to_QPointF(robot_nose));
     float angle = rewrapAngleRestricted(qDegreesToRadians(robot_to_nose.angleTo(tangent)));
-
-
+    qInfo() << "ANGLE:" << angle;
+    // Is listened person exists, stop when angle value keep between range
+    if(auto listened_person = G->get_node("listened_person"); listened_person.has_value())
+        if(auto looking_for_edge = G->get_edge(G->get_node(robot_name).value().id(), listened_person.value().id(), looking_for_type_name))
+        {
+            if(abs(angle) < 10 * M_PI / 180)
+            {
+                qInfo() << __FUNCTION__ << " -------------- Target achieved -----------------";
+                advVel = 0;  sideVel= 0; rotVel = 0;
+                robot_is_active = false;
+                if(auto path_d = G->get_node(current_path_name); path_d.has_value())
+                    G->delete_node(path_d.value().id());
+                return std::make_tuple(0,0,0);  //adv, side, rot
+            }
+        }
 
     // compute distance to path to cancel stationary error
 //    auto e_tangent = Eigen::Hyperplane<float, 2>::Through(Eigen::Vector2f(tangent.p1().x(), tangent.p1().y()),
@@ -592,7 +605,7 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
 }
 void SpecificWorker::add_or_assign_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-    if(type == interacting_type_name)
+    if(type == interacting_type_name or type == looking_for_type_name)
     {
         std::cout << "ENTRA DONDE NO DEBE: " << type << std::endl;
         locked_advance = true;
