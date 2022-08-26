@@ -1,0 +1,20 @@
+CommonBehavior.Endpoints=tcp -p 100011
+
+# Endpoints for implements interfaces
+SoundRotation.Endpoints=tcp -p 12127
+
+
+agent_id = 1212 # Change id
+agent_name = sound_rotation
+tree_view = true
+graph_view = true
+2d_view = true
+3d_view = true
+#Ice.MessageSizeMax=20004800
+
+InnerModelPath = innermodel.xml
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
