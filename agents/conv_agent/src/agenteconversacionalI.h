@@ -35,6 +35,7 @@ public:
 
 	void asynchronousIntentionReceiver(int intention, const Ice::Current&);
 	void componentState(int state, const Ice::Current&);
+	int situationChecking(const Ice::Current&);
 
 private:
 

@@ -1,0 +1,17 @@
+# Endpoints for implements interfaces
+Conversation.Endpoints=tcp -p 15664
+
+# Proxies for required interfaces
+EmotionalMotorProxy = emotionalmotor:tcp -h localhost -p 10945
+SpeechProxy = speech:tcp -h localhost -p 11123
+AgenteConversacionalProxy = agenteconversacional:tcp -h localhost -p 16589
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+

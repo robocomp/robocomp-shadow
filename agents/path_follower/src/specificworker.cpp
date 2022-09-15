@@ -115,7 +115,7 @@ void SpecificWorker::initialize(int period)
 
         connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot);
         connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::add_or_assign_edge_slot);
-        //connect(G.get(), &DSR::DSRGraph::update_attrs_signal, this, &SpecificWorker::add_or_assign_attrs_slot);
+        connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
         connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
         connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
@@ -162,7 +162,6 @@ void SpecificWorker::initialize(int period)
         std::cout<< __FUNCTION__ << "Initialization finished" << std::endl;
         timer.start(Period);
     }
-    hide();
 }
 
 void SpecificWorker::compute()
@@ -448,13 +447,25 @@ std::tuple<float, float, float> SpecificWorker::send_command_to_robot(const std:
         if(locked_advance)
             G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) 0);
         else
-            G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) adv_);
-        G->add_or_modify_attrib_local<robot_ref_rot_speed_att>(robot_node.value(), (float) rot_);
-        G->add_or_modify_attrib_local<robot_ref_side_speed_att>(robot_node.value(), (float) side_);
+            G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node.value(), (float) (lc_speed_coefficient * adv_));
+        G->add_or_modify_attrib_local<robot_ref_rot_speed_att>(robot_node.value(), (float) (lc_speed_coefficient * rot_));
+        G->add_or_modify_attrib_local<robot_ref_side_speed_att>(robot_node.value(), (float) (lc_speed_coefficient * side_));
+        qInfo() << "ADV:" << lc_speed_coefficient * adv_;
+        qInfo() << "ROT:" << lc_speed_coefficient * rot_;
+        qInfo() << "SIDE:" << lc_speed_coefficient * side_;
         G->update_node(robot_node.value());
     }
     else qWarning() << __FUNCTION__ << "No robot node found";
     return std::make_tuple(adv_, side_, rot_);
+}
+
+uint64_t SpecificWorker::node_string2id(Plan currentPlan)
+{
+    auto person_id = currentPlan.get_attribute("person_node_id");
+    uint64_t value;
+    std::istringstream iss(person_id.toString().toUtf8().constData());
+    iss >> value;
+    return value;
 }
 
 // compute max de gauss(value) where gauss(x)=y  y min
@@ -503,6 +514,26 @@ void SpecificWorker::new_target_from_mouse(int pos_x, int pos_y, int id)
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Asynchronous changes on G nodes from G signals
 /////////////////////////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
+{
+    if(id == interacting_person_id)
+    {
+        if(auto person_node = G->get_node(id); person_node.has_value())
+        {
+            if(auto lambda_counter_value = G->get_attrib_by_name<lambda_cont_att>(person_node.value()); lambda_counter_value.has_value())
+            {
+                if(lambda_counter_value.value() <= -14)
+                {
+                    lc_speed_coefficient = 1;
+                    return;
+                }
+                    
+                lc_speed_coefficient = pow(((float)(lambda_counter_value.value()+15))/30, 3);
+                qInfo() << "LAMBDA COUNTER COEFFICIENT:" << lc_speed_coefficient;
+            }
+        }
+    } 
+}
 void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::string &type)
 {
     //check node type
@@ -516,14 +547,35 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
             {
                 Plan current_plan = plan.value();
                 auto action_name = current_plan.get_action();
+                interacting_person_id = node_string2id(current_plan);
                 auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
+                auto talking_action_name = QString::fromStdString("TALKING_TO_PEOPLE");
                 if (action_name == follow_action_name)
                     locked_advance = false;
+                if (action_name == talking_action_name)
+                    locked_advance = true;
                 else return;
                 plan_node_id = id;
             }
         }
     }
+
+    //     if (type == "virtual_person")
+    // {
+    //     if (auto virtual_person = G->get_node(id); virtual_person.has_value())
+    //     {
+    //         std::optional<std::string> person_mission = G->get_attrib_by_name<person_mission_att>(virtual_person.value());
+    //         if (person_mission.has_value())
+    //         {
+    //             std::string talking_mission_name = "TALKING_WITH_PEOPLE"; 
+    //             std::string action_name = person_mission.value();
+    //             if (action_name == talking_mission_name)
+    //                 locked_advance = true;
+    //             else return;
+    //             plan_node_id = id;
+    //         }
+    //     }
+    // }
 
     if (type == path_to_target_type_name)
     {
@@ -607,6 +659,7 @@ void SpecificWorker::add_or_assign_edge_slot(std::uint64_t from, std::uint64_t t
 {
     if(type == interacting_type_name or type == looking_for_type_name)
     {
+        interacting_person_id = to;
         std::cout << "ENTRA DONDE NO DEBE: " << type << std::endl;
         locked_advance = true;
     }

@@ -24,7 +24,7 @@ from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import re
-
+import os
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
@@ -139,13 +139,6 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-    # Event list:
-    # 0: start listening process
-    # 1: start listening process
-    # 2: start listening process
-    # 3: start listening process
-    # 4: start listening process
-    # 5: start listening process
         if not self.process_queue:
             pass
         else:
@@ -160,13 +153,18 @@ class SpecificWorker(GenericWorker):
             elif process[0] == 3:
                 self.not_follow_conversation(process[1])
             elif process[0] == 4:
-                if not self.isLost:
-                    self.lost_conversation(process[1])
+                # if not self.isLost:
+                self.lost_conversation(process[1])
                 #     self.isLost = True
                 # self.lost_process()
             elif process[0] == 5:
                 self.sayHi_conversation(process[1])
-            self.process_queue.pop(0)
+            elif process[0] == 6:
+                self.waiting_conversation(process[1])
+            elif process[0] == 7:
+                self.saySomething_conversation(process[1], process[2])
+            if len(self.process_queue) > 0:
+                self.process_queue.pop(0)
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
@@ -185,18 +183,19 @@ class SpecificWorker(GenericWorker):
         # data = input()
         # return data
         with m as source:
-            r.adjust_for_ambient_noise(source)
-            pixel_ring.set_brightness(10)
-            pixel_ring.set_color(None, r=0, g=255, b=0)
-            # print("Grabando")
-            # self.emotionalmotor_proxy.listening(True)
-            audio = r.listen(source, phrase_time_limit=3)
-            # self.emotionalmotor_proxy.listening(False)
-            pixel_ring.listen()
             try:
+                r.adjust_for_ambient_noise(source)
+                pixel_ring.set_brightness(10)
+                pixel_ring.set_color(None, r=0, g=255, b=0)
+                # print("Grabando")
+                # self.emotionalmotor_proxy.listening(True)
+                audio = r.listen(source, phrase_time_limit=3, timeout=2)
+                # self.emotionalmotor_proxy.listening(False)
+                pixel_ring.listen()
                 record = r.recognize_google(audio, language="es-ES")
                 return record
             except:
+                pixel_ring.listen()
                 return 0
 
     # For short answers (si, no)
@@ -225,7 +224,8 @@ class SpecificWorker(GenericWorker):
         lang = "es"
         speech = Speech(text, lang)
         # self.emotionalmotor_proxy.talking(True)
-        speech.play()
+        # speech.save("act_audio.mp3")
+        # os.system("mpg123 " + "act_audio.mp3")
         # self.emotionalmotor_proxy.talking(False)
         return
 
@@ -243,8 +243,7 @@ class SpecificWorker(GenericWorker):
         return line
 
     def automatic_exit(self):
-        self.talker("Déjame en paz.")
-        state = self.agenteconversacional_proxy.componentState(0)
+        self.talker("Vale. Hasta luego")
         self.exit = True  
 
     def inicio_lineas(self, tema):
@@ -347,9 +346,9 @@ class SpecificWorker(GenericWorker):
 ##################################################################################################################
        
     def Conversation_listenToHuman(self):
-        for process in self.process_queue:
-            if 0 in process:
-                return
+        # for process in self.process_queue:
+        #     if 0 in process:
+        #         return
         self.process_queue.append([0])
  
     def Conversation_lost(self, name, role):
@@ -383,6 +382,12 @@ class SpecificWorker(GenericWorker):
             if 1 in process:
                 return
         self.process_queue.append([1, name, role])
+        
+    def Conversation_saySomething(self, name, phrase):
+        for process in self.process_queue:
+            if 7 in process:
+                return
+        self.process_queue.append([7, name, phrase])
 
     def Conversation_stopFollowing(self, name, role):
         for process in self.process_queue:
@@ -396,6 +401,13 @@ class SpecificWorker(GenericWorker):
             if 5 in process:
                 return
         self.process_queue.append([5, name, role])
+    
+    def Conversation_waiting(self, name, role):
+        print("ENTRA")
+        for process in self.process_queue:
+            if 6 in process:
+                return
+        self.process_queue.append([6, name, role])
     
     def listenToHuman(self):
         grabacion = self.recorder()
@@ -418,12 +430,22 @@ class SpecificWorker(GenericWorker):
                     print("deja de seguirme")
                     self.agenteconversacional_proxy.asynchronousIntentionReceiver(2) 
                     return
+                elif grabacion == "espérame":
+                    self.agenteconversacional_proxy.asynchronousIntentionReceiver(3) 
+                    return
         print("NO OYE NÁ")
         self.agenteconversacional_proxy.asynchronousIntentionReceiver(-99)
+
+    def waiting_conversation(self, name):
+        cadena = "Vale. "+name+". Te espero"
+        self.talker(cadena)
 
     def follow_conversation(self, name):
         cadena = "Te sigo."
         self.talker(cadena)
+        
+    def saySomething_conversation(self, name, phrase):
+        self.talker(phrase)
 
     def not_follow_conversation(self, name):
         cadena = "Que vaya bien."
