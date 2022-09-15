@@ -97,7 +97,7 @@ class SpecificWorker : public GenericWorker
         std::unique_ptr<DSR::DSRViewer> dsr_viewer;
         QHBoxLayout mainLayout;
         void add_or_assign_node_slot(std::uint64_t, const std::string &type);
-        void add_or_assign_attrs_slot(std::uint64_t id, const std::map<std::string, DSR::Attribute> &attribs){};
+        void modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
         void add_or_assign_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
         void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
         void del_node_slot(std::uint64_t from);
@@ -127,18 +127,20 @@ class SpecificWorker : public GenericWorker
             float robot_width = 400;
             float robot_radius = robot_length / 2.0;
             float max_adv_speed = 800;
-            float max_rot_speed = 1.57;
-            float max_side_speed = 300;
+            float max_rot_speed = 2;
+            float max_side_speed = 0;
             float max_lag = 100;  // ms
-            float lateral_correction_gain = 0.2;
-            float lateral_correction_for_side_velocity = 500;
+            float lateral_correction_gain = 1.2;
+            float lateral_correction_for_side_velocity = 0;
             float rotation_gain = 0.9;
             float times_final_distance_to_target_before_zero_rotation = 3;
             float advance_gaussian_cut_x = 0.7;
             float advance_gaussian_cut_y = 0.3;
-            float final_distance_to_target = 500; // mm
+            float final_distance_to_target = 2; // mm
         };
         CONSTANTS consts;
+
+        float lc_speed_coefficient = 1;
 
         // controller
         void path_follower_initialize();
@@ -162,6 +164,9 @@ class SpecificWorker : public GenericWorker
         std::atomic_bool is_cyclic = ATOMIC_VAR_INIT(false);
         float dist_along_path(const std::vector<Eigen::Vector2f> &path);
         void print_current_state(const std::vector<Eigen::Vector2f> &path, Eigen::Matrix<float, 2, 1> matrix1, float adv, float side, float rot);
+
+        uint64_t node_string2id(Plan currentPlan);
+        uint64_t interacting_person_id = 0;
 
         // For knowing intention node
         std::uint64_t plan_node_id;

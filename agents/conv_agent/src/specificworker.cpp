@@ -132,13 +132,14 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-
+    qInfo() << first_follow;
     // check for existing missions
     if (auto plan_o = plan_buffer.try_get(); plan_o.has_value())
     {
         current_plan = plan_o.value();
         current_plan.set_running();
     }
+
 }
 
 void SpecificWorker:: start_mission(int intention)
@@ -153,6 +154,12 @@ void SpecificWorker:: start_mission(int intention)
                 break;
             case 1:
                 create_ask_for_stop_following_plan();
+                break;
+            case 2:
+                create_talking_plan();
+                break;
+            case 3:
+                create_ask_for_stop_talking_plan();
                 break;
         }
     }
@@ -207,6 +214,22 @@ void SpecificWorker::create_ask_for_follow_plan()
     return;
 }
 
+void SpecificWorker::create_talking_plan()
+{
+    this->conversation_proxy->talking(interest_person_name, "person", "hablar");
+    temporary_plan.new_plan(Plan::Actions::TALKING_WITH_ROBOT);
+    if (not temporary_plan.is_valid())
+        temporary_plan.new_plan(Plan::Actions::TALKING_WITH_ROBOT);
+    std::ostringstream oss;
+    oss << interest_person_node_id;
+    std::string intAsString(oss.str());
+
+    temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
+//    temporary_plan.insert_attribute("person_name",  QString::fromStdString(intAsString));
+    std::cout << "PLAN: " << temporary_plan.pprint() << std::endl;
+    return;
+}
+
 void SpecificWorker::create_ask_for_stop_following_plan()
 {
     temporary_plan.new_plan(Plan::Actions::ASK_FOR_STOP_FOLLOWING);
@@ -218,8 +241,25 @@ void SpecificWorker::create_ask_for_stop_following_plan()
 
     temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
     std::cout << "PLAN: " << temporary_plan.pprint() << std::endl;
+    // To say "te sigo" in the next following interaction
     return;
 }
+
+void SpecificWorker::create_ask_for_stop_talking_plan()
+{
+    temporary_plan.new_plan(Plan::Actions::ASK_FOR_STOP_TALKING);
+    if (not temporary_plan.is_valid()) //resetea el valor de la y cuando pones la x
+        temporary_plan.new_plan(Plan::Actions::ASK_FOR_STOP_TALKING);
+    std::ostringstream oss;
+    oss << interest_person_node_id;
+    std::string intAsString(oss.str());
+
+    temporary_plan.insert_attribute("person_node_id",  QString::fromStdString(intAsString));
+    std::cout << "PLAN: " << temporary_plan.pprint() << std::endl;
+    // To say "te sigo" in the next following interaction
+    return;
+}
+
 void SpecificWorker::insert_intention_node(const Plan &plan)
 {
     if(auto interested_person_node = G->get_node(interest_person_node_id); interested_person_node.has_value())
@@ -252,7 +292,6 @@ void SpecificWorker::insert_intention_node(const Plan &plan)
                             }
                         }
                     }
-
                     DSR::Node intention_node = DSR::Node::create<intention_node_type>(person_current_intention_name);
                     G->add_or_modify_attrib_local<parent_att>(intention_node, mind_node.id());
                     if (auto mind_level = G->get_node_level(mind_node); mind_level.has_value())
@@ -291,6 +330,46 @@ void SpecificWorker::insert_intention_node(const Plan &plan)
         }
     }
 }
+void SpecificWorker::create_waiting_person_node()
+{
+    DSR::Node new_virtual_node = DSR::Node::create<virtual_person_node_type>("person_to_wait");
+    G->add_or_modify_attrib_local<person_name_att>(new_virtual_node, interest_person_name);
+    G->insert_node(new_virtual_node);
+    G->update_node(new_virtual_node);
+    DSR::Edge waiting_edge = DSR::Edge::create<waiting_edge_type>(G->get_node("robot").value().id(), new_virtual_node.id());
+    if (G->insert_or_assign_edge(waiting_edge))
+    {
+        std::cout << __FUNCTION__ << " Edge successfully inserted: " << G->get_node("robot").value().id() << "->" << new_virtual_node.id()
+                    << " type: waiting_" << std::endl;
+    }
+    else
+    {
+        std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node("robot").value().id() << "->" << new_virtual_node.id()
+                    << " type: waiting_" << std::endl;
+    }
+    DSR::Edge has_edge = DSR::Edge::create<has_edge_type>(G->get_node(robot_mind_name).value().id(), new_virtual_node.id());
+    if (G->insert_or_assign_edge(has_edge))
+    {
+        std::cout << __FUNCTION__ << " Edge successfully inserted: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
+                    << " type: has" << std::endl;
+    }
+    else
+    {
+        std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
+                    << " type: has" << std::endl;
+    }    
+}
+void SpecificWorker::remove_waiting_person_node()
+{
+    if(auto person_to_wait_in_mind = G->get_node("person_to_wait"); person_to_wait_in_mind.has_value())
+    {
+        if (auto has_edge = G->get_edge(G->get_node(robot_mind_name).value().id(),person_to_wait_in_mind.value().id(),"has");has_edge.has_value())
+            G->delete_edge(G->get_node(robot_mind_name).value().id(),person_to_wait_in_mind.value().id(),"has");
+        if (auto waiting_edge = G->get_edge(G->get_node(robot_name).value().id(),person_to_wait_in_mind.value().id(),"waiting");waiting_edge.has_value())
+            G->delete_edge(G->get_node(robot_name).value().id(),person_to_wait_in_mind.value().id(),"waiting");
+        G->delete_node(person_to_wait_in_mind.value().id());    
+    }
+}
 uint64_t SpecificWorker::node_string2id(Plan currentPlan)
 {
     auto person_id = currentPlan.get_attribute("person_node_id");
@@ -319,15 +398,14 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
                         current_plan = received_plan;
 //                        interest_person_name = current_plan.get_attribute("person_name").toString().toStdString();
 //                        interest_person_node_id = node_string2id(current_plan);
-                        if(action_name == follow_action_name)
+                        if(first_follow)
                         {
                             this->conversation_proxy->following(interest_person_name, "person");
+                            first_follow = false;
                         }
+                            
+
                     }
-//                    if(action_name == follow_action_name)
-//                        {
-//                            this->conversation_proxy->following(interest_person_name, "person");
-//                        }
 //                    auto talking_with_people_action_name = QString::fromStdString("TALKING_WITH_PEOPLE");
 //                    if (action_name == talking_with_people_action_name or action_name == follow_action_name)
 //                    {
@@ -384,25 +462,63 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
                 if(auto person_name = G->get_attrib_by_name<person_name_att>(person_interacting_node.value()); person_name.has_value())
                 {
                     interest_person_name = person_name.value();
+                    std::cout << "NEW PERSON NAME:" << interest_person_name<< std::endl;
                     std::string person_name_o = person_name.value();
-                    if(auto lost_followed_person = G->get_node("followed_person"); lost_followed_person.has_value())
+                    if(auto lost_followed_person = G->get_node("lost_person"); lost_followed_person.has_value())
                     {
                         if(auto lost_followed_person_name = G->get_attrib_by_name<person_name_att>(lost_followed_person.value()); lost_followed_person_name.has_value())
                         {
                             std::string lost_followed_person_name_o = lost_followed_person_name.value();
                             if(person_name_o == lost_followed_person_name_o)
                             {
-                                qInfo() << "######################## ENCONTRADO ########################";
+                                std::string talking_mission_name = "TALKING_WITH_PEOPLE"; 
+                                std::string follow_mission_name = "FOLLOW_PEOPLE"; 
+                                if(auto lost_person_mission = G->get_attrib_by_name<person_mission_att>(lost_followed_person.value()); lost_person_mission.has_value())
+                                {
+                                    std::string lost_person_mission_name = lost_person_mission.value();
+                                    if(lost_person_mission_name == talking_mission_name)
+                                    {
+                                        this->conversation_proxy->saySomething(interest_person_name, "Quería seguir charlando contigo");
+                                        // Start Mission again
+                                        start_mission(2);
+                                    }
+                                    else if(lost_person_mission_name == follow_mission_name)
+                                    {
+                                        this->conversation_proxy->saySomething(interest_person_name, "Que susto. Vuelvo a seguirte");
+                                        // Start Mission again
+                                        start_mission(0);                                    
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if(auto person_to_wait = G->get_node("person_to_wait"); person_to_wait.has_value())
+                    {
+                        if(auto person_to_wait_name = G->get_attrib_by_name<person_name_att>(person_to_wait.value()); person_to_wait_name.has_value())
+                        {
+                            std::string person_to_wait_name_o = person_to_wait_name.value();
+                            if(person_name_o == person_to_wait_name_o)
+                            {
+                                this->conversation_proxy->saySomething(interest_person_name, "Sigamos con el paseo");
+                                remove_waiting_person_node();
                                 start_mission(0);
                             }
                         }
                     }
                     else
+                    {
+                    if(first_follow)
                         this->conversation_proxy->sayHi(interest_person_name, "person");
                     this->conversation_proxy->listenToHuman();
+                    }
+
                 }
             }
         }
+    }
+    if(type == lost_type_name)
+    {
+        this->conversation_proxy->lost(interest_person_name, "person");
     }
 }
 
@@ -453,6 +569,14 @@ void SpecificWorker::AgenteConversacional_componentState(int state)
 //    }
 }
 
+int SpecificWorker::AgenteConversacional_situationChecking() 
+{
+    if(auto lost_edges = G->get_edges_by_type(lost_type_name); lost_edges.size() > 0)
+        return 1;
+    else
+        return 0;
+}
+
 void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int intention) {
     if (auto robot_node = G->get_node("robot"); robot_node.has_value()) {
         auto robot_node_value = robot_node.value();
@@ -460,31 +584,65 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
             case 0:
                 cout << "Seguir" << endl;
                 this->conversation_proxy->following(interest_person_name, "person");
-//                stop_mission();
+                // stop_mission();
                 create_ask_for_follow_plan();
                 start_mission(0);
                 break;
-
-//            case 1:
-//                cout << "Hablar" << endl;
-//                isTalking = true;
-//                isListening = false;
-//                // temporary_plan.new_plan(Plan::Actions::ASK_FOR_TALKING);
-//                // insert_intention_node(temporary_plan);
-//                insert_action_edge(1);
-//                this->conversation_proxy->talking(interest_person_name, role, "hablar");
-//                break;
+           case 1:
+                cout << "Hablar" << endl;
+                
+                // stop_mission();
+                create_talking_plan();
+                start_mission(2);
+               break;
             case 2:
                 cout << "Dejar de seguir" << endl;
                 this->conversation_proxy->stopFollowing(interest_person_name, "person");
-                stop_mission();
+                // stop_mission();
                 create_ask_for_stop_following_plan();
                 start_mission(1);
+                first_follow = true;
                 break;
-//            case 3:
-//                cout << "Identificado" << endl;
-////                G->add_or_modify_attrib_local<robot_rotation_to_person_att>(robot_node_value, true);
-//                G->update_node(robot_node_value);
+           case 3:
+                cout << "Esperar" << endl;
+                // Check if person is being followed
+                if(auto intention_node = G->get_node(robot_current_intention_name); intention_node.has_value())
+                {
+                    std::optional <std::string> plan = G->get_attrib_by_name<current_intention_att>(intention_node.value());
+                    if (plan.has_value())
+                    {
+                        Plan received_plan =plan.value();
+                        auto action_name = received_plan.get_action();
+                        auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
+                        if (action_name == follow_action_name)
+                        {
+                            this->conversation_proxy->waiting(interest_person_name, "person");
+                            // Generate virtual_person node named "waiting_person"
+                            create_waiting_person_node();
+                            // Stop current mission
+                            stop_mission();
+                            create_ask_for_stop_following_plan();
+                            start_mission(1);
+                        }   
+                        else
+                        {
+                            // Mensaje indicando que no se está siguiendo a la persona
+                        }
+                    }
+                    
+                }
+                else
+                {
+                    // Mensaje indicando que no se está siguiendo a la persona
+                }
+                break;
+            case 4:
+                qInfo() << "DEJAR DE HABLAR";
+
+                create_ask_for_stop_talking_plan();
+                start_mission(3);
+                first_follow = true;
+                break;
 
             case -1:
                 cout << "No identifica keyword" << endl;
@@ -492,18 +650,16 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
                 this->conversation_proxy->talking(interest_person_name, "person", "preguntar");
                 break;
             case -99:
-//                qInfo() << "#######################################";
-//                qInfo() << "############ ENTRA #############";
-//                qInfo() << "#######################################";
-//                if(auto interacting_edge = G->get_edge(G->get_node(robot_name).value().id(), interest_person_node_id, interacting_type_name))
-//                {
-//                    qInfo() << "#######################################";
-//                    qInfo() << "############ ENTRA #############";
-//                    qInfo() << "#######################################";
-//                    this->conversation_proxy->listenToHuman();
-//                }
+                if(auto lost_edge = G->get_edge(robot_node_value.id(), interest_person_node_id, lost_type_name))
+                {
+                    this->conversation_proxy->lost(interest_person_name, "person");
+                    break;
+                }
+                if(auto interacting_edge = G->get_edge(robot_node_value.id(), interest_person_node_id, interacting_type_name))
+                {
+                    this->conversation_proxy->listenToHuman();
+                }
 
-//                isListening = false;
                 break;
         }
     }

@@ -114,6 +114,7 @@ private:
     void create_follow_people_mission(uint64_t person_id = 0);
     void create_recognize_people_mission(uint64_t person_id);
     void create_talking_people_mission(uint64_t person_id);
+    void create_searching_person_mission();
     void create_bouncer_mission();
     void create_path_mission();
     AbstractGraphicViewer *pathfollow_draw_widget;
@@ -123,10 +124,13 @@ private:
 
     // ID
     uint64_t interacting_person_id;
+    uint64_t followed_person_id;
+    uint64_t talkative_person_id;
 
     //Path
     std::vector<Eigen::Vector2f> path;  // check if can be made local
     QPointF last_point;
+    Mat::Vector3d last_person_pos;
     std::vector<QGraphicsLineItem *> lines;
     DoubleBuffer<std::vector<Eigen::Vector3d>,std::vector<Eigen::Vector3d>> path_buffer;
     void draw_path(std::vector<Eigen::Vector2f> &path, QGraphicsScene* viewer_2d, bool remove = false);

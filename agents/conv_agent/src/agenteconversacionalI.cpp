@@ -39,3 +39,8 @@ void AgenteConversacionalI::componentState(int state, const Ice::Current&)
 	worker->AgenteConversacional_componentState(state);
 }
 
+int AgenteConversacionalI::situationChecking(const Ice::Current&)
+{
+	return worker->AgenteConversacional_situationChecking();
+}
+

@@ -72,6 +72,7 @@ const std::string interacting_type_name = "interacting";
 const std::string goto_action_type_name = "goto_action";
 const std::string following_action_type_name = "following_action";
 const std::string looking_for_type_name = "looking_for";
-
+const std::string lost_type_name = "lost";
+const std::string waiting_type_name = "waiting";
 
 #endif

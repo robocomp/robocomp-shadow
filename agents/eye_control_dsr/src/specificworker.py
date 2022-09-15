@@ -664,6 +664,7 @@ class SpecificWorker(GenericWorker):
         if id == self.intention_id:
             self.act_chased_person = None
             self.intention_id = None
+            self.slot_change_pos(0)
         console.print(f"DELETE NODE:: {id} ", style='green')
 
 

@@ -30,12 +30,8 @@ except KeyError:
 
 Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
 import RoboCompCommonBehavior
-Ice.loadSlice("-I ./src/ --all ./src/EmotionalMotor.ice")
-import RoboCompEmotionalMotor
-Ice.loadSlice("-I ./src/ --all ./src/Speech.ice")
-import RoboCompSpeech
-Ice.loadSlice("-I ./src/ --all ./src/AgenteConversacional.ice")
-import RoboCompAgenteConversacional
+
+
 
 
 class GenericWorker(QtCore.QObject):

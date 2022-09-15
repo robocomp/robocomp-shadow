@@ -87,7 +87,7 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         porcupine = pvporcupine.create(keywords=["picovoice", "blueberry"],
                                        keyword_paths=["Hey-Giraffe_en_linux_v2_1_0.ppn"],
-                                       access_key="eeegi+PSnbxq38fvCQJOCLjx280A8CNzdf4Q5NkCCxyZYFbNURErfw==")
+                                       access_key="zvBFLun7pJBxuAqmhqhbfm0y1xICq0MW3YQhDkrSphWvqwLLbHgJfA==")
 
         pa = pyaudio.PyAudio()
         for i in range(pa.get_device_count()):
@@ -103,27 +103,30 @@ class SpecificWorker(GenericWorker):
             input=True,
             frames_per_buffer=porcupine.frame_length)
         while True:
-            dir = self.Mic_tuning.direction
-            if 270 >= dir >= 90:
-                dir = -(dir - 90)
-            elif dir < 90:
-                dir = 90 - dir
-            else:
-                dir = -(dir - 450)
+            try:
+                dir = self.Mic_tuning.direction
+                if 270 >= dir >= 90:
+                    dir = -(dir - 90)
+                elif dir < 90:
+                    dir = 90 - dir
+                else:
+                    dir = -(dir - 450)
 
-            if len(self.dir_list) > 9:
-                self.dir_list.pop(0)
-            self.dir_list.append(dir)
-            print(dir)
-            pcm = audio_stream.read(porcupine.frame_length)
-            pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+                if len(self.dir_list) > 9:
+                    self.dir_list.pop(0)
+                self.dir_list.append(dir)
+                print(dir)
+                pcm = audio_stream.read(porcupine.frame_length)
+                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
 
-            keyword_index = porcupine.process(pcm)
+                keyword_index = porcupine.process(pcm)
 
-            if keyword_index >= 0:
-                print("KEYWORD")
-                print(sum(self.dir_list)/len(self.dir_list))
-                self.soundrotation_proxy.gotKeyWord(sum(self.dir_list)/len(self.dir_list))
+                if keyword_index >= 0:
+                    print("KEYWORD")
+                    print(sum(self.dir_list)/len(self.dir_list))
+                    self.soundrotation_proxy.gotKeyWord(sum(self.dir_list)/len(self.dir_list))
+            except:
+                print("PROBLEMA CON EL MICRO")
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)

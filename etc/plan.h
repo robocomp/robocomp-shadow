@@ -8,7 +8,7 @@
 class Plan
 {
     public:
-        enum class Actions {NONE, GOTO, BOUNCE, FOLLOW_PATH,FOLLOW_PEOPLE, ASK_FOR_FOLLOWING, ASK_FOR_STOP_FOLLOWING, RECOGNIZE_PEOPLE, TALKING_WITH_PEOPLE};
+        enum class Actions {NONE, GOTO, BOUNCE, FOLLOW_PATH,FOLLOW_PEOPLE, ASK_FOR_FOLLOWING, ASK_FOR_STOP_FOLLOWING, RECOGNIZE_PEOPLE, TALKING_WITH_PEOPLE, TALKING_WITH_ROBOT, ASK_FOR_STOP_TALKING, SEARCHING_PERSON};
         enum class PlanState {INACTIVE, RUNNING, CREATING, FINISHED, READY};
         Plan()
         {
@@ -129,8 +129,11 @@ class Plan
             {Actions::FOLLOW_PEOPLE,"FOLLOW_PEOPLE"},
             {Actions::RECOGNIZE_PEOPLE,"RECOGNIZE_PEOPLE"},
             {Actions::TALKING_WITH_PEOPLE,"TALKING_WITH_PEOPLE"},
+            {Actions::TALKING_WITH_ROBOT,"TALKING_WITH_ROBOT"},
             {Actions::ASK_FOR_FOLLOWING, "ASK_FOR_FOLLOWING"},
-            {Actions::ASK_FOR_STOP_FOLLOWING, "ASK_FOR_STOP_FOLLOWING"}
+            {Actions::ASK_FOR_STOP_FOLLOWING, "ASK_FOR_STOP_FOLLOWING"},
+            {Actions::SEARCHING_PERSON, "SEARCHING_PERSON"},
+            {Actions::ASK_FOR_STOP_TALKING, "ASK_FOR_STOP_TALKING"}
          };
         std::map<std::string, Actions> strings_to_actions
         {
@@ -141,8 +144,11 @@ class Plan
             {"FOLLOW_PEOPLE", Actions::FOLLOW_PEOPLE},
             {"RECOGNIZE_PEOPLE", Actions::RECOGNIZE_PEOPLE},
             {"TALKING_WITH_PEOPLE", Actions::TALKING_WITH_PEOPLE},
+            {"TALKING_WITH_ROBOT", Actions::TALKING_WITH_ROBOT},
             {"ASK_FOR_FOLLOWING", Actions::ASK_FOR_FOLLOWING},
-            {"ASK_FOR_STOP_FOLLOWING", Actions::ASK_FOR_STOP_FOLLOWING}
+            {"ASK_FOR_STOP_FOLLOWING", Actions::ASK_FOR_STOP_FOLLOWING},
+            {"SEARCHING_PERSON", Actions::SEARCHING_PERSON},
+            {"ASK_FOR_STOP_TALKING", Actions::ASK_FOR_STOP_TALKING}
         };
         std::string convert_action_to_string(Actions action) const
         {
@@ -193,8 +199,11 @@ class Plan
         bool FOLLOW_PEOPLE_test() { return true; };
         bool RECOGNIZE_PEOPLE_test() { return true; };
         bool TALKING_WITH_PEOPLE_test() { return true; };
+        bool TALKING_WITH_ROBOT_test() { return true; };
         bool ASK_FOR_FOLLOWING_test() { return true; };
         bool ASK_FOR_STOP_FOLLOWING_test() { return true; };
+        bool SEARCHING_PERSON_test() { return true; };
+        bool ASK_FOR_STOP_TALKING_test() { return true; };
 
         std::map <Actions, Test> action_to_tests
         {
@@ -204,8 +213,11 @@ class Plan
             {Actions::FOLLOW_PEOPLE, &Plan::FOLLOW_PEOPLE_test},
             {Actions::RECOGNIZE_PEOPLE, &Plan::RECOGNIZE_PEOPLE_test},
             {Actions::TALKING_WITH_PEOPLE, &Plan::TALKING_WITH_PEOPLE_test},
+            {Actions::TALKING_WITH_ROBOT, &Plan::TALKING_WITH_ROBOT_test},
             {Actions::ASK_FOR_FOLLOWING, &Plan::ASK_FOR_FOLLOWING_test},
-            {Actions::ASK_FOR_STOP_FOLLOWING, &Plan::ASK_FOR_STOP_FOLLOWING_test}
+            {Actions::ASK_FOR_STOP_FOLLOWING, &Plan::ASK_FOR_STOP_FOLLOWING_test},
+            {Actions::SEARCHING_PERSON, &Plan::SEARCHING_PERSON_test},
+            {Actions::ASK_FOR_STOP_TALKING, &Plan::ASK_FOR_STOP_TALKING_test}
         };
 
 

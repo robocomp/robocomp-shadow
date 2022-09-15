@@ -25,6 +25,7 @@
 SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
 {
 	this->startup_check_flag = startup_check;
+    QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 
 /**
@@ -82,7 +83,7 @@ void SpecificWorker::initialize(int period)
 		//dsr update signals
 //		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
 		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
+		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
 //		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 //		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
@@ -119,13 +120,15 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     // check if somebody to recognize exists
-    if (auto person_o = person_buffer.try_get(); person_o.has_value())
+    // if (auto person_o = person_buffer.try_get(); person_o.has_value())
+    // {
+    
+    if(auto robot_node = G->get_node(robot_name); robot_node.has_value())
     {
-        bool found_person = false;
-        std::cout << "PERSON ID:" << person_o.value() << std::endl;
-        while(found_person == false)
+        auto recognizing_nodes = G->get_edges_by_type(recognizing_type_name);
+        if(recognizing_nodes.size() > 0)
         {
-            if(auto person_node = G->get_node(person_o.value()); person_node.has_value())
+            if(auto person_node = G->get_node(recognizing_nodes[0].to()); person_node.has_value())
             {
                 if(auto person_gray_roi = get_person_ROI_from_node(person_node.value()); person_gray_roi.has_value())
                 {
@@ -142,41 +145,70 @@ void SpecificWorker::compute()
                                 // Get face image with Face ID image and rectangle data given by Face ID component
                                 if(identified_person.faceROI.x + identified_person.faceROI.width < face_id_image.value().cols && identified_person.faceROI.y + identified_person.faceROI.height < face_id_image.value().rows)
                                 {
-//                                    qInfo() << identified_person.faceROI.x << identified_person.faceROI.y << identified_person.faceROI.width << identified_person.faceROI.height;
-//                                    qInfo() << face_id_image.value().cols << face_id_image.value().rows;
                                     auto personROI = face_id_image.value()(cv::Rect(identified_person.faceROI.x, identified_person.faceROI.y, identified_person.faceROI.width, identified_person.faceROI.height));
+                                    cv::imwrite("person_face.png", personROI );
                                     // Generate gray ROI to avoid matching problems at calculating correlation, due to image color differences between Face ID and depth cameras
                                     cv::Mat LAB_personROI, LAB_personROI_CH_L;
                                     cv::cvtColor(personROI, LAB_personROI, cv::COLOR_RGB2Lab);
                                     extractChannel(LAB_personROI, LAB_personROI_CH_L, 0);
-                                    cv::imwrite("LAB_personROI.png", LAB_personROI_CH_L);
                                     // Get max correlation point in image
                                     if(auto max_correlation_point = get_max_correlation_point(LAB_personROI_CH_L, person_gray_roi.value()); max_correlation_point.has_value())
                                     {
                                         auto is_point_in_face = check_if_max_correlation_in_face(person_gray_roi.value(), max_correlation_point.value());
                                         cv::circle(person_gray_roi.value(), max_correlation_point.value(), 10, cv::Scalar(255, 0, 0), 2);
-                                        cv::imwrite("person_LAB_face_roi.png", person_gray_roi.value());
+                                        cv::imwrite("person_roi.png", person_gray_roi.value() );
                                         if(is_point_in_face)
                                         {
-//                                        if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); !person_name.has_value())
-//                                        {
-                                            qInfo() << "############# POINT IN FACE #############";
-                                            found_person = true;
                                             try_counter_with_match = 0;
                                             try_counter_without_match = 0;
                                             G->add_or_modify_attrib_local<person_name_att>(person_node.value(), identified_person.name);
-                                            G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), true);
+                                            // G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), true);
                                             G->update_node(person_node.value());
-                                            return;
-//                                        }
-//                                    else
-//                                    {
-//                                        if(person_name.value() !=)
-//                                    }
+                                            DSR::Edge edge = DSR::Edge::create<interacting_edge_type>(robot_node.value().id(), person_node.value().id());
+                                            G->delete_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name);
+                                            // if(auto lost_person_nodes = G->get_nodes_by_type("virtual_person"); lost_person_nodes.size() > 0)
+                                            // {
+                                            //     if(auto lost_person_name = G->get_attrib_by_name<person_name_att>(lost_person_nodes[0]); lost_person_name.has_value())
+                                            //     {
+                                                    
+                                            //         std::string lost_person_name_o = lost_person_name.value();
+                                            //         std::cout << "LOST PERSON NAME: " << lost_person_name_o << std::endl;
+                                            //         std::cout << "FOUND PERSON NAME: " << identified_person.name<< std::endl;
+                                            //         if(lost_person_name_o != identified_person.name)
+                                            //         {
+                                            //             if (G->insert_or_assign_edge(edge))
+                                            //             {
+                                            //                 std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id() << "->" << person_node.value().id()
+                                            //                             << " type: interacting_edge" << std::endl;
+                                            //             }
+                                            //             else
+                                            //             {
+                                            //                 std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id() << "->" << person_node.value().id()
+                                            //                             << " type: interacting_edge" << std::endl;
+                                            //                 std::terminate();
+                                            //             }
+                                            //         }
+                                            //     }
+                                            // }
+                                            // else
+                                            // {
+                                            if (G->insert_or_assign_edge(edge))
+                                            {
+                                                std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id() << "->" << person_node.value().id()
+                                                            << " type: interacting_edge" << std::endl;
+                                            }
+                                            else
+                                            {
+                                                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id() << "->" << person_node.value().id()
+                                                            << " type: interacting_edge" << std::endl;
+                                                std::terminate();
+                                            }
                                         }
+                                        return;
+                                        
                                     }
                                 }
-                                else continue;
+                                // else continue;
                             }
                             qInfo() << "NO SE HA DETECTADO A LA PERSONA";
                             try_counter_with_match += 1;
@@ -199,29 +231,51 @@ void SpecificWorker::compute()
                 }
             } else return;
         }
-    } else return;
+    }
+    // } else return;
 }
 
 std::optional<cv::Mat> SpecificWorker::get_person_ROI_from_node(DSR::Node person_node)
 {
-    if (auto person_ROI_data_att = G->get_attrib_by_name<person_image_att>(
-                person_node); person_ROI_data_att.has_value())
+    if(auto rgbd_camera = G->get_node("giraff_camera_realsense"); rgbd_camera.has_value())
     {
-        if (auto person_ROI_width_att = G->get_attrib_by_name<person_image_width_att>(
-                    person_node); person_ROI_width_att.has_value() && person_ROI_width_att.value() > 0)
+        if(auto rgbd_image_height = G->get_attrib_by_name<cam_rgb_height_att>(rgbd_camera.value()); rgbd_image_height.has_value() && rgbd_image_height.value() > 0)
         {
-            if (auto person_ROI_height_att = G->get_attrib_by_name<person_image_height_att>(
-                        person_node); person_ROI_height_att.has_value() && person_ROI_height_att.value() > 0)
+            if (auto rgbd_image_width = G->get_attrib_by_name<cam_rgb_width_att>(
+                        rgbd_camera.value()); rgbd_image_width.has_value() && rgbd_image_width.value() > 0)
             {
-                auto leader_ROI_data = person_ROI_data_att.value().get();
-
-                cv::Mat node_person_roi = cv::Mat(person_ROI_width_att.value(),
-                                                  person_ROI_height_att.value(), CV_8UC3,
-                                                  &leader_ROI_data[0]);
-                cv::Mat person_LAB_face_roi, person_LAB_face_roi_CH_L;
-                cv::cvtColor(node_person_roi, person_LAB_face_roi, cv::COLOR_RGB2Lab);
-                extractChannel(person_LAB_face_roi, person_LAB_face_roi_CH_L, 0);
-                return person_LAB_face_roi_CH_L;
+                if (auto rgbd_image_data = G->get_attrib_by_name<cam_rgb_att>(rgbd_camera.value()); rgbd_image_data.has_value())
+                {
+                    auto rgbd_image_data_at = rgbd_image_data.value().get();
+                    cv::Mat rgbd_image (rgbd_image_height.value(), rgbd_image_width.value(), CV_8UC3, &rgbd_image_data_at[0]);
+                    if (auto person_ROI_top_x_att = G->get_attrib_by_name<person_image_top_x_att>(person_node); person_ROI_top_x_att.has_value())
+                    {
+                        if (auto person_ROI_top_y_att = G->get_attrib_by_name<person_image_top_y_att>(
+                            person_node); person_ROI_top_y_att.has_value())
+                        {
+                            if (auto person_ROI_width_att = G->get_attrib_by_name<person_image_width_att>(
+                                        person_node); person_ROI_width_att.has_value() && person_ROI_width_att.value() > 0)
+                            {
+                                if (auto person_ROI_height_att = G->get_attrib_by_name<person_image_height_att>(
+                                            person_node); person_ROI_height_att.has_value() && person_ROI_height_att.value() > 0)
+                                {
+                                    cv::Mat node_person_roi = rgbd_image(cv::Rect(person_ROI_top_x_att.value(), person_ROI_top_y_att.value(), person_ROI_width_att.value(), person_ROI_height_att.value()));
+                                    cv::Mat person_LAB_face_roi, person_LAB_face_roi_CH_L;
+                                    cv::cvtColor(node_person_roi, person_LAB_face_roi, cv::COLOR_RGB2Lab);
+                                    extractChannel(person_LAB_face_roi, person_LAB_face_roi_CH_L, 0);
+                                    cv::imshow("ROI", person_LAB_face_roi_CH_L);
+                                    cv::waitKey(1);
+                                    return person_LAB_face_roi_CH_L;
+                                }
+                                else return{};
+                            }
+                            else return{};
+                        }
+                        else return{};
+                    }
+                    else return{};
+                }
+                else return{};
             }
             else return{};
         }
@@ -232,26 +286,34 @@ std::optional<cv::Mat> SpecificWorker::get_person_ROI_from_node(DSR::Node person
 
 std::optional<cv::Mat> SpecificWorker::get_face_ID_image()
 {
-    if(auto face_id_camera = G->get_node("giraff_camera_face_id"); face_id_camera.has_value())
+    try
     {
-        if(auto id_image_height = G->get_attrib_by_name<cam_rgb_height_att>(face_id_camera.value()); id_image_height.has_value() && id_image_height.value() > 0)
-        {
-            if (auto id_image_width = G->get_attrib_by_name<cam_rgb_width_att>(
-                        face_id_camera.value()); id_image_width.has_value() && id_image_width.value() > 0)
-            {
-                if (auto id_image_data = G->get_attrib_by_name<cam_rgb_att>(face_id_camera.value()); id_image_data.has_value())
-                {
-                    auto id_image_data_at = id_image_data.value().get();
-                    return cv::Mat(id_image_height.value(), id_image_width.value(), CV_8UC3,
-                                   &id_image_data_at[0]);
-                }
-                else return{};
-            }
-            else return{};
-        }
-        else return{};
+        auto face_id = camerasimple_proxy->getImage();
+        cv::Mat face_id_frame (cv::Size(face_id.width, face_id.height), CV_8UC3, &face_id.image[0]);
+        cv::cvtColor(face_id_frame, face_id_frame, cv::COLOR_BGR2RGB);
+        return face_id_frame;
     }
-    else return{};
+    catch(const Ice::Exception &e) { return {};}
+//     if(auto face_id_camera = G->get_node("giraff_camera_face_id"); face_id_camera.has_value())
+//     {
+//         if(auto id_image_height = G->get_attrib_by_name<cam_rgb_height_att>(face_id_camera.value()); id_image_height.has_value() && id_image_height.value() > 0)
+//         {
+//             if (auto id_image_width = G->get_attrib_by_name<cam_rgb_width_att>(
+//                         face_id_camera.value()); id_image_width.has_value() && id_image_width.value() > 0)
+//             {
+//                 if (auto id_image_data = G->get_attrib_by_name<cam_rgb_att>(face_id_camera.value()); id_image_data.has_value())
+//                 {
+//                     auto id_image_data_at = id_image_data.value().get();
+//                     return cv::Mat(id_image_height.value(), id_image_width.value(), CV_8UC3,
+//                                    &id_image_data_at[0]);
+//                 }
+//                 else return{};
+//             }
+//             else return{};
+//         }
+//         else return{};
+//     }
+//     else return{};
 }
 
 std::optional<cv::Point2i> SpecificWorker::get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi)
@@ -271,10 +333,12 @@ std::optional<cv::Point2i> SpecificWorker::get_max_correlation_point(cv::Mat fac
 bool SpecificWorker::check_if_max_correlation_in_face(cv::Mat person_roi, cv::Point2i max_corr_point)
 {
     cv::CascadeClassifier cascade;
-    std::string cascadePath = "/usr/share/opencv4/haarcascades/haarcascade_frontalface_alt.xml";
+    std::string cascadePath = "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml";
     cascade.load(cascadePath);
     if (auto detected_roi = detectAndDraw(person_roi, cascade, scale); detected_roi.has_value())
     {
+        cv::rectangle( person_roi, cv::Point(cvRound(detected_roi.value().x), cvRound(detected_roi.value().y)), cv::Point(cvRound((detected_roi.value().x + detected_roi.value().width)), cvRound((detected_roi.value().y + detected_roi.value().height))), cv::Scalar(255, 0, 0));
+        cv::imwrite("person_roi_rect.png", person_roi);
         if (detected_roi.value().x < max_corr_point.x && max_corr_point.x < detected_roi.value().x + detected_roi.value().width)
         {
             if (detected_roi.value().y < max_corr_point.y && max_corr_point.y < detected_roi.value().y + detected_roi.value().height)
@@ -373,9 +437,67 @@ std::optional<RoboCompRealSenseFaceID::ROIdata> SpecificWorker::detectAndDraw( c
 //}
 void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-    if(type == recognizing_type_name)
+    // if(type == following_action_type_name)
+    // {
+    //     // if(auto interacting_existing_edge = G->get_edge(from, person_node.value().id(), interacting_type_name))
+    //         G->delete_edge(from, to, interacting_type_name);
+    //     // person_buffer.put(std::move(to));
+    // }
+}
+void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
+{
+    if (std::count(att_names.begin(), att_names.end(), "distance_to_robot"))
     {
-        person_buffer.put(std::move(to));
+        if(auto robot_node = G->get_node(robot_name); robot_node.has_value())
+            if(auto person_node = G->get_node(id); person_node.has_value())          
+                if(auto dist_value = G->get_attrib_by_name<distance_to_robot_att>(person_node.value()); dist_value.has_value())            
+                    if(auto cont_value = G->get_attrib_by_name<inter_cont_att>(person_node.value()); cont_value.has_value())                    
+                        if (auto interacting_edges = G->get_edges_by_type(interacting_type_name); interacting_edges.size() == 0)
+                        {
+                            qInfo() << "LLEGA";
+                            if (auto recognizing_edges = G->get_edges_by_type(recognizing_type_name); recognizing_edges.size() == 0)
+                            {
+                                qInfo() << "LLEGA 2";
+                                qInfo() << dist_value.value();
+                                qInfo() << cont_value.value();
+                                if(dist_value.value() < 1400 && cont_value.value() == 5)
+                                {
+                                    qInfo() << "LLEGA3";
+                                    // person_buffer.put(std::move(id));
+                                    DSR::Edge edge = DSR::Edge::create<recognizing_edge_type>(robot_node.value().id(), person_node.value().id());
+                                    if (G->insert_or_assign_edge(edge))
+                                    {
+                                        std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id()
+                                                << "->" << person_node.value().id()
+                                                << " type: recognizing_edge_type" << std::endl;
+                                    }
+                                    else
+                                    {
+                                        std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id()
+                                                << "->" << person_node.value().id()
+                                                << " type: recognizing_edge_type" << std::endl;
+                                        std::terminate();
+                                    }
+                                }
+                            }
+                            else if(dist_value.value() >= 1400 && cont_value.value() == -5)
+                            {
+                                G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), false);
+                                if(auto recognizing_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name))
+                                    G->delete_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name);
+                                // if(auto interacting_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), interacting_type_name))
+                                //     G->delete_edge(robot_node.value().id(), person_node.value().id(), interacting_type_name);
+                            }      
+                        }
+                        else if(dist_value.value() >= 1400 && cont_value.value() == -5)
+                        {
+                            G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), false);
+                            // if(auto recognizing_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name))
+                            //     G->delete_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name);
+                            if(auto interacting_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), interacting_type_name))
+                                G->delete_edge(robot_node.value().id(), person_node.value().id(), interacting_type_name);
+                        }      
+   
     }
 }
 int SpecificWorker::startup_check()

@@ -418,6 +418,8 @@ void SpecificWorker::compute()
         auto action_name = current_plan.get_action();
         auto follow_action_name = QString::fromStdString("FOLLOW_PEOPLE");
         auto talking_with_people_action_name = QString::fromStdString("TALKING_WITH_PEOPLE");
+        auto searching_person_action_name = QString::fromStdString("SEARCHING_PERSON");
+        auto goto_action_name = QString::fromStdString("GOTO");
         if (action_name == follow_action_name or action_name == talking_with_people_action_name)
         {
             followed_person_id = node_string2id(current_plan);
@@ -453,10 +455,28 @@ void SpecificWorker::compute()
             target.set_pos(ponderated_target_pos);
             target.set_active(true);
         }
+        else if(action_name == searching_person_action_name or action_name == goto_action_name)
+        {
+            
+            if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+            {
+                G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
+                G->update_node(grid_node.value());
+            }
+            exist_grid = true;
+            x = std::stof(current_plan.get_attribute("x").toString().toStdString());
+            y = std::stof(current_plan.get_attribute("y").toString().toStdString());
+            target.set_pos(Eigen::Vector2f{x, y});
+            
+            target.set_active(true);
+            qInfo() << "SEARCHING:" << current_plan.get_attribute("x") << current_plan.get_attribute("y");
+            regenerate_grid_to_point(robot_pose, true);
+        }
     } 
 
     if(target.is_active())
     {
+        qInfo() << target.get_pos().x() << target.get_pos().y();
         if(auto interacting_edge = G->get_edge(G->get_node(robot_name).value().id(), followed_person_id, interacting_type_name); interacting_edge.has_value())
         {
             run_current_plan(laser_polygon);
@@ -469,59 +489,125 @@ void SpecificWorker::compute()
                     run_current_plan(laser_polygon);
             }
         }
-
-        else if(current_plan.get_action() == QString::fromStdString("FOLLOW_PEOPLE"))
+        if(current_plan.get_action() == QString::fromStdString("SEARCHING_PERSON") or current_plan.get_action() == QString::fromStdString("GOTO"))
         {
             try
             {
-                if(is_grid_activated(laser_polygon, target.get_pos()) or exist_grid)
+                // if(is_grid_activated(laser_polygon, target.get_pos()) or exist_grid)
+//                 if(is_grid_activated(laser_polygon, target.get_pos()))
+//                 {
+//                     if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                     {
+//                         G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
+//                         G->update_node(grid_node.value());
+//                     }
+//                     exist_grid = true;
+//                     // Actived grid, check if exists grid generated
+//                     if(generated_grid)
+//                     {
+//                         auto is_in_grid = person_in_grid_checker();
+// //                        qInfo()<< __FUNCTION__ << "is_in_grid:" << out_of_grid;
+//                         if(not is_in_grid)
+//                         {
+//                             exist_grid = false;
+//                             generated_grid=false;
+//                             if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                             {
+//                                 G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
+//                                 G->update_node(grid_node.value());
+//                             }
+//                             grid.clear();
+// //                            regenerate_grid_to_point(robot_pose, true);
+// //                            qInfo() << "----------------------- REGENERATE GRID-----------------------------";
+// //                            qInfo() << "ROBOT POSE:" << robot_pose.get_pos().x() << robot_pose.get_pos().y();
+// //                            qInfo() << "TARGET POSE:" << target.get_pos().x() << target.get_pos().y();
+//                         }
+//                     }
+//                     else
+//                     {
+//                         regenerate_grid_to_point(robot_pose, true);
+//                         generated_grid=true;
+//                     }
+//                     update_map(laser_data);
+//                 }
+//                 else
+//                 {
+//                     if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                     {
+//                         G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
+//                         G->update_node(grid_node.value());
+//                     }
+//                     exist_grid = false;
+//                     generated_grid = false;
+//                     grid.clear();
+//                     // not actived grid, delete grid data if exists
+//                 }
+                
+                update_map(laser_data);
+                run_current_plan(laser_polygon);
+                if(dist_along_path(path) < 200)
                 {
-                    if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
-                    {
-                        G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
-                        G->update_node(grid_node.value());
-                    }
-                    exist_grid = true;
-                    // Actived grid, check if exists grid generated
-                    if(generated_grid)
-                    {
-                        auto is_in_grid = person_in_grid_checker();
-//                        qInfo()<< __FUNCTION__ << "is_in_grid:" << out_of_grid;
-                        if(not is_in_grid)
-                        {
-                            exist_grid = false;
-                            generated_grid=false;
-                            if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
-                            {
-                                G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
-                                G->update_node(grid_node.value());
-                            }
-                            grid.clear();
-//                            regenerate_grid_to_point(robot_pose, true);
-//                            qInfo() << "----------------------- REGENERATE GRID-----------------------------";
-//                            qInfo() << "ROBOT POSE:" << robot_pose.get_pos().x() << robot_pose.get_pos().y();
-//                            qInfo() << "TARGET POSE:" << target.get_pos().x() << target.get_pos().y();
-                        }
-                    }
-                    else
-                    {
-                        regenerate_grid_to_point(robot_pose, true);
-                        generated_grid=true;
-                    }
-                    update_map(laser_data);
+                    reset_to_quiet_state();
                 }
-                else
-                {
-                    if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
-                    {
-                        G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
-                        G->update_node(grid_node.value());
-                    }
-                    exist_grid = false;
-                    generated_grid = false;
-                    grid.clear();
-                    // not actived grid, delete grid data if exists
-                }
+            }
+            catch(string e)
+            {
+                std::cout << "Problema siguiendo el plan." << std::endl;
+            }
+        }
+        if(current_plan.get_action() == QString::fromStdString("FOLLOW_PEOPLE"))
+        {
+            try
+            {
+                // if(is_grid_activated(laser_polygon, target.get_pos()) or exist_grid)
+//                 if(is_grid_activated(laser_polygon, target.get_pos()))
+//                 {
+//                     if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                     {
+//                         G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
+//                         G->update_node(grid_node.value());
+//                     }
+//                     exist_grid = true;
+//                     // Actived grid, check if exists grid generated
+//                     if(generated_grid)
+//                     {
+//                         auto is_in_grid = person_in_grid_checker();
+// //                        qInfo()<< __FUNCTION__ << "is_in_grid:" << out_of_grid;
+//                         if(not is_in_grid)
+//                         {
+//                             exist_grid = false;
+//                             generated_grid=false;
+//                             if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                             {
+//                                 G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
+//                                 G->update_node(grid_node.value());
+//                             }
+//                             grid.clear();
+// //                            regenerate_grid_to_point(robot_pose, true);
+// //                            qInfo() << "----------------------- REGENERATE GRID-----------------------------";
+// //                            qInfo() << "ROBOT POSE:" << robot_pose.get_pos().x() << robot_pose.get_pos().y();
+// //                            qInfo() << "TARGET POSE:" << target.get_pos().x() << target.get_pos().y();
+//                         }
+//                     }
+//                     else
+//                     {
+//                         regenerate_grid_to_point(robot_pose, true);
+//                         generated_grid=true;
+//                     }
+//                     update_map(laser_data);
+//                 }
+//                 else
+//                 {
+//                     if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+//                     {
+//                         G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), false);
+//                         G->update_node(grid_node.value());
+//                     }
+//                     exist_grid = false;
+//                     generated_grid = false;
+//                     grid.clear();
+//                     // not actived grid, delete grid data if exists
+//                 }
                 run_current_plan(laser_polygon);
             }
             catch(string e)
@@ -550,21 +636,21 @@ void SpecificWorker::compute()
 // Second compute for calculating alternative grids while grid exists
 void SpecificWorker::compute2()
 {
-    if(exist_grid)
-    {
-//
-        qInfo() << __FUNCTION__;
-        auto nose_3d = inner_eigen->transform(grid_type_name, Mat::Vector3d(0, 500, 0), robot_name).value();
-        auto robot_nose = Eigen::Vector2f(nose_3d.x(), nose_3d.y());
-//        alternative_path = grid.compute_path(e2q(robot_nose), e2q(target.get_pos()), constants.robot_length);
+//     if(exist_grid)
+//     {
+// //
+//         qInfo() << __FUNCTION__;
+//         auto nose_3d = inner_eigen->transform(grid_type_name, Mat::Vector3d(0, 500, 0), robot_name).value();
+//         auto robot_nose = Eigen::Vector2f(nose_3d.x(), nose_3d.y());
+// //        alternative_path = grid.compute_path(e2q(robot_nose), e2q(target.get_pos()), constants.robot_length);
 
-        if(!path.empty()) {
-            if (dist_along_path(alternative_path) < (0.5 * dist_along_path(path))){
-                path = alternative_path;
-                qInfo()<< "ALTERNATIVE PATH SELECTED";
-            }
-        }
-    }
+//         if(!path.empty()) {
+//             if (dist_along_path(alternative_path) < (0.5 * dist_along_path(path))){
+//                 path = alternative_path;
+//                 qInfo()<< "ALTERNATIVE PATH SELECTED";
+//             }
+//         }
+//     }
 }
 
 Eigen::Vector2f SpecificWorker::target_before_objetive(Eigen::Vector2f robot_pose, Eigen::Vector2f target_pose)
@@ -831,15 +917,15 @@ bool SpecificWorker::regenerate_grid_to_point(const Pose2D &robot_pose, bool wit
 // Adds a path that consists in the last path position to the actual person or element to follow position
 std::vector<Eigen::Vector2f> SpecificWorker::add_path_section_to_person(std::vector<Eigen::Vector2f> ref_path)
 {
-//    auto last_path_point = ref_path.back();
-////    auto grid_target_pose = from_world_to_grid(target.get_pos());
-//    auto destination_pose = target_before_objetive(last_path_point, target.get_pos());
-//    auto new_path = grid.compute_path(e2q(last_path_point), e2q(destination_pose), constants.robot_length);
-////    auto new_path = grid.compute_path(e2q(from_world_to_grid(robot_pose.pos)), e2q(from_world_to_grid(target.to_eigen())), constants.robot_length/2);
-//
-//    if(new_path.size() > 0)
-//        ref_path.insert(ref_path.end(), new_path.begin()+1, new_path.end());
-//    return ref_path;
+   auto last_path_point = ref_path.back();
+//    auto grid_target_pose = from_world_to_grid(target.get_pos());
+   auto destination_pose = target_before_objetive(last_path_point, target.get_pos());
+   auto new_path = grid.compute_path(e2q(last_path_point), e2q(destination_pose));
+//    auto new_path = grid.compute_path(e2q(from_world_to_grid(robot_pose.pos)), e2q(from_world_to_grid(target.to_eigen())), constants.robot_length/2);
+
+   if(new_path.size() > 0)
+       ref_path.insert(ref_path.end(), new_path.begin()+1, new_path.end());
+   return ref_path;
 }
 // Check if any obstacle exists near or in the actual path
 bool SpecificWorker::check_path(std::vector<Eigen::Vector2f> ref_path, QPolygonF laser_poly)
@@ -878,11 +964,11 @@ bool SpecificWorker::check_path(std::vector<Eigen::Vector2f> ref_path, QPolygonF
 void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
 {
     auto is_good_path = true;
-
     if(exist_grid)
     {
         if(path.empty())
         {
+            qInfo() << "EMPTY PATH";
             auto nose_3d = inner_eigen->transform(grid_type_name, Mat::Vector3d(0, 500, 0), robot_name).value();
             auto robot_nose = Eigen::Vector2f(nose_3d.x(), nose_3d.y());
         //    path = grid.compute_path(e2q(robot_nose), e2q(target.get_pos()), constants.robot_length);
@@ -890,6 +976,7 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
         }
         else
         {
+            qInfo() << "aDDING SECTION";
             is_good_path = check_path(path, laser_poly);
             if(is_good_path)
             {
@@ -897,7 +984,7 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
                 {
                     last_relevant_person_pos = target.get_pos();
                     auto aux_path = path;
-                    path = add_path_section_to_person(aux_path);
+                    // path = add_path_section_to_person(aux_path);
                 }
             }
         }
@@ -907,9 +994,10 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
     else
     {
         path = std::vector<Eigen::Vector2f>{robot_pose.get_pos(), target.get_pos()};
+        
     }
+    qInfo() << "PATH DATA:" << target.get_pos().x() << target.get_pos().y();
 //    path_smoother(path);
-
     //Remove path-points until distance D from robot
     if(path.size()==2){
         Eigen::ParametrizedLine<float, 2> line = Eigen::ParametrizedLine<float, 2>::Through(robot_pose.get_pos(),target.get_pos());
@@ -917,9 +1005,13 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
         path.erase(path.begin());
         path.insert(path.begin(),path_zero);
     }
-    else if(dist_along_path(path)>constants.min_dist_to_first_point && path.size()>2){
-        Eigen::Vector2f r_p = robot_pose.get_pos();
-        path.erase(std::remove_if(path.begin(), path.end(), [r=r_p,c=constants](auto a){return ((a-r).norm()<c.min_dist_to_first_point);}), path.end());
+    else if(path.size()>2)
+    {
+        if(dist_along_path(path) > constants.min_dist_to_first_point)
+        {
+            Eigen::Vector2f r_p = robot_pose.get_pos();
+            path.erase(std::remove_if(path.begin(), path.end(), [r=r_p,c=constants](auto a){return ((a-r).norm()<c.min_dist_to_first_point);}), path.end());
+        }
     }
     else
     {
@@ -938,7 +1030,6 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
         }
         if (widget_2d != nullptr)
             draw_path(path);
-
         if (auto path_node = G->get_node(current_path_name); path_node.has_value())
         {
             auto path_to_target_node = path_node.value();
@@ -1272,7 +1363,7 @@ void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string 
             {
                 qInfo() << __FUNCTION__ << QString::fromStdString(plan.value()) << " " << intention.value().id();
                 Plan my_plan(plan.value());
-                if (my_plan.is_action(Plan::Actions::TALKING_WITH_PEOPLE) || my_plan.is_action(Plan::Actions::FOLLOW_PEOPLE))
+                if (my_plan.is_action(Plan::Actions::TALKING_WITH_PEOPLE) || my_plan.is_action(Plan::Actions::FOLLOW_PEOPLE) || my_plan.is_action(Plan::Actions::SEARCHING_PERSON) || my_plan.is_action(Plan::Actions::GOTO))
                 {
                     plan_node_id = id;
                     plan_buffer.put(std::move(my_plan));
@@ -1478,6 +1569,7 @@ void SpecificWorker::reset_to_quiet_state()
     }
     exist_grid = false;
     generated_grid=false;
+    grid.clear();
     path.clear();
     for(auto p : path_paint)
         widget_2d->scene.removeItem(p);

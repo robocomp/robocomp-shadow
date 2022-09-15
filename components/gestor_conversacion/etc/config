@@ -4,7 +4,7 @@ Conversation.Endpoints=tcp -p 15664
 # Proxies for required interfaces
 EmotionalMotorProxy = emotionalmotor:tcp -h localhost -p 10945
 SpeechProxy = speech:tcp -h localhost -p 11123
-AgenteConversacionalProxy = agenteconversacional:tcp -h localhost -p 16589
+AgenteConversacionalProxy = agenteconversacional:tcp -h 192.168.3.32 -p 16589
 
 
 

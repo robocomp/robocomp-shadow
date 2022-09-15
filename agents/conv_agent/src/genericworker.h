@@ -59,6 +59,7 @@ public:
 
 	virtual void AgenteConversacional_asynchronousIntentionReceiver(int intention) = 0;
 	virtual void AgenteConversacional_componentState(int state) = 0;
+	virtual int AgenteConversacional_situationChecking() = 0;
 
 protected:
 

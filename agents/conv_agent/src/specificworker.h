@@ -44,6 +44,7 @@ public:
 
 	void AgenteConversacional_asynchronousIntentionReceiver(int intention);
 	void AgenteConversacional_componentState(int state);
+	int AgenteConversacional_situationChecking();
 
 
 public slots:
@@ -77,10 +78,18 @@ private:
     // Functions for planing
     void create_ask_for_follow_plan();
     void create_ask_for_stop_following_plan();
+	void create_talking_plan();
+	void create_ask_for_stop_talking_plan();
     void start_mission(int intention);
     void stop_mission();
     void insert_intention_node(const Plan &plan);
     uint64_t node_string2id(Plan currentPlan);
+
+	bool first_follow = true; // To avoid say "te sigo" every time a mission is created
+
+	// Functions for creating nodes
+	void create_waiting_person_node();
+	void remove_waiting_person_node();
 
     // Person data
     std::string interest_person_name;
