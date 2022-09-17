@@ -247,14 +247,45 @@ class SpecificWorker(GenericWorker):
         # Read objects in scene
         print("-----------------------------------------------------")
         objects = {}
+        ids = "60"
         for name in _OBJECT_NAMES:
             try:
-                objects[name] = Shape("/"+name)
+                handle = Shape("/"+name)
+                objects[ids] = {"id": ids,  "links": [], "name": "chair",  "type": "chair", "attribute": {
+                    "color": {},
+                    "depth": {},
+                    "height": {
+                        "type": 1,
+                        "value": 50
+                    },
+                    "level": {
+                        "type": 1,
+                        "value": 2
+                    },
+                    "parent": {
+                        "type": 7,
+                        "value": "50"
+                    },
+                    "pos_x": {
+                        "type": 2,
+                        "value": 531.440552
+                    },
+                    "pos_y": {
+                        "type": 2,
+                        "value": 69.061806
+                    },
+                    "texture": {
+                        "type": 0,
+                        "value": "#dbdbdb"
+                    },
+                    "width": {
+                        "type": 1,
+                        "value": 5000
+                    }
+                }}
             except:
                 pass
-        for name, obj in objects.items():
-            print(name, obj.get_position(), obj.get_orientation(), obj.get_bounding_box())
-
+        print(objects)
 
     def compute(self):
         tc = TimeControl(0.05)
