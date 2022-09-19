@@ -1,0 +1,20 @@
+import "OmniRobot.idsl";
+import "BatteryStatus.idsl";
+import "RealSenseFaceID.idsl";
+import "CameraRGBDSimple.idsl";
+import "FullPoseEstimation.idsl";
+import "Laser.idsl";
+import "JointMotorSimple.idsl";
+import "CameraSimple.idsl";
+
+Component giraff_dsr
+{
+    Communications
+    {
+        requires OmniRobot, BatteryStatus, RealSenseFaceID, CameraRGBDSimple, FullPoseEstimation, Laser, JointMotorSimple, CameraSimple;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
