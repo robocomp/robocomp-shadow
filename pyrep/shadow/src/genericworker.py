@@ -40,12 +40,10 @@ Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
 import RoboCompJoystickAdapter 
 Ice.loadSlice("-I ./src/ --all ./src/Laser.ice")
 import RoboCompLaser
-Ice.loadSlice("-I ./src/ --all ./src/DifferentialRobot.ice")
-import RoboCompDifferentialRobot
+Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
+import RoboCompOmniRobot
 Ice.loadSlice("-I ./src/ --all ./src/CoppeliaUtils.ice")
 import RoboCompCoppeliaUtils
-Ice.loadSlice("-I ./src/ --all ./src/HumanToDSRPub.ice")
-import RoboCompHumanToDSRPub
 Ice.loadSlice("-I ./src/ --all ./src/BillCoppelia.ice")
 import RoboCompBillCoppelia
 Ice.loadSlice("-I ./src/ --all ./src/FullPoseEstimation.ice")
@@ -60,7 +58,7 @@ import RoboCompJointMotorSimple
 import camerargbdsimpleI
 import camerasimpleI
 import laserI
-import differentialrobotI
+import omnirobotI
 import joystickadapterI
 import coppeliautilsI
 import fullposeestimationI
@@ -76,6 +74,5 @@ class GenericWorker():
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
-        self.humantodsrpub_proxy = mprx["HumanToDSRPubPub"]
 
 

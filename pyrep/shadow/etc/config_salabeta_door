@@ -1,7 +1,7 @@
 # Endpoints for implements interfaces
 CameraRGBDSimple.Endpoints=tcp -p 10095
 Laser.Endpoints=tcp -p 10003
-DifferentialRobot.Endpoints=tcp -p 10004
+OmniRobot.Endpoints=tcp -p 10004
 CoppeliaUtils.Endpoints = tcp -p 10666
 FullPoseEstimation.Endpoints=tcp -p 10696
 BatteryStatus.Endpoints=tcp -p 10050

@@ -56,5 +56,8 @@ class CameraRGBDSimpleI(CameraRGBDSimple):
     def getDepth(self, camera, c):
         return self.worker.CameraRGBDSimple_getDepth(camera)
 
+    def getPoints(self, camera, c):
+        return self.worker.CameraRGBDSimple_getPoints(camera)
+
     def getImage(self, camera, c):
         return self.worker.CameraRGBDSimple_getImage(camera)
