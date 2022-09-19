@@ -1,0 +1,10 @@
+Component local_grid
+{
+    Communications
+    {
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
