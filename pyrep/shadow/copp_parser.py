@@ -203,6 +203,29 @@ world["DSRModel"]["symbols"]["200"] = {
             "src": "200"
         },
         {
+            "dst": "211",
+            "label": "RT",
+            "linkAttribute": {
+                "rt_rotation_euler_xyz": {
+                    "type": 3,
+                    "value": [
+                        -0.40142571926116943,
+                        0,
+                        0
+                    ]
+                },
+                "rt_translation": {
+                    "type": 3,
+                    "value": [
+                        0,
+                        195,
+                        650
+                    ]
+                }
+            },
+            "src": "200"
+        },
+        {
             "dst": "1000",
             "label": "has",
             "linkAttribute": {
@@ -228,7 +251,7 @@ world["DSRModel"]["symbols"]["200"] = {
     ],
     "name": "robot",
     "type": "omnirobot"
-}
+}       # robot
 world["DSRModel"]["symbols"]["201"] = {
     "attribute": {
         "color": {
@@ -285,7 +308,7 @@ world["DSRModel"]["symbols"]["201"] = {
     ],
     "name": "shadow_mesh",
     "type": "mesh"
-}
+}       # mesh
 world["DSRModel"]["symbols"]["206"] = {
     "attribute": {
         "color": {
@@ -349,7 +372,7 @@ world["DSRModel"]["symbols"]["206"] = {
     ],
     "name": "camera_pan_joint",
     "type": "pan_tilt"
-}
+}       # joint
 world["DSRModel"]["symbols"]["210"] = {
     "attribute": {
         "cam_depth": {
@@ -362,7 +385,7 @@ world["DSRModel"]["symbols"]["210"] = {
             "value": 1
         },
         "cam_depth_alivetime": {
-            "type": 1,
+            "type": 7,
             "value": 1620400089
         },
         "cam_depth_cameraID": {
@@ -391,7 +414,7 @@ world["DSRModel"]["symbols"]["210"] = {
             ]
         },
         "cam_rgb_alivetime": {
-            "type": 1,
+            "type": 7,
             "value": 1620400089
         },
         "cam_rgb_cameraID": {
@@ -454,9 +477,116 @@ world["DSRModel"]["symbols"]["210"] = {
     "id": "210",
     "links": [
     ],
-    "name": "shadow_head_camera_sensor",
+    "name": "camera_top",
     "type": "rgbd"
-}
+}       # top_camera
+world["DSRModel"]["symbols"]["211"] = {
+    "attribute": {
+        "cam_depth": {
+            "type": 5,
+            "value": [
+            ]
+        },
+        "cam_depthFactor": {
+            "type": 2,
+            "value": 1
+        },
+        "cam_depth_alivetime": {
+            "type": 7,
+            "value": 1620400089
+        },
+        "cam_depth_cameraID": {
+            "type": 1,
+            "value": 0
+        },
+        "cam_depth_focalx": {
+            "type": 1,
+            "value": 554
+        },
+        "cam_depth_focaly": {
+            "type": 1,
+            "value": 554
+        },
+        "cam_depth_height": {
+            "type": 1,
+            "value": 480
+        },
+        "cam_depth_width": {
+            "type": 1,
+            "value": 640
+        },
+        "cam_rgb": {
+            "type": 5,
+            "value": [
+            ]
+        },
+        "cam_rgb_alivetime": {
+            "type": 7,
+            "value": 1620400089
+        },
+        "cam_rgb_cameraID": {
+            "type": 1,
+            "value": 0
+        },
+        "cam_rgb_depth": {
+            "type": 1,
+            "value": 3
+        },
+        "cam_rgb_focalx": {
+            "type": 1,
+            "value": 554
+        },
+        "cam_rgb_focaly": {
+            "type": 1,
+            "value": 554
+        },
+        "cam_rgb_height": {
+            "type": 1,
+            "value": 480
+        },
+        "cam_rgb_width": {
+            "type": 1,
+            "value": 640
+        },
+        "color": {
+            "type": 0,
+            "value": "Blue"
+        },
+        "height": {
+            "type": 1,
+            "value": 480
+        },
+        "ifconfig": {
+            "type": 0,
+            "value": "40000,50000"
+        },
+        "level": {
+            "type": 1,
+            "value": 3
+        },
+        "parent": {
+            "type": 7,
+            "value": "200"
+        },
+        "pos_x": {
+            "type": 2,
+            "value": -353.363739
+        },
+        "pos_y": {
+            "type": 2,
+            "value": -277.117462
+        },
+        "width": {
+            "type": 1,
+            "value": 640
+        }
+    },
+    "id": "211",
+    "links": [
+    ],
+    "name": "omni_camera",
+    "type": "rgbd"
+}       # omni_camera
 
 # Read rooms
 room_id = 50

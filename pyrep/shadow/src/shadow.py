@@ -117,24 +117,6 @@ if __name__ == '__main__':
         print(colored('Cannot connect to rcnode! This must be running to use pub/sub.', 'red'))
         exit(1)
 
-    # Create a proxy to publish a HumanToDSRPub topic
-    topic = False
-    try:
-        topic = topicManager.retrieve("HumanToDSRPub")
-    except:
-        pass
-    while not topic:
-        try:
-            topic = topicManager.retrieve("HumanToDSRPub")
-        except IceStorm.NoSuchTopic:
-            try:
-                topic = topicManager.create("HumanToDSRPub")
-            except:
-                print('Another client created the HumanToDSRPub topic? ...')
-    pub = topic.getPublisher().ice_oneway()
-    humantodsrpubTopic = RoboCompHumanToDSRPub.HumanToDSRPubPrx.uncheckedCast(pub)
-    mprx["HumanToDSRPubPub"] = humantodsrpubTopic
-
     if status == 0:
         worker = SpecificWorker(mprx)
         worker.setParams(parameters)
@@ -154,8 +136,8 @@ if __name__ == '__main__':
     adapter.add(laserI.LaserI(worker), ic.stringToIdentity('laser'))
     adapter.activate()
 
-    adapter = ic.createObjectAdapter('DifferentialRobot')
-    adapter.add(differentialrobotI.DifferentialRobotI(worker), ic.stringToIdentity('differentialrobot'))
+    adapter = ic.createObjectAdapter('OmniRobot')
+    adapter.add(omnirobotI.OmniRobotI(worker), ic.stringToIdentity('omnirobot'))
     adapter.activate()
 
     adapter = ic.createObjectAdapter('FullPoseEstimation')

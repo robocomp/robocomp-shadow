@@ -26,12 +26,15 @@ from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.dummy import Dummy
 from pyrep.objects.shape import Shape
 from pyrep.objects.joint import Joint
+from pyrep.robots.mobiles.shadow import Shadow
 import numpy as np
 import numpy_indexed as npi
 import cv2
 import itertools as it
 from math import *
-
+import pprint
+import traceback
+from sys import getsizeof
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
                  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
@@ -84,9 +87,13 @@ class SpecificWorker(GenericWorker):
         self.pr.start()
 
         # robot
+
+        self.robot = Shadow()
         self.robot_object = Shape("/Shadow")
-        self.radius = 100  # wheel radius in mm
-        self.semi_width = 165  # axle semi width in mm
+        self.ShadowBase_WheelRadius = 44  # mm coppelia
+        self.ShadowBase_DistAxes = 380.  # mm
+        self.ShadowBase_AxesLength = 422.  # mm
+        self.ShadowBase_Rotation_Factor = 8.1  # it should be (DistAxes + AxesLength) / 2
         self.speed_robot = []
         self.speed_robot_ant = []
         self.bState = RoboCompGenericBase.TBaseState()
@@ -115,7 +122,11 @@ class SpecificWorker(GenericWorker):
         #                                         }
 
         self.top_camera_name = "/Shadow/camera_top"
-        cam = VisionSensor(self.top_camera_name)
+        try:
+            cam = VisionSensor(self.top_camera_name)
+        except:
+            traceback.print_exc()
+
         self.cameras_write[self.top_camera_name] = {"handle": cam,
                                                      "id": 0,
                                                      "angle": np.radians(cam.get_perspective_angle()),
@@ -130,10 +141,11 @@ class SpecificWorker(GenericWorker):
                                                      "is_ready": False,
                                                      "is_rgbd": True,
                                                      "rotated": True,
-                                                     "has_depth": True
+                                                     "has_depth": True,
+                                                     "has_points": False
                                                     }
 
-        self.omni_camera_rgb_name = "/Shadow/sensorRGB"
+        self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
         try:
             cam = VisionSensor(self.omni_camera_rgb_name)
             self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
@@ -142,38 +154,38 @@ class SpecificWorker(GenericWorker):
                                                              "width": cam.get_resolution()[0],
                                                              "height": cam.get_resolution()[1],
                                                              "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-                                                             np.radians(cam.get_perspective_angle() / 2.0)),
+                                                                 np.radians(cam.get_perspective_angle() / 2.0)),
                                                              "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-                                                             np.radians(cam.get_perspective_angle() / 2)),
+                                                                 np.radians(cam.get_perspective_angle() / 2)),
                                                              "rgb": np.array(0),
                                                              "depth": np.ndarray(0),
                                                              "is_ready": False,
                                                              "is_rgbd": False,
                                                              "rotated": False,
                                                              "has_depth": False
-                                                            }
+                                                             }
         except:
             print("Camera OMNI sensorRGB  not found in Coppelia")
 
-        self.omni_camera_depth_name = "/Shadow/sensorDepth"
+        self.omni_camera_depth_name = "/Shadow/omnicamera/sensorDepth"
         try:
             cam = VisionSensor(self.omni_camera_depth_name)
-            self.cameras_write[self.omni_camera_depth_name] = { "handle": cam,
-                                                              "id": 0,
-                                                              "angle": np.radians(cam.get_perspective_angle()),
-                                                              "width": cam.get_resolution()[0],
-                                                              "height": cam.get_resolution()[1],
-                                                              "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-                                                                np.radians(cam.get_perspective_angle() / 2.0)),
-                                                              "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-                                                                np.radians(cam.get_perspective_angle() / 2)),
-                                                              "rgb": np.array(0),
-                                                              "depth": np.ndarray(0),
-                                                              "is_ready": False,
-                                                              "is_rgbd": False,
-                                                              "rotated": False,
-                                                              "has_depth": False
-                                                     }
+            self.cameras_write[self.omni_camera_depth_name] = {"handle": cam,
+                                                               "id": 0,
+                                                               "angle": np.radians(cam.get_perspective_angle()),
+                                                               "width": cam.get_resolution()[0],
+                                                               "height": cam.get_resolution()[1],
+                                                               "focalx": (cam.get_resolution()[0] / 2) / np.tan(
+                                                                   np.radians(cam.get_perspective_angle() / 2.0)),
+                                                               "focaly": (cam.get_resolution()[1] / 2) / np.tan(
+                                                                   np.radians(cam.get_perspective_angle() / 2)),
+                                                               "rgb": np.array(0),
+                                                               "depth": np.ndarray(0),
+                                                               "is_ready": False,
+                                                               "is_rgbd": False,
+                                                               "rotated": False,
+                                                               "has_depth": False
+                                                               }
         except:
             print("Camera OMNI sensorDEPTH not found in Coppelia")
 
@@ -233,7 +245,6 @@ class SpecificWorker(GenericWorker):
 
         # JoyStick
         self.joystick_newdata = []
-
         self.last_received_data_time = 0
 
         # Tablet tilt motor
@@ -244,48 +255,8 @@ class SpecificWorker(GenericWorker):
         self.eye_motor = Joint("/Shadow/camera_joint")
         self.eye_new_pos = None
 
-        # Read objects in scene
-        print("-----------------------------------------------------")
-        objects = {}
-        ids = "60"
-        for name in _OBJECT_NAMES:
-            try:
-                handle = Shape("/"+name)
-                objects[ids] = {"id": ids,  "links": [], "name": "chair",  "type": "chair", "attribute": {
-                    "color": {},
-                    "depth": {},
-                    "height": {
-                        "type": 1,
-                        "value": 50
-                    },
-                    "level": {
-                        "type": 1,
-                        "value": 2
-                    },
-                    "parent": {
-                        "type": 7,
-                        "value": "50"
-                    },
-                    "pos_x": {
-                        "type": 2,
-                        "value": 531.440552
-                    },
-                    "pos_y": {
-                        "type": 2,
-                        "value": 69.061806
-                    },
-                    "texture": {
-                        "type": 0,
-                        "value": "#dbdbdb"
-                    },
-                    "width": {
-                        "type": 1,
-                        "value": 5000
-                    }
-                }}
-            except:
-                pass
-        print(objects)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(params)
 
     def compute(self):
         tc = TimeControl(0.05)
@@ -293,44 +264,11 @@ class SpecificWorker(GenericWorker):
             self.pr.step()
             self.read_robot_pose()
             self.move_robot()
-            #self.read_laser_raw()
             self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
-            self.read_people()
+            #ksself.read_people()
             self.read_joystick()
             self.move_eye()
             tc.wait()
-
-    ###########################################
-    ### LASER get and publish laser data
-    ###########################################
-    def read_laser_raw(self):
-        data = self.pr.script_call("get_depth_data@Hokuyo", 1)
-        if len(data[1]) > 0:
-            self.hokuyo = Shape("Hokuyo")
-            h_pos = self.hokuyo.get_position()
-            polar = np.zeros(shape=(int(len(data[1])/3), 2))
-            self.ldata_write = []
-            for x, y, z in self.grouper(data[1], 3):                      # extract non-intersecting groups of 3
-                self.ldata_write.append(RoboCompLaser.TData(-np.arctan2(y, x), np.linalg.norm([x, y])*1000.0))
-
-            del self.ldata_write[-7:]
-            del self.ldata_write[:7]
-
-            # if self.ldata_write[0] == 0:
-            #    self.ldata_write[0] = 200  # half robot width
-            # del self.ldata_write[-3:]
-            # del self.ldata_write[:3]
-            # for i in range(1, len(self.ldata_write)):
-            #    if self.ldata_write[i].dist == 0:
-            #        self.ldata_write[i].dist = self.ldata_write[i - 1].dist
-
-
-            self.ldata_read, self.ldata_write = self.ldata_write, self.ldata_read
-
-            # try:
-            #     self.laserpub_proxy.pushLaserData(self.ldata_read)
-            # except Ice.Exception as e:
-            #     print(e)
 
     ###########################################
     ### PEOPLE get and publish people position
@@ -397,62 +335,6 @@ class SpecificWorker(GenericWorker):
     ### CAMERAS get and publish cameras data
     ###########################################
     def read_cameras(self, camera_names):
-         # if self.tablet_camera_name in camera_names:  # RGB not-rotated
-         #    cam = self.cameras_write[self.tablet_camera_name]
-         #    image_float = cam["handle"].capture_rgb()
-         #    image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-         #                          dtype=cv2.CV_8U)
-         #    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-         #    cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-         #                                                 width=cam["width"],
-         #                                                 height=cam["height"],
-         #                                                 depth=3,
-         #                                                 focalx=cam["focalx"],
-         #                                                 focaly=cam["focaly"],
-         #                                                 alivetime=int(time.time()*1000),
-         #                                                 period=50,  # ms
-         #                                                 image=image.tobytes(),
-         #                                                 compressed=False)
-         #
-         #    cam["is_ready"] = True
-
-         if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
-             cam = self.cameras_write[self.omni_camera_rgb_name]
-             image_float = cam["handle"].capture_rgb()
-             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                   dtype=cv2.CV_8U)
-             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-                                                          width=cam["width"],
-                                                          height=cam["height"],
-                                                          depth=3,
-                                                          focalx=cam["focalx"],
-                                                          focaly=cam["focaly"],
-                                                          alivetime=int(time.time()*1000),
-                                                          period=50,  # ms
-                                                          image=image.tobytes(),
-                                                          compressed=False)
-
-             cam["is_ready"] = True
-
-         if self.omni_camera_depth_name in camera_names:  # RGB not-rotated
-             cam = self.cameras_write[self.omni_camera_depth_name]
-             image_float = cam["handle"].capture_rgb()
-             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                   dtype=cv2.CV_8U)
-             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-                                                          width=cam["width"],
-                                                          height=cam["height"],
-                                                          depth=3,
-                                                          focalx=cam["focalx"],
-                                                          focaly=cam["focaly"],
-                                                          alivetime=int(time.time()*1000),
-                                                          period=50,  # ms
-                                                          image=image.tobytes(),
-                                                          compressed=False)
-
-             cam["is_ready"] = True
 
          if self.top_camera_name in camera_names:  # RGBD rotated
             cam = self.cameras_write[self.top_camera_name]
@@ -486,6 +368,44 @@ class SpecificWorker(GenericWorker):
                                                           compressed=False)
             cam["is_ready"] = True
 
+         if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
+             cam = self.cameras_write[self.omni_camera_rgb_name]
+             image_float = cam["handle"].capture_rgb()
+             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+                                   dtype=cv2.CV_8U)
+             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+                                                          width=cam["width"],
+                                                          height=cam["height"],
+                                                          depth=3,
+                                                          focalx=cam["focalx"],
+                                                          focaly=cam["focaly"],
+                                                          alivetime=int(time.time() * 1000),
+                                                          period=50,  # ms
+                                                          image=image.tobytes(),
+                                                          compressed=False)
+
+             cam["is_ready"] = True
+
+         if self.omni_camera_depth_name in camera_names:  # RGB not-rotated
+             cam = self.cameras_write[self.omni_camera_depth_name]
+             image_float = cam["handle"].capture_rgb()
+             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+                                   dtype=cv2.CV_8U)
+             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+                                                          width=cam["width"],
+                                                          height=cam["height"],
+                                                          depth=3,
+                                                          focalx=cam["focalx"],
+                                                          focaly=cam["focaly"],
+                                                          alivetime=int(time.time() * 1000),
+                                                          period=50,  # ms
+                                                          image=image.tobytes(),
+                                                          compressed=False)
+
+             cam["is_ready"] = True
+
          self.cameras_write, self.cameras_read = self.cameras_read, self.cameras_write
 
     ###########################################
@@ -493,62 +413,56 @@ class SpecificWorker(GenericWorker):
     ###########################################
     def read_joystick(self):
         if self.joystick_newdata:  # and (time.time() - self.joystick_newdata[1]) > 0.1:
-            datos = self.joystick_newdata[0]
-            adv = 0.0
+            adv = 0.0         # CHANGE THIS INITIALIZATION TO FIX THE MOVING PROBLEM
             rot = 0.0
-            bill_advance = 0.0
-            bill_rotate = 0.0
-            for x in datos.axes:
+            side = 0.0
+            left_pan = 0.0
+            right_pan = 0.0
+
+            for x in self.joystick_newdata[0].axes:
                 if x.name == "advance":
-                    adv = x.value if np.abs(x.value) > 10 else 0
-                if x.name == "rotate" or x.name == "turn":
-                    rot = x.value if np.abs(x.value) > 0.01 else 0
-                if x.name == "bill_advance":
-                    bill_advance = x.value if np.abs(x.value) > 0.05 else 0
-                    print("bill_advance ", bill_advance)
-                if x.name == "bill_rotate":
-                    bill_rotate = x.value if np.abs(x.value) > 0.05 else 0
+                    adv = x.value if np.abs(x.value) > 0.1 else 0  # mm/sg
+                if x.name == "rotate":
+                    rot = x.value if np.abs(x.value) > 0.1 else 0  # rads/sg
+                if x.name == "side":
+                    side = x.value if np.abs(x.value) > 0.1 else 0
+                if x.name == "left_pan":
+                    left_pan = x.value
+                if x.name == "right_pan":
+                    right_pan = x.value
 
-            converted = self.convert_base_speed_to_motors_speed(adv, rot)
-            # move Bill
-            if self.WITH_BILL:
-                bill_target = Dummy("Bill_goalDummy")
-                current_pos = bill_target.get_position()
-                bill_target.set_position([current_pos[0]+bill_rotate*0.5, current_pos[1]+bill_advance*0.5, current_pos[2]])
-                # if bill_advance > 0:
-                #     self.pr.script_call("walk_straight@Bill", 1)
-                # elif bill_advance < 0:
-                #     self.pr.script_call("walk_straight_backwards@Bill", 1)
-                # else:
-                #     self.pr.script_call("stop@Bill", 1)
-                # if bill_rotate > 0:
-                #     self.pr.script_call("walk_left@Bill", 1)
-                # elif bill_rotate < 0:
-                #     self.pr.script_call("walk_right@Bill", 1)
+            converted = self.convert_base_speed_to_radians(adv*1.8, side*1.8, rot*1.2)  # temptative values to match real velocities. Adjust mechanical parameters instead
 
+            # convert velocities in world reference system to local robot coordinates: adv, side and rot
+            # linear_vel, ang_vel = self.robot_object.get_velocity()
+            # ang = self.robot_object.get_orientation()[2]
+            # adv_vel = np.transpose(np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])) @ (np.array([linear_vel[0], linear_vel[1]]))
+            #print("ADV", adv_vel[1]*1000, "SIDE", adv_vel[0]*1000)
+            self.robot.set_base_angular_velocites(converted)
+            #
+            if left_pan > right_pan:
+                self.eye_new_pos = left_pan
+            else:
+                self.eye_new_pos = -right_pan
 
-            #print("Joystick ", [adv, rot], converted)
             self.joystick_newdata = None
             self.last_received_data_time = time.time()
         else:
             elapsed = time.time() - self.last_received_data_time
-            if elapsed > 2 and elapsed < 3:
-                self.convert_base_speed_to_motors_speed(0, 0)
+            if elapsed > 2 and elapsed < 3:   # safety break
+                self.robot.set_base_angular_velocites([0, 0, 0])
 
-    def convert_base_speed_to_motors_speed(self, adv, rot):
-        #  adv = r*(Wl + Wr)/2
-        #  rot = r*(-Wl + Wr)/2c
-        #  isolating Wl,Wr
-        #  Wl = ( adv - c*rot ) / r
-        #  Wr = ( adv + c*rot ) / r
-        left_vel = (adv + self.semi_width * rot) / self.radius
-        right_vel = (adv - self.semi_width * rot) / self.radius
-        self.left_wheel.set_joint_target_velocity(left_vel)
-        self.right_wheel.set_joint_target_velocity(right_vel)
-        return left_vel, right_vel
+        # dummy = Dummy("viriato_head_pan_tilt_nose_target")
+        # pantilt = Dummy("viriato_head_camera_pan_tilt")
+        # pose = dummy.get_position(pantilt)
+        # dummy.set_position([pose[0], pose[1] - pan / 10, pose[2] + tilt / 10], pantilt)
+
+    def convert_base_speed_to_radians(self, adv, side, rot):
+        return [adv / self.ShadowBase_WheelRadius, side / self.ShadowBase_WheelRadius,
+                rot * self.ShadowBase_Rotation_Factor]
 
     ###########################################
-    ### ROBOT POSE get and publish robot position
+    ### Get ROBOT POSE from Coppelia
     ###########################################
     def read_robot_pose(self):
 
@@ -557,11 +471,13 @@ class SpecificWorker(GenericWorker):
         linear_vel, ang_vel = self.robot_object.get_velocity()
 
         isMoving = np.abs(linear_vel[0]) > 0.01 or np.abs(linear_vel[1]) > 0.01 or np.abs(ang_vel[2]) > 0.01
+        ang = rot[2]
+        robot_vel = np.transpose(np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])) @ (np.array([linear_vel[0], linear_vel[1]]))
         self.bState = RoboCompGenericBase.TBaseState(x=pose[0] * 1000,
                                                      z=pose[1] * 1000,
                                                      alpha=rot[2],
-                                                     advVx=linear_vel[0] * 1000,
-                                                     advVz=linear_vel[1] * 1000,
+                                                     advVx=robot_vel[0] * 1000,
+                                                     advVz=robot_vel[1] * 1000,
                                                      rotV=ang_vel[2],
                                                      isMoving=isMoving)
         
@@ -577,6 +493,9 @@ class SpecificWorker(GenericWorker):
         self.robot_full_pose_write.vrx = ang_vel[0]
         self.robot_full_pose_write.vry = ang_vel[1]
         self.robot_full_pose_write.vrz = ang_vel[2]
+        self.robot_full_pose_write.adv = robot_vel[1]*1000.0
+        self.robot_full_pose_write.side = robot_vel[0]*1000.0
+        self.robot_full_pose_write.rot = ang_vel[2]
 
         # swap
         self.robot_full_pose_write, self.robot_full_pose_read = self.robot_full_pose_read, self.robot_full_pose_write
@@ -585,19 +504,14 @@ class SpecificWorker(GenericWorker):
     ### MOVE ROBOT from Omnirobot interface
     ###########################################
     def move_robot(self):
-
-        if self.speed_robot:
-            self.convert_base_speed_to_motors_speed(self.speed_robot[0], self.speed_robot[1])
-            print("Velocities sent to robot:", self.speed_robot)
-            self.speed_robot = None
+        if self.speed_robot != self.speed_robot_ant:  # or (isMoving and self.speed_robot == [0,0,0]):
+            self.robot.set_base_angular_velocites(self.speed_robot)
+            #print("Velocities sent to robot:", self.speed_robot)
+            self.speed_robot_ant = self.speed_robot
 
     ###########################################
-    ### MOVE ROBOT from Omnirobot interface
+    ### MOVE EYE
     ###########################################
-    def move_tablet(self):
-        if self.tablet_new_pos:
-            self.tablet_motor.set_joint_position(self.tablet_new_pos)  # radians
-            self.tablet_new_pos = None
 
     def move_eye(self):
         if self.eye_new_pos:
@@ -623,94 +537,67 @@ class SpecificWorker(GenericWorker):
                 and self.cameras_read[camera]["is_rgbd"]:
             return RoboCompCameraRGBDSimple.TRGBD(self.cameras_read[camera]["rgb"], self.cameras_read[camera]["depth"])
         else:
-            e = RoboCompCameraRGBDSimple.HardwareFailedException()
-            e.what = "No camera found with this name or with depth attributes: " + camera
+            ex = RoboCompCameraRGBDSimple.HardwareFailedException()
+            ex.what = "No camera found with this name or with depth attributes: " + camera
             raise e
 
-    #
-    # getDepth
-    #
     def CameraRGBDSimple_getDepth(self, camera):
         if camera in self.cameras_read.keys() \
                 and self.cameras_read[camera]["is_ready"] \
                 and self.cameras_read[camera]["has_depth"]:
             return self.cameras_read[camera]["depth"]
         else:
-            e = RoboCompCameraRGBDSimple.HardwareFailedException()
-            e.what = "No camera found with this name or with depth attributes: " + camera
+            ex = RoboCompCameraRGBDSimple.HardwareFailedException()
+            ex.what = "No camera found with this name or with depth attributes: " + camera
             raise e
 
-    #
-    # getImage
-    #
     def CameraRGBDSimple_getImage(self, camera):
         if camera in self.cameras_read.keys() and self.cameras_read[camera]["is_ready"]:
             return self.cameras_read[camera]["rgb"]
         else:
-            e = RoboCompCameraRGBDSimple.HardwareFailedException()
-            e.what = "No camera found with this name: " + camera
+            ex = RoboCompCameraRGBDSimple.HardwareFailedException()
+            ex.what = "No camera found with this name: " + camera
+            raise e
+
+    def CameraRGBDSimple_getPoints(self, camera):
+        if camera in self.cameras_read.keys() and self.cameras_read[camera]["is_ready"]\
+                and self.cameras_read[camera]["has_points"]:
+            return self.cameras_read[camera]["points"]
+        else:
+            ex = RoboCompCameraRGBDSimple.HardwareFailedException()
+            ex.what = "No camera found with this name: " + camera
             raise e
 
     ##############################################
-    ## Differentialbase
+    ### Omnibase
     #############################################
-
-    #
-    # correctOdometer
-    #
-    def DifferentialRobot_correctOdometer(self, x, z, alpha):
+    def OmniRobot_correctOdometer(self, x, z, alpha):
         pass
 
-    #
-    # getBasePose
-    #
-    def DifferentialRobot_getBasePose(self):
-        if self.bState:
-            x = self.bState.x
-            z = self.bState.z
-            alpha = self.bState.alpha
-            return [x, z, alpha]
-        else:
-            return RoboCompGenericBase.TBaseState()
+    def OmniRobot_getBasePose(self):
+        x = self.bState.x
+        z = self.bState.z
+        alpha = self.bState.alpha
+        return [x, z, alpha]
 
-    #
-    # getBaseState
-    #
-    def DifferentialRobot_getBaseState(self):
-        if self.bState:
-            return self.bState
-        else:
-            return RoboCompGenericBase.TBaseState()
+    def OmniRobot_getBaseState(self):
+        return self.bState
 
-    #
-    # resetOdometer
-    #
-    def DifferentialRobot_resetOdometer(self):
+    def OmniRobot_resetOdometer(self):
         pass
 
-    #
-    # setOdometer
-    #
-    def DifferentialRobot_setOdometer(self, state):
+    def OmniRobot_setOdometer(self, state):
         pass
 
-    #
-    # setOdometerPose
-    #
-    def DifferentialRobot_setOdometerPose(self, x, z, alpha):
+    def OmniRobot_setOdometerPose(self, x, z, alpha):
         pass
 
-    #
-    # setSpeedBase
-    #
-    def DifferentialRobot_setSpeedBase(self, advz, rot):
-        self.speed_robot = [advz, rot]
+    def OmniRobot_setSpeedBase(self, advx, advz, rot):
+        self.speed_robot = self.convert_base_speed_to_radians(advz, advx, rot)
+        print("Received speed command" , self.speed_robot)
 
-    #
-    # stopBase
-    #
-    def DifferentialRobot_stopBase(self):
-        pass
+    def OmniRobot_stopBase(self):
+        self.speed_robot = [0, 0, 0]
 
     # ===================================================================
     # CoppeliaUtils
@@ -735,7 +622,7 @@ class SpecificWorker(GenericWorker):
             dummy.set_position([pose.x / 1000., pose.y / 1000., pose.z / 1000.], parent_frame_object)
             dummy.set_orientation([pose.rx, pose.ry, pose.rz], parent_frame_object)
 
-    # =============== Methods for Component Implements ==================
+    # =============== Methods for FULLPOSEESTIMATION ==================
     # ===================================================================
 
     #
@@ -765,9 +652,6 @@ class SpecificWorker(GenericWorker):
         m.m33 = t[3][3]
         return m
 
-    #
-    # IMPLEMENTATION of setInitialPose method from FullPoseEstimation interface
-    #
     def FullPoseEstimation_setInitialPose(self, x, y, z, rx, ry, rz):
 
         # should move robot in Coppelia to designated pose
@@ -775,9 +659,9 @@ class SpecificWorker(GenericWorker):
                                pytr.transform_from(pyrot.active_matrix_from_intrinsic_euler_xyz([rx, ry, rz]), [x, y, z])
         )
 
-    #
-    # IMPLEMENTATION of getAllSensorDistances method from Ultrasound interface
-    #
+    ###################################################################
+    # IMPLEMENTATION Ultrasound interface
+    ################################################################
     def Ultrasound_getAllSensorDistances(self):
         ret = RoboCompUltrasound.SensorsState()
         #
@@ -785,9 +669,6 @@ class SpecificWorker(GenericWorker):
         #
         return ret
 
-    #
-    # IMPLEMENTATION of getAllSensorParams method from Ultrasound interface
-    #
     def Ultrasound_getAllSensorParams(self):
         ret = RoboCompUltrasound.SensorParamsList()
         #
@@ -825,11 +706,9 @@ class SpecificWorker(GenericWorker):
         #
         return ret
 
-    # ===================================================================
-    # ===================================================================
-    #
-    # IMPLEMENTATION of getRSSIState method from RSSIStatus interface
-    #
+    ###################################################################
+    # IMPLEMENTATION RSSI interface
+    ################################################################
     def RSSIStatus_getRSSIState(self):
         ret = RoboCompRSSIStatus.TRSSI()
         ret.percentage = 100;
@@ -844,7 +723,7 @@ class SpecificWorker(GenericWorker):
         return ret
     #
     #######################################################
-    #### Laser
+    #### Laser Interface
     #######################################################
     #
     # getLaserAndBStateData
@@ -868,8 +747,8 @@ class SpecificWorker(GenericWorker):
     def Laser_getLaserData(self):
         return self.ldata_read
 
- # ===================================================================
-    # IMPLEMENTATION of getMotorParams method from JointMotorSimple interface
+    # ===================================================================
+    # IMPLEMENTATION of  JointMotorSimple interface
     # ===================================================================
 
     def JointMotorSimple_getMotorParams(self, motor):
@@ -914,11 +793,9 @@ class SpecificWorker(GenericWorker):
         #
         pass
 
-
-   # =============== Methods for Component Implements ==================
-    #
-    # IMPLEMENTATION of getImage method from CameraSimple interface
-    #
+    # =====================================================================
+    # IMPLEMENTATION of CameraSimple interface
+    #######################################################################
     def CameraSimple_getImage(self):
         camera = self.tablet_camera_name
         if camera in self.cameras_read.keys() \
@@ -929,11 +806,10 @@ class SpecificWorker(GenericWorker):
             e = RoboCompCameraSimple.HardwareFailedException()
             e.what = "No (no RGBD) camera found with this name: " + camera
             raise e
+
     # ===================================================================
-    # ===================================================================
-    #
     # IMPLEMENTATION of getPose method from BillCoppelia interface
-    #
+    # ###################################################################
     def BillCoppelia_getPose(self):
         ret = RoboCompBillCoppelia.Pose()
         bill = Dummy("/Bill/Bill")
