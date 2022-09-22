@@ -67,10 +67,10 @@ void SpecificWorker::initialize(int period)
 
         //dsr update signals
         connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::add_or_assign_node_slot);
-        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
         //connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
-        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-        connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+        //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
         // Graph viewer
         using opts = DSR::DSRViewer::view;
@@ -87,11 +87,13 @@ void SpecificWorker::initialize(int period)
             current_opts = current_opts | opts::scene;
         if(osg_3d_view)
             current_opts = current_opts | opts::osg;
+        graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+        setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
         //Inner Api
         inner_eigen = G->get_inner_eigen_api();
-        graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
-        setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+        agent_info_api = std::make_unique<DSR::AgentInfoAPI>(G.get());
+
 
 //        try {
 ////            float x = 3.85;
@@ -110,14 +112,42 @@ void SpecificWorker::initialize(int period)
                 0.f , 1.f, 0.f,
                 0.f, 0.f, 1.f;
 
-        if(auto robot_id = G->get_id_from_name(robot_name); robot_id.has_value())
-            robot_id = robot_id.value();
+        // Setting robot state to 0
+        if(auto robot_o = G->get_node(robot_name); robot_o.has_value())
+        {
+            auto robot = robot_o.value();
+            if (auto parent_o = G->get_parent_node(robot); parent_o.has_value())
+            {
+                auto parent = parent_o.value();
+                if(auto edge_o = rt->get_edge_RT(parent, robot.id()); edge_o.has_value())
+                {
+                    auto edge = edge_o.value();
+                    G->modify_attrib_local<rt_rotation_euler_xyz_att>(edge, std::vector<float>{0.0, 0.0, 0.0});
+                    G->modify_attrib_local<rt_translation_att>(edge, std::vector<float>{0.0, 0.0, 0.0});
+                    G->modify_attrib_local<rt_translation_velocity_att>(edge, std::vector<float>{0.0, 0.0, 0.0});
+                    G->modify_attrib_local<rt_rotation_euler_xyz_velocity_att>(edge, std::vector<float>{0.0, 0.0, 0.0});
+                    G->insert_or_assign_edge(edge);
+                }
+                 else
+                {
+                    qWarning() << "No RT edge between robot and parent found. Terminate";
+                    std::terminate();
+                }
+            } else
+            {
+                qWarning() << "No robot's parent node found. Terminate";
+                std::terminate();
+            }
+        }
         else
         {
             qWarning() << "No robot node found. Terminate";
             std::terminate();
         }
-		this->Period = 100;
+
+
+
+        this->Period = 50;
 		timer.start(Period);
 	}
 }
@@ -125,16 +155,19 @@ void SpecificWorker::compute()
 {
     auto t_start = std::chrono::high_resolution_clock::now();
 
-    update_robot_localization();
+    //update_robot_localization();
     update_cameras();
     //read_battery();
     //update_servo_position();
     //auto laser = read_laser_from_robot();
     //update_laser(laser);
 
-    auto t_end = std::chrono::high_resolution_clock::now();
-    double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
-    //    std::cout << elapsed_time_ms << std::endl;
+    //auto t_end = std::chrono::high_resolution_clock::now();
+    //double elapsed_time_ms = std::chrono::duration<double, std::milli>(t_end-t_start).count();
+    // std::cout << elapsed_time_ms << std::endl;
+
+    fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -143,7 +176,7 @@ void SpecificWorker::update_cameras()
     try
     {
         auto rgbd = camerargbdsimple_proxy->getImage("/Shadow/camera_top");
-        cv::Mat rgbd_frame (cv::Size(rgbd.width, rgbd.height), CV_8UC3, &rgbd.image[0]);
+        cv::Mat rgbd_frame (cv::Size(rgbd.width, rgbd.height), CV_8UC3, &rgbd.image[0], cv::Mat::AUTO_STEP);
         if( auto node = G->get_node(shadow_camera_head_name); node.has_value())
         {
             std::vector<uint8_t> rgb; rgb.assign(rgbd_frame.data, rgbd_frame.data + rgbd_frame.total()*rgbd_frame.channels());
@@ -166,8 +199,8 @@ void SpecificWorker::update_cameras()
     {
         auto omni_rgb = camerargbdsimple_proxy->getImage("/Shadow/omnicamera/sensorRGB");
         auto omni_depth = camerargbdsimple_proxy->getImage("/Shadow/omnicamera/sensorDepth");
-        cv::Mat omni_rgbd_frame (cv::Size(omni_rgb.width, omni_rgb.height), CV_8UC3, &omni_rgb.image[0]);
-        cv::Mat omni_depth_frame (cv::Size(omni_depth.width, omni_depth.height), CV_8UC3, &omni_depth.image[0]);
+        cv::Mat omni_rgbd_frame (cv::Size(omni_rgb.width, omni_rgb.height), CV_8UC3, &omni_rgb.image[0], cv::Mat::AUTO_STEP);
+        cv::Mat omni_depth_frame (cv::Size(omni_depth.width, omni_depth.height), CV_8UC3, &omni_depth.image[0], cv::Mat::AUTO_STEP);
         cv::cvtColor(omni_depth_frame, omni_depth_frame, cv::COLOR_RGB2GRAY);
         cv::Mat omni_depth_float;
         omni_depth_frame.convertTo(omni_depth_float, CV_32FC1);
@@ -194,7 +227,7 @@ void SpecificWorker::update_cameras()
             G->add_or_modify_attrib_local<cam_depth_att>(node.value(),  depth);
             G->add_or_modify_attrib_local<cam_depth_width_att>(node.value(), omni_depth.width);
             G->add_or_modify_attrib_local<cam_depth_height_att>(node.value(), omni_depth.height);
-            G->add_or_modify_attrib_local<cam_depth_cameraID_att>(node.value(), 3);
+            G->add_or_modify_attrib_local<cam_depth_cameraID_att>(node.value(), 2);
             G->add_or_modify_attrib_local<cam_depth_focalx_att>(node.value(), omni_depth.focalx);
             G->add_or_modify_attrib_local<cam_depth_focaly_att>(node.value(), omni_depth.focaly);
             G->add_or_modify_attrib_local<cam_depth_alivetime_att>(node.value(), static_cast<std::uint64_t>(omni_depth.alivetime));
@@ -223,11 +256,11 @@ void SpecificWorker::update_servo_position()
 {
     try
     {
-        auto servo_data = this->jointmotorsimple_proxy->getMotorState("eye_motor");
+        auto servo_data = this->jointmotorsimple_proxy->getMotorState("camera_pan_joint");
         float servo_position = (float)servo_data.pos;
         float servo_vel = (float)servo_data.vel;
         bool moving = servo_data.isMoving;
-        if( auto servo = G->get_node("servo"); servo.has_value())
+        if( auto servo = G->get_node("camera_pan_joint"); servo.has_value())
         {
             G->add_or_modify_attrib_local<servo_pos_att>(servo.value(), servo_position);
             G->add_or_modify_attrib_local<servo_speed_att>(servo.value(), servo_vel);
@@ -282,14 +315,6 @@ void SpecificWorker::update_robot_localization()
     }
     else    qWarning() << __FUNCTION__ << " No node " << QString::fromStdString(robot_name);
 }
-
-Eigen::Vector2f SpecificWorker::from_world_to_robot(const Eigen::Vector2f &p,
-                                                    const RoboCompFullPoseEstimation::FullPoseEuler &r_state)
-{
-    Eigen::Matrix2f matrix;
-    matrix << cos(r_state.rz) , -sin(r_state.rz) , sin(r_state.rz) , cos(r_state.rz);
-    return (matrix.transpose() * (p - Eigen::Vector2f(r_state.x, r_state.y)));
-}
 cv::Mat SpecificWorker::compute_camera_simple_frame()
 {
     RoboCompCameraSimple::TImage cdata_camera_simple;
@@ -330,14 +355,6 @@ void SpecificWorker::update_camera_simple(std::string camera_name, const cv::Mat
         qWarning() << __FUNCTION__ << "Node camera_simple not found";
 }
 
-////////////////////////////////////////////////////////////////////////
-int SpecificWorker::startup_check()
-{
-	std::cout << "Startup check" << std::endl;
-	QTimer::singleShot(200, qApp, SLOT(quit()));
-	return 0;
-}
-
 //////////////////// AUX ///////////////////////////////////////////////
 bool SpecificWorker::are_different(const std::vector<float> &a, const std::vector<float> &b, const std::vector<float> &epsilon)
 {
@@ -346,39 +363,15 @@ bool SpecificWorker::are_different(const std::vector<float> &a, const std::vecto
             return true;
     return false;
 };
-
-//////////////////////////////// LASER ////////////////////////////////
-std::vector<SpecificWorker::LaserPoint> SpecificWorker::read_laser_from_robot()
+Eigen::Vector2f SpecificWorker::from_world_to_robot(const Eigen::Vector2f &p,
+                                                    const RoboCompFullPoseEstimation::FullPoseEuler &r_state)
 {
-    std::vector<LaserPoint> laser_data;
-
-    try {
-        auto laser = laser_proxy->getLaserData();
-        //for(auto &d : laser)
-        //    qInfo() << d.angle << d.dist;
-        std::transform(laser.begin(), laser.end(), std::back_inserter(laser_data), [](const auto &l) {return LaserPoint{l.dist, l.angle}; });
-    }catch (const Ice::Exception &e){ /*std::cout << e.what() << " No laser_pioneer_data" << std::endl;*/ return {};}
-
-    return laser_data;
+    Eigen::Matrix2f matrix;
+    matrix << cos(r_state.rz) , -sin(r_state.rz) , sin(r_state.rz) , cos(r_state.rz);
+    return (matrix.transpose() * (p - Eigen::Vector2f(r_state.x, r_state.y)));
 }
-void SpecificWorker::update_laser(const std::vector<LaserPoint> &laser_data)
-{
-    if( auto node = G->get_node(laser_name); node.has_value())
-    {
-        // Transform laserData into two std::vector<float>
-        std::vector<float> dists;
-        std::transform(laser_data.begin(), laser_data.end(), std::back_inserter(dists), [](const auto &l) { return l.dist; });
-        std::vector<float> angles;
-        std::transform(laser_data.begin(), laser_data.end(), std::back_inserter(angles), [](const auto &l) { return l.angle; });
 
-        // update laser in DSR
-        G->add_or_modify_attrib_local<laser_dists_att>(node.value(), dists);
-        G->add_or_modify_attrib_local<laser_angles_att>(node.value(), angles);
-        G->update_node(node.value());
-    }
-    else
-        qWarning() << __FUNCTION__ << "No laser node found";
-}
+//////////////////////////////// TEMP GRID ////////////////////////////////
 Eigen::Matrix3f SpecificWorker::get_new_grid_matrix(Eigen::Vector3d robot_position, Eigen::Vector3d robot_rotation)
 {
     // build the matrix to transform from robot to local_grid, knowing robot and grid pose in world
@@ -402,7 +395,6 @@ Eigen::Matrix3f SpecificWorker::get_new_grid_matrix(Eigen::Vector3d robot_positi
 ///////////////////////////////////////////////////////////////////
 /// Asynchronous changes on G nodes from G signals
 ///////////////////////////////////////////////////////////////////
-
 void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::string &type)
 {
     if (type == "grid")
@@ -511,7 +503,6 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
 //        }
     }
 }
-
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -626,3 +617,11 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
 //    warpAffine(rgbd_frame, rgbd_frame_rotated, rot_matrix, rgbd_frame.size());
 //
 //    cv::cvtColor(rgbd_frame_rotated, rgbd_frame_rotated, 4);
+
+////////////////////////////////////////////////////////////////////////
+int SpecificWorker::startup_check()
+{
+    std::cout << "Startup check" << std::endl;
+    QTimer::singleShot(200, qApp, SLOT(quit()));
+    return 0;
+}

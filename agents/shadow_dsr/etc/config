@@ -1,24 +1,21 @@
-CommonBehavior.Endpoints=tcp -p 10000
+CommonBehavior.Endpoints=tcp -p 10700
 
 # Proxies for required interfaces
-BatteryStatusProxy = batterystatus:tcp -h localhost -p 0
-CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 0
-FullPoseEstimationProxy = fullposeestimation:tcp -h localhost -p 0
-JointMotorSimpleProxy = jointmotorsimple:tcp -h localhost -p 0
-LaserProxy = laser:tcp -h localhost -p 10003
-OmniRobotProxy = omnirobot:tcp -h localhost -p 0
-RealSenseFaceIDProxy = realsensefaceid:tcp -h localhost -p 0
+BatteryStatusProxy = batterystatus:tcp -p 10050
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -p 10095
+CameraSimpleProxy = camerasimple:tcp  -p 10005
+OmniRobotProxy = omnirobot:tcp  -p 10004
+FullPoseEstimationProxy = fullposeestimation:tcp  -p 10696
+LaserProxy = laser:tcp  -p 10003
+RealSenseFaceIDProxy = realsensefaceid:tcp  -p 11070
+JointMotorSimpleProxy = jointmotorsimple:tcp -p 10086
 
-
-agent_id = 0 # Change id
-agent_name = giraff_dsr
-tree_view = true
+agent_id = 30 # Change id
+agent_name = shadow_dsr
+tree_view = false
 graph_view = true
 2d_view = true
-3d_view = true
-#Ice.MessageSizeMax=20004800
-
-InnerModelPath = innermodel.xml
+3d_view = false
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
