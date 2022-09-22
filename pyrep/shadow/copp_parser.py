@@ -371,7 +371,7 @@ world["DSRModel"]["symbols"]["206"] = {
         }
     ],
     "name": "camera_pan_joint",
-    "type": "pan_tilt"
+    "type": "joint"
 }       # joint
 world["DSRModel"]["symbols"]["210"] = {
     "attribute": {

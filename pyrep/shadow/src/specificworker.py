@@ -759,9 +759,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getMotorState method from JointMotorSimple interface
     #
     def JointMotorSimple_getMotorState(self, motor):
-        if motor == "tablet_motor":
-            ret = RoboCompJointMotorSimple.MotorState(self.tablet_motor.get_joint_position())  # radians
-        elif motor == "eye_motor":
+        if motor == "camera_pan_joint":
             ret = RoboCompJointMotorSimple.MotorState(self.eye_motor.get_joint_position())  # radians
         return ret
 
