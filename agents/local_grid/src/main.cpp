@@ -82,6 +82,7 @@
 #include "commonbehaviorI.h"
 
 
+#include <CameraRGBDSimple.h>
 
 
 
@@ -129,11 +130,28 @@ int ::local_grid::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 	string proxy, tmp;
 	initialize();
 
-	tprx = std::tuple<>();
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "YoloObjectsProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy YoloObjectsProxy\n";
+		}
+		yoloobjects_proxy = Ice::uncheckedCast<RoboCompYoloObjects::YoloObjectsPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy YoloObjects: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("YoloObjectsProxy initialized Ok!");
+
+
+	tprx = std::make_tuple(yoloobjects_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

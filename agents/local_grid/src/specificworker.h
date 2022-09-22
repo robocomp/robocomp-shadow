@@ -37,6 +37,10 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <fps/fps.h>
+#include "/home/robocomp/robocomp/classes/local_grid/local_grid.h"
+#include <abstract_graphic_viewer/abstract_graphic_viewer.h>
+#include <custom_widget.h>
+
 
 using Point3f = std::tuple<float, float, float>;
 
@@ -66,9 +70,9 @@ private:
         {
             float tile_size = 100;
             const float max_laser_range = 4000;
-            const float max_camera_depth_range = 4500;
-            const float min_camera_depth_range = 800;
-            const float omni_camera_height_meters = 0.6; //mm
+            const float max_camera_depth_range = 5000;
+            const float min_camera_depth_range = 300;
+            const float omni_camera_height_meters = 0.4; //mm
             float robot_length = 500;
         };
         Constants consts;
@@ -76,7 +80,7 @@ private:
         // DSR graph
         std::shared_ptr<DSR::DSRGraph> G;
         std::shared_ptr<DSR::InnerEigenAPI> inner_eigen;
-        std::unique_ptr<DSR::CameraAPI> cam_api;
+        std::unique_ptr<DSR::CameraAPI> cam_omni_api, cam_head_api;
         std::unique_ptr<DSR::AgentInfoAPI> agent_info_api;
 
         //DSR params
@@ -93,24 +97,39 @@ private:
         QHBoxLayout mainLayout;
         DSR::QScene2dViewer* widget_2d;
 
-    // Array of sets for representing sectors
+        //local widget
+        Custom_widget custom_widget;
+        QWidget grid_widget;
+        AbstractGraphicViewer *grid_viewer;
+
+        // Array of sets for representing sectors
         struct compare
         { bool operator()(const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &a, const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &b) const
             { return std::get<Eigen::Vector3f>(a).norm() < std::get<Eigen::Vector3f>(b).norm(); }
         };
         using SetsType = std::vector<std::set<std::tuple<Eigen::Vector3f, std::tuple<float, float, float>>, compare>>;
-        SetsType sets;
         SetsType group_by_angular_sectors(bool draw=false);
         vector<Eigen::Vector2f> compute_floor_line(const SetsType &sets, bool draw=false);
 
         // grid
         std::shared_ptr<std::vector<std::tuple<float, float, float>>> points, colors;
+        Local_Grid local_grid;
 
-        // FPS
+        // YOLO objects
+        RoboCompYoloObjects::TObjects get_yolo_objects(cv::Mat frame);
+        void draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img);
+        RoboCompYoloObjects::TObjectNames yolo_object_names;
+        RoboCompYoloObjects::TJointData yolo_joint_data;
+
+    // FPS
         FPSCounter fps;
+
+        // dRAW
+        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points);
 
     void get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
 
+    cv::Mat read_depth_omni();
 };
 
 #endif

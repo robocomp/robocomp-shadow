@@ -1,5 +1,8 @@
 CommonBehavior.Endpoints=tcp -p 10000
 
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
+YoloObjectsProxy = yoloobjects:tcp  -p 10054
+
 agent_id = 35 # Change id
 agent_name = local_grid
 tree_view = false
