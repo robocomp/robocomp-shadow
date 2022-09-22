@@ -31,13 +31,15 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
+#include <CameraRGBDSimple.h>
+#include <YoloObjects.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<>;
+using TuplePrx = std::tuple<RoboCompYoloObjects::YoloObjectsPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -53,6 +55,7 @@ public:
 	QMutex *mutex;
 
 
+	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 
 protected:

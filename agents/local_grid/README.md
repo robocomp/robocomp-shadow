@@ -3,6 +3,7 @@ Intro to component here
 
 This agent creates and maintains the local grid representation as a node connected to the robot
 
+
 ## Configuration parameters
 As any other component, *local_grid* needs a configuration file to start. In
 ```
