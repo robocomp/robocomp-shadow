@@ -40,10 +40,11 @@
 #include "/home/robocomp/robocomp/classes/local_grid/local_grid.h"
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
 #include <custom_widget.h>
+#include <timer/timer.h>
+#include <random/random.hpp>
 
-
+using Random = effolkronium::random_static;
 using Point3f = std::tuple<float, float, float>;
-
 
 class SpecificWorker : public GenericWorker
 {
@@ -74,6 +75,8 @@ private:
             const float min_camera_depth_range = 300;
             const float omni_camera_height_meters = 0.4; //mm
             float robot_length = 500;
+            float num_angular_bins = 360;
+            float scaling_factor = 19.f;
         };
         Constants consts;
 
@@ -103,33 +106,40 @@ private:
         AbstractGraphicViewer *grid_viewer;
 
         // Array of sets for representing sectors
+        std::vector<Point3f> get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
         struct compare
         { bool operator()(const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &a, const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &b) const
             { return std::get<Eigen::Vector3f>(a).norm() < std::get<Eigen::Vector3f>(b).norm(); }
         };
         using SetsType = std::vector<std::set<std::tuple<Eigen::Vector3f, std::tuple<float, float, float>>, compare>>;
-        SetsType group_by_angular_sectors(bool draw=false);
+        SetsType group_by_angular_sectors(const std::vector<Point3f> &points, bool draw=false);
         vector<Eigen::Vector2f> compute_floor_line(const SetsType &sets, bool draw=false);
 
         // grid
-        std::shared_ptr<std::vector<std::tuple<float, float, float>>> points, colors;
+        //std::shared_ptr<std::vector<std::tuple<float, float, float>>> points, colors;
         Local_Grid local_grid;
 
         // YOLO objects
-        RoboCompYoloObjects::TObjects get_yolo_objects(cv::Mat frame);
-        void draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img);
+        RoboCompYoloObjects::TObjects get_yolo_objects();
+        cv::Mat draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img);
         RoboCompYoloObjects::TObjectNames yolo_object_names;
         RoboCompYoloObjects::TJointData yolo_joint_data;
+        std::vector<int> excluded_yolo_types;
 
-    // FPS
+        // FPS
         FPSCounter fps;
+        rc::Timer<> stimer;
 
         // dRAW
         void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points);
+        void draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects);
+        std::map<int, QPixmap> object_pixmaps;
 
-    void get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
+
 
     cv::Mat read_depth_omni();
+
+    void draw_on_2D_tab(const vector<cv::Vec4i> &lines);
 };
 
 #endif
