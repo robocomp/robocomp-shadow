@@ -175,23 +175,36 @@ void SpecificWorker::update_cameras()
 {
     try
     {
-        auto rgbd = camerargbdsimple_proxy->getImage("/Shadow/camera_top");
-        cv::Mat rgbd_frame (cv::Size(rgbd.width, rgbd.height), CV_8UC3, &rgbd.image[0], cv::Mat::AUTO_STEP);
+        auto rgbd = camerargbdsimple_proxy->getAll("/Shadow/camera_top");
+        auto &rgb = rgbd.image;
+        auto &depth = rgbd.depth;
         if( auto node = G->get_node(shadow_camera_head_name); node.has_value())
         {
-            std::vector<uint8_t> rgb; rgb.assign(rgbd_frame.data, rgbd_frame.data + rgbd_frame.total()*rgbd_frame.channels());
-            G->add_or_modify_attrib_local<cam_rgb_att>(node.value(),  rgb);
-            G->add_or_modify_attrib_local<cam_rgb_width_att>(node.value(), rgbd_frame.cols);
-            G->add_or_modify_attrib_local<cam_rgb_height_att>(node.value(), rgbd_frame.rows);
-            G->add_or_modify_attrib_local<cam_rgb_depth_att>(node.value(), rgbd_frame.depth());
+            cv::Mat rgb_frame (cv::Size(rgb.width, rgb.height), CV_8UC3, &rgb.image[0], cv::Mat::AUTO_STEP);
+            std::vector<uint8_t> rgb_vector; rgb_vector.assign(rgb_frame.data, rgb_frame.data + rgb_frame.total()*rgb_frame.channels());
+            G->add_or_modify_attrib_local<cam_rgb_att>(node.value(),  rgb_vector);
+            G->add_or_modify_attrib_local<cam_rgb_width_att>(node.value(), rgb_frame.cols);
+            G->add_or_modify_attrib_local<cam_rgb_height_att>(node.value(), rgb_frame.rows);
+            G->add_or_modify_attrib_local<cam_rgb_depth_att>(node.value(), rgb_frame.depth());
             G->add_or_modify_attrib_local<cam_rgb_cameraID_att>(node.value(), 3);
-            G->add_or_modify_attrib_local<cam_rgb_focalx_att>(node.value(), rgbd.focalx);
-            G->add_or_modify_attrib_local<cam_rgb_focaly_att>(node.value(), rgbd.focaly);
-            G->add_or_modify_attrib_local<cam_rgb_alivetime_att>(node.value(), static_cast<std::uint64_t>(rgbd.alivetime));
+            G->add_or_modify_attrib_local<cam_rgb_focalx_att>(node.value(), rgb.focalx);
+            G->add_or_modify_attrib_local<cam_rgb_focaly_att>(node.value(), rgb.focaly);
+            G->add_or_modify_attrib_local<cam_rgb_alivetime_att>(node.value(), static_cast<std::uint64_t>(rgb.alivetime));
+
+            // CAMBIAR POR UNA ASIGNACION DIRECTA DESDE CameraRGBDSimple
+            cv::Mat depth_frame(cv::Size(depth.width, depth.height), CV_32FC1, &depth.depth[0], cv::Mat::AUTO_STEP);
+            std::vector<uint8_t> depth_vector; depth_vector.assign(depth_frame.data, depth_frame.data + depth_frame.total()* sizeof(float));
+            G->add_or_modify_attrib_local<cam_depth_att>(node.value(),  depth_vector);
+            G->add_or_modify_attrib_local<cam_depth_width_att>(node.value(), depth_frame.cols);
+            G->add_or_modify_attrib_local<cam_depth_height_att>(node.value(), depth_frame.rows);
+            G->add_or_modify_attrib_local<cam_depth_cameraID_att>(node.value(), 3);
+            G->add_or_modify_attrib_local<cam_depth_focalx_att>(node.value(), depth.focalx);
+            G->add_or_modify_attrib_local<cam_depth_focaly_att>(node.value(), depth.focaly);
+            G->add_or_modify_attrib_local<cam_depth_alivetime_att>(node.value(), static_cast<std::uint64_t>(depth.alivetime));
             G->update_node(node.value());
         }
         else
-            qWarning() << __FUNCTION__ << "Node " << QString::fromStdString(shadow_camera_head_name) << " not found";
+                qWarning() << __FUNCTION__ << "Node " << QString::fromStdString(shadow_camera_head_name) << " not found";
     }
     catch (const Ice::Exception &e){std::cout << e.what() << " reading camera-top" << std::endl;}
 
