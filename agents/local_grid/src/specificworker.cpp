@@ -94,6 +94,7 @@ void SpecificWorker::initialize(int period)
         // Custom widget
         graph_viewer->add_custom_widget_to_dock("Local grid", &grid_widget);
         grid_viewer = new AbstractGraphicViewer(&grid_widget, QRectF{-3000, -3000, 6000, 6000});
+        connect(grid_viewer, &AbstractGraphicViewer::new_mouse_coordinates, [](auto p){ qInfo() << p;});
 
         // Apis
         inner_eigen = G->get_inner_eigen_api();
@@ -108,16 +109,25 @@ void SpecificWorker::initialize(int period)
         // localgrid
         Local_Grid::Ranges angle_dim{ .init=0, .end=360, .step=5}, radius_dim{.init=0.f, .end=4000.f, .step=200};
         local_grid.initialize( angle_dim, radius_dim, &grid_viewer->scene);
-        points = std::make_shared<std::vector<std::tuple<float, float, float>>>();
-        colors = std::make_shared<std::vector<std::tuple<float, float, float>>>();
+        //points = std::make_shared<std::vector<std::tuple<float, float, float>>>();
+        //colors = std::make_shared<std::vector<std::tuple<float, float, float>>>();
 
         // YOLO get object names and joints_list
         try
         {
             yolo_object_names = yoloobjects_proxy->getYoloObjectNames();
             qInfo() << "Yolo objects names successfully read";
+            // excluded names
+            excluded_yolo_types.push_back(std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "bench")));
+            excluded_yolo_types.push_back(std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "toilet")));
+            excluded_yolo_types.push_back(std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "surfboard")));
         }
         catch(const Ice::Exception &e) {std::cout << e.what() << " Error connecting with YoloObjects interface to retrieve names" << std::endl;}
+
+        // pixmaps
+        object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "person"))] = QPixmap("human.png").scaled(800,800);
+        object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "chair"))] = QPixmap("chair.png").scaled(800,800);
+        object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "potted plant"))] = QPixmap("plant.png").scaled(800,800);
 
         this->Period = 50;
 		timer.start(Period);
@@ -125,72 +135,151 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
-    points->clear(); colors->clear();
-    cv::Mat depth_frame;
-    //    if(auto depth_o = cam_omni_api->get_depth_image(); depth_o.has_value())
-    //    {
-    //        auto &depth = depth_o.value();
-    //        depth_frame = cv::Mat(cv::Size(cam_api->get_depth_width(), cam_api->get_depth_height()), CV_32FC1, &depth[0]);
-    //    }
-    //    depth_frame = read_depth_omni();
-    std::vector<float> depth_buffer;
-    auto cam_node = G->get_node(shadow_omni_camera_name);
-    if (auto g_depth = G->get_attrib_by_name<cam_depth_att>(cam_node.value()); g_depth.has_value())
-    {
-        float *depth_array = (float *)g_depth.value().get().data();
-        depth_buffer = std::vector<float>{depth_array, depth_array + g_depth.value().get().size() / sizeof(float)};
-        depth_frame = cv::Mat(cv::Size(cam_omni_api->get_depth_width(), cam_omni_api->get_depth_height()), CV_32FC1, &depth_buffer[0], cv::Mat::AUTO_STEP);
-    }
+    //points->clear(); colors->clear();
 
-    cv::Mat rgb_head;
-    if(auto rgb_o = cam_head_api->get_rgb_image(); rgb_o.has_value())
-    {
-        auto &frame = rgb_o.value();
-        rgb_head = cv::Mat(cv::Size(cam_head_api->get_rgb_width(), cam_head_api->get_rgb_height()), CV_8UC3, &frame[0]);
-        //cv::imshow("rgb", rgb_head);
-        //cv::waitKey(5);
-    }
+    //get omni_depth
+    std::optional<std::vector<float>> depth_omni_o;
+    if(depth_omni_o = cam_omni_api->get_depth_image(); not depth_omni_o.has_value())
+    { qWarning() << "No rgb attribute in node " << cam_head_api->get_id(); return;}
+    cv::Mat depth_frame(cv::Size(cam_omni_api->get_depth_width(), cam_omni_api->get_depth_height()), CV_32FC1, &depth_omni_o.value()[0]);
 
-    get_omni_3d_points(depth_frame, rgb_head);  //float y uchar
+    // get head_rgb
+    std::optional<std::vector<uint8_t>> rgb_head_o;
+    if(rgb_head_o = cam_head_api->get_rgb_image(); not rgb_head_o.has_value())
+    { qWarning() << "No rgb attribute in node " << cam_head_api->get_id(); return;}
+    cv::Mat rgb_head(cv::Size(cam_head_api->get_rgb_width(), cam_head_api->get_rgb_height()), CV_8UC3, &rgb_head_o.value()[0]);
+
+    // get head_depth
+    std::optional<std::vector<float>> depth_top_o;
+    if(depth_top_o = cam_head_api->get_depth_image(); not depth_top_o.has_value())
+     { qWarning() << "No depth attribute in node " << cam_head_api->get_id(); return;}
+    cv::Mat depth_head(cv::Size(cam_head_api->get_depth_width(), cam_head_api->get_depth_height()), CV_32FC1, &depth_top_o.value()[0]);
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+
+    auto points = get_omni_3d_points(depth_frame, rgb_head);  // compute 3D points form omni_depth
 
     // Group 3D points by angular sectors and sorted by minimum distance
-    auto sets = group_by_angular_sectors(false);
+    auto sets = group_by_angular_sectors(points, false);    // group them in 360 set sectors sorted by distance
 
     // compute floor line
-    auto floor_line = compute_floor_line(sets, false);
+    auto floor_line = compute_floor_line(sets, false);      // extract the first element of eachs set
 
     // yolo
-    auto yolo_objects = get_yolo_objects(rgb_head);
+    auto yolo_objects = get_yolo_objects();
+    draw_yolo_objects(yolo_objects, rgb_head);
 
     // update local_grid
-    local_grid.update_map_from_polar_data(floor_line, 5000);
-    //local_grid.update_semantic_layer(yolo_objects);
+    //local_grid.update_map_from_polar_data(floor_line, 5000);
+    //local_grid.update_semantic_layer(atan2(o.x, o.y), o.depth, o.id, o.type);  // rads -PI,PI and mm
+
+    cv::Mat edges = cv::Mat::zeros(200, 200, CV_8UC1);
+    for(const auto &p: floor_line)
+    {
+        int x = p(1) * sin(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
+        int y = p(1) * cos(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
+        //qInfo() << __FUNCTION__ << p(1)*sin(p(0)) << p(1)*cos(p(0)) << x << y;
+        if(x>= 0 and x<200 and y>=0 and y<200)
+            edges.at<uchar>(x, y) = 255;
+    }
+    cv::Mat cedges;
+    cv::cvtColor(edges, cedges, cv::COLOR_GRAY2BGR);
+    cv::Mat lines_img = cedges.clone();
+
+    std::vector<cv::Vec4i> lines;
+    HoughLinesP(edges, lines, 1, CV_PI/180, 5, 10, 5 );
+    qInfo() << __FUNCTION__ << lines.size();
+    draw_on_2D_tab(lines);
+    cv::imshow("sdf", edges);
+    cv::waitKey(1);
 
     // draw on 2D
     draw_on_2D_tab(floor_line);
+    draw_on_2D_tab(yolo_objects);
     grid_viewer->viewport()->repaint();
+    cv::imshow("Top_camera", rgb_head);
+    cv::waitKey(5);
 
     fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////77
-RoboCompYoloObjects::TObjects SpecificWorker::get_yolo_objects(cv::Mat frame)
+RoboCompYoloObjects::TObjects SpecificWorker::get_yolo_objects()
 {
     try
     {
         auto yolo_data = yoloobjects_proxy->getYoloObjects();
-        //qInfo() << __FUNCTION__ <<  "YOLO" << yolo_data.objects.size();
-        draw_yolo_objects(yolo_data.objects, frame);
         return yolo_data.objects;
     }
     catch(const Ice::Exception &e){ std::cerr << e.what() << ". No response from YoloServer" << std::endl;};
     return RoboCompYoloObjects::TObjects();
 }
-void SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img)
+void SpecificWorker::draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects)
+{
+    static std::vector<QGraphicsItem*> pixmap_ptrs;
+    for(auto p: pixmap_ptrs)
+    {
+        widget_2d->scene.removeItem(p);
+        delete p;
+    }
+    pixmap_ptrs.clear();
+
+    for(auto &o: objects)
+        if(o.score > 0.5 and std::ranges::find(excluded_yolo_types, o.type) == excluded_yolo_types.end())
+        {
+            auto p = widget_2d->scene.addPixmap(object_pixmaps[o.type]);
+            p->setPos(o.x-object_pixmaps[o.type].width()/2, o.y-object_pixmaps[o.type].height()/2);
+            pixmap_ptrs.push_back(p);
+        }
+}
+void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points)
+{
+    static std::vector<QGraphicsRectItem*> dot_vec;
+    static QGraphicsPolygonItem* poly_draw;
+    if(not dot_vec.empty())
+    {
+        for (auto p: dot_vec)
+        {
+            widget_2d->scene.removeItem(p);
+            delete p;
+        }
+        dot_vec.clear();
+    }
+    if(poly_draw != nullptr) widget_2d->scene.removeItem(poly_draw);
+
+    QPolygonF poly;
+    for(const auto &l: points)
+    {
+        auto p = widget_2d->scene.addRect(-15, -15, 30, 30, QPen(QColor("Green"),10));
+        dot_vec.push_back(p);
+        p->setPos(l(1)*sin(l(0)), l(1)*cos(l(0)));
+    }
+}
+void SpecificWorker::draw_on_2D_tab(const std::vector<cv::Vec4i> &lines)
+{
+    static std::vector<QGraphicsItem*> lines_vec;
+    for (auto l: lines_vec)
+    {
+        widget_2d->scene.removeItem(l);
+        delete l;
+    }
+    lines_vec.clear();
+    for(const auto &l: lines)
+    {
+        float x1 = l[0]*9000.0/200 - 4500;
+        float y1 = -l[1]*9000.0/200 + 4500;
+        float x2 = l[2]*9000.0/200 - 4500;
+        float y2 = -l[3]*9000.0/200 + 4500;
+        auto p = widget_2d->scene.addLine(QLineF( x1, y1, x2, y2), QPen(QColor("orange"), 40));
+        qInfo() << __FUNCTION__ << l[0] << l[1] << l[2] << l[3] << QLineF( x1, y1, x2, y2);
+        lines_vec.push_back(p);
+    }
+}
+cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img)
 {
     // Plots one bounding box on image img
-    //qInfo() << __FUNCTION__ << QString::fromStdString(box.name) << box.left << box.top << box.right << box.bot << box.prob;
+    cv::Mat cimg;
     for(const auto &box: objects)
     {
         auto tl = round(0.002 * (img.cols + img.rows) / 2) + 1; // line / fontthickness
@@ -200,34 +289,35 @@ void SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &obje
         cv::rectangle(img, c1, c2, color, tl, cv::LINE_AA);
         int tf = (int) std::max(tl - 1, 1.0);  // font thickness
         int baseline = 0;
-        std::string label = yolo_object_names.at(box.type) + " " + std::to_string((int) (box.prob * 100)) + "%";
+        std::string label = yolo_object_names.at(box.type) + " " + std::to_string((int) (box.score * 100)) + "%";
         auto t_size = cv::getTextSize(label, 0, tl / 3.f, tf, &baseline);
         c2 = {c1.x + t_size.width, c1.y - t_size.height - 3};
         cv::rectangle(img, c1, c2, color, -1, cv::LINE_AA);  // filled
         cv::putText(img, label, cv::Size(c1.x, c1.y - 2), 0, tl / 3, cv::Scalar(225, 255, 255), tf, cv::LINE_AA);
     }
-    cv::imshow("central camera", img);
-    cv::waitKey(5);
+    return cimg;
 }
-void SpecificWorker::get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
+std::vector<Point3f> SpecificWorker::get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
 {
      // Let's assume that each column corresponds to a polar coordinate: ang_step = 360/image.width
      // and along the column we have radius
      // hor ang = 2PI/512 * i
 
     //std::size_t i = points->size();  // to continue inserting
-    std::size_t i = 0;  // to continue inserting
-    points->resize(depth_frame.rows * depth_frame.cols);
-    colors->resize(points->size());
+    std::vector<Point3f> points(depth_frame.rows * depth_frame.cols);
+    //points->resize(depth_frame.rows * depth_frame.cols);
+    //colors->resize(points->size());
     int semi_height = depth_frame.rows/2;
-    float hor_ang, dist, x, y, z, proy, ang_slope = 2*M_PI/depth_frame.cols;
+    float hor_ang, dist, x, y, z, proy;
+    float ang_slope = 2*M_PI/depth_frame.cols;
     //int nancount=0;
-    for(int u=50; u<depth_frame.rows-50; u=u+1)
-        for(int v=0; v<depth_frame.cols-1; ++v)
+    std::size_t i = 0;  // direct access to points
+    for(int u=0; u<depth_frame.rows; u=u+1)
+        for(int v=0; v<depth_frame.cols; ++v)
         {
             hor_ang = ang_slope * v - M_PI; // cols to radians
             //qInfo() << __FUNCTION__ <<  u << v << depth_frame.cols;
-            dist = depth_frame.ptr<float>(u)[v] * 19.f;  // pixel to dist scaling factor  -> to mm
+            dist = depth_frame.ptr<float>(u)[v] * consts.scaling_factor;  // pixel to dist scaling factor  -> to mm
             //if(std::isnan(dist)) {nancount++; points->clear(); goto the_end;};
             if(dist > consts.max_camera_depth_range) continue;
             if(dist < consts.min_camera_depth_range) continue;
@@ -240,27 +330,23 @@ void SpecificWorker::get_omni_3d_points(const cv::Mat &depth_frame, const cv::Ma
 
             // filter out floor
             if(z < 0.4 ) continue;
-            points->operator[](i) = std::make_tuple(x, y, z);
+            points[i] = std::make_tuple(x, y, z);
             //auto rgb = rgb_frame.ptr<cv::Vec3b>(u)[v];
             //colors->operator[](i) = std::make_tuple(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0);
             i += 1;
         };
-    //the_end:
-    //std::cout << "---------------------------------------------------------" << std::endl;
-
-    //qInfo() << __FUNCTION__ << nancount << "Points size" << points->size();
+    return points;
 }
-SpecificWorker::SetsType SpecificWorker::group_by_angular_sectors(bool draw)
+SpecificWorker::SetsType SpecificWorker::group_by_angular_sectors(const std::vector<Point3f> &points, bool draw)
 {
-    int num_ang_bins = 360;
-    const double ang_bin = 2.0*M_PI/num_ang_bins;
-    SetsType sets(num_ang_bins);
-    for(const auto &point :*points)
+    const double ang_bin = 2.0*M_PI/consts.num_angular_bins;
+    SetsType sets(consts.num_angular_bins);
+    for(const auto &[x, y, z] : points)
     {
-        const auto &[x,y,z] = point;
+        //const auto &[x,y,z] = point;
         //if(fabs(x)<0.1 and fabs(y)<0.1) continue;
         int ang_index = floor((M_PI + atan2(x, y))/ang_bin);
-        float dist = sqrt(x*x+y*y+z*z);
+        //float dist = sqrt(x*x+y*y+z*z);
         //if(dist < 0.1 or dist > 5) continue;
         //if(z < 0.4 ) continue;
         sets[ang_index].emplace(std::make_tuple(Eigen::Vector3f(x,y,z), std::make_tuple(0,0,0)));  // remove color
@@ -296,38 +382,14 @@ vector<Eigen::Vector2f> SpecificWorker::compute_floor_line(const SpecificWorker:
         ang += ang_bin;
         if(s.empty()) continue;
         Eigen::Vector3f p = get<Eigen::Vector3f>(*s.cbegin());  // first element is the smallest distance
+        float dist = p.head(2).norm();
+        if(fabs(dist) > consts.max_camera_depth_range/1000) continue;
         floor_line.emplace_back(Eigen::Vector2f(ang-M_PI, p.head(2).norm()*1000.0));  // to undo the +M_PI in group_by_angular_sectors
     }
     //qInfo() << __FUNCTION__ << "--------------------------------------";
     return floor_line;
 }
-void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points)
-{
-    static std::vector<QGraphicsRectItem*> dot_vec;
-    static QGraphicsPolygonItem* poly_draw;
-    if(not dot_vec.empty())
-    {
-        for (auto p: dot_vec)
-        {
-            widget_2d->scene.removeItem(p);
-            delete p;
-        }
-        dot_vec.clear();
-    }
-    if(poly_draw != nullptr) widget_2d->scene.removeItem(poly_draw);
 
-    QPolygonF poly;
-    for(const auto &l: points)
-    {
-        //poly << QPointF(l.x()*1000, l.y()*1000);
-        auto p = widget_2d->scene.addRect(-15, -15, 30, 30, QPen(QColor("Green"),10));
-        //poly_draw = widget_2d->scene.addPolygon(poly, QPen(QColor("Blue"),10));
-        dot_vec.push_back(p);
-        p->setPos(l(1)*sin(l(0)), l(1)*cos(l(0)));
-        //qInfo() << __FUNCTION__ << l(1)*sin(l(0)) << l(1)*cos(l(0));
-        //p->setPos(QPointF(l.x()*1000, l.y()*1000));
-    }
-}
 /////////////////////////////////////////////////////////////////////////////////////////777
 int SpecificWorker::startup_check()
 {
