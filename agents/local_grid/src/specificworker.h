@@ -43,6 +43,10 @@
 #include <timer/timer.h>
 #include <random/random.hpp>
 
+
+#include "GRANSAC.hpp"
+#include "LineModel.hpp"
+
 using Random = effolkronium::random_static;
 using Point3f = std::tuple<float, float, float>;
 
@@ -106,6 +110,7 @@ private:
         AbstractGraphicViewer *grid_viewer;
 
         // Array of sets for representing sectors
+        cv::Mat read_depth_omni();
         std::vector<Point3f> get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
         struct compare
         { bool operator()(const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &a, const std::tuple<Eigen::Vector3f, std::tuple<float, float, float>> &b) const
@@ -131,15 +136,14 @@ private:
         rc::Timer<> stimer;
 
         // dRAW
-        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points);
+        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", bool clean = true);
         void draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects);
+        void draw_on_2D_tab(const std::vector<cv::Vec3d> &lines);
         std::map<int, QPixmap> object_pixmaps;
 
+        GRANSAC::RANSAC<Line2DModel, 2> Estimator;
 
 
-    cv::Mat read_depth_omni();
-
-    void draw_on_2D_tab(const vector<cv::Vec4i> &lines);
 };
 
 #endif

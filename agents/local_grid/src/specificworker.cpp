@@ -20,6 +20,7 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/range.hpp>
 #include <cppitertools/zip.hpp>
+#include <cppitertools/combinations.hpp>
 
 /**
 * \brief Default constructor
@@ -129,6 +130,9 @@ void SpecificWorker::initialize(int period)
         object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "chair"))] = QPixmap("chair.png").scaled(800,800);
         object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "potted plant"))] = QPixmap("plant.png").scaled(800,800);
 
+        // RANSAC
+        Estimator.Initialize(20, 100); // Threshold, iterations
+
         this->Period = 50;
 		timer.start(Period);
 	}
@@ -164,6 +168,9 @@ void SpecificWorker::compute()
 
     // compute floor line
     auto floor_line = compute_floor_line(sets, false);      // extract the first element of eachs set
+    std::vector<Eigen::Vector2f> floor_line_cart;
+    for(const auto &p : floor_line)
+        floor_line_cart.emplace_back(Eigen::Vector2f(p(1)*sin(p(0)), p(1)*cos(p(0))));
 
     // yolo
     auto yolo_objects = get_yolo_objects();
@@ -173,35 +180,64 @@ void SpecificWorker::compute()
     //local_grid.update_map_from_polar_data(floor_line, 5000);
     //local_grid.update_semantic_layer(atan2(o.x, o.y), o.depth, o.id, o.type);  // rads -PI,PI and mm
 
-    cv::Mat edges = cv::Mat::zeros(200, 200, CV_8UC1);
-    for(const auto &p: floor_line)
-    {
-        int x = p(1) * sin(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
-        int y = p(1) * cos(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
-        //qInfo() << __FUNCTION__ << p(1)*sin(p(0)) << p(1)*cos(p(0)) << x << y;
-        if(x>= 0 and x<200 and y>=0 and y<200)
-            edges.at<uchar>(x, y) = 255;
-    }
-    cv::Mat cedges;
-    cv::cvtColor(edges, cedges, cv::COLOR_GRAY2BGR);
-    cv::Mat lines_img = cedges.clone();
+    // compute mean point
+    Eigen::Vector2f mean{0.0, 0.0};
+    mean = std::accumulate(floor_line_cart.begin(), floor_line_cart.end(), mean) / (float)floor_line_cart.size();
+    //qInfo() << "Center " << mean(0) << mean(1);
 
-    std::vector<cv::Vec4i> lines;
-    HoughLinesP(edges, lines, 1, CV_PI/180, 5, 10, 5 );
-    qInfo() << __FUNCTION__ << lines.size();
-    draw_on_2D_tab(lines);
-    cv::imshow("sdf", edges);
-    cv::waitKey(1);
+    // estimate size
+    Eigen::MatrixX2f zero_mean_points(floor_line_cart.size(), 2);
+    for(const auto &[i, p] : iter::enumerate(floor_line_cart))
+        zero_mean_points.row(i) = p - mean;
+    auto max = zero_mean_points.colwise().maxCoeff();
+    auto min = zero_mean_points.colwise().minCoeff();
+    //std::cout << "max " << max << "min " << min << std::endl;
+
+    // compute lines
+    std::vector<cv::Vec2f> floor_line_cv;
+    for(const auto &p : floor_line_cart)
+        floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
+    double rhoMin = 0.0f, rhoMax = 5000.0f, rhoStep = 10;
+    double thetaMin = 0.0f, thetaMax = 2.0*CV_PI, thetaStep = CV_PI / 180.0f;
+    cv::Mat lines;
+    HoughLinesPointSet(floor_line_cv, lines, 20, 1, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
+    std::vector<cv::Vec3d> lines3d;
+    lines.copyTo(lines3d);
+    draw_on_2D_tab(lines3d);
+
+    // compute intersections
+    std::vector<QLineF> elines;
+    //std::vector<std::pair<Eigen::Vector2f, Eigen::Vector2f>> line_points;
+    for(auto &l: std::ranges::filter_view(lines3d, [](auto a){return a[0]>10;}))
+    {
+        float rho = l[1], theta = l[2];
+        double a = cos(theta), b = sin(theta);
+        double x0 = a * rho, y0 = b * rho;
+        QPointF p1(x0 + 5000 * (-b), y0 + 5000 * (a));
+        QPointF p2(x0 - 5000 * (-b), y0 - 5000 * (a));
+        elines.emplace_back(QLineF(p1, p2));
+        //line_points.emplace_back(std::make_pair(p2, p2));
+    }
+    std::vector<Eigen::Vector2f> corners;
+    for(auto &&comb: iter::combinations(elines, 2))
+    {
+        auto &line1= comb[0]; auto &line2 = comb[1];
+        auto angle = qDegreesToRadians(line1.angle(line2));
+        float delta = 0.1;
+        QPointF intersection;
+        if(fabs(angle) < M_PI/2+delta and fabs(angle) > M_PI/2-delta  and line1.intersect(line2, &intersection) == 1)
+            corners.emplace_back(Eigen::Vector2f(intersection.x(), intersection.y()));
+    }
+    draw_on_2D_tab(corners, "blue");
 
     // draw on 2D
-    draw_on_2D_tab(floor_line);
+    draw_on_2D_tab(floor_line_cart, "green", false);
     draw_on_2D_tab(yolo_objects);
     grid_viewer->viewport()->repaint();
     cv::imshow("Top_camera", rgb_head);
     cv::waitKey(5);
 
     fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
-
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////77
@@ -233,30 +269,27 @@ void SpecificWorker::draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects
             pixmap_ptrs.push_back(p);
         }
 }
-void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points)
+void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color, bool clean)
 {
     static std::vector<QGraphicsRectItem*> dot_vec;
-    static QGraphicsPolygonItem* poly_draw;
-    if(not dot_vec.empty())
-    {
-        for (auto p: dot_vec)
+    if(clean)
+        if(not dot_vec.empty())
         {
-            widget_2d->scene.removeItem(p);
-            delete p;
+            for (auto p: dot_vec)
+            {
+                widget_2d->scene.removeItem(p);
+                delete p;
+            }
+            dot_vec.clear();
         }
-        dot_vec.clear();
-    }
-    if(poly_draw != nullptr) widget_2d->scene.removeItem(poly_draw);
-
-    QPolygonF poly;
     for(const auto &l: points)
     {
-        auto p = widget_2d->scene.addRect(-15, -15, 30, 30, QPen(QColor("Green"),10));
+        auto p = widget_2d->scene.addRect(-15, -15, 30, 30, QPen(QColor(color),20));
         dot_vec.push_back(p);
-        p->setPos(l(1)*sin(l(0)), l(1)*cos(l(0)));
+        p->setPos(l.x(), l.y());
     }
 }
-void SpecificWorker::draw_on_2D_tab(const std::vector<cv::Vec4i> &lines)
+void SpecificWorker::draw_on_2D_tab(const std::vector<cv::Vec3d> &lines)
 {
     static std::vector<QGraphicsItem*> lines_vec;
     for (auto l: lines_vec)
@@ -265,14 +298,13 @@ void SpecificWorker::draw_on_2D_tab(const std::vector<cv::Vec4i> &lines)
         delete l;
     }
     lines_vec.clear();
-    for(const auto &l: lines)
+    for(auto &l: std::ranges::filter_view(lines, [](auto a){return a[0]>10;}))
     {
-        float x1 = l[0]*9000.0/200 - 4500;
-        float y1 = -l[1]*9000.0/200 + 4500;
-        float x2 = l[2]*9000.0/200 - 4500;
-        float y2 = -l[3]*9000.0/200 + 4500;
-        auto p = widget_2d->scene.addLine(QLineF( x1, y1, x2, y2), QPen(QColor("orange"), 40));
-        qInfo() << __FUNCTION__ << l[0] << l[1] << l[2] << l[3] << QLineF( x1, y1, x2, y2);
+        float rho = l[1], theta = l[2];
+        double a = cos(theta), b = sin(theta);
+        double x0 = a*rho, y0 = b*rho;
+        QLineF line(x0 + 5000*(-b), y0 + 5000*(a), x0 - 5000*(-b), y0 - 5000*(a));
+        auto p = widget_2d->scene.addLine(line, QPen(QColor("orange"), 40));
         lines_vec.push_back(p);
     }
 }
@@ -400,4 +432,49 @@ int SpecificWorker::startup_check()
 
 
 
+//std::vector<std::shared_ptr<GRANSAC::AbstractParameter>> CandPoints;
+//for(const auto &p: floor_line)
+//{
+//std::shared_ptr<GRANSAC::AbstractParameter> CandPt = std::make_shared<Point2D>(p.x(), p.y());
+//CandPoints.push_back(CandPt);
+//}
+//int64_t start = cv::getTickCount();
+//Estimator.Estimate(CandPoints);
+//int64_t end = cv::getTickCount();
+////std::cout << "RANSAC took: " << GRANSAC::VPFloat(end - start) / GRANSAC::VPFloat(cv::getTickFrequency()) * 1000.0 << " ms." << std::endl;
+//auto BestLine = Estimator.GetBestModel();
+//if (BestLine)
+//{
+//auto BestLinePt1 = std::dynamic_pointer_cast<Point2D>(BestLine->GetModelParams()[0]);
+//auto BestLinePt2 = std::dynamic_pointer_cast<Point2D>(BestLine->GetModelParams()[1]);
+//static QGraphicsItem* temp;
+//if(temp != nullptr) widget_2d->scene.removeItem(temp);
+//if (BestLinePt1 && BestLinePt2)
+//{
+//cv::Point Pt1(BestLinePt1->m_Point2D[0], BestLinePt1->m_Point2D[1]);
+//cv::Point Pt2(BestLinePt2->m_Point2D[0], BestLinePt2->m_Point2D[1]);
+//temp = widget_2d->scene.addLine(QLineF( BestLinePt1->m_Point2D[0], BestLinePt1->m_Point2D[1],
+//                                        BestLinePt2->m_Point2D[0], BestLinePt2->m_Point2D[1]), QPen(QColor("orange"), 40));
+//}
+//}
 
+
+//cv::Mat edges = cv::Mat::zeros(200, 200, CV_8UC1);
+//for(const auto &p: floor_line)
+//{
+//int x = p(1) * sin(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
+//int y = p(1) * cos(p(0)) * (200 / 9000.) + 100;   // scale to 0--200
+////qInfo() << __FUNCTION__ << p(1)*sin(p(0)) << p(1)*cos(p(0)) << x << y;
+//if(x>= 0 and x<200 and y>=0 and y<200)
+//edges.at<uchar>(x, y) = 255;
+//}
+//cv::Mat cedges;
+//cv::cvtColor(edges, cedges, cv::COLOR_GRAY2BGR);
+//cv::Mat lines_img = cedges.clone();
+//
+//std::vector<cv::Vec4i> lines;
+//HoughLinesP(edges, lines, 1, CV_PI/180, 5, 10, 5 );
+//qInfo() << __FUNCTION__ << lines.size();
+//draw_on_2D_tab(lines);
+//cv::imshow("sdf", edges);
+//cv::waitKey(1);
