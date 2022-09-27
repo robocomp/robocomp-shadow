@@ -136,9 +136,9 @@ private:
         rc::Timer<> stimer;
 
         // dRAW
-        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", bool clean = true);
+        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", int size = 20, bool clean = true);
         void draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects);
-        void draw_on_2D_tab(const std::vector<cv::Vec3d> &lines);
+        void draw_on_2D_tab(const std::vector<std::pair<int, QLineF>> &lines);
         std::map<int, QPixmap> object_pixmaps;
 
         GRANSAC::RANSAC<Line2DModel, 2> Estimator;
