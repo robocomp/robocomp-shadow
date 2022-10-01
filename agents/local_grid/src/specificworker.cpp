@@ -21,6 +21,7 @@
 #include <cppitertools/range.hpp>
 #include <cppitertools/zip.hpp>
 #include <cppitertools/combinations.hpp>
+#include <cppitertools/range.hpp>
 
 /**
 * \brief Default constructor
@@ -161,16 +162,21 @@ void SpecificWorker::compute()
 
     ////////////////////////////////////////////////////////////////////////////////////////
 
-    auto points = get_omni_3d_points(depth_frame, rgb_head);  // compute 3D points form omni_depth
+    //   auto points = get_omni_3d_points(depth_frame, rgb_head);
+    auto ml_points = get_multi_level_3d_points(depth_frame, rgb_head);  // compute 3D points form omni_depth
+    std::vector<Eigen::Vector2f> floor_line_cart;
+    for(const auto &p: ml_points[3])
+        if(p.norm() < consts.max_camera_depth_range)
+            floor_line_cart.emplace_back(p);
 
     // Group 3D points by angular sectors and sorted by minimum distance
-    auto sets = group_by_angular_sectors(points, false);    // group them in 360 set sectors sorted by distance
+//    auto sets = group_by_angular_sectors(points, false);    // group them in 360 set sectors sorted by distance
 
     // compute floor line
-    auto floor_line = compute_floor_line(sets, false);      // extract the first element of eachs set. Polar coordinates
-    std::vector<Eigen::Vector2f> floor_line_cart;           // cartesian coordinates
-    for(const auto &p : floor_line)
-        floor_line_cart.emplace_back(Eigen::Vector2f(p(1)*sin(p(0)), p(1)*cos(p(0))));
+//    auto floor_line = compute_floor_line(ml_points[0], false);  // get polar coordinates
+//    std::vector<Eigen::Vector2f> floor_line_cart;               // cartesian coordinates
+//    for(const auto &p : floor_line)
+//        floor_line_cart.emplace_back(Eigen::Vector2f(p(1)*sin(p(0)), p(1)*cos(p(0))));
 
     // yolo
     auto yolo_objects = get_yolo_objects();
@@ -198,7 +204,7 @@ void SpecificWorker::compute()
     for(const auto &p : floor_line_cart)
         floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
     double rhoMin = 0.0f, rhoMax = 5000.0f, rhoStep = 5;
-    double thetaMin = -CV_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
+    double thetaMin = -M_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
     cv::Mat lines;
     HoughLinesPointSet(floor_line_cv, lines, 10, 1, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
     std::vector<cv::Vec3d> lines3d;
@@ -226,8 +232,8 @@ void SpecificWorker::compute()
         float angle = qDegreesToRadians(line1.angle(line2));
         float dist = (line1.center() - line2.center()).manhattanLength();
         float delta = 0.3;
-        qInfo() << __FUNCTION__ << angle << dist;
-        if( fabs(angle) < delta and dist < 500)
+        //qInfo() << __FUNCTION__ << angle << dist;
+        if( fabs(angle) < delta and dist < 700)
             if(votes_1 >= votes_2) to_delete.push_back(line2);
             else to_delete.push_back(line1);
     }
@@ -250,13 +256,13 @@ void SpecificWorker::compute()
 
     // draw on 2D
     draw_on_2D_tab(std::vector<Eigen::Vector2f>{room_center}, "red", 140);
-    draw_on_2D_tab(corners, "blue", 100, false);
-    draw_on_2D_tab(floor_line_cart, "green", 60, false);
+    draw_on_2D_tab(corners, "blue", 100, true);
+    draw_on_2D_tab(ml_points, "green", 60, true);
     draw_on_2D_tab(elines);
     draw_on_2D_tab(yolo_objects);
     grid_viewer->viewport()->repaint();
-    cv::imshow("Top_camera", rgb_head);
-    cv::waitKey(5);
+    //cv::imshow("Top_camera", rgb_head);
+    //cv::waitKey(5);
 
     fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
 }
@@ -290,7 +296,7 @@ void SpecificWorker::draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects
             pixmap_ptrs.push_back(p);
         }
 }
-void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color, int size, bool clean)
+void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &lines, QString color, int size, bool clean)
 {
     static std::vector<QGraphicsRectItem*> dot_vec;
     if(clean)
@@ -303,12 +309,34 @@ void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, 
             }
             dot_vec.clear();
         }
-    for(const auto &l: points)
+    for(const auto &point: lines)
     {
         auto p = widget_2d->scene.addRect(-size/2, -size/2, size, size, QPen(QColor(color), 20));
         dot_vec.push_back(p);
-        p->setPos(l.x(), l.y());
+        p->setPos(point.x(), point.y());
     }
+}
+void SpecificWorker::draw_on_2D_tab(const std::vector<std::vector<Eigen::Vector2f>> &lines, QString color, int size, bool clean)
+{
+    static std::vector<QGraphicsRectItem*> dot_vec;
+    if(clean)
+        if(not dot_vec.empty())
+        {
+            for (auto p: dot_vec)
+            {
+                widget_2d->scene.removeItem(p);
+                delete p;
+            }
+            dot_vec.clear();
+        }
+    static QStringList my_color = {"red", "orange", "blue", "magenta", "black", "yellow", "brown", "cyan"};
+    for(auto &&[k, line]: lines | iter::enumerate)
+        for(const auto &points: line)
+        {
+            auto p = widget_2d->scene.addRect(-size/2, -size/2, size, size, QPen(QColor(my_color.at(k)), 20));
+            dot_vec.push_back(p);
+            p->setPos(points.x(), points.y());
+        }
 }
 void SpecificWorker::draw_on_2D_tab(const std::vector<std::pair<int, QLineF>> &lines)
 {
@@ -347,28 +375,64 @@ cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &o
     }
     return cimg;
 }
+std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
+{
+    std::vector<std::vector<Eigen::Vector2f>> points(int((2000-400)/200));
+    for(auto &p: points)
+        p.resize(360, Eigen::Vector2f(consts.max_camera_depth_range, consts.max_camera_depth_range));           // height levels
+
+    int semi_height = depth_frame.rows/2;
+    float hor_ang, dist, x, y, z, proy;
+    float ang_slope = 2*M_PI/depth_frame.cols;
+    const float ang_bin = 2.0*M_PI/consts.num_angular_bins;
+
+    for(int u=0; u<depth_frame.rows; u++)
+        for(int v=0; v<depth_frame.cols; v++)
+        {
+            hor_ang = ang_slope * v - M_PI; // cols to radians
+            dist = depth_frame.ptr<float>(u)[v] * consts.scaling_factor;  // pixel to dist scaling factor  -> to mm
+            if(dist > consts.max_camera_depth_range) continue;
+            if(dist < consts.min_camera_depth_range) continue;
+            //dist /= 1000.f; // to meters
+            x = -dist * sin(hor_ang);
+            y = dist * cos(hor_ang);
+            proy = dist * cos( atan2((semi_height - u), 128.f));
+            z = (semi_height - u)/128.f * proy; // 128 focal as PI fov angle for 256 pixels
+            z += consts.omni_camera_height; // get from DSR
+            // add Y axis displacement
+            if(z < 400) continue; // filter out floor
+
+            //auto less_than = [](auto a, auto b){ auto &[x, y, z]=a; auto &[i, j, k]=b; return x*x+y*y+z*z < i*i+j*j+k*k;};
+
+            for(auto &&[level, step] : iter::range(400, 2000, 200) | iter::enumerate)
+            if(z > step and z < step+200)
+            {
+                int ang_index = floor((M_PI + atan2(x, y)) / ang_bin);
+                Eigen::Vector2f new_point(x, y);
+                if(new_point.norm() <  points[level][ang_index].norm())
+                    points[level][ang_index] = new_point;
+            }
+        };
+
+    return points;
+}
 std::vector<Point3f> SpecificWorker::get_omni_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
 {
      // Let's assume that each column corresponds to a polar coordinate: ang_step = 360/image.width
      // and along the column we have radius
      // hor ang = 2PI/512 * i
 
-    //std::size_t i = points->size();  // to continue inserting
     std::vector<Point3f> points(depth_frame.rows * depth_frame.cols);
-    //points->resize(depth_frame.rows * depth_frame.cols);
-    //colors->resize(points->size());
     int semi_height = depth_frame.rows/2;
     float hor_ang, dist, x, y, z, proy;
     float ang_slope = 2*M_PI/depth_frame.cols;
-    //int nancount=0;
+
     std::size_t i = 0;  // direct access to points
-    for(int u=0; u<depth_frame.rows; u=u+1)
-        for(int v=0; v<depth_frame.cols; ++v)
+    for(int u=0; u<depth_frame.rows; u++)
+        for(int v=0; v<depth_frame.cols; v++)
         {
             hor_ang = ang_slope * v - M_PI; // cols to radians
-            //qInfo() << __FUNCTION__ <<  u << v << depth_frame.cols;
             dist = depth_frame.ptr<float>(u)[v] * consts.scaling_factor;  // pixel to dist scaling factor  -> to mm
-            //if(std::isnan(dist)) {nancount++; points->clear(); goto the_end;};
             if(dist > consts.max_camera_depth_range) continue;
             if(dist < consts.min_camera_depth_range) continue;
             dist /= 1000.f; // to meters
@@ -376,18 +440,17 @@ std::vector<Point3f> SpecificWorker::get_omni_3d_points(const cv::Mat &depth_fra
             y = dist * cos(hor_ang);
             proy = dist * cos( atan2((semi_height - u), 128.f));
             z = (semi_height - u)/128.f * proy; // 128 focal as PI fov angle for 256 pixels
-            z += consts.omni_camera_height_meters;
-
-            // filter out floor
-            if(z < 0.4 ) continue;
+            z += consts.omni_camera_height_meters; // get from DSR
+            if(z < 0.4) continue; // filter out floor
             points[i] = std::make_tuple(x, y, z);
             //auto rgb = rgb_frame.ptr<cv::Vec3b>(u)[v];
             //colors->operator[](i) = std::make_tuple(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0);
-            i += 1;
+            i += 1;/**/
         };
     return points;
 }
 SpecificWorker::SetsType SpecificWorker::group_by_angular_sectors(const std::vector<Point3f> &points, bool draw)
+
 {
     const double ang_bin = 2.0*M_PI/consts.num_angular_bins;
     SetsType sets(consts.num_angular_bins);
@@ -422,23 +485,38 @@ SpecificWorker::SetsType SpecificWorker::group_by_angular_sectors(const std::vec
 //    }
     return sets;
 }
-vector<Eigen::Vector2f> SpecificWorker::compute_floor_line(const SpecificWorker::SetsType &sets, bool draw)  // meters
+vector<Eigen::Vector2f> SpecificWorker::compute_floor_line(const std::vector<Eigen::Vector2f> &line, bool draw)  // meters
 {
     vector<Eigen::Vector2f> floor_line;  //polar
     const double ang_bin = 2.0*M_PI/360;
     float ang= -ang_bin;
-    for(const auto &s: sets)
+    for(const auto &p: line)
     {
         ang += ang_bin;
-        if(s.empty()) continue;
-        Eigen::Vector3f p = get<Eigen::Vector3f>(*s.cbegin());  // first element is the smallest distance
-        float dist = p.head(2).norm();
+        float dist = p.norm();
         if(fabs(dist) > consts.max_camera_depth_range/1000) continue;
-        floor_line.emplace_back(Eigen::Vector2f(ang-M_PI, p.head(2).norm()*1000.0));  // to undo the +M_PI in group_by_angular_sectors
+        floor_line.emplace_back(Eigen::Vector2f(ang-M_PI, p.norm()*1000.0));  // to undo the +M_PI in group_by_angular_sectors
     }
     //qInfo() << __FUNCTION__ << "--------------------------------------";
     return floor_line;
 }
+//vector<Eigen::Vector2f> SpecificWorker::compute_floor_line(const SpecificWorker::SetsType &sets, bool draw)  // meters
+//{
+//    vector<Eigen::Vector2f> floor_line;  //polar
+//    const double ang_bin = 2.0*M_PI/360;
+//    float ang= -ang_bin;
+//    for(const auto &s: sets)
+//    {
+//        ang += ang_bin;
+//        if(s.empty()) continue;
+//        Eigen::Vector3f p = get<Eigen::Vector3f>(*s.cbegin());  // first element is the smallest distance
+//        float dist = p.head(2).norm();
+//        if(fabs(dist) > consts.max_camera_depth_range/1000) continue;
+//        floor_line.emplace_back(Eigen::Vector2f(ang-M_PI, p.head(2).norm()*1000.0));  // to undo the +M_PI in group_by_angular_sectors
+//    }
+//    //qInfo() << __FUNCTION__ << "--------------------------------------";
+//    return floor_line;
+//}
 
 /////////////////////////////////////////////////////////////////////////////////////////777
 int SpecificWorker::startup_check()
