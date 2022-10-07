@@ -21,6 +21,7 @@
 #include <cppitertools/range.hpp>
 #include <cppitertools/zip.hpp>
 #include <cppitertools/combinations.hpp>
+#include <cppitertools/combinations_with_replacement.hpp>
 #include <cppitertools/range.hpp>
 
 /**
@@ -197,14 +198,15 @@ void SpecificWorker::compute()
         zero_mean_points.row(i) = p - room_center;
     auto max_room_size = zero_mean_points.colwise().maxCoeff();
     auto min_room_size = zero_mean_points.colwise().minCoeff();
-    //std::cout << "max " << max << "min " << min << std::endl;
+    float estimated_size = max_room_size[0] - min_room_size[0];
+    //std::cout << "estimated_size " <<  estimated_size << std::endl;
 
     // compute lines
     std::vector<cv::Vec2f> floor_line_cv;
     for(const auto &p : floor_line_cart)
         floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
     double rhoMin = 0.0f, rhoMax = 5000.0f, rhoStep = 5;
-    double thetaMin = -M_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
+    double thetaMin = -CV_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
     cv::Mat lines;
     HoughLinesPointSet(floor_line_cv, lines, 10, 1, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
     std::vector<cv::Vec3d> lines3d;
@@ -224,7 +226,6 @@ void SpecificWorker::compute()
 
     // NMS of close parallel lines
     std::vector<QLineF> to_delete;
-    qInfo() << __FUNCTION__ << elines.size();
     for(auto &&comb: iter::combinations(elines, 2))
     {
         auto &[votes_1, line1] = comb[0];
@@ -237,32 +238,65 @@ void SpecificWorker::compute()
             if(votes_1 >= votes_2) to_delete.push_back(line2);
             else to_delete.push_back(line1);
     }
-    qInfo() << __FUNCTION__ << "deleted lines" << to_delete.size();
     elines.erase(std::remove_if(elines.begin(), elines.end(), [to_delete](auto l){ return std::ranges::find(to_delete, std::get<1>(l))!=to_delete.end();}), elines.end());
 
     // compute corners
-    std::vector<Eigen::Vector2f> corners;
-    for(auto &&comb: iter::combinations(elines, 2))
+    auto dist2 = [](const QPointF &p1, const QPointF &p2) { return sqrt((p1.x()-p2.x())*(p1.x()-p2.x())+(p1.y()-p2.y())*(p1.y()-p2.y()));};
+    auto get_distant = [](const QPointF &p, const QPointF &p1, const QPointF &p2)
+            { if( (p-p1).manhattanLength() < (p-p2).manhattanLength()) return p2; else return p1;};
+    std::vector<QLineF> corners;
+    for(auto &&comb: iter::combinations_with_replacement(elines, 2))
     {
         auto &[votes_1, line1] = comb[0];
         auto &[votes_2, line2] = comb[1];
-        auto angle = qDegreesToRadians(line1.angle(line2));
-        float delta = 0.1;
+        float angle = fabs(qDegreesToRadians(line1.angleTo(line2)));
+        if(angle> M_PI) angle -= M_PI;
+        float delta = 0.2;
         QPointF intersection;
-        if(fabs(angle) < M_PI/2+delta and fabs(angle) > M_PI/2-delta  and line1.intersect(line2, &intersection) == 1)
-            corners.emplace_back(Eigen::Vector2f(intersection.x(), intersection.y()));
+        qInfo() << __FUNCTION__ << angle;
+        if(angle < M_PI/2+delta and angle > M_PI/2-delta  and line1.intersect(line2, &intersection) == 1)
+        {
+            // rep corner as the vector pointing outward through the bisectriz
+            auto pl = get_distant(intersection, line1.p1(), line1.p2());
+            auto pr = get_distant(intersection, line2.p1(), line2.p2());
+            auto tip = QLineF(intersection, pl).pointAt(0.1) + (QLineF(intersection, pr).pointAt(0.1) - QLineF(intersection, pl).pointAt(0.1))/2.0;
+            corners.emplace_back(QLineF(intersection, tip));
+        }
     }
-    draw_on_2D_tab(corners, "blue");
+
+    // compute double corners
+    std::vector<std::pair<QLineF, QLineF>> double_corners;
+    // iff in opposite directions and separation within room_size estimations
+    for(auto &&comb: iter::combinations(corners, 2))
+    {
+        const auto &c1 = comb[0];
+        const auto &c2 = comb[1];
+        float ang = fabs(qDegreesToRadians(c1.angleTo(c2)));
+        if( ang > M_PI-0.2 and ang < M_PI+0.2 and dist2(c1.p1(), c2.p2()) > estimated_size/2.0)
+            double_corners.push_back(std::make_pair(c1, c2));
+    }
+
+    // compute room
+    if(not double_corners.empty())
+    {
+        const auto &[c1, c2] = double_corners.front();
+        QSize size(fabs(c1.p1().x()-c2.p1().x()), fabs(c1.p1().y()-c2.p1().y()));
+        QPointF center = c1.p1() + (c2.p1()-c1.p1())/2.0;
+        float rot = qDegreesToRadians(QLineF(QPointF(0.0, 0.0), QPointF(0.0, 500.0)).angleTo(c1) - 45);
+
+        draw_on_2D_tab(size, center, rot, "yellow");
+    }
 
     // draw on 2D
-    draw_on_2D_tab(std::vector<Eigen::Vector2f>{room_center}, "red", 140);
-    draw_on_2D_tab(corners, "blue", 100, true);
-    draw_on_2D_tab(ml_points, "green", 60, true);
     draw_on_2D_tab(elines);
-    draw_on_2D_tab(yolo_objects);
+    draw_on_2D_tab(corners, "blue");
+    draw_on_2D_tab(double_corners, "cyan");
+    //draw_on_2D_tab(ml_points, "green", 60, true);
+    //draw_on_2D_tab(std::vector<Eigen::Vector2f>{room_center}, "red", 140, true);
+    //draw_on_2D_tab(yolo_objects);
     grid_viewer->viewport()->repaint();
-    //cv::imshow("Top_camera", rgb_head);
-    //cv::waitKey(5);
+    cv::imshow("Top_camera", rgb_head);
+    cv::waitKey(5);
 
     fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
 }
@@ -272,7 +306,7 @@ RoboCompYoloObjects::TObjects SpecificWorker::get_yolo_objects()
 {
     try
     {
-        auto yolo_data = yoloobjects_proxy->getYoloObjects();
+        auto yolo_data = yoloobjects_proxy->getYoloObjects();/**/
         return yolo_data.objects;
     }
     catch(const Ice::Exception &e){ std::cerr << e.what() << ". No response from YoloServer" << std::endl;};
@@ -291,9 +325,31 @@ void SpecificWorker::draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects
     for(auto &o: objects)
         if(o.score > 0.5 and std::ranges::find(excluded_yolo_types, o.type) == excluded_yolo_types.end())
         {
-            auto p = widget_2d->scene.addPixmap(object_pixmaps[o.type]);
-            p->setPos(o.x-object_pixmaps[o.type].width()/2, o.y-object_pixmaps[o.type].height()/2);
-            pixmap_ptrs.push_back(p);
+            auto cxi = o.left + ((o.right-o.left)/2);
+            auto cyi = o.top + ((o.bot-o.top)/2);
+            auto cx = cxi - cam_head_api->get_depth_width()/2;
+            auto cy = cyi - cam_head_api->get_depth_height()/2;
+            auto x = cx * o.depth / cam_head_api->get_depth_focal_x();
+            auto z = cy * o.depth / cam_head_api->get_depth_focal_y();
+            auto y = o.depth;
+//            if depth is distance along ray
+//            auto x = cx * o.depth / sqrt(cx*cx + cam_head_api->get_depth_focal_x()*cam_head_api->get_depth_focal_x());
+//            auto z = cy * o.depth / sqrt(cy*cy + cam_head_api->get_depth_focal_y()*cam_head_api->get_depth_focal_y());
+//            auto proy = sqrt(o.depth*o.depth-z*z);
+//            auto y = sqrt(x*x+proy*proy);
+            if(o.type==0)
+                qInfo() << x << y ;
+
+            if(auto object_in_robot = inner_eigen->transform(robot_name, Eigen::Vector3d(x, y, z) , shadow_camera_head_name); object_in_robot.has_value())
+            {
+                //auto p = widget_2d->scene.addPixmap(object_pixmaps[o.type]);
+                auto p = widget_2d->scene.addRect(-200, -200, 400, 400, QPen(QColor("blue"), 30));
+                //p->setPos(object_in_robot.value().x() - object_pixmaps[o.type].width() / 2, object_in_robot.value().y() - object_pixmaps[o.type].height() / 2);
+
+                p->setPos(object_in_robot.value().x(), object_in_robot.value().y());
+                //p->setPos(o.x - object_pixmaps[o.type].width() / 2, o.y - object_pixmaps[o.type].height() / 2);
+                pixmap_ptrs.push_back(p);
+            }
         }
 }
 void SpecificWorker::draw_on_2D_tab(const std::vector<Eigen::Vector2f> &lines, QString color, int size, bool clean)
@@ -354,6 +410,58 @@ void SpecificWorker::draw_on_2D_tab(const std::vector<std::pair<int, QLineF>> &l
         lines_vec.push_back(p);
     }
 }
+void SpecificWorker::draw_on_2D_tab(const std::vector<QLineF> &corners, QString color, int size, bool clean)
+{
+    static std::vector<QGraphicsItem*> lines_vec;
+    for (auto l: lines_vec)
+    {
+        widget_2d->scene.removeItem(l);
+        delete l;
+    }
+    lines_vec.clear();
+
+    for(const auto &l : corners)
+    {
+        auto up = l;
+        up.setAngle(up.angle()+45);
+        auto down = l;
+        down.setAngle(down.angle()-45);
+        auto upv = widget_2d->scene.addLine(up, QPen(QColor("magenta"), 30));
+        auto downv = widget_2d->scene.addLine(down, QPen(QColor("magenta"), 30));
+        lines_vec.push_back(upv);
+        lines_vec.push_back(downv);
+        auto p = widget_2d->scene.addLine(l, QPen(QColor("magenta"), 40));
+        lines_vec.push_back(p);
+    }
+}
+void SpecificWorker::draw_on_2D_tab(const std::vector<std::pair<QLineF, QLineF>> &double_corners, QString color, int size, bool clean)
+{
+    static std::vector<QGraphicsItem*> lines_vec;
+    for (auto l: lines_vec)
+    {
+        widget_2d->scene.removeItem(l);
+        delete l;
+    }
+    lines_vec.clear();
+
+    for(const auto &[first, second] : double_corners)
+    {
+        auto p = widget_2d->scene.addLine(QLineF(first.p1(), second.p1()), QPen(QColor(color), 60));
+        lines_vec.push_back(p);
+    }
+}
+void SpecificWorker::draw_on_2D_tab(QSize size, QPointF center, float rot, QString color)
+{
+    static QGraphicsItem* item;
+    widget_2d->scene.removeItem(item);
+    delete item;
+
+    item = widget_2d->scene.addRect(-size.height()/2, -size.width()/2, size.height(), size.width(), QPen(QColor(color), 60));
+    item->setPos(center);
+    item->setRotation(qRadiansToDegrees(rot));
+    item->setZValue(1);
+}
+
 cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img)
 {
     // Plots one bounding box on image img
@@ -376,7 +484,7 @@ cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &o
     return cimg;
 }
 std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
-{
+/**/{
     std::vector<std::vector<Eigen::Vector2f>> points(int((2000-400)/200));
     for(auto &p: points)
         p.resize(360, Eigen::Vector2f(consts.max_camera_depth_range, consts.max_camera_depth_range));           // height levels

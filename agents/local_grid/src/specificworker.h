@@ -141,12 +141,17 @@ private:
         void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", int size = 20, bool clean = true);
         void draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects);
         void draw_on_2D_tab(const std::vector<std::pair<int, QLineF>> &lines);
+        void draw_on_2D_tab(const std::vector<QLineF> &corners, QString color="green", int size=20, bool clean = true);
+        void draw_on_2D_tab(const vector<std::pair<QLineF, QLineF>> &double_corners, QString color= "green", int size = 20, bool clean = true);
+        void draw_on_2D_tab(QSize size, QPointF center, float rot, QString color="green");
+
         std::map<int, QPixmap> object_pixmaps;
 
         GRANSAC::RANSAC<Line2DModel, 2> Estimator;
 
 
         std::vector<std::vector<Eigen::Vector2f>>  get_multi_level_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
+
 };
 
 #endif
