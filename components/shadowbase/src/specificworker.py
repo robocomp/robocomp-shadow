@@ -31,6 +31,8 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 
+import threading
+
 import numpy as np
 import traceback
 
@@ -56,7 +58,7 @@ class SpecificWorker(GenericWorker):
         
         #variables de clase
         self.targetSpeed = np.array([[0.0], [0.0], [0.0]])
-        self. newTargetSpeed = np.array([[0.0], [0.0], [0.0]])
+        self. oldTargetSpeed = np.array([[0.0], [0.0], [0.0]])
         self.driver=None
 
         if startup_check:
@@ -80,10 +82,13 @@ class SpecificWorker(GenericWorker):
             self.axesLength =  float(params["axesLength"])
             port = params["port"]
             maxSpeed = int(params["maxSpeed"])
+            maxAcceleration = int(params["maxAcceleration"])
+            maxDeceleration = int(params["maxDeceleration"])
             idDrivers = [int(params["idDriver1"]), int(params["idDriver2"])]
             wheelRadius = float(params["wheelRadius"])
 
-            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxSpeed)  
+            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxSpeed,
+                                        maxAcceleration, maxDeceleration)  
 
             if not self.driver.still_alive():
                 print("NO se conecto al driver o fallo uno de ellos , cerrando programa")
@@ -103,8 +108,11 @@ class SpecificWorker(GenericWorker):
             print(self.m_wheels)
            #print(self.m_wheels_inv)
 
-            self.driver.show_params(True)
-        except exception as e:
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.driver.show_params)
+            self.timer.start(0.5)
+
+        except Exception as e:
             print("Error reading config params or start motor")
             print(e)
         return True
@@ -113,13 +121,12 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         if self.driver != None:
-            #self.driver.test_function()
-            if  not np.array_equal(self.targetSpeed, self.newTargetSpeed):
+            if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
                 speeds = self.m_wheels@self.targetSpeed
-                print("mm/s",speeds)
+                #print("mm/s",speeds)
                 self.driver.set_speed(speeds)
-                self.targetSpeed = self.newTargetSpeed
-                print("Modificamos velocidades: ", self.targetSpeed)
+                self.oldTargetSpeed = np.copy(self.targetSpeed)
+                #print("Modificamos velocidades: ", self.oldTargetSpeed)
 
             self.driver.show_params(False)
         return True
