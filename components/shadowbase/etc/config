@@ -1,15 +1,19 @@
 # Endpoints for implements interfaces
 OmniRobot.Endpoints=tcp -p 10032
 
+# Endpoints for subscriptions interfaces
+JoystickAdapterTopic.Endpoints=tcp -p 18896
 
 port=/dev/ttyUSB0
 idDriver1=1
 idDriver2=2
-maxSpeed=50
+maxSpeed=150
 wheelRadius=80
 distAxes=250.0
 axesLength=300.0
 
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

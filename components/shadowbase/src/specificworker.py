@@ -71,6 +71,8 @@ R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACI
 R_ID = bytearray([0x30, 0x01])                  #
 R_MODE = bytearray([0x30, 0x08]) 
 
+SLEEP_TEGRAM = 0.01
+
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         print("Iniciando shadow")
@@ -114,10 +116,10 @@ class SpecificWorker(GenericWorker):
             ll = 0.5*(self.distAxes + self.axesLength)
 
             ''''MATRIZ DE CONVESION'''
-            self.m_wheels = np.array([[1.0, -1.0, ll], 
-                                        [1.0, 1.0, -ll], 
-                                        [1.0, 1.0, ll],
-                                        [1.0, -1.0, -ll]])
+            self.m_wheels = np.array([  [-1.0,  -1.0, -ll],
+                                        [1.0,  -1.0, ll], 
+                                        [1.0,  -1.0, -ll],
+                                        [ -1.0,  -1.0, ll]])
             #self.m_wheels_inv = np.linalg.inv(self.m_wheels)
             self.m_wheels = self.m_wheels * (1/(2 * np.pi * self.wheelRadius / 60)) # mm/s to rpm
             #self.m_wheels_inv = self.m_wheels_inv * ((2 * np.pi * self.wheelRadius / 60)) # rpm to mm/s
@@ -245,7 +247,7 @@ class SpecificWorker(GenericWorker):
 
             read_data = True
             while read_data:
-                sleep(0.5)
+                sleep(SLEEP_TEGRAM)
                 telegram = bytearray (driver.readline())
                 if len(telegram) > 0:
                     print("respuesta recivida: ", telegram)
@@ -293,7 +295,7 @@ class SpecificWorker(GenericWorker):
             telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
             driver.write(telegram)
             print("envio, escritura: ", telegram)
-            sleep(0.5)
+            sleep(SLEEP_TEGRAM)
             print("respuesta, escritura: ", driver.readline())
             return 0
         else:
@@ -499,5 +501,18 @@ class SpecificWorker(GenericWorker):
     ######################
     # From the RoboCompOmniRobot you can use this types:
     # RoboCompOmniRobot.TMechParams
+
+
+    # =============== Methods for Component SubscribesTo ================
+    # ===================================================================
+
+    #
+    # SUBSCRIPTION to sendData method from JoystickAdapter interface
+    #
+    def JoystickAdapter_sendData(self, data):
+    
+        #print(data)
+        self.targetSpeed = [data.axes[0], data.axes[1], data.axes[2]]
+        
 
 
