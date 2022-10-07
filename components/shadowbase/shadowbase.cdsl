@@ -1,10 +1,12 @@
 import "OmniRobot.idsl";
+import "JoystickAdapter.idsl"; 
 
 Component shadowbase
 {
 	Communications
 	{
 		implements OmniRobot;
+		subscribesTo JoystickAdapter;
 	};
 	language python;
 };
