@@ -12,6 +12,7 @@ ENDIF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/robocomp.cmake )
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/qt.cmake )
+
 INCLUDE ( CMakeListsSpecific.txt)
 
 # Sources set

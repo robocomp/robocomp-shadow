@@ -8,6 +8,7 @@ SET ( SOURCES
   qgraphicscellitem.cpp
   custom_widget.h
   $ENV{ROBOCOMP}/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
+  room.cpp
 )
 
 # Headers set

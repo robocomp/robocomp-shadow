@@ -133,7 +133,15 @@ void SpecificWorker::initialize(int period)
         object_pixmaps[std::distance(yolo_object_names.begin(), std::ranges::find(yolo_object_names, "potted plant"))] = QPixmap("plant.png").scaled(800,800);
 
         // RANSAC
-        Estimator.Initialize(20, 100); // Threshold, iterations
+        //Estimator.Initialize(20, 100); // Threshold, iterations
+
+        // cube
+        //Eigen::Tensor<double, 5> cube(10, 10, 10, 10, 10);
+        //stimer.tick();
+        Eigen::TensorFixedSize<float, Eigen::Sizes<15, 15, 15, 15, 15>> cube;
+        cube.setZero();
+        //stimer.tock();
+        //std::cout << stimer.duration() << " " << m <<  " " << cube.size() << std::endl;
 
         this->Period = 50;
 		timer.start(Period);
@@ -163,23 +171,16 @@ void SpecificWorker::compute()
 
     ////////////////////////////////////////////////////////////////////////////////////////
 
-    //   auto points = get_omni_3d_points(depth_frame, rgb_head);
+    // get level lines from camera depth image
     auto ml_points = get_multi_level_3d_points(depth_frame, rgb_head);  // compute 3D points form omni_depth
     std::vector<Eigen::Vector2f> floor_line_cart;
+
+    // extract floor_line
     for(const auto &p: ml_points[3])
         if(p.norm() < consts.max_camera_depth_range)
             floor_line_cart.emplace_back(p);
 
-    // Group 3D points by angular sectors and sorted by minimum distance
-//    auto sets = group_by_angular_sectors(points, false);    // group them in 360 set sectors sorted by distance
-
-    // compute floor line
-//    auto floor_line = compute_floor_line(ml_points[0], false);  // get polar coordinates
-//    std::vector<Eigen::Vector2f> floor_line_cart;               // cartesian coordinates
-//    for(const auto &p : floor_line)
-//        floor_line_cart.emplace_back(Eigen::Vector2f(p(1)*sin(p(0)), p(1)*cos(p(0))));
-
-    // yolo
+    // get yolo detections
     auto yolo_objects = get_yolo_objects();
     draw_yolo_objects(yolo_objects, rgb_head);
 
@@ -188,62 +189,134 @@ void SpecificWorker::compute()
     //local_grid.update_semantic_layer(atan2(o.x, o.y), o.depth, o.id, o.type);  // rads -PI,PI and mm
 
     // compute mean point
-    Eigen::Vector2f room_center{0.0, 0.0};
-    room_center = std::accumulate(floor_line_cart.begin(), floor_line_cart.end(), room_center) / (float)floor_line_cart.size();
-    //qInfo() << "Center " << room_center(0) << room_center(1);
+    Eigen::Vector2f room_center = get_mean(floor_line_cart);
 
     // estimate size
-    Eigen::MatrixX2f zero_mean_points(floor_line_cart.size(), 2);
-    for(const auto &[i, p] : iter::enumerate(floor_line_cart))
-        zero_mean_points.row(i) = p - room_center;
-    auto max_room_size = zero_mean_points.colwise().maxCoeff();
-    auto min_room_size = zero_mean_points.colwise().minCoeff();
-    float estimated_size = max_room_size[0] - min_room_size[0];
-    //std::cout << "estimated_size " <<  estimated_size << std::endl;
+    float estimated_size = get_size(room_center, floor_line_cart);
+    //create_image_for_learning(floor_line_cart, estimated_size);
+
+    room.update(QSizeF(estimated_size, estimated_size), room_center, 0.f);
 
     // compute lines
-    std::vector<cv::Vec2f> floor_line_cv;
-    for(const auto &p : floor_line_cart)
-        floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
-    double rhoMin = 0.0f, rhoMax = 5000.0f, rhoStep = 5;
-    double thetaMin = -CV_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
-    cv::Mat lines;
-    HoughLinesPointSet(floor_line_cv, lines, 10, 1, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
-    std::vector<cv::Vec3d> lines3d;
-    lines.copyTo(lines3d);
+    std::vector<pair<int, QLineF>> elines = get_hough_lines(floor_line_cart);
 
-    // compute lines from H params
-    std::vector<std::pair<int, QLineF>> elines;
-    for(auto &l: std::ranges::filter_view(lines3d, [](auto a){return a[0]>10;}))
-    {
-        float rho = l[1], theta = l[2];
-        double a = cos(theta), b = sin(theta);
-        double x0 = a * rho, y0 = b * rho;
-        QPointF p1(x0 + 5000 * (-b), y0 + 5000 * (a));
-        QPointF p2(x0 - 5000 * (-b), y0 - 5000 * (a));
-        elines.emplace_back(std::make_pair(l[0], QLineF(p1, p2)));
-    }
-
-    // NMS of close parallel lines
-    std::vector<QLineF> to_delete;
-    for(auto &&comb: iter::combinations(elines, 2))
-    {
-        auto &[votes_1, line1] = comb[0];
-        auto &[votes_2, line2] = comb[1];
-        float angle = qDegreesToRadians(line1.angle(line2));
-        float dist = (line1.center() - line2.center()).manhattanLength();
-        float delta = 0.3;
-        //qInfo() << __FUNCTION__ << angle << dist;
-        if( fabs(angle) < delta and dist < 700)
-            if(votes_1 >= votes_2) to_delete.push_back(line2);
-            else to_delete.push_back(line1);
-    }
-    elines.erase(std::remove_if(elines.begin(), elines.end(), [to_delete](auto l){ return std::ranges::find(to_delete, std::get<1>(l))!=to_delete.end();}), elines.end());
+    // compute parallel lines of minimum length and separation
+    std::vector<std::pair<QLineF, QLineF>> par_lines = get_parallel_lines(elines, estimated_size);
 
     // compute corners
-    auto dist2 = [](const QPointF &p1, const QPointF &p2) { return sqrt((p1.x()-p2.x())*(p1.x()-p2.x())+(p1.y()-p2.y())*(p1.y()-p2.y()));};
-    auto get_distant = [](const QPointF &p, const QPointF &p1, const QPointF &p2)
-            { if( (p-p1).manhattanLength() < (p-p2).manhattanLength()) return p2; else return p1;};
+    std::vector<QLineF> corners = get_corners(elines);
+
+    // compute triple corners (double corner and the third one is inferred)
+    vector<tuple<QLineF, QLineF, QLineF>> double_corners;
+    //vector<tuple<QLineF, QLineF, QLineF>> double_corners = get_double_corners(estimated_size, corners);
+
+    // compute room. Start with more complex features and go backwards
+    if(not double_corners.empty())
+    {
+        const auto &[c1, c2, c3] = double_corners.front();
+        QSizeF size(points_dist(c1.p1(), c3.p1()), points_dist(c3.p1(), c2.p1()));
+        QPointF center = c1.p1() + (c2.p1()-c1.p1())/2.0;
+        QLineF tmp(c1); tmp.setAngle(tmp.angle()-45);
+        float rot = QLineF(QPointF(0.0, 0.0), QPointF(0.0, 500.0)).angleTo(tmp);
+        room.update(size, Eigen::Vector2f(center.x(), center.y()), rot);
+        draw_on_2D_tab(room, "yellow");
+    }
+    else if(not corners.empty())
+    {
+        float total_torque = 0.f;
+        for(const auto &c : corners)
+        {
+            // get closest corner in model c*
+            auto const &p = Eigen::Vector2f(c.p1().x(), c.p1().y());
+            auto closest = room.get_closest_corner(p);
+            // project p on line joining c* with center of model
+            auto line = Eigen::ParametrizedLine<float, 2>::Through(p, room.center);
+            auto proj = line.projection(closest);
+            // compute torque as distance to center times projection length
+            total_torque += (room_center - proj).norm() + (proj - p).norm();
+        }
+        // rotate the model
+        float inc = total_torque / inertia;
+        room.rotate(inc);
+        // if there is still error
+        // translate the model
+        }
+    }
+    else if(not par_lines.empty())
+    {
+        // get closest lines un model l1* y l2*
+        // compute angle between model lines and l1,l2
+        // compute torque as angle differences
+        // rotate the models
+        // compute distance to lines
+        // translate the model
+    }
+    else if(not elines.empty())
+    {
+        // get closest line un model l*
+        // compute angle between line and l*
+        // compute torque as angle difference
+        // rotate the model
+        // compute distance to line
+        // translate the model
+    }
+
+    // draw on 2D
+    draw_on_2D_tab(elines);
+    //draw_on_2D_tab(corners, "blue");
+    draw_on_2D_tab(double_corners, "cyan");
+    //draw_on_2D_tab(ml_points, "green", 60, true);
+    //draw_on_2D_tab(std::vector<Eigen::Vector2f>{room_center}, "red", 140, true);
+    //draw_on_2D_tab(yolo_objects);
+
+    grid_viewer->viewport()->repaint();
+    cv::imshow("Top_camera", rgb_head);
+    cv::waitKey(5);
+
+    fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::create_image_for_learning(const std::vector<Eigen::Vector2f> &floor_line_cart, float estimated_size) const
+{
+    // create image for function synthesis
+    static int frame_counter = 0;
+    cv::Mat synth(cv::Size(512,512), CV_8UC1, 0);
+    for(const auto &p : floor_line_cart)
+    {
+        // trans p to image coordinates
+        int row = (int)(255.0/estimated_size*p.y() + 128);
+        int col = (int)(p.y()*255.0/estimated_size + 128);
+        synth.at<uchar>(row, col) = 255;
+    }
+    cv::imwrite("frame_" + to_string(frame_counter) + ".png", synth);
+}
+vector<tuple<QLineF, QLineF, QLineF>> SpecificWorker::get_double_corners(float estimated_size, const vector<QLineF> &corners)
+{
+    vector<tuple<QLineF, QLineF, QLineF>> double_corners;
+    // if in opposite directions and separation within room_size estimations
+    for(auto &&comb: iter::combinations(corners, 2))
+    {
+        const auto &c1 = comb[0];
+        const auto &c2 = comb[1];
+        float ang = fabs(qDegreesToRadians(c1.angleTo(c2)));
+        if( ang > M_PI-0.2 and ang < M_PI+0.2 and points_dist(c1.p1(), c2.p2()) > estimated_size / 2.0)
+        {
+            auto c11 = c1; c11.setAngle(c11.angle()+45);
+            auto c22 = c2; c22.setAngle(c22.angle()-45);
+            QPointF intersection;
+            c11.intersect(c22, &intersection);
+            // rep corner as the vector pointing outward through the bisectriz
+            auto pl = get_distant(intersection, c11.p1(), c11.p2());
+            auto pr = get_distant(intersection, c22.p1(), c22.p2());
+            auto tip = QLineF(intersection, pl).pointAt(0.1) + (QLineF(intersection, pr).pointAt(0.1) - QLineF(intersection, pl).pointAt(0.1))/2.0;
+            double_corners.push_back(make_tuple(c1, c2, QLineF(intersection, tip)));
+        }
+    }
+    return double_corners;
+}
+std::vector<QLineF> SpecificWorker::get_corners(vector<pair<int, QLineF>> &elines)
+{
     std::vector<QLineF> corners;
     for(auto &&comb: iter::combinations_with_replacement(elines, 2))
     {
@@ -253,7 +326,6 @@ void SpecificWorker::compute()
         if(angle> M_PI) angle -= M_PI;
         float delta = 0.2;
         QPointF intersection;
-        qInfo() << __FUNCTION__ << angle;
         if(angle < M_PI/2+delta and angle > M_PI/2-delta  and line1.intersect(line2, &intersection) == 1)
         {
             // rep corner as the vector pointing outward through the bisectriz
@@ -263,42 +335,79 @@ void SpecificWorker::compute()
             corners.emplace_back(QLineF(intersection, tip));
         }
     }
-
-    // compute double corners
-    std::vector<std::pair<QLineF, QLineF>> double_corners;
-    // iff in opposite directions and separation within room_size estimations
-    for(auto &&comb: iter::combinations(corners, 2))
+    return corners;
+}
+std::vector<std::pair<QLineF, QLineF>> SpecificWorker::get_parallel_lines(const  std::vector<pair<int, QLineF>> &lines, float estimated_size)
+{
+    std::vector<std::pair<QLineF, QLineF>> par_lines;
+    for(auto &&line_pairs : iter::combinations(lines, 2))
     {
-        const auto &c1 = comb[0];
-        const auto &c2 = comb[1];
-        float ang = fabs(qDegreesToRadians(c1.angleTo(c2)));
-        if( ang > M_PI-0.2 and ang < M_PI+0.2 and dist2(c1.p1(), c2.p2()) > estimated_size/2.0)
-            double_corners.push_back(std::make_pair(c1, c2));
+        const auto &[v1, line1] = line_pairs[0];
+        const auto &[v2, line2] = line_pairs[1];
+        float ang = fabs(line1.angleTo(line2));
+        const float delta = 10;  //degrees
+        if((ang > -delta and ang < delta) or ( ang > 180-delta and ang < 180+delta))
+            if( points_dist(line1.center(), line2.center()) > estimated_size/2.0)
+                par_lines.push_back(std::make_pair(line1,  line2));
+    }
+    return par_lines;
+}
+std::vector<pair<int, QLineF>> SpecificWorker::get_hough_lines(vector<Eigen::Vector2f> &floor_line_cart) const
+{
+    vector<cv::Vec2f> floor_line_cv;
+    for(const auto &p : floor_line_cart)
+        floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
+    double rhoMin = 0.0f, rhoMax = 5000.0f, rhoStep = 5;
+    double thetaMin = -CV_PI, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
+    cv::Mat lines;
+    HoughLinesPointSet(floor_line_cv, lines, 10, 1, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
+    vector<cv::Vec3d> lines3d;
+    lines.copyTo(lines3d);
+
+    // compute lines from Hough params
+    vector<pair<int, QLineF>> elines;
+    for(auto &l: ranges::filter_view(lines3d, [](auto a){return a[0]>10;}))
+    {
+        float rho = l[1], theta = l[2];
+        double a = cos(theta), b = sin(theta);
+        double x0 = a * rho, y0 = b * rho;
+        QPointF p1(x0 + 5000 * (-b), y0 + 5000 * (a));
+        QPointF p2(x0 - 5000 * (-b), y0 - 5000 * (a));
+        elines.emplace_back(make_pair(l[0], QLineF(p1, p2)));
     }
 
-    // compute room
-    if(not double_corners.empty())
+    // Non-Maximum Suppression of close parallel lines
+    vector<QLineF> to_delete;
+    for(auto &&comb: iter::combinations(elines, 2))
     {
-        const auto &[c1, c2] = double_corners.front();
-        QSize size(fabs(c1.p1().x()-c2.p1().x()), fabs(c1.p1().y()-c2.p1().y()));
-        QPointF center = c1.p1() + (c2.p1()-c1.p1())/2.0;
-        float rot = qDegreesToRadians(QLineF(QPointF(0.0, 0.0), QPointF(0.0, 500.0)).angleTo(c1) - 45);
-
-        draw_on_2D_tab(size, center, rot, "yellow");
+        auto &[votes_1, line1] = comb[0];
+        auto &[votes_2, line2] = comb[1];
+        float angle = qDegreesToRadians(line1.angle(line2));
+        float dist = (line1.center() - line2.center()).manhattanLength();
+        float delta = 0.3;
+        if( fabs(angle) < delta and dist < 700)
+        {
+            if (votes_1 >= votes_2) to_delete.push_back(line2);
+            else to_delete.push_back(line1);
+        }
     }
-
-    // draw on 2D
-    draw_on_2D_tab(elines);
-    draw_on_2D_tab(corners, "blue");
-    draw_on_2D_tab(double_corners, "cyan");
-    //draw_on_2D_tab(ml_points, "green", 60, true);
-    //draw_on_2D_tab(std::vector<Eigen::Vector2f>{room_center}, "red", 140, true);
-    //draw_on_2D_tab(yolo_objects);
-    grid_viewer->viewport()->repaint();
-    cv::imshow("Top_camera", rgb_head);
-    cv::waitKey(5);
-
-    fps.print("FPS: ", [this](auto x){ graph_viewer->set_external_hz(x);});
+    elines.erase(remove_if(elines.begin(), elines.end(), [to_delete](auto l){ return ranges::find(to_delete, std::get<1>(l)) != to_delete.end();}), elines.end());
+    return elines;
+}
+float SpecificWorker::get_size(const Eigen::Vector2f &room_center, vector<Eigen::Vector2f> &floor_line_cart) const
+{
+    Eigen::MatrixX2f zero_mean_points(floor_line_cart.size(), 2);
+    for(const auto &[i, p] : iter::enumerate(floor_line_cart))
+        zero_mean_points.row(i) = p - room_center;
+    auto max_room_size = zero_mean_points.colwise().maxCoeff();
+    auto min_room_size = zero_mean_points.colwise().minCoeff();
+    return max_room_size[0] - min_room_size[0];
+}
+Eigen::Vector2f SpecificWorker::get_mean(vector<Eigen::Vector2f> &floor_line_cart) const
+{
+    Eigen::Vector2f room_center{0.0, 0.0};
+    room_center = accumulate(floor_line_cart.begin(), floor_line_cart.end(), room_center) / (float)floor_line_cart.size();
+    return room_center;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////77
@@ -434,7 +543,7 @@ void SpecificWorker::draw_on_2D_tab(const std::vector<QLineF> &corners, QString 
         lines_vec.push_back(p);
     }
 }
-void SpecificWorker::draw_on_2D_tab(const std::vector<std::pair<QLineF, QLineF>> &double_corners, QString color, int size, bool clean)
+void SpecificWorker::draw_on_2D_tab(const std::vector<std::tuple<QLineF, QLineF, QLineF>> &double_corners, QString color, int size, bool clean)
 {
     static std::vector<QGraphicsItem*> lines_vec;
     for (auto l: lines_vec)
@@ -444,21 +553,27 @@ void SpecificWorker::draw_on_2D_tab(const std::vector<std::pair<QLineF, QLineF>>
     }
     lines_vec.clear();
 
-    for(const auto &[first, second] : double_corners)
+    for(const auto &[first, second, third] : double_corners)
     {
         auto p = widget_2d->scene.addLine(QLineF(first.p1(), second.p1()), QPen(QColor(color), 60));
+        auto pp = widget_2d->scene.addEllipse(-100, -100, 200, 200, QPen(QColor(color), 60), QBrush(QColor(color)));
+        pp->setPos(third.p1());
+        lines_vec.push_back(pp);
         lines_vec.push_back(p);
+        break;
     }
 }
-void SpecificWorker::draw_on_2D_tab(QSize size, QPointF center, float rot, QString color)
+void SpecificWorker::draw_on_2D_tab(const Room &room, QString color)
 {
     static QGraphicsItem* item;
     widget_2d->scene.removeItem(item);
     delete item;
-
-    item = widget_2d->scene.addRect(-size.height()/2, -size.width()/2, size.height(), size.width(), QPen(QColor(color), 60));
-    item->setPos(center);
-    item->setRotation(qRadiansToDegrees(rot));
+    QColor col(color);
+    col.setAlpha(30);
+    auto size = room.rsize;
+    item = widget_2d->scene.addRect(-size.height()/2, -size.width()/2, size.height(), size.width(), QPen(QColor(col), 60), QBrush(QColor(col)));
+    item->setPos(room.center.x(), room.center.y());
+    item->setRotation(-room.rot);
     item->setZValue(1);
 }
 
@@ -633,6 +748,17 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
+
+double SpecificWorker::points_dist(const QPointF &p1, const QPointF &p2)
+{
+    return sqrt((p1.x()-p2.x())*(p1.x()-p2.x())+(p1.y()-p2.y())*(p1.y()-p2.y()));
+}
+
+QPointF SpecificWorker::get_distant(const QPointF &p, const QPointF &p1, const QPointF &p2)
+{
+    if( (p-p1).manhattanLength() < (p-p2).manhattanLength()) return p2; else return p1;
+}
+
 
 
 
