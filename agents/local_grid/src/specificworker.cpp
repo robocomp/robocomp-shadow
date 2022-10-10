@@ -195,7 +195,7 @@ void SpecificWorker::compute()
     float estimated_size = get_size(room_center, floor_line_cart);
     //create_image_for_learning(floor_line_cart, estimated_size);
 
-    room.update(QSizeF(estimated_size, estimated_size), room_center, 0.f);
+    room.update(QSizeF(estimated_size, estimated_size), room_center);
 
     // compute lines
     std::vector<pair<int, QLineF>> elines = get_hough_lines(floor_line_cart);
@@ -207,8 +207,8 @@ void SpecificWorker::compute()
     std::vector<QLineF> corners = get_corners(elines);
 
     // compute triple corners (double corner and the third one is inferred)
-    vector<tuple<QLineF, QLineF, QLineF>> double_corners;
-    //vector<tuple<QLineF, QLineF, QLineF>> double_corners = get_double_corners(estimated_size, corners);
+    //vector<tuple<QLineF, QLineF, QLineF>> double_corners;
+    vector<tuple<QLineF, QLineF, QLineF>> double_corners = get_double_corners(estimated_size, corners);
 
     // compute room. Start with more complex features and go backwards
     if(not double_corners.empty())
@@ -219,37 +219,51 @@ void SpecificWorker::compute()
         QLineF tmp(c1); tmp.setAngle(tmp.angle()-45);
         float rot = QLineF(QPointF(0.0, 0.0), QPointF(0.0, 500.0)).angleTo(tmp);
         room.update(size, Eigen::Vector2f(center.x(), center.y()), rot);
-        draw_on_2D_tab(room, "yellow");
+        room.draw_on_2D_tab(&widget_2d->scene, {});
     }
     else if(not corners.empty())
     {
         float total_torque = 0.f;
+        std::vector<std::tuple<QPointF, QPointF, int>> temp;
         for(const auto &c : corners)
         {
             // get closest corner in model c*
-            auto const &p = Eigen::Vector2f(c.p1().x(), c.p1().y());
-            auto closest = room.get_closest_corner(p);
+            auto const &corner = Eigen::Vector2f(c.p1().x(), c.p1().y());
+            auto closest = room.get_closest_corner(corner);
             // project p on line joining c* with center of model
-            auto line = Eigen::ParametrizedLine<float, 2>::Through(p, room.center);
-            auto proj = line.projection(closest);
+            auto line = Eigen::ParametrizedLine<float, 2>::Through(room.center, closest);
+            auto a = room.to_local_coor(closest);
+            auto b = room.to_local_coor(corner);
+            float angle = atan2( a.x()*b.y() - a.y()*b.x(), a.x()*b.x() + a.y()*b.y() );  // sin / cos
+            int signo;
+            if(angle >= 0) signo = 1; else signo = -1;
+            auto proj = line.projection(corner);
             // compute torque as distance to center times projection length
-            total_torque += (room_center - proj).norm() + (proj - p).norm();
+            total_torque += signo */* ((room_center - proj).norm() +*/ (proj - corner).norm();
+            temp.emplace_back(std::make_tuple(QPointF(corner.x(), corner.y()), QPointF(proj.x(), proj.y()), signo));
         }
+
         // rotate the model
-        float inc = total_torque / inertia;
+        float inertia = 10.f;
+        float inc = total_torque / 1000.f / inertia;
         room.rotate(inc);
         // if there is still error
         // translate the model
-        }
+        room.draw_on_2D_tab(&widget_2d->scene, temp);
     }
     else if(not par_lines.empty())
     {
-        // get closest lines un model l1* y l2*
-        // compute angle between model lines and l1,l2
-        // compute torque as angle differences
-        // rotate the models
-        // compute distance to lines
-        // translate the model
+        // get closest lines to model l1* y l2*
+        for(const auto &[l1, l2] : par_lines)
+        {
+            QLineF closest = room.get_closest_side(l1);
+            // compute angle between model lines and l1,l2
+            float ang = closest.angleTo(l1);
+            // rotate the models
+            room.rotate(ang/10.f);
+            // compute distance to lines
+            // translate the model
+        }
     }
     else if(not elines.empty())
     {
@@ -576,7 +590,6 @@ void SpecificWorker::draw_on_2D_tab(const Room &room, QString color)
     item->setRotation(-room.rot);
     item->setZValue(1);
 }
-
 cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &objects, cv::Mat img)
 {
     // Plots one bounding box on image img
@@ -598,11 +611,13 @@ cv::Mat SpecificWorker::draw_yolo_objects(const RoboCompYoloObjects::TObjects &o
     }
     return cimg;
 }
+
+
 std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame)   // in meters
 /**/{
-    std::vector<std::vector<Eigen::Vector2f>> points(int((2000-400)/200));
+    std::vector<std::vector<Eigen::Vector2f>> points(int((2000-400)/200));  //height steps
     for(auto &p: points)
-        p.resize(360, Eigen::Vector2f(consts.max_camera_depth_range, consts.max_camera_depth_range));           // height levels
+        p.resize(360, Eigen::Vector2f(consts.max_camera_depth_range, consts.max_camera_depth_range));   // angular resolution
 
     int semi_height = depth_frame.rows/2;
     float hor_ang, dist, x, y, z, proy;
