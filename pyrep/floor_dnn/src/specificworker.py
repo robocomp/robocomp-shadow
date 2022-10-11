@@ -21,6 +21,7 @@
 
 from genericworker import *
 import time
+import os
 from pyrep import PyRep
 from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.dummy import Dummy
@@ -34,6 +35,7 @@ import itertools as it
 from math import *
 import pprint
 import traceback
+import json
 from sys import getsizeof
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
@@ -101,25 +103,6 @@ class SpecificWorker(GenericWorker):
         # cameras
         self.cameras_write = {}
         self.cameras_read = {}
-
-        # self.tablet_camera_name = "camera_tablet"
-        # cam = VisionSensor(self.tablet_camera_name)
-        # self.cameras_write[self.tablet_camera_name] = { "handle": cam,
-        #                                                 "id": 0,
-        #                                                 "angle": np.radians(cam.get_perspective_angle()),
-        #                                                 "width": cam.get_resolution()[0],
-        #                                                 "height": cam.get_resolution()[1],
-        #                                                 "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                  np.radians(cam.get_perspective_angle() / 2)),
-        #                                                 "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-        #                                                     np.radians(cam.get_perspective_angle() / 2)),
-        #                                                 "rgb": np.array(0),
-        #                                                 "depth": np.ndarray(0),
-        #                                                 "is_ready": False,
-        #                                                 "is_rgbd": False,
-        #                                                 "rotated": False,
-        #                                                 "has_depth": False
-        #                                         }
 
         self.top_camera_name = "/Shadow/camera_top"
         try:
@@ -191,54 +174,6 @@ class SpecificWorker(GenericWorker):
 
         self.cameras_read = self.cameras_write.copy()
 
-        # Read existing people
-        self.people = {}
-        if Dummy.exists("Bill_base"):
-            self.people["Bill"] = Dummy("Bill_base")
-        elif Dummy.exists("Bill"):
-            self.people["Bill"] = Dummy("Bill")
-
-        for i in range(0, 2):
-            name = "Bill#" + str(i)
-            name_base = "Bill_base#" + str(i)
-            if Dummy.exists(name_base):
-                self.people[name] = Dummy(name_base)
-            elif Dummy.exists(name):
-                self.people[name] = Dummy(name)
-
-        # laser
-        # self.lasers = {}
-        # self.hokuyo_front_left_name = "Hokuyo_sensor2"
-        # cam = VisionSensor(self.hokuyo_front_left_name)
-        # self.lasers[self.hokuyo_front_left_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                              "semiwidth": cam.get_resolution()[0] / 2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                   np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": -np.pi/3.0
-        #                                              }
-        # self.hokuyo_front_right_name = "Hokuyo_sensor1"
-        # cam = VisionSensor(self.hokuyo_front_right_name)
-        # self.lasers[self.hokuyo_front_right_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                               "semiwidth": cam.get_resolution()[0]/2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                 np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": np.pi / 3.0
-        #                                             }
-        # self.ldata_write = []
-        # self.ldata_read = []
-        
         # PoseEstimation
         self.robot_full_pose_write = RoboCompFullPoseEstimation.FullPoseEuler()
         self.robot_full_pose_read = RoboCompFullPoseEstimation.FullPoseEuler()
@@ -247,89 +182,68 @@ class SpecificWorker(GenericWorker):
         self.joystick_newdata = []
         self.last_received_data_time = 0
 
-        # Tablet tilt motor
-        # self.tablet_motor = Joint("tablet_joint")
-        # self.tablet_new_pos = None
-
         # Eye pan motor
         self.eye_motor = Joint("/Shadow/camera_pan_joint")
         self.eye_new_pos = None
+        self.depth_image = []
+
+        # DNN
+        self.frame_counter = 0
+        os.chdir("images")
+        self.frame_skipper = 0
+        self.data = {}
 
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
 
     def compute(self):
         tc = TimeControl(0.05)
-        while True:
+        self.ok = True
+        while self.ok:
             self.pr.step()
             self.read_robot_pose()
             self.move_robot()
-            self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
-            #ksself.read_people()
+            self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name])
             self.read_joystick()
-            self.move_eye()
+            if self.frame_skipper % 10 == 0:
+                self.read_floor()
+            self.frame_skipper += 1
             tc.wait()
+        print(self.data)
+        with open('metadata.json', 'w') as f:
+            json.dump(self.data, f)
 
     ###########################################
-    ### PEOPLE get and publish people position
-    ###########################################
-    def read_people(self):
-        people_data = RoboCompHumanToDSRPub.PeopleData()
-        people_data.timestamp = time.time()
-        people = []  # RoboCompHumanToDSRPub.People()
-        for name, handle in self.people.items():
-            pos = handle.get_position()
-            rot = handle.get_orientation()
-            person = RoboCompHumanToDSRPub.Person(len(people), pos[0] * 1000, pos[1] * 1000, pos[2] * 1000,
-                                                  pi - rot[2] - pi / 2,
-                                                  {})
-            people.append(person)
-        try:
-            people_data.peoplelist = people
-            self.humantodsrpub_proxy.newPeopleData(people_data)
-        except Ice.Exception as e:
-            print(e)
+    def read_floor(self):
+        floor = Shape('/floor_0')
+        pose = floor.get_position(relative_to=self.robot_object)
+        bbox = floor.get_bounding_box()
+        rot = floor.get_orientation(relative_to=self.robot_object)
 
-    def read_laser(self):
-        data = self.pr.script_call("get_depth_data@Hokuyo", 1)
-        if len(data[1]) > 0:
-            self.hokuyo = Shape("Hokuyo")
-            h_pos = self.hokuyo.get_position()
-            polar = np.zeros(shape=(int(len(data[1])/3), 2))
-            i = 0
-            for x, y, z in self.grouper(data[1], 3):                      # extract non-intersecting groups of 3
-                # translate to the robot center
-                #x += h_pos[0]
-                #y += h_pos[1]
-                polar[i] = [-np.arctan2(y, x), np.linalg.norm([x, y])]    # add to list in polar coordinates
-                i += 1
+        # synth = np.zeros((512, 512, 1), np.uint8)
+        # for p in floor_line_cart:
+        #     # transf to image coordinates
+        #     row = int(255.0 / estimated_size * p.y() + 128)
+        #     col = int(p.y() * 255.0 / estimated_size + 128)
+        #     synth[row, col] = 255
 
-            angles = np.linspace(-np.radians(120), np.radians(120), 360)  # create regular angular values
-            positions = np.searchsorted(angles, polar[:, 0])  # list of closest position in polar for each laser measurement
-            self.ldata_write = [RoboCompLaser.TData(a, 0) for a in angles]  # create empty 240 angle array
-            pos, medians = npi.group_by(positions).median(polar[:, 1])  # group by repeated positions
-            for p, m in it.zip_longest(pos, medians):  # fill the angles with measures
-                if p < len(self.ldata_write):
-                    self.ldata_write[p].dist = int(m * 1000)  # to millimeters
-            if self.ldata_write[0] == 0:
-               self.ldata_write[0] = 200  # half robot width
-            del self.ldata_write[-3:]
-            del self.ldata_write[:3]
-            for i in range(1, len(self.ldata_write)):
-               if self.ldata_write[i].dist == 0:
-                   self.ldata_write[i].dist = self.ldata_write[i - 1].dist
+        file_name = "frame_" + str(self.frame_counter) + ".png"
+        self.data[file_name] = {}
+        self.data[file_name]["x"] = pose[0]
+        self.data[file_name]["y"] = pose[1]
+        self.data[file_name]["rot"] = rot[2]
+        self.data[file_name]["width"] = bbox[1]-bbox[0]
+        self.data[file_name]["height"] = bbox[3]-bbox[2]
 
+        cv2.imwrite("frame_" + str(self.frame_counter) + ".png", self.depth_image)
+        # with open('metadata.txt', 'a') as f:
+        #     f.write("frame_" + str(self.frame_counter) + '\n')
+        #     f.writelines([str(pose[0]), ' ', str(pose[1]), ' ', str(rot[2]), ' ', str(bbox[0]),
+        #                   ' ', str(bbox[1]), ' ', str(bbox[2]), ' ', str(bbox[3]), '\n'])
 
-            self.ldata_read, self.ldata_write = self.ldata_write, self.ldata_read
+        # add line to metadata file with pose, rot, bounding_box
 
-            # try:
-            #     self.laserpub_proxy.pushLaserData(self.ldata_read)
-            # except Ice.Exception as e:
-            #     print(e)
-
-    def grouper(self, inputs, n, fillvalue=None):
-        iters = [iter(inputs)] * n
-        return it.zip_longest(*iters, fillvalue=fillvalue)
+        self.frame_counter += 1
 
     ###########################################
     ### CAMERAS get and publish cameras data
@@ -392,6 +306,7 @@ class SpecificWorker(GenericWorker):
              image_float = cam["handle"].capture_rgb()
              image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
                                    dtype=cv2.CV_8U)
+             self.depth_image = image
              image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
              cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
                                                           width=cam["width"],
@@ -428,6 +343,8 @@ class SpecificWorker(GenericWorker):
                     side = x.value if np.abs(x.value) > 0.1 else 0
                 if x.name == "left_pan":
                     left_pan = x.value
+                    if x.value != -35.19892501831055:
+                        self.ok = False
                 if x.name == "right_pan":
                     right_pan = x.value
 
