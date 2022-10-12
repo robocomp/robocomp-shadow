@@ -1,0 +1,10 @@
+CommonBehavior.Endpoints=tcp -p 10777
+
+# Proxies for required interfaces
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
+OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
