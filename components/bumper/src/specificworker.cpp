@@ -107,9 +107,11 @@ void SpecificWorker::compute()
 
     try
     {
+        Eigen::Vector2f gains{5.0, 3.0};
+        force = force.cwiseProduct(gains);
         float rot = atan2(force.x(), force.y());
-        float adv = force.y();
-        float side = force.x();
+        float adv = force.y() ;
+        float side = force.x() ;
         omnirobot_proxy->setSpeedBase(side, adv, rot);
     }
     catch (const Ice::Exception &e){ std::cout << e.what() << std::endl;}
@@ -118,14 +120,13 @@ void SpecificWorker::compute()
 ////////////////////////////////////////////////////////////////////////
 Eigen::Vector2f SpecificWorker::compute_repulsion_forces(std::vector<Eigen::Vector2f> &floor_line)
 {
-    Eigen::Vector2f res;
+    Eigen::Vector2f res = {0.f, 0.f};
     for(const auto &ray: floor_line)
     {
-        if (ray.norm() > 1000) continue;
-        float dist = pow(ray.norm()/1000, 2);  // to meters
-        res += -ray.normalized() / dist;
+        if (ray.norm() > 1500) continue;
+        res += -ray.normalized() / fabs(pow(ray.norm()/1000, 3));
     }
-    return res*5;  //scale factor
+    return res;  //scale factor
     // return std::accumulate(floor_line.begin(), floor_line.end(), Eigen::Vector2f{0.f, 0.f},[](auto a, auto b){return a -b.normalized()/b.norm();});
 }
 std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_points(const cv::Mat &depth_frame)
@@ -187,12 +188,13 @@ void SpecificWorker::draw_floor_line(const vector<vector<Eigen::Vector2f>> &line
             items.push_back(item);
         }
 }
-void SpecificWorker::draw_forces(Eigen::Vector2f force)
+void SpecificWorker::draw_forces(const Eigen::Vector2f &force)
 {
     static QGraphicsItem* item=nullptr;
     if(item != nullptr) viewer->scene.removeItem(item);
     delete item;
-    QPointF tip = robot_polygon->mapToScene(force.x(), force.y());
+    auto large_force = force * 3.f;
+    QPointF tip = robot_polygon->mapToScene(large_force.x(), large_force.y());
     item = viewer->scene.addLine(robot_polygon->pos().x(), robot_polygon->pos().y(), tip.x(), tip.y(), QPen(QColor("red"), 50));
 }
 

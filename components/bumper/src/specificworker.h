@@ -75,7 +75,7 @@ public:
 
     Eigen::Vector2f compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line);
 
-    void draw_forces(Eigen::Vector2f force);
+    void draw_forces(const Eigen::Vector2f &force);
 };
 
 #endif
