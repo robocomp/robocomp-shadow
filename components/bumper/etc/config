@@ -1,8 +1,10 @@
 CommonBehavior.Endpoints=tcp -p 10777
 
 # Proxies for required interfaces
-CameraRGBDSimpleProxy = camerargbdsimple:tcp -h 192.168.1.175  -p 10095
+#CameraRGBDSimpleProxy = camerargbdsimple:tcp -h 192.168.1.175  -p 10095
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -p 10095
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
+YoloObjectsProxy = yoloobjects:tcp -h localhost -p 10054
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

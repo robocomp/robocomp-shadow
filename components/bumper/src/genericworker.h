@@ -34,13 +34,14 @@
 #include <CameraRGBDSimple.h>
 #include <GenericBase.h>
 #include <OmniRobot.h>
+#include <YoloObjects.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompYoloObjects::YoloObjectsPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -58,6 +59,7 @@ public:
 
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
+	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 
 protected:
