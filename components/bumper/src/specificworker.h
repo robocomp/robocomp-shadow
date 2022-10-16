@@ -58,10 +58,11 @@ public:
     {
         const float max_camera_depth_range = 5000;
         const float min_camera_depth_range = 300;
-        const float omni_camera_height = 600; //mm
+        const float omni_camera_height = 1200; //mm
         float robot_length = 500;
         float num_angular_bins = 360;
         float scaling_factor = 19.f;
+        float dreamvu_depth_scaling_factor = 10.f;
     };
     Constants consts;
 
@@ -70,12 +71,19 @@ public:
     QGraphicsPolygonItem *robot_polygon;
     QGraphicsRectItem *laser_in_robot_polygon;
     QRectF viewer_dimensions;
-
     void draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines);
-
     Eigen::Vector2f compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line);
-
     void draw_forces(const Eigen::Vector2f &force);
+    RoboCompGenericBase::TBaseState read_robot_state();
+    void draw_3d_points(const RoboCompCameraRGBDSimple::TPoints &scan);
+    void draw_lines_on_image(cv::Mat &rgb, const cv::Mat &depth_frame);
+    cv::Mat read_depth_coppelia();
+    RoboCompCameraRGBDSimple::TPoints read_points_dreamvu(cv::Mat omni_depth_frame);
+    cv::Mat read_rgb(const std::string &camera_name);
+    cv::Mat read_depth_dreamvu(cv::Mat omni_rgb_frame);
+    bool IS_COPPELIA = false;
 };
+
+
 
 #endif
