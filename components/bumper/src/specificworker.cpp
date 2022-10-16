@@ -68,10 +68,10 @@ void SpecificWorker::initialize(int period)
         robot_polygon = rp;
         laser_in_robot_polygon = new QGraphicsRectItem(-10, 10, 20, 20, robot_polygon);
         laser_in_robot_polygon->setPos(0, 190);     // move this to abstract
-        viewer->draw_contour();
+        //viewer->draw_contour();
 
         // global
-        IS_COPPELIA = false;
+        IS_COPPELIA = true;
 
         timer.start(Period);
 	}
@@ -100,27 +100,42 @@ void SpecificWorker::compute()
         //  draw_3d_points(omni_points);
     }
 
-    draw_lines_on_image(omni_rgb_frame, omni_depth_frame);
-    imshow("rgb", omni_rgb_frame);
+    // top camera and YOLO
+    auto top_rgb_frame = read_rgb("/Shadow/camera_top");
+    RoboCompYoloObjects::TData yolo_objects;
+    try
+    { yolo_objects = yoloobjects_proxy->getYoloObjects(); }
+    catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
+    Eigen::Vector2f target_force = {0.f, 0.f};
+    for(const auto &o: yolo_objects.objects)
+        if(o.type == 0)
+        {
+            cv::rectangle(top_rgb_frame, cv::Point(o.left, o.top), cv::Point(o.right, o.bot), cv::Scalar(0, 255, 0), 3);
+            target_force = {o.x, o.y};
+        }
+    cv::imshow("top", top_rgb_frame);
+
+    //draw_lines_on_image(omni_rgb_frame, omni_depth_frame);  //only form dreamvu
+    //imshow("rgb", omni_rgb_frame);
     //cv::normalize(omni_depth_frame_norm, omni_depth_frame_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     //imshow("depth", omni_depth_frame_norm);
 
     // compute level_lines
-    //auto lines = get_multi_level_3d_points(omni_depth_frame);
-    //draw_floor_line(lines);
+    auto lines = get_multi_level_3d_points(omni_depth_frame);
+    draw_floor_line(lines);
 
     // potential field algorithm
-    //Eigen::Vector2f force = compute_repulsion_forces(floor_lines[1]);
-    //draw_forces(force); // in robot coordinate system
-
+    Eigen::Vector2f rep_force = compute_repulsion_forces(lines[1]);
+    Eigen::Vector2f force = rep_force + target_force/3.f;
+    draw_forces(rep_force, target_force, force); // in robot coordinate system
     try
     {
-        Eigen::Vector2f gains{5.0, 3.0};
+        //Eigen::Vector2f gains{5.0, 3.0};
         //force = force.cwiseProduct(gains);
-        //float rot = atan2(force.x(), force.y());
-        //float adv = force.y() ;
-        //float side = force.x() ;
-        //omnirobot_proxy->setSpeedBase(side, adv, rot);
+        float rot = atan2(force.x(), force.y());
+        float adv = force.y() ;
+        float side = force.x() ;
+        omnirobot_proxy->setSpeedBase(side, adv, rot);
     }
     catch (const Ice::Exception &e){ std::cout << e.what() << std::endl;}
 
@@ -216,16 +231,22 @@ std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_poi
         for(int v=0; v<depth_frame.cols; v++)
         {
             hor_ang = ang_slope * v - M_PI; // cols to radians
-            dist = depth_frame.ptr<float>(u)[v] * consts.dreamvu_depth_scaling_factor;  // pixel to dist scaling factor  -> to mm
+            if(IS_COPPELIA)
+                dist = depth_frame.ptr<float>(u)[v] * consts.coppelia_depth_scaling_factor;  // pixel to dist scaling factor  -> to mm
+            else
+                dist = depth_frame.ptr<float>(u)[v] * consts.dreamvu_depth_scaling_factor;  // pixel to dist scaling factor  -> to mm
             if(dist > consts.max_camera_depth_range) continue;
             if(dist < consts.min_camera_depth_range) continue;
             x = -dist * sin(hor_ang);
             y = dist * cos(hor_ang);
-//            proy = dist * cos( atan2((semi_height - u), 128.f));
-//            z = (semi_height - u)/128.f * proy; // 128 focal as PI fov angle for 256 pixels
-            float fov = 224.f / tan(qDegreesToRadians(111.f));
-            proy = dist * cos( atan2((semi_height - u), fov));
-            z = (semi_height - u)/fov * proy; // 128 focal as PI fov angle for 256 pixels
+            float fov;
+            if(IS_COPPELIA)
+                fov = 128;
+            else
+                fov = (depth_frame.rows / 2.f) / tan(qDegreesToRadians(111.f / 2.f));   // 111º vertical angle of dreamvu
+
+            proy = dist * cos(atan2((semi_height - u), fov));
+            z = (semi_height - u) / fov * proy; // 128 focal as PI fov angle for 256 pixels
             z += consts.omni_camera_height; // get from DSR
             // add Y axis displacement
 
@@ -332,14 +353,23 @@ RoboCompGenericBase::TBaseState SpecificWorker::read_robot_state()
     robot_polygon->setRotation(qRadiansToDegrees(bState.alpha));
     return bState;
 }
-void SpecificWorker::draw_forces(const Eigen::Vector2f &force)
+void SpecificWorker::draw_forces(const Eigen::Vector2f &force, const Eigen::Vector2f &target, const Eigen::Vector2f &res)
 {
-    static QGraphicsItem* item=nullptr;
-    if(item != nullptr) viewer->scene.removeItem(item);
-    delete item;
+    static QGraphicsItem* item1=nullptr;
+    static QGraphicsItem* item2=nullptr;
+    static QGraphicsItem* item3=nullptr;
+    if(item1 != nullptr) viewer->scene.removeItem(item1);
+    if(item2 != nullptr) viewer->scene.removeItem(item2);
+    if(item2 != nullptr) viewer->scene.removeItem(item3);
+    delete item1; delete item2; delete item3;
+
     auto large_force = force * 3.f;
-    QPointF tip = robot_polygon->mapToScene(large_force.x(), large_force.y());
-    item = viewer->scene.addLine(robot_polygon->pos().x(), robot_polygon->pos().y(), tip.x(), tip.y(), QPen(QColor("red"), 50));
+    QPointF tip1 = robot_polygon->mapToScene(large_force.x(), large_force.y());
+    QPointF tip2 = robot_polygon->mapToScene(target.x(), target.y());
+    QPointF tip3 = robot_polygon->mapToScene(res.x(), res.y());
+    item1 = viewer->scene.addLine(robot_polygon->pos().x(), robot_polygon->pos().y(), tip1.x(), tip1.y(), QPen(QColor("red"), 50));
+    item2 = viewer->scene.addLine(robot_polygon->pos().x(), robot_polygon->pos().y(), tip2.x(), tip2.y(), QPen(QColor("blue"), 50));
+    item3 = viewer->scene.addLine(robot_polygon->pos().x(), robot_polygon->pos().y(), tip3.x(), tip3.y(), QPen(QColor("green"), 50));
 }
 
 ////////////////////////////////////////////////////////////////////////

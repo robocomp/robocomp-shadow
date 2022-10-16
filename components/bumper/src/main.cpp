@@ -132,6 +132,7 @@ int ::bumper::run(int argc, char* argv[])
 
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
+	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 	string proxy, tmp;
 	initialize();
@@ -168,7 +169,23 @@ int ::bumper::run(int argc, char* argv[])
 	rInfo("OmniRobotProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(camerargbdsimple_proxy,omnirobot_proxy);
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "YoloObjectsProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy YoloObjectsProxy\n";
+		}
+		yoloobjects_proxy = Ice::uncheckedCast<RoboCompYoloObjects::YoloObjectsPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy YoloObjects: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("YoloObjectsProxy initialized Ok!");
+
+
+	tprx = std::make_tuple(camerargbdsimple_proxy,omnirobot_proxy,yoloobjects_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
