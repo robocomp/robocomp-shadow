@@ -252,7 +252,7 @@ class SpecificWorker(GenericWorker):
         # self.tablet_new_pos = None
 
         # Eye pan motor
-        self.eye_motor = Joint("/Shadow/camera_joint")
+        self.eye_motor = Joint("/Shadow/camera_pan_joint")
         self.eye_new_pos = None
 
         pp = pprint.PrettyPrinter(indent=4)
@@ -343,7 +343,7 @@ class SpecificWorker(GenericWorker):
                                    dtype=cv2.CV_8U)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            depth = cam["handle"].capture_depth(True)
+            depth = cam["handle"].capture_depth(True)  # meters
             depth = np.frombuffer(depth, dtype=np.float32).reshape((cam["height"], cam["width"]))
             depth = cv2.rotate(depth, cv2.ROTATE_90_COUNTERCLOCKWISE)
             # we change width and height here to follow the rotation operation
@@ -771,7 +771,7 @@ class SpecificWorker(GenericWorker):
         # check position limits -10 to 80
         if name == "tablet":
             self.tablet_new_pos = goal.position
-        elif name == "eye":
+        elif name == "camera_pan_joint":
             self.eye_new_pos = goal.position
         else: print("Unknown motor name", name)
 
