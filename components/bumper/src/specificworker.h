@@ -58,7 +58,7 @@ public:
     {
         const float max_camera_depth_range = 5000;
         const float min_camera_depth_range = 300;
-        const float omni_camera_height = 600; //mm
+        const float omni_camera_height = 580; //mm
         float robot_length = 500;
         float num_angular_bins = 360;
         float coppelia_depth_scaling_factor = 19.f;
@@ -71,7 +71,7 @@ public:
     QGraphicsPolygonItem *robot_polygon;
     QGraphicsRectItem *laser_in_robot_polygon;
     QRectF viewer_dimensions;
-    void draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines);
+    void draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines, int i=1);
     Eigen::Vector2f compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line);
     void draw_forces(const Eigen::Vector2f &force, const Eigen::Vector2f &target, const Eigen::Vector2f &res);
     RoboCompGenericBase::TBaseState read_robot_state();
