@@ -1,12 +1,13 @@
 import "OmniRobot.idsl";
 import "CameraRGBDSimple.idsl";
 import "YoloObjects.idsl";
+import "JointMotorSimple.idsl";
 
 Component bumper
 {
     Communications
     {
-        requires OmniRobot, CameraRGBDSimple, YoloObjects;
+        requires OmniRobot, CameraRGBDSimple, YoloObjects, JointMotorSimple;
     };
     language Cpp11;
     gui Qt(QWidget);

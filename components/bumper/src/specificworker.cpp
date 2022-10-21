@@ -73,6 +73,10 @@ void SpecificWorker::initialize(int period)
         // global
         IS_COPPELIA = true;
 
+        try
+        { jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(0, 1));}
+        catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
+
         timer.start(Period);
 	}
 }
@@ -107,32 +111,51 @@ void SpecificWorker::compute()
     { yolo_objects = yoloobjects_proxy->getYoloObjects(); }
     catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
     Eigen::Vector2f target_force = {0.f, 0.f};
+    bool active_person = false;
+    RoboCompYoloObjects::TBox person_box;
     for(const auto &o: yolo_objects.objects)
         if(o.type == 0)
         {
             cv::rectangle(top_rgb_frame, cv::Point(o.left, o.top), cv::Point(o.right, o.bot), cv::Scalar(0, 255, 0), 3);
             target_force = {o.x, o.y};
+            if(target_force.norm() < 1000) target_force = {0.f, 0.f};
+            if(target_force.norm() > 3000) target_force = target_force.normalized()*3000;
+            target_force /= 4;
+            active_person = true;
+            person_box = o;
+            break;
         }
-    cv::imshow("top", top_rgb_frame);
+    if(active_person)   // eye tracking
+    {
+        float hor_angle = atan2(person_box.x, person_box.y);  // angle wrt camera origin
+        try
+        {
+            float current_angle = jointmotorsimple_proxy->getMotorState("camera_pan_joint").pos;
+            float angle = std::clamp(current_angle-0.8f*hor_angle, -1.f, 1.f);
+            jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(angle, 1));
+        }
+        catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
+    }
+    else
+        try
+        { jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(0, 1)); }
+        catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
 
-    //draw_lines_on_image(omni_rgb_frame, omni_depth_frame);  //only form dreamvu
-    //imshow("rgb", omni_rgb_frame);
-    //cv::normalize(omni_depth_frame_norm, omni_depth_frame_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1);
-    //imshow("depth", omni_depth_frame_norm);
+    cv::imshow("top", top_rgb_frame);
 
     // compute level_lines
     auto lines = get_multi_level_3d_points(omni_depth_frame);
-    draw_floor_line(lines);
+    draw_floor_line(lines, 1);
 
     // potential field algorithm
     Eigen::Vector2f rep_force = compute_repulsion_forces(lines[1]);
-    Eigen::Vector2f force = rep_force + target_force/3.f;
+    Eigen::Vector2f force = rep_force + target_force;
     draw_forces(rep_force, target_force, force); // in robot coordinate system
     try
     {
-        //Eigen::Vector2f gains{5.0, 3.0};
-        //force = force.cwiseProduct(gains);
-        float rot = atan2(force.x(), force.y());
+        Eigen::Vector2f gains{2.8, 2.8};
+        force = force.cwiseProduct(gains);
+        float rot = 1.2*atan2(force.x(), force.y());
         float adv = force.y() ;
         float side = force.x() ;
         omnirobot_proxy->setSpeedBase(side, adv, rot);
@@ -165,7 +188,6 @@ cv::Mat SpecificWorker::read_rgb(const std::string &camera_name)
     try
     {
         omni_rgb = camerargbdsimple_proxy->getImage(camera_name);
-        qInfo() << __FUNCTION__ << omni_rgb.height << omni_rgb.width;
         if (not omni_rgb.image.empty())
             omni_rgb_frame= cv::Mat(cv::Size(omni_rgb.width, omni_rgb.height), CV_8UC3, &omni_rgb.image[0], cv::Mat::AUTO_STEP);
     }
@@ -173,7 +195,6 @@ cv::Mat SpecificWorker::read_rgb(const std::string &camera_name)
     { std::cout << e.what() << " Error reading camerargbdsimple_proxy::getImage" << std::endl;}
     return omni_rgb_frame.clone();
 }
-
 cv::Mat SpecificWorker::read_depth_coppelia()
 {
     RoboCompCameraRGBDSimple::TImage omni_depth;       //omni_camera depth comes as RGB
@@ -210,15 +231,15 @@ Eigen::Vector2f SpecificWorker::compute_repulsion_forces(std::vector<Eigen::Vect
     Eigen::Vector2f res = {0.f, 0.f};
     for(const auto &ray: floor_line)
     {
-        if (ray.norm() > 1500) continue;
-        res += -ray.normalized() / fabs(pow(ray.norm()/1000, 3));
+        //if (ray.norm() > 2500) continue;
+        res -= ray.normalized() / pow(ray.norm()/1000, 3);
     }
     return res;  //scale factor
-    // return std::accumulate(floor_line.begin(), floor_line.end(), Eigen::Vector2f{0.f, 0.f},[](auto a, auto b){return a -b.normalized()/b.norm();});
+    //return std::accumulate(floor_line.begin(), floor_line.end(), Eigen::Vector2f{0.f, 0.f},[](auto a, auto b){return a -b.normalized()/b.norm();});
 }
 std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_points(const cv::Mat &depth_frame)
 {
-    std::vector<std::vector<Eigen::Vector2f>> points(int((2000-400)/200));  //height steps
+    std::vector<std::vector<Eigen::Vector2f>> points(int((1550-350)/100));  //height steps
     for(auto &p: points)
         p.resize(360, Eigen::Vector2f(consts.max_camera_depth_range, consts.max_camera_depth_range));   // angular resolution
 
@@ -246,25 +267,25 @@ std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_poi
                 fov = (depth_frame.rows / 2.f) / tan(qDegreesToRadians(111.f / 2.f));   // 111º vertical angle of dreamvu
 
             proy = dist * cos(atan2((semi_height - u), fov));
-            z = (semi_height - u) / fov * proy; // 128 focal as PI fov angle for 256 pixels
+            z = (semi_height - u) / fov * proy;
             z += consts.omni_camera_height; // get from DSR
             // add Y axis displacement
 
-            if(z < 10) continue; // filter out floor
+            if(z < 0) continue; // filter out floor
 
             // add only to its bin if less than current value
-            for(auto &&[level, step] : iter::range(400, 2000, 200) | iter::enumerate)
-                if(z > step and z < step+200)
+            for(auto &&[level, step] : iter::range(350, 1550, 100) | iter::enumerate)
+                if(z > step and z < step+100 )
                 {
                     int ang_index = floor((M_PI + atan2(x, y)) / ang_bin);
                     Eigen::Vector2f new_point(x, y);
-                    if(new_point.norm() <  points[level][ang_index].norm())
+                    if(new_point.norm() <  points[level][ang_index].norm() and new_point.norm() > 400)
                         points[level][ang_index] = new_point;
                 }
         };
     return points;
 }
-void SpecificWorker::draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines)    //one vector for each height level
+void SpecificWorker::draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines, int i)    //one vector for each height level
 {
     static std::vector<QGraphicsItem *> items;
     for(const auto &item: items)
@@ -275,11 +296,16 @@ void SpecificWorker::draw_floor_line(const vector<vector<Eigen::Vector2f>> &line
     QBrush brush(QColor("orange"));
 
     static QStringList my_color = {"red", "orange", "blue", "magenta", "black", "yellow", "brown", "cyan"};
-    std::vector<vector<Eigen::Vector2f>> copy(lines.begin(), lines.end());
+    std::vector<vector<Eigen::Vector2f>> copy;
+    if(i == -1)
+        copy.assign(lines.begin(), lines.end());
+    else
+        copy.assign(lines.begin()+i, lines.begin()+i+1);
+
     for(auto &&[k, line]: copy | iter::enumerate)
         for(const auto &p: line)
         {
-            auto item = viewer->scene.addEllipse(-10, -10, 20, 20, QPen(QColor(my_color.at(k))), QBrush(QColor(my_color.at(k))));
+            auto item = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor(my_color.at(k))), QBrush(QColor(my_color.at(k))));
             item->setPos(robot_polygon->mapToScene(p.x(), p.y()));
             items.push_back(item);
         }
