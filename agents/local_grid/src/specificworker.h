@@ -22,12 +22,10 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
-#include "../../etc/graph_names.h"
+#include "../../../etc/graph_names.h"
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
@@ -42,10 +40,10 @@
 #include <custom_widget.h>
 #include <timer/timer.h>
 #include <random/random.hpp>
-
-
-#include "GRANSAC.hpp"
-#include "LineModel.hpp"
+#include <Eigen/eigen3/unsupported/Eigen/CXX11/Tensor>
+#include <timer/timer.h>
+#include "room.h"
+#include <Eigen/Geometry>
 
 using Random = effolkronium::random_static;
 using Point3f = std::tuple<float, float, float>;
@@ -77,7 +75,8 @@ private:
             const float max_laser_range = 4000;
             const float max_camera_depth_range = 5000;
             const float min_camera_depth_range = 300;
-            const float omni_camera_height_meters = 0.4; //mm
+            const float omni_camera_height_meters = 0.6; //m
+            const float omni_camera_height = 600; //mm
             float robot_length = 500;
             float num_angular_bins = 360;
             float scaling_factor = 19.f;
@@ -118,8 +117,8 @@ private:
         };
         using SetsType = std::vector<std::set<std::tuple<Eigen::Vector3f, std::tuple<float, float, float>>, compare>>;
         SetsType group_by_angular_sectors(const std::vector<Point3f> &points, bool draw=false);
-        vector<Eigen::Vector2f> compute_floor_line(const SetsType &sets, bool draw=false);
-
+        //std::vector<Eigen::Vector2f> compute_floor_line(const SetsType &sets, bool draw=false);
+        std::vector<Eigen::Vector2f> compute_floor_line(const std::vector<Eigen::Vector2f> &lines, bool draw=false);
         // grid
         //std::shared_ptr<std::vector<std::tuple<float, float, float>>> points, colors;
         Local_Grid local_grid;
@@ -133,17 +132,35 @@ private:
 
         // FPS
         FPSCounter fps;
-        rc::Timer<> stimer;
+        rc::Timer<std::chrono::microseconds> stimer;
 
         // dRAW
-        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", bool clean = true);
+        void draw_on_2D_tab(const std::vector<std::vector<Eigen::Vector2f>> &points, QString color="green", int size = 20, bool clean = true);
+        void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &points, QString color="green", int size = 20, bool clean = true);
         void draw_on_2D_tab(const RoboCompYoloObjects::TObjects &objects);
-        void draw_on_2D_tab(const std::vector<cv::Vec3d> &lines);
+        void draw_on_2D_tab(const std::vector<std::pair<int, QLineF>> &lines);
+        void draw_on_2D_tab(const std::vector<QLineF> &corners, QString color="green", int size=20, bool clean = true);
+        void draw_on_2D_tab(const vector<std::tuple<QLineF, QLineF, QLineF>> &double_corners, QString color= "green", int size = 20, bool clean = true);
+
+
         std::map<int, QPixmap> object_pixmaps;
 
-        GRANSAC::RANSAC<Line2DModel, 2> Estimator;
+        //GRANSAC::RANSAC<Line2DModel, 2> Estimator;
+        std::vector<std::vector<Eigen::Vector2f>>  get_multi_level_3d_points(const cv::Mat &depth_frame, const cv::Mat &rgb_frame);
+        Eigen::Vector2f get_mean(vector<Eigen::Vector2f> &floor_line_cart) const;
+        float get_size(const Eigen::Vector2f &room_center, vector<Eigen::Vector2f> &floor_line_cart) const;
+        std::vector<pair<int, QLineF>> get_hough_lines(vector<Eigen::Vector2f> &floor_line_cart) const;
+        std::vector<std::pair<QLineF, QLineF>> get_parallel_lines(const  std::vector<pair<int, QLineF>> &lines, float estimated_size);
+        vector<QLineF> get_corners(vector<pair<int, QLineF>> &elines);
+        vector<tuple<QLineF, QLineF, QLineF>> get_double_corners(float estimated_size, const vector<QLineF> &corners);
+
+        double points_dist(const QPointF &p1, const QPointF &p2);
+        QPointF get_distant(const QPointF &p, const QPointF &p1, const QPointF &p2);
+        void create_image_for_learning(const std::vector<Eigen::Vector2f> &floor_line_cart, float estimated_size) const;
 
 
+        Room room;
+        void draw_on_2D_tab(const Room &room, QString color="green");
 };
 
 #endif
