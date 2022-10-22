@@ -2,12 +2,13 @@ import "OmniRobot.idsl";
 import "CameraRGBDSimple.idsl";
 import "YoloObjects.idsl";
 import "JointMotorSimple.idsl";
+import "LegDetector2DLidar.idsl";
 
 Component bumper
 {
     Communications
     {
-        requires OmniRobot, CameraRGBDSimple, YoloObjects, JointMotorSimple;
+        requires OmniRobot, CameraRGBDSimple, YoloObjects, JointMotorSimple, LegDetector2DLidar;
     };
     language Cpp11;
     gui Qt(QWidget);
