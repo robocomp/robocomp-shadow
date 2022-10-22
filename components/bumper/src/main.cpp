@@ -83,6 +83,7 @@
 
 
 #include <GenericBase.h>
+#include <Laser.h>
 
 
 
@@ -132,6 +133,7 @@ int ::bumper::run(int argc, char* argv[])
 
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
 	RoboCompJointMotorSimple::JointMotorSimplePrxPtr jointmotorsimple_proxy;
+	RoboCompLegDetector2DLidar::LegDetector2DLidarPrxPtr legdetector2dlidar_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
@@ -172,6 +174,22 @@ int ::bumper::run(int argc, char* argv[])
 
 	try
 	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "LegDetector2DLidarProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy LegDetector2DLidarProxy\n";
+		}
+		legdetector2dlidar_proxy = Ice::uncheckedCast<RoboCompLegDetector2DLidar::LegDetector2DLidarPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy LegDetector2DLidar: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("LegDetector2DLidarProxy initialized Ok!");
+
+
+	try
+	{
 		if (not GenericMonitor::configGetString(communicator(), prefix, "OmniRobotProxy", proxy, ""))
 		{
 			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy OmniRobotProxy\n";
@@ -202,7 +220,7 @@ int ::bumper::run(int argc, char* argv[])
 	rInfo("YoloObjectsProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(camerargbdsimple_proxy,jointmotorsimple_proxy,omnirobot_proxy,yoloobjects_proxy);
+	tprx = std::make_tuple(camerargbdsimple_proxy,jointmotorsimple_proxy,legdetector2dlidar_proxy,omnirobot_proxy,yoloobjects_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

@@ -65,6 +65,7 @@ public:
         float dreamvu_depth_scaling_factor = 10.f;
     };
     Constants consts;
+    float current_servo_angle = 0.f;
 
     // graphics
     AbstractGraphicViewer *viewer;
@@ -82,6 +83,13 @@ public:
     cv::Mat read_rgb(const std::string &camera_name);
     cv::Mat read_depth_dreamvu(cv::Mat omni_rgb_frame);
     bool IS_COPPELIA = false;
+    void draw_humans(RoboCompYoloObjects::TObjects objects, const RoboCompYoloObjects::TBox &leader);
+    void draw_legs(RoboCompLegDetector2DLidar::Legs legs);
+    void eye_track(bool active_person, const RoboCompYoloObjects::TBox &person_box);
+    RoboCompLegDetector2DLidar::Legs leg_detector(vector<Eigen::Vector2f> &lidar_line);
+    RoboCompYoloObjects::TObjects yolo_detect_people(cv::Mat rgb);
+    std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> update_leader(RoboCompYoloObjects::TObjects people);
+    float iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b);
 };
 
 
