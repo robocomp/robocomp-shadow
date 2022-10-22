@@ -422,14 +422,19 @@ class SpecificWorker(GenericWorker):
             for x in self.joystick_newdata[0].axes:
                 if x.name == "advance":
                     adv = x.value if np.abs(x.value) > 0.1 else 0  # mm/sg
+                    continue
                 if x.name == "rotate":
                     rot = x.value if np.abs(x.value) > 0.1 else 0  # rads/sg
+                    continue
                 if x.name == "side":
                     side = x.value if np.abs(x.value) > 0.1 else 0
+                    continue
                 if x.name == "left_pan":
                     left_pan = x.value
+                    continue
                 if x.name == "right_pan":
                     right_pan = x.value
+                    continue
 
             converted = self.convert_base_speed_to_radians(adv*1.8, side*1.8, rot*1.2)  # temptative values to match real velocities. Adjust mechanical parameters instead
 
@@ -594,7 +599,6 @@ class SpecificWorker(GenericWorker):
 
     def OmniRobot_setSpeedBase(self, advx, advz, rot):
         self.speed_robot = self.convert_base_speed_to_radians(advz, advx, rot)
-        print("Received speed command" , self.speed_robot)
 
     def OmniRobot_stopBase(self):
         self.speed_robot = [0, 0, 0]
