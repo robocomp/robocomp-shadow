@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -34,6 +32,8 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
+#include <timer/timer.h>
+#include "SignalViewer.h"
 
 class SpecificWorker : public GenericWorker
 {
@@ -63,6 +63,7 @@ public:
         float num_angular_bins = 360;
         float coppelia_depth_scaling_factor = 19.f;
         float dreamvu_depth_scaling_factor = 10.f;
+        const float max_hor_angle_error = 0.6; // rads
     };
     Constants consts;
     float current_servo_angle = 0.f;
@@ -88,8 +89,15 @@ public:
     void eye_track(bool active_person, const RoboCompYoloObjects::TBox &person_box);
     RoboCompLegDetector2DLidar::Legs leg_detector(vector<Eigen::Vector2f> &lidar_line);
     RoboCompYoloObjects::TObjects yolo_detect_people(cv::Mat rgb);
-    std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> update_leader(RoboCompYoloObjects::TObjects people);
+    std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> update_leader(RoboCompYoloObjects::TObjects &people); // removes leader from people
     float iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b);
+
+    //Clock
+    rc::Timer<> wtimer;
+
+    void remove_leader_from_detected_legs(RoboCompLegDetector2DLidar::Legs &legs, const RoboCompYoloObjects::TBox &leader);
+
+    void remove_lidar_points_from_leader(vector<Eigen::Vector2f> line, const RoboCompYoloObjects::TBox &leader);
 };
 
 
