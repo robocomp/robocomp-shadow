@@ -74,12 +74,14 @@ void SpecificWorker::initialize(int period)
         { jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(0, 1));}
         catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
 
-        timer.start(Period);
+        timer.start(50);
 	}
 }
 
 void SpecificWorker::compute()
 {
+    wtimer.tick();
+
     cv::Mat omni_rgb_frame;
     cv::Mat omni_depth_frame;
     RoboCompCameraRGBDSimple::TPoints points;
@@ -106,12 +108,12 @@ void SpecificWorker::compute()
 
     /// YOLO
     RoboCompYoloObjects::TObjects people = yolo_detect_people(top_rgb_frame);
-    cv::imshow("top", top_rgb_frame);
+    cv::imshow("top", top_rgb_frame); cv::waitKey(1);
     
     /// / update leader
     Eigen::Vector2f target_force(0.f, 0.f);
     auto [active_leader, leader, tf] = update_leader(people);
-    //target_force = tf;
+    target_force = tf;
     draw_humans(people, leader);
 
     /// eye tracking
@@ -125,11 +127,17 @@ void SpecificWorker::compute()
     auto legs = leg_detector(lines[1]);
     //draw_legs(legs);
 
+    /// remove leader from detected legs
+    remove_leader_from_detected_legs(legs, leader);
+
     /// add repulsion force form detected legs;
     std::vector<Eigen::Vector2f> legs_forces;
     for(const auto &l: legs)
         legs_forces.emplace_back(Eigen::Vector2f(l.x, l.y));
     lines[1].insert(lines[1].end(), legs_forces.begin(), legs_forces.end());
+
+    /// remove points belonging to leader
+    remove_lidar_points_from_leader(lines[1], leader);
 
     /// potential field algorithm
     Eigen::Vector2f rep_force = compute_repulsion_forces(lines[1]);
@@ -140,15 +148,17 @@ void SpecificWorker::compute()
     auto sigmoid = [](auto x){ return std::clamp(x / 1000.f, 0.f, 1.f);};
     try
     {
-        Eigen::Vector2f gains{1.7, 1.7};
+        Eigen::Vector2f gains{0.8, 0.8};
         force = force.cwiseProduct(gains);
-        float rot = atan2(force.x(), force.y()) * sigmoid(force.norm()) - 0.5*current_servo_angle;  // dumps rotation for small resultant force
+        float rot = atan2(force.x(), force.y()) * sigmoid(force.norm()) - 0.9*current_servo_angle;  // dumps rotation for small resultant force
         float adv = force.y() ;
         float side = force.x() ;
         omnirobot_proxy->setSpeedBase(side, adv, rot);
     }
     catch (const Ice::Exception &e){ std::cout << e.what() << std::endl;}
 
+    //wtimer.tock();
+    //qInfo() << "Elapsed:" << wtimer.duration();
 }
 ////////////////////////////////////////////////////////////////////////
 cv::Mat SpecificWorker::read_depth_dreamvu(cv::Mat omni_rgb_frame)
@@ -212,17 +222,18 @@ RoboCompCameraRGBDSimple::TPoints SpecificWorker::read_points_dreamvu(cv::Mat om
     catch (const Ice::Exception &e){ std::cout << e.what() << " Error connecting to CameraSimple::getPoints" << std::endl;}
     return omni_points;
 }
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////77
 Eigen::Vector2f SpecificWorker::compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line)
 {
     Eigen::Vector2f res = {0.f, 0.f};
-    const float th_distance = 1800;
+    const float th_distance = 1500;
     for(const auto &ray: floor_line)
     {
         if (ray.norm() < th_distance)
-            res -= ray.normalized() / pow(ray.norm()/th_distance, 6);
+            res -= ray.normalized() / pow(ray.norm()/th_distance, 4);
         else
-            res -= ray.normalized() / pow(ray.norm()/th_distance, 3);
+            res -= ray.normalized() / pow(ray.norm()/th_distance, 2);
     }
     return res;
     //return std::accumulate(floor_line.begin(), floor_line.end(), Eigen::Vector2f{0.f, 0.f},[](auto a, auto b){return a -b.normalized()/b.norm();});
@@ -277,17 +288,38 @@ std::vector<std::vector<Eigen::Vector2f>> SpecificWorker::get_multi_level_3d_poi
 }
 void SpecificWorker::eye_track(bool active_person, const RoboCompYoloObjects::TBox &person_box)
 {
-
+    static float error_ant = 0.f;
     if(active_person)
     {
         float hor_angle = atan2(person_box.x, person_box.y);  // angle wrt camera origin
-        try
+        current_servo_angle = jointmotorsimple_proxy->getMotorState("camera_pan_joint").pos;
+        if (std::isnan(current_servo_angle) or std::isnan(hor_angle))
+        { qWarning() << "NAN value in servo position";  return; }
+
+        if( fabs(hor_angle) > consts.max_hor_angle_error)  // saccade
         {
-            current_servo_angle = jointmotorsimple_proxy->getMotorState("camera_pan_joint").pos;
-            float angle = std::clamp(current_servo_angle-0.8f*hor_angle, -1.f, 1.f);  // dumping
-            jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(angle, 1));
+            qInfo() << __FUNCTION__ << "saccade" << hor_angle;
+            try
+            {
+                float error = 0.5 * (current_servo_angle - hor_angle);
+                float new_angle = std::clamp(error, -1.f, 1.f);  // dumping
+                jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(new_angle, 1));
+            }
+            catch (const Ice::Exception &e)
+            {  std::cout << e.what() << " Error connecting to MotorGoalPosition" << std::endl; return; }
         }
-        catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
+        else    // smooth pursuit
+        {
+            try
+            {
+                float new_vel = -0.7 * hor_angle + 0.3 * (hor_angle - error_ant);
+                new_vel = std::clamp(new_vel, -1.f, 1.f);  // dumping
+                jointmotorsimple_proxy->setVelocity("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalVelocity(new_vel, 1));
+                qInfo() << __FUNCTION__ << "smooth" << hor_angle << current_servo_angle << new_vel;
+            }
+            catch (const Ice::Exception &e)
+            {  std::cout << e.what() << " Error connecting to MotorGoalPosition" << std::endl; return; }
+        }
     }
     else  // inhibition of return
         try
@@ -332,15 +364,15 @@ RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_people(cv::Mat rgb)
         }
     return people;
 }
-std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> SpecificWorker::update_leader(RoboCompYoloObjects::TObjects people)
+std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> SpecificWorker::update_leader(RoboCompYoloObjects::TObjects &people)
 {
     static RoboCompYoloObjects::TBox leader;
     static bool active_leader = false;
     auto get_force = [](const RoboCompYoloObjects::TBox &b)
                 {   Eigen::Vector2f target_force{leader.x, leader.y};
-                    if(target_force.norm() < 1000) target_force = {0.f, 0.f};
-                    if(target_force.norm() > 3000) target_force = target_force.normalized()*3000;
-                    target_force /= 4;
+                    if(target_force.norm() < 1300) target_force = {0.f, 0.f};
+                    if(target_force.norm() > 3500) target_force = target_force.normalized()*3000;
+                    target_force /= 2;
                     return target_force;
                 };
     Eigen::Vector2f target_force = {0.f, 0.f};
@@ -356,10 +388,12 @@ std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> SpecificWorker::upd
     std::vector<float> matches;
     for(const auto &person: people)
         matches.push_back(iou(leader, person));
+    // get them closest match
     auto min = std::ranges::min_element(matches);
-    qInfo() << __FUNCTION__ << "Min value" << *min;
     int ind = std::distance(matches.begin(), min);
     leader = people[ind];
+    // remove leader from people
+    people.erase(people.begin()+ind);
     return std::make_tuple(true, leader, get_force(leader));
 }
 float SpecificWorker::iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b)
@@ -387,7 +421,27 @@ float SpecificWorker::iou(const RoboCompYoloObjects::TBox &a, const RoboCompYolo
     float area_of_union = a_height * a_width + b_height * b_width - area_of_intersection;
     return  area_of_intersection / area_of_union;
 }
-
+void SpecificWorker::remove_leader_from_detected_legs(RoboCompLegDetector2DLidar::Legs &legs, const RoboCompYoloObjects::TBox &leader)
+{
+    std::vector<float> leg_matches;
+    for(const auto &l: legs)
+    {
+        RoboCompYoloObjects::TBox leg_box{.left=(int)l.x-200, .top=(int)l.y-200, .right=(int)l.x+200, .bot=(int)l.y+200};
+        leg_matches.push_back(iou(leader, leg_box));
+    }
+    // get the closest match
+    if(auto min = std::ranges::min_element(leg_matches); min != leg_matches.end())
+        if(*min > 0.5)
+            leg_matches.erase(leg_matches.begin() + std::distance(leg_matches.begin(), min));
+}
+void SpecificWorker::remove_lidar_points_from_leader(std::vector<Eigen::Vector2f> line, const RoboCompYoloObjects::TBox &leader)
+{
+    QRectF rect(leader.left, leader.right, leader.right-leader.left, leader.bot-leader.top);
+    float delta = 0;
+    rect.adjust(-delta, -delta, delta, delta);
+    QPolygonF pol(rect);
+    line.erase(std::remove_if(line.begin(), line.end(), [pol](auto p) { return pol.containsPoint(QPointF(p.x(),p.y()), Qt::OddEvenFill);}), line.end());
+}
 ////////////////////////////////////////
 void SpecificWorker::draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines, int i)    //one vector for each height level
 {
@@ -508,22 +562,25 @@ void SpecificWorker::draw_humans(RoboCompYoloObjects::TObjects objects, const Ro
         viewer->scene.removeItem(i);
     items.clear();
 
+    // delete leader from objects before drawing
+    // objects.erase(std::remove_if(objects.begin(), objects.end(), [leader](auto o) { iui == obj; }));
     float tilt = qDegreesToRadians(20.f);
     Eigen::Matrix3f m;
     m = Eigen::AngleAxisf(tilt, Eigen::Vector3f::UnitX());
+    m = m * Eigen::AngleAxisf(current_servo_angle, Eigen::Vector3f::UnitZ());
+    // draw leader
+    auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("green"), 20));
+    Eigen::Vector2f corrected = (m * Eigen::Vector3f(leader.x, leader.y, leader.z)).head(2);
+    item->setPos(corrected.x(), corrected.y());
+    items.push_back(item);
+    // draw rest
     for(const auto &o: objects)
     {
         auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("blue"), 20));
-        m = m * Eigen::AngleAxisf(current_servo_angle, Eigen::Vector3f::UnitZ());
         Eigen::Vector2f corrected = (m * Eigen::Vector3f(o.x, o.y, o.z)).head(2);
         item->setPos(corrected.x(), corrected.y());
         items.push_back(item);
     }
-    auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("green"), 20));
-    m = m * Eigen::AngleAxisf(current_servo_angle, Eigen::Vector3f::UnitZ());
-    Eigen::Vector2f corrected = (m * Eigen::Vector3f(leader.x, leader.y, leader.z)).head(2);
-    item->setPos(corrected.x(), corrected.y());
-    items.push_back(item);
 }
 void SpecificWorker::draw_legs(RoboCompLegDetector2DLidar::Legs legs)
 {
@@ -543,7 +600,6 @@ void SpecificWorker::draw_legs(RoboCompLegDetector2DLidar::Legs legs)
         items.push_back(item);
     }
 }
-
 
 ////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
