@@ -33,7 +33,9 @@
 #include <opencv2/highgui.hpp>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
 #include <timer/timer.h>
-#include "SignalViewer.h"
+#include "signalviewer.h"
+
+#include "kalman.hpp"
 
 class SpecificWorker : public GenericWorker
 {
@@ -88,16 +90,20 @@ public:
     void draw_legs(RoboCompLegDetector2DLidar::Legs legs);
     void eye_track(bool active_person, const RoboCompYoloObjects::TBox &person_box);
     RoboCompLegDetector2DLidar::Legs leg_detector(vector<Eigen::Vector2f> &lidar_line);
-    RoboCompYoloObjects::TObjects yolo_detect_people(cv::Mat rgb);
+    RoboCompYoloObjects::TObjects yolo_detect_people(cv::Mat rgb, float threshold = 0.8);
     std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> update_leader(RoboCompYoloObjects::TObjects &people); // removes leader from people
     float iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b);
+    void remove_leader_from_detected_legs(RoboCompLegDetector2DLidar::Legs &legs, const RoboCompYoloObjects::TBox &leader);
+    void remove_lidar_points_from_leader(vector<Eigen::Vector2f> line, const RoboCompYoloObjects::TBox &leader);
 
     //Clock
     rc::Timer<> wtimer;
 
-    void remove_leader_from_detected_legs(RoboCompLegDetector2DLidar::Legs &legs, const RoboCompYoloObjects::TBox &leader);
-
-    void remove_lidar_points_from_leader(vector<Eigen::Vector2f> line, const RoboCompYoloObjects::TBox &leader);
+    // Kalman
+    KalmanFilter kalman;
+    int kalman_n; // Number of states
+    int kalman_m; // Number of measurements
+    void initialize_kalman(int period);
 };
 
 

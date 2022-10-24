@@ -74,7 +74,11 @@ void SpecificWorker::initialize(int period)
         { jointmotorsimple_proxy->setPosition("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalPosition(0, 1));}
         catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return;}
 
-        timer.start(50);
+        Period = 50;
+
+        // kalman
+        initialize_kalman(Period);
+        timer.start(Period);
 	}
 }
 
@@ -109,7 +113,7 @@ void SpecificWorker::compute()
     /// YOLO
     RoboCompYoloObjects::TObjects people = yolo_detect_people(top_rgb_frame);
     cv::imshow("top", top_rgb_frame); cv::waitKey(1);
-    
+
     /// / update leader
     Eigen::Vector2f target_force(0.f, 0.f);
     auto [active_leader, leader, tf] = update_leader(people);
@@ -222,6 +226,60 @@ RoboCompCameraRGBDSimple::TPoints SpecificWorker::read_points_dreamvu(cv::Mat om
     catch (const Ice::Exception &e){ std::cout << e.what() << " Error connecting to CameraSimple::getPoints" << std::endl;}
     return omni_points;
 }
+void SpecificWorker::initialize_kalman(int period)
+{
+    kalman_n = 6; // Number of states
+    kalman_m = 2; // Number of measurements
+    double dt = period; // Time step
+
+    Eigen::MatrixXd A(kalman_n, kalman_n); // System dynamics matrix
+    Eigen::MatrixXd C(kalman_m, kalman_n); // Observation matrix
+    Eigen::MatrixXd Q(kalman_n, kalman_n); // Process noise covariance
+    Eigen::MatrixXd R(kalman_m, kalman_m); // Measurement noise covariance
+    Eigen::MatrixXd P(kalman_n, kalman_n); // Estimate error covariance
+
+    // [px, vx, ax, py, vy, ay]
+    A << 1, dt, 0.5*dt*dt, 0, 0, 0,
+         0, 1, dt,  0, 0, 0,
+         0, 0, dt, 0, 0, 0,
+         0, 0, 0, 1, dt, 0.5*dt*dt,
+         0, 0, 0, 0, 1, dt,
+         0, 0, 0, 0, 0, 1;
+
+    // observation matrix
+    C << 1, 0, 0, 0, 0, 0,
+         0, 0, 0, 1, 0, 0;
+
+    // process noise covariance
+    Q << 0.25, 0.5, 0.5, 0, 0, 0,
+         0.5, 1, 1, 0, 0, 0,
+         0.5, 1, 1, 0, 0, 0,
+         0, 0, 0, 0.25, 0.5, 0.5,
+         0, 0, 0, 0.5, 1, 1,
+         0, 0, 0, 0.5, 1, 1;
+    Q*=0.2;
+
+    // measurement error covariance
+    R << 160000, 0,
+         0, 160000;
+
+    // state estimate error covariance
+    P << 5000, 0, 0, 0, 0, 0,
+         0, 5000, 0, 0, 0, 0,
+         0, 0, 50000, 0, 0, 0,
+         0, 0, 0, 50000, 0, 0,
+         0, 0, 0, 0, 10000, 0,
+         0, 0, 0, 0, 0, 10000;
+
+    std::cout << "A: \n" << A << std::endl;
+    std::cout << "C: \n" << C << std::endl;
+    std::cout << "Q: \n" << Q << std::endl;
+    std::cout << "R: \n" << R << std::endl;
+    std::cout << "P: \n" << P << std::endl;
+
+    // Construct the filter
+    kalman = KalmanFilter(dt, A, C, Q, R, P);
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////77
 Eigen::Vector2f SpecificWorker::compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line)
@@ -315,7 +373,7 @@ void SpecificWorker::eye_track(bool active_person, const RoboCompYoloObjects::TB
                 float new_vel = -0.7 * hor_angle + 0.3 * (hor_angle - error_ant);
                 new_vel = std::clamp(new_vel, -1.f, 1.f);  // dumping
                 jointmotorsimple_proxy->setVelocity("camera_pan_joint", RoboCompJointMotorSimple::MotorGoalVelocity(new_vel, 1));
-                qInfo() << __FUNCTION__ << "smooth" << hor_angle << current_servo_angle << new_vel;
+                //qInfo() << __FUNCTION__ << "smooth" << hor_angle << current_servo_angle << new_vel;
             }
             catch (const Ice::Exception &e)
             {  std::cout << e.what() << " Error connecting to MotorGoalPosition" << std::endl; return; }
@@ -345,7 +403,7 @@ RoboCompLegDetector2DLidar::Legs SpecificWorker::leg_detector(vector<Eigen::Vect
     catch(const Ice::Exception &e){ std::cout << e.what() << " Error connecting to LegDetector" << std::endl;}
     return legs;
 }
-RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_people(cv::Mat rgb)
+RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_people(cv::Mat rgb, float threshold)
 {
     RoboCompYoloObjects::TObjects people;
     RoboCompYoloObjects::TData yolo_objects;
@@ -354,10 +412,8 @@ RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_people(cv::Mat rgb)
     catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return people;}
 
     Eigen::Vector2f target_force = {0.f, 0.f};
-    bool active_person = false;
-    RoboCompYoloObjects::TBox person_box;
     for(const auto &o: yolo_objects.objects)
-        if(o.type == 0)
+        if(o.type == 0 and o.score > threshold)
         {
             people.push_back(o);
             cv::rectangle(rgb, cv::Point(o.left, o.top), cv::Point(o.right, o.bot), cv::Scalar(0, 255, 0), 3);
@@ -371,30 +427,45 @@ std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> SpecificWorker::upd
     auto get_force = [](const RoboCompYoloObjects::TBox &b)
                 {   Eigen::Vector2f target_force{leader.x, leader.y};
                     if(target_force.norm() < 1300) target_force = {0.f, 0.f};
-                    if(target_force.norm() > 3500) target_force = target_force.normalized()*3000;
-                    target_force /= 2;
+                    if(target_force.norm() > 3500) target_force = target_force.normalized()*3500;
+                    target_force -= target_force.normalized() * 1300;
+                    //target_force /= 2;
                     return target_force;
                 };
     Eigen::Vector2f target_force = {0.f, 0.f};
+
     if(not active_leader)
     {
         if(people.empty()) return std::make_tuple(false, RoboCompYoloObjects::TBox(), Eigen::Vector2f(0.f,0.f));
+        // if(not legs.empty()) turn towards the closest legs
         leader = people.front();
         active_leader = true;
+        Eigen::VectorXd initial_state(6);
+        initial_state << leader.x, 0, 0, leader.y, 0, 0;
+        kalman.init(0.0, initial_state);
         return std::make_tuple(true, leader, get_force(leader));
     }
+
     // update: check if any in people matches leader
     if(people.empty()) return std::make_tuple(true, leader, get_force(leader));
     std::vector<float> matches;
     for(const auto &person: people)
         matches.push_back(iou(leader, person));
-    // get them closest match
+    // get the closest match
     auto min = std::ranges::min_element(matches);
     int ind = std::distance(matches.begin(), min);
     leader = people[ind];
     // remove leader from people
     people.erase(people.begin()+ind);
-    return std::make_tuple(true, leader, get_force(leader));
+    // update leader estimate
+    kalman.update(Eigen::Vector2d(leader.x, leader.y));
+    //std::cout << "meas = " << leader.x << ", " << leader.y << std::endl;
+    //std::cout << "pred = " << kalman.state()[0] << ", " << kalman.state()[3] << std::endl;
+    std::cout << "pred_err" << (Eigen::Vector2d(leader.x, leader.y) - Eigen::Vector2d(kalman.state()[0], kalman.state()[3])).norm() << std::endl;
+    RoboCompYoloObjects::TBox  pleader = leader;
+    pleader.x = kalman.state()[0]; pleader.y = kalman.state()[3];
+    std::cout << "------------------------------" << std::endl;
+    return std::make_tuple(true, leader, get_force(pleader));
 }
 float SpecificWorker::iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b)
 {
@@ -562,17 +633,27 @@ void SpecificWorker::draw_humans(RoboCompYoloObjects::TObjects objects, const Ro
         viewer->scene.removeItem(i);
     items.clear();
 
-    // delete leader from objects before drawing
-    // objects.erase(std::remove_if(objects.begin(), objects.end(), [leader](auto o) { iui == obj; }));
     float tilt = qDegreesToRadians(20.f);
     Eigen::Matrix3f m;
     m = Eigen::AngleAxisf(tilt, Eigen::Vector3f::UnitX());
     m = m * Eigen::AngleAxisf(current_servo_angle, Eigen::Vector3f::UnitZ());
+
     // draw leader
     auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("green"), 20));
     Eigen::Vector2f corrected = (m * Eigen::Vector3f(leader.x, leader.y, leader.z)).head(2);
     item->setPos(corrected.x(), corrected.y());
     items.push_back(item);
+
+    // draw filtered leader
+    item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("orange"), 20));
+    corrected = (m * Eigen::Vector3f(kalman.state()[0], kalman.state()[3], leader.z)).head(2);
+    item->setPos(corrected.x(), corrected.y());
+    items.push_back(item);
+
+    // draw velocity
+    items.push_back(viewer->scene.addLine(corrected.x(), corrected.y(),
+                                          corrected.x() + kalman.state()[1]*10, corrected.y() + kalman.state()[4]*10, QPen(QColor("orange"), 20)));
+
     // draw rest
     for(const auto &o: objects)
     {
