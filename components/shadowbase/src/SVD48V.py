@@ -118,9 +118,11 @@ class SVD48V:
             #arrancamos los driver con velocidad 0
             err=0
             rpmMaxAcceleration = int(self.maxAcceleration * self.mms2rpm)
+            rpmMaxDeceleration = int(self.maxDeceleration * self.mms2rpm)
             rmpMaxSpeed = int(self.maxSpeed * self.mms2rpm)
             for id in self.IDs:
                 err-=self.write_register(id, R_MAX_ACCELERATION, [rpmMaxAcceleration, rpmMaxAcceleration])
+                err-=self.write_register(id, R_MAX_DECELATION, [rpmMaxDeceleration, rpmMaxDeceleration])
                 #err-=self.write_register(id, R_MAX_SPEED, [rmpMaxSpeed, rmpMaxSpeed])
                 err-=self.write_register(id, R_SET_SPEED, [0,0])
                 err-=self.write_register(id, R_SET_STATUS, [1,1])
@@ -433,14 +435,21 @@ class SVD48V:
     
     def set_speed(self, motor_speed):
         #print("M1 ", motor_speed[0], "M2 ", motor_speed[1], "M3 ", motor_speed[2], "M4 ", motor_speed[3])
+        ret = 0
+        for i in range(len(motor_speed)):
+            if motor_speed[i] > self.maxSpeed:
+                print("AVISO SUPERADA LA VELOCIDAD MAXIMA DE RUEDA", motor_speed[i],"CUNADO MAXIMA ES", self.maxSpeed)
+                motor_speed[i] = self.maxSpeed
+                ret = -1
+            elif motor_speed[i] < -self.maxSpeed:
+                print("AVISO SUPERADA LA VELOCIDAD MAXIMA DE RUEDA", motor_speed[i],"CUNADO MAXIMA ES", self.maxSpeed)
+                motor_speed[i] = -self.maxSpeed
+                ret = -1
+        print("MM/S",motor_speed)
         rpm = motor_speed * self.mms2rpm
-        
+        print ("RPM", rpm)
         for i in range(int(len(motor_speed)/2)):
             self.write_register(self.IDs[i], R_SET_SPEED,[rpm[i*2],rpm[i*2+1]])
 
-        if max(motor_speed) > self.maxSpeed:
-            print("AVISO SUPERADA LA VELOCIDAD MAXIMA")
-            return -1
-        else:
-            return 0
+        return ret
 
