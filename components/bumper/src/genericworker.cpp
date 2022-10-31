@@ -24,8 +24,10 @@ GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 {
 
 	camerargbdsimple_proxy = std::get<0>(tprx);
-	omnirobot_proxy = std::get<1>(tprx);
-	yoloobjects_proxy = std::get<2>(tprx);
+	jointmotorsimple_proxy = std::get<1>(tprx);
+	legdetector2dlidar_proxy = std::get<2>(tprx);
+	omnirobot_proxy = std::get<3>(tprx);
+	yoloobjects_proxy = std::get<4>(tprx);
 
 	mutex = new QMutex(QMutex::Recursive);
 

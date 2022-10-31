@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -34,6 +32,10 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
+#include <timer/timer.h>
+#include "signalviewer.h"
+
+#include "kalman.hpp"
 
 class SpecificWorker : public GenericWorker
 {
@@ -58,20 +60,22 @@ public:
     {
         const float max_camera_depth_range = 5000;
         const float min_camera_depth_range = 300;
-        const float omni_camera_height = 600; //mm
+        const float omni_camera_height = 580; //mm
         float robot_length = 500;
         float num_angular_bins = 360;
         float coppelia_depth_scaling_factor = 19.f;
         float dreamvu_depth_scaling_factor = 10.f;
+        const float max_hor_angle_error = 0.6; // rads
     };
     Constants consts;
+    float current_servo_angle = 0.f;
 
     // graphics
     AbstractGraphicViewer *viewer;
     QGraphicsPolygonItem *robot_polygon;
     QGraphicsRectItem *laser_in_robot_polygon;
     QRectF viewer_dimensions;
-    void draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines);
+    void draw_floor_line(const vector<vector<Eigen::Vector2f>> &lines, int i=1);
     Eigen::Vector2f compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line);
     void draw_forces(const Eigen::Vector2f &force, const Eigen::Vector2f &target, const Eigen::Vector2f &res);
     RoboCompGenericBase::TBaseState read_robot_state();
@@ -82,6 +86,24 @@ public:
     cv::Mat read_rgb(const std::string &camera_name);
     cv::Mat read_depth_dreamvu(cv::Mat omni_rgb_frame);
     bool IS_COPPELIA = false;
+    void draw_humans(RoboCompYoloObjects::TObjects objects, const RoboCompYoloObjects::TBox &leader);
+    void draw_legs(RoboCompLegDetector2DLidar::Legs legs);
+    void eye_track(bool active_person, const RoboCompYoloObjects::TBox &person_box);
+    RoboCompLegDetector2DLidar::Legs leg_detector(vector<Eigen::Vector2f> &lidar_line);
+    RoboCompYoloObjects::TObjects yolo_detect_people(cv::Mat rgb, float threshold = 0.8);
+    std::tuple<bool, RoboCompYoloObjects::TBox, Eigen::Vector2f> update_leader(RoboCompYoloObjects::TObjects &people); // removes leader from people
+    float iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b);
+    void remove_leader_from_detected_legs(RoboCompLegDetector2DLidar::Legs &legs, const RoboCompYoloObjects::TBox &leader);
+    void remove_lidar_points_from_leader(vector<Eigen::Vector2f> line, const RoboCompYoloObjects::TBox &leader);
+
+    //Clock
+    rc::Timer<> wtimer;
+
+    // Kalman
+    KalmanFilter kalman;
+    int kalman_n; // Number of states
+    int kalman_m; // Number of measurements
+    void initialize_kalman(int period);
 };
 
 
