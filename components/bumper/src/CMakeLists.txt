@@ -34,8 +34,8 @@ FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase OmniRobot YoloObjects)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior CameraRGBDSimple GenericBase OmniRobot YoloObjects)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase JointMotorSimple Laser LegDetector2DLidar OmniRobot YoloObjects)
+ROBOCOMP_ICE_TO_SRC( CommonBehavior CameraRGBDSimple GenericBase JointMotorSimple Laser LegDetector2DLidar OmniRobot YoloObjects)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 QT_WRAP_UI( UI_HEADERS mainUI.ui )

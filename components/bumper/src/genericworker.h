@@ -33,6 +33,9 @@
 
 #include <CameraRGBDSimple.h>
 #include <GenericBase.h>
+#include <JointMotorSimple.h>
+#include <Laser.h>
+#include <LegDetector2DLidar.h>
 #include <OmniRobot.h>
 #include <YoloObjects.h>
 
@@ -41,7 +44,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompYoloObjects::YoloObjectsPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompJointMotorSimple::JointMotorSimplePrxPtr,RoboCompLegDetector2DLidar::LegDetector2DLidarPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompYoloObjects::YoloObjectsPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -58,6 +61,8 @@ public:
 
 
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
+	RoboCompJointMotorSimple::JointMotorSimplePrxPtr jointmotorsimple_proxy;
+	RoboCompLegDetector2DLidar::LegDetector2DLidarPrxPtr legdetector2dlidar_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
