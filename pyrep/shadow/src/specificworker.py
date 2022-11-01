@@ -18,10 +18,12 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
+import sys
 
 from genericworker import *
 import time
 from pyrep import PyRep
+from pyrep.const import JointMode
 from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.dummy import Dummy
 from pyrep.objects.shape import Shape
@@ -254,6 +256,7 @@ class SpecificWorker(GenericWorker):
         # Eye pan motor
         self.eye_motor = Joint("/Shadow/camera_pan_joint")
         self.eye_new_pos = None
+        self.eye_new_vel = None
 
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
@@ -261,14 +264,18 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         tc = TimeControl(0.05)
         while True:
-            self.pr.step()
-            self.read_robot_pose()
-            self.move_robot()
-            self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
-            #ksself.read_people()
-            self.read_joystick()
-            self.move_eye()
-            tc.wait()
+            try:
+                self.pr.step()
+                self.read_robot_pose()
+                self.move_robot()
+                self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
+                #ksself.read_people()
+                self.read_joystick()
+                self.move_eye()
+                tc.wait()
+            except KeyboardInterrupt:
+                print("keyboard")
+                sys.exit()
 
     ###########################################
     ### PEOPLE get and publish people position
@@ -346,6 +353,8 @@ class SpecificWorker(GenericWorker):
             depth = cam["handle"].capture_depth(True)  # meters
             depth = np.frombuffer(depth, dtype=np.float32).reshape((cam["height"], cam["width"]))
             depth = cv2.rotate(depth, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            #dd = cv2.normalize(src=depth, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            #cv2.imshow("d", dd)
             # we change width and height here to follow the rotation operation
             cam["depth"] = RoboCompCameraRGBDSimple.TDepth( cameraID=cam["id"],
                                                             width=cam["height"],  # cambiados
@@ -522,6 +531,10 @@ class SpecificWorker(GenericWorker):
         if self.eye_new_pos:
             self.eye_motor.set_joint_position(self.eye_new_pos)  # radians
             self.eye_new_pos = None
+        if self.eye_new_vel:
+            #self.eye_motor.set_joint_mode(JointMode.FORCE)
+            self.eye_motor.set_joint_target_velocity(self.eye_new_vel)  # radians
+            self.eye_new_vel = None
 
     #################################################################
     ##################################################################################
@@ -764,15 +777,16 @@ class SpecificWorker(GenericWorker):
     #
     def JointMotorSimple_getMotorState(self, motor):
         if motor == "camera_pan_joint":
-            ret = RoboCompJointMotorSimple.MotorState(self.eye_motor.get_joint_position())  # radians
-        return ret
-
+            pos = self.eye_motor.get_joint_position()
+            if pos != nan:
+                return RoboCompJointMotorSimple.MotorState(pos)  # radians
+            else:
+                return RoboCompJointMotorSimple.MotorState(0)
     #
     # IMPLEMENTATION of setPosition method from JointMotorSimple interface
     #
     def JointMotorSimple_setPosition(self, name, goal):
         print("JointMotorSimple_setPosition: ", name, goal)
-        # check position limits -10 to 80
         if name == "tablet":
             self.tablet_new_pos = goal.position
         elif name == "camera_pan_joint":
@@ -783,7 +797,10 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setVelocity method from JointMotorSimple interface
     #
     def JointMotorSimple_setVelocity(self, name, goal):
-        pass
+        if name == "camera_pan_joint":
+            self.eye_new_vel = goal.velocity
+        else:
+            print("Unknown motor name", name)
 
     #
     # IMPLEMENTATION of setZeroPos method from JointMotorSimple interface
