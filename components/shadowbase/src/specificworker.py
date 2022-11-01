@@ -25,6 +25,9 @@
 #from tkinter import image_names
 
 
+from lib2to3.pgen2 import driver
+from multiprocessing.resource_sharer import stop
+from time import sleep
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
@@ -60,6 +63,7 @@ class SpecificWorker(GenericWorker):
         self.targetSpeed = np.array([[0.0], [0.0], [0.0]])
         self. oldTargetSpeed = np.array([[0.0], [0.0], [0.0]])
         self.driver=None
+        self.joystickControl = False
 
         if startup_check:
             self.startup_check()
@@ -81,13 +85,15 @@ class SpecificWorker(GenericWorker):
             self.distAxes =  float(params["distAxes"])
             self.axesLength =  float(params["axesLength"])
             port = params["port"]
-            maxSpeed = int(params["maxSpeed"])
-            maxAcceleration = int(params["maxAcceleration"])
-            maxDeceleration = int(params["maxDeceleration"])
+            self.maxLinSpeed = float(params["maxLinSpeed"])
+            self.maxRotSpeed = float(params["maxRotSpeed"])
+            maxWheelSpeed = float(params["maxWheelSpeed"])
+            maxAcceleration = float(params["maxAcceleration"])
+            maxDeceleration = float(params["maxDeceleration"])
             idDrivers = [int(params["idDriver1"]), int(params["idDriver2"])]
             wheelRadius = float(params["wheelRadius"])
 
-            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxSpeed,
+            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxWheelSpeed,
                                         maxAcceleration, maxDeceleration)  
 
             if not self.driver.still_alive():
@@ -110,12 +116,30 @@ class SpecificWorker(GenericWorker):
 
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.driver.show_params)
-            self.timer.start(0.5)
+            #self.timer.start(0.5)
 
         except Exception as e:
             print("Error reading config params or start motor")
             print(e)
         return True
+
+    def setAdvx(self, val):
+        if val>self.maxLinSpeed:  
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[0],"CUNADO MAXIMA ES", self.maxLinSpeed)
+            self.targetSpeed[0] = self.maxLinSpeed
+        else:  self.targetSpeed[0] = val
+
+    def setAdvz(self, val):
+        if val>self.maxLinSpeed: 
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[1],"CUNADO MAXIMA ES", self.maxLinSpeed) 
+            self.targetSpeed[1] = self.maxLinSpeed
+        else:  self.targetSpeed[1] = val
+
+    def setRot(self, val):
+        if val>self.maxRotSpeed:  
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA", self.targetSpeed[2],"CUNADO MAXIMA ES", self.maxRotSpeed)
+            self.targetSpeed[2] = self.maxRotSpeed     
+        else:  self.targetSpeed[2] = val
 
     #######################################COMPUTE###########################################
     @QtCore.Slot()
@@ -128,7 +152,7 @@ class SpecificWorker(GenericWorker):
                 self.oldTargetSpeed = np.copy(self.targetSpeed)
                 #print("Modificamos velocidades: ", self.oldTargetSpeed)
 
-            self.driver.show_params(False)
+            #self.driver.show_params(False)
         return True
 
     def startup_check(self):
@@ -210,19 +234,20 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setSpeedBase method from OmniRobot interface
     #
     def OmniRobot_setSpeedBase(self, advx, advz, rot):
-        self.targetSpeed[0] = advx
-        self.targetSpeed[1] = advz
-        self.targetSpeed[2] = rot
+        self.setAdvx(advx)
+        self.setAdvz(advz)
+        self.setRot(rot)
+
 
 
     #
     # IMPLEMENTATION of stopBase method from OmniRobot interface
     #
     def OmniRobot_stopBase(self):
-    
-        self.targetSpeed[0] = 0
-        self.targetSpeed[1] = 0
-        self.targetSpeed[2] = 0
+        print("///////////////////////PARADA DE EMERGENCIA////////////////////")
+        self.setAdvx(0.0)
+        self.setAdvz(0.0)
+        self.setRot(0.0)
 
 
     # ===================================================================
@@ -243,7 +268,35 @@ class SpecificWorker(GenericWorker):
     def JoystickAdapter_sendData(self, data):
     
         #print(data)
-        self.targetSpeed = [data.axes[0], data.axes[1], data.axes[2]]
+        for b in data.buttons:
+            if b.name == "stop":
+                if b.step == 1:
+                    self.OmniRobot_stopBase()
+                    self.joystickControl = False
+            elif  b.name == "block":
+                if b.step == 1:
+                    self.driver.stop_driver()
+                    self.joystickControl = False
+            elif b.name == "joystick_control":
+                if b.step == 1:
+                    self.joystickControl = not self.joystickControl
+            else:
+                print(b.name, "PULASDOR NO AJUSTADO")
+            
+            if self.joystickControl:
+                for a in  data.axes:
+                    if a.name == "rotate":
+                        self.setRot(a.value)
+                    elif  a.name == "advance":
+                        self.setAdvz(a.value)
+                    elif a.name == "side":
+                        self.setAdvx(a.value)
+                    else:
+                        print(a.name, "VELODIDAD NO AJUSTADA")
+
+        
+
+        #self.targetSpeed = [data.axes[0], data.axes[1], data.axes[2]]
         
 
 
