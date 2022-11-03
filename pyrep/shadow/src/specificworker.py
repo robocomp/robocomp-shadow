@@ -453,11 +453,14 @@ class SpecificWorker(GenericWorker):
             # adv_vel = np.transpose(np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])) @ (np.array([linear_vel[0], linear_vel[1]]))
             #print("ADV", adv_vel[1]*1000, "SIDE", adv_vel[0]*1000)
             self.robot.set_base_angular_velocites(converted)
+
             #
-            if left_pan > right_pan:
-                self.eye_new_pos = left_pan
-            else:
-                self.eye_new_pos = -right_pan
+            if abs(left_pan) > 0.05 and abs(right_pan) > 0.05:
+                print("moving eye", left_pan, right_pan)
+                if left_pan > right_pan:
+                    self.eye_new_pos = left_pan
+                else:
+                    self.eye_new_pos = -right_pan
 
             self.joystick_newdata = None
             self.last_received_data_time = time.time()
