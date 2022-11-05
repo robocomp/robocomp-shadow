@@ -455,8 +455,8 @@ class SpecificWorker(GenericWorker):
             self.robot.set_base_angular_velocites(converted)
 
             #
-            if abs(left_pan) > 0.05 and abs(right_pan) > 0.05:
-                print("moving eye", left_pan, right_pan)
+            if abs(left_pan) > 0.05 or abs(right_pan) > 0.05:
+                #print("moving eye", left_pan, right_pan)
                 if left_pan > right_pan:
                     self.eye_new_pos = left_pan
                 else:
@@ -531,7 +531,7 @@ class SpecificWorker(GenericWorker):
     ###########################################
 
     def move_eye(self):
-        if self.eye_new_pos:
+        if self.eye_new_pos is not None:
             self.eye_motor.set_joint_position(self.eye_new_pos)  # radians
             self.eye_new_pos = None
         if self.eye_new_vel:
@@ -789,12 +789,13 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setPosition method from JointMotorSimple interface
     #
     def JointMotorSimple_setPosition(self, name, goal):
-        print("JointMotorSimple_setPosition: ", name, goal)
+        #print("JointMotorSimple_setPosition: ", name, goal)
         if name == "tablet":
             self.tablet_new_pos = goal.position
         elif name == "camera_pan_joint":
             self.eye_new_pos = goal.position
-        else: print("Unknown motor name", name)
+        else:
+            print("Unknown motor name", name)
 
     #
     # IMPLEMENTATION of setVelocity method from JointMotorSimple interface
