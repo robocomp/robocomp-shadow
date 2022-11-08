@@ -24,7 +24,7 @@ Ice.Trace.Protocol=0
 ##################################################
 
 scene_file = ../../etc/salabeta_visual_cues.ttt
-
+ignore_joystick = True
 
 
 

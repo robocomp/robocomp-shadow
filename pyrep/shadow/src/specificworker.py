@@ -83,6 +83,8 @@ class SpecificWorker(GenericWorker):
         self.WITH_BILL = False
         if "bill" in SCENE_FILE:
             self.WITH_BILL = True
+        self.IGNORE_JOYSITCK = False
+        self.IGNORE_JOYSITCK = params["ignore_joystick"] == "True" or params["ignore_joystick"] == "true"
 
         self.pr = PyRep()
         self.pr.launch(SCENE_FILE, headless=False)
@@ -270,7 +272,8 @@ class SpecificWorker(GenericWorker):
                 self.move_robot()
                 self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
                 #ksself.read_people()
-                self.read_joystick()
+                if not self.IGNORE_JOYSITCK:
+                    self.read_joystick()
                 self.move_eye()
                 tc.wait()
             except KeyboardInterrupt:
