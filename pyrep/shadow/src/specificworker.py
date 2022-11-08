@@ -556,7 +556,6 @@ class SpecificWorker(GenericWorker):
     # getAll
     #
     def CameraRGBDSimple_getAll(self, camera):
-        print("---------------", camera)
         if camera in self.cameras_read.keys() \
                 and self.cameras_read[camera]["is_ready"] \
                 and self.cameras_read[camera]["is_rgbd"]:
