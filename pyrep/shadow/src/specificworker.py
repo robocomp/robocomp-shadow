@@ -136,10 +136,10 @@ class SpecificWorker(GenericWorker):
                                                      "angle": np.radians(cam.get_perspective_angle()),
                                                      "width": cam.get_resolution()[0],
                                                      "height": cam.get_resolution()[1],
-                                                     "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-                                                        np.radians(cam.get_perspective_angle() / 2.0)),
-                                                     "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-                                                         np.radians(cam.get_perspective_angle() / 2)),
+                                                     "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+                                                        np.radians(cam.get_perspective_angle() / 2.0))),
+                                                     "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+                                                         np.radians(cam.get_perspective_angle() / 2))),
                                                      "rgb": np.array(0),
                                                      "depth": np.ndarray(0),
                                                      "is_ready": False,
@@ -157,10 +157,10 @@ class SpecificWorker(GenericWorker):
                                                              "angle": np.radians(cam.get_perspective_angle()),
                                                              "width": cam.get_resolution()[0],
                                                              "height": cam.get_resolution()[1],
-                                                             "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-                                                                 np.radians(cam.get_perspective_angle() / 2.0)),
-                                                             "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-                                                                 np.radians(cam.get_perspective_angle() / 2)),
+                                                             "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+                                                                 np.radians(cam.get_perspective_angle() / 2.0))),
+                                                             "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+                                                                 np.radians(cam.get_perspective_angle() / 2))),
                                                              "rgb": np.array(0),
                                                              "depth": np.ndarray(0),
                                                              "is_ready": False,
@@ -556,6 +556,7 @@ class SpecificWorker(GenericWorker):
     # getAll
     #
     def CameraRGBDSimple_getAll(self, camera):
+        print("---------------", camera)
         if camera in self.cameras_read.keys() \
                 and self.cameras_read[camera]["is_ready"] \
                 and self.cameras_read[camera]["is_rgbd"]:
