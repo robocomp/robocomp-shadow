@@ -784,8 +784,9 @@ class SpecificWorker(GenericWorker):
     def JointMotorSimple_getMotorState(self, motor):
         if motor == "camera_pan_joint":
             pos = self.eye_motor.get_joint_position()
+            vel = self.eye_motor.get_joint_velocity()
             if pos != nan:
-                return RoboCompJointMotorSimple.MotorState(pos)  # radians
+                return RoboCompJointMotorSimple.MotorState(pos=pos, vel=vel)  # radians
             else:
                 return RoboCompJointMotorSimple.MotorState(0)
     #
