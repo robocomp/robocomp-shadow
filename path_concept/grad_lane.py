@@ -26,7 +26,7 @@ number_of_points = 5
 frame = []
 
 mask2former = Mask2Former()
-cap = cv2.VideoCapture('hall.mp4')
+cap = cv2.VideoCapture('videos/hall.mp4')
 #cap = cv2.VideoCapture('track6.mov')
 #cap = cv2.VideoCapture('hall.mp4')
 video_frame = 0
@@ -138,8 +138,8 @@ def draw_frame(winname, frame, mask_poly, alternatives):
     frame_new = cv2.addWeighted(frame, alpha, color_lane, 1 - alpha, 0)
     #cv2.circle(frame_new, target, 5, (255, 0, 0), cv2.FILLED)
 
-    if len(alternatives) > 0:
-        alt_lane = cv2.cvtColor(alternatives[0], cv2.COLOR_GRAY2BGR)
+    for alt in alternatives:
+        alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
         alt_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (255, 0, 0)  # green
         frame_new = cv2.addWeighted(frame_new, alpha, alt_lane, 1 - alpha, 0)
 
@@ -161,12 +161,13 @@ def target_function(params, other=()):
     #loss = (segmented_size - inliers) #+ abs(lane_size-segmented_size)
     return float(loss)
 
-def target_function_mask(mask_img, mask_poly):
+def target_function_mask(mask_img, mask_poly, vector):
     result = cv2.bitwise_and(mask_img, mask_poly)
     lane_size = np.count_nonzero(mask_poly)
     segmented_size = np.count_nonzero(mask_img)
     inliers = np.count_nonzero(result)
-    loss = abs(segmented_size - lane_size) + 5*abs(lane_size-inliers)
+    curvature, _, _ = vector
+    loss = abs(segmented_size - lane_size) + 5*abs(lane_size-inliers) + 300*abs(curvature)
     return float(loss)
 
 def thread_frame_capture(cap, frame_queue, winname, video_frame, mask2former):
@@ -219,12 +220,7 @@ def main():
     while True:
         now = time.time()
         frame, mask_img = frame_queue.get()
-        # result = optimize.differential_evolution(target_function, bounds, args=[mask_img], x0=optimum,
-        #                                            updating='immediate', workers=1,
-        #                                            maxiter=5, strategy='best2bin')
-        #
         now2 = time.time()
-
         loss, mask, alternatives = dwa_optimizer.optimize(loss=target_function_mask, mask_img=mask_img)
         #draw(winname, frame, result.x)
         draw_frame(winname, frame, mask, alternatives)
@@ -300,3 +296,9 @@ if __name__ == '__main__':
 # nevergrad
 # ngrad = Nevergrad_Proxy(target_function)
 # rndopt = Random_Optimizer(target_function, [])
+
+
+ # result = optimize.differential_evolution(target_function, bounds, args=[mask_img], x0=optimum,
+        #                                            updating='immediate', workers=1,
+        #                                            maxiter=5, strategy='best2bin')
+        #

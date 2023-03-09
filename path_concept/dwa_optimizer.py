@@ -11,24 +11,26 @@ class DWA_Optimizer():
     def optimize(self, loss, mask_img, x0=None):
         losses = []
         alternative_masks = []
+        curvatures = []
         curvature_threshold = 30
-        for mask in self.masks:
-            losses.append(loss(mask_img, mask))
+        for mask, sample in zip(self.masks, self.samples):
+            losses.append(loss(mask_img, mask, sample))
         sorted_loss_index = np.argsort(losses)
-        i = 0
-        winner_curvature, _, _ = self.samples[sorted_loss_index[0]]
+        winner_curvature, winner_arc, _ = self.samples[sorted_loss_index[0]]
+        curvatures.append(winner_curvature)
         for i in range(1, len(sorted_loss_index)):
-            curvature, _, _ = self.samples[sorted_loss_index[i]]
-            #print("curvature", curvature - winner_curvature, i)
-            if abs(curvature - winner_curvature) > curvature_threshold:
+            curvature, arc, _ = self.samples[sorted_loss_index[i]]
+            if np.all(abs(curvatures-curvature) > curvature_threshold):
+                    #and arc > winner_arc * 0.5:
                 alternative_masks.append(self.masks[sorted_loss_index[i]])
-            if len(alternative_masks) == 2:
+                curvatures.append(curvature)
+            if len(alternative_masks) > 4:
                 break
 
         return losses[sorted_loss_index[0]], self.masks[sorted_loss_index[0]], alternative_masks
 
     def sample_points_2(self):
-        curvature = np.arange(-22, 22, 4)
+        curvature = np.arange(-38, 38, 3)
         arc = np.arange(100, 400, 10)
         projection = np.arange(1, 2, 1)
         return np.stack(np.meshgrid(curvature, arc, projection), -1).reshape(-1, 3)

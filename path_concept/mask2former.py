@@ -1,9 +1,14 @@
+''' Installation instructions
+
+
+'''
+
 ## Runs with pytorch 1.10.1
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 import time
-from pynvml import *
+#from pynvml import *
 import cv2
 import numpy as np
 
