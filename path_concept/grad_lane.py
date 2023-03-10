@@ -131,7 +131,7 @@ def draw(winname, frame, params):
     cv2.imshow(winname, frame_new)
     cv2.waitKey(2)
 
-def draw_frame(winname, frame, mask_poly, alternatives):
+def draw_frame(winname, frame, mask_poly, alternatives, segmented_img, instance_img, labels):
     alpha = 0.8
     color_lane = cv2.cvtColor(mask_poly, cv2.COLOR_GRAY2BGR)
     color_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (0, 255, 0)    # green
@@ -142,6 +142,16 @@ def draw_frame(winname, frame, mask_poly, alternatives):
         alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
         alt_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (255, 0, 0)  # green
         frame_new = cv2.addWeighted(frame_new, alpha, alt_lane, 1 - alpha, 0)
+
+    # compute rois for doors
+    inst = instance_img['segments_info']
+    door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
+    inst_img = instance_img['segmentation']
+    for door_id in door_ids:
+        mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+        mask[inst_img == door_id] = 255
+        mask_23 = cv2.boundingRect(mask)
+        cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
 
     cv2.imshow(winname, frame_new)
     cv2.waitKey(2)
@@ -167,15 +177,15 @@ def target_function_mask(mask_img, mask_poly, vector):
     segmented_size = np.count_nonzero(mask_img)
     inliers = np.count_nonzero(result)
     curvature, _, _ = vector
-    loss = abs(segmented_size - lane_size) + 5*abs(lane_size-inliers) + 300*abs(curvature)
+    loss = abs(segmented_size - lane_size) + 5*abs(lane_size-inliers) #+ 300*abs(curvature)
     return float(loss)
 
-def thread_frame_capture(cap, frame_queue, winname, video_frame, mask2former):
+def thread_frame_capture(cap, frame_queue, mask2former):
     while cap.isOpened():
         _, frame = cap.read()
         frame = cv2.resize(frame, (400, 400))
-        mask_img = mask2former.process(frame)
-        frame_queue.put([frame, mask_img])
+        mask_img, segmented_img, instance_img = mask2former.process(frame)
+        frame_queue.put([frame, mask_img, segmented_img, instance_img])
 
 def main():
     global frame, cap, video_frame
@@ -213,19 +223,19 @@ def main():
 
     # start frame thread
     frame_queue = SimpleQueue()
-    thread_frame = threading.Thread(target=thread_frame_capture, args=(cap, frame_queue, winname, video_frame, mask2former), daemon=True)
+    thread_frame = threading.Thread(target=thread_frame_capture, args=(cap, frame_queue, mask2former), daemon=True)
     thread_frame.start()
     print("Video frame started")
 
     while True:
         now = time.time()
-        frame, mask_img = frame_queue.get()
+        frame, mask_img, segmented_img, instance_img = frame_queue.get()
         now2 = time.time()
         loss, mask, alternatives = dwa_optimizer.optimize(loss=target_function_mask, mask_img=mask_img)
         #draw(winname, frame, result.x)
-        draw_frame(winname, frame, mask, alternatives)
+        draw_frame(winname, frame, mask, alternatives, segmented_img, instance_img, mask2former.labels)
         #optimum = result.x
-        print("Loss:", loss, "Elapsed:", now2-now, time.time()-now2, time.time()-now, len(alternatives))
+        #print("Loss:", loss, "Elapsed:", now2-now, time.time()-now2, time.time()-now, len(alternatives))
 
     while cv2.waitKey(25) & 0xFF != ord('q'):
         pass
