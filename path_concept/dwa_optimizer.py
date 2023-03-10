@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import cv2
 import time
@@ -6,15 +8,15 @@ class DWA_Optimizer():
         self.samples = self.sample_points_2()
         now = time.time()
         self.masks = self.create_masks((400, 400), self.samples)
-        print(len(self.samples), "points", time.time() - now)
 
     def optimize(self, loss, mask_img, x0=None):
         losses = []
         alternative_masks = []
         curvatures = []
-        curvature_threshold = 30
+        curvature_threshold = 20
         for mask, sample in zip(self.masks, self.samples):
             losses.append(loss(mask_img, mask, sample))
+
         sorted_loss_index = np.argsort(losses)
         winner_curvature, winner_arc, _ = self.samples[sorted_loss_index[0]]
         curvatures.append(winner_curvature)
@@ -24,8 +26,8 @@ class DWA_Optimizer():
                     #and arc > winner_arc * 0.5:
                 alternative_masks.append(self.masks[sorted_loss_index[i]])
                 curvatures.append(curvature)
-            if len(alternative_masks) > 4:
-                break
+            # if len(alternative_masks) > 3:
+            #     break
 
         return losses[sorted_loss_index[0]], self.masks[sorted_loss_index[0]], alternative_masks
 
