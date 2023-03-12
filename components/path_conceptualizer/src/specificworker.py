@@ -97,6 +97,7 @@ class SpecificWorker(GenericWorker):
                 mask_img, segmented_img, instance_img = segmentator.process(frame)
                 #mask_img, segmented_img, instance_img = self.mask2former.process(frame)
                 queue.put([frame, mask_img, segmented_img, instance_img])
+                time.sleep(0.050)
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e)
