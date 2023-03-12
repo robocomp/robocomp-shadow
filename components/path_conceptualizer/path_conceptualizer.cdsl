@@ -1,0 +1,13 @@
+import "CameraRGBDSimple.idsl";
+
+Component path_conceptualizer
+{
+    Communications
+    {
+        requires CameraRGBDSimple;
+    };
+    language python;
+
+};
+
+
