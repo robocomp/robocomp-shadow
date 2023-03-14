@@ -1,15 +1,23 @@
 # Endpoints for implements interfaces
 OmniRobot.Endpoints=tcp -p 10032
 
+# Endpoints for subscriptions interfaces
+JoystickAdapterTopic.Endpoints=tcp -p 18896
 
-port=/dev/ttyUSB0
-idDriver1=1
-idDriver2=2
-maxSpeed=50
-wheelRadius=80
-distAxes=250.0
-axesLength=300.0
+port=/dev/ttyUSB0		#Direcion de dispositivo conectado
+idDriver1=1				#Direcion RS485 del driver 1
+idDriver2=2				#Direcion RS485 del driver 1
+maxLinSpeed=900.0		#max velocidad eje x, z mm/s
+maxRotSpeed=2.25		#max velocidad de rotacion rad/s
+maxWheelSpeed=2400.0	#maxima velocidad de la ruedas mm/s
+maxAcceleration=500.0	#Aceleracion mm/s
+maxDeceleration=1000.0	#Deceleracion mm/s
+wheelRadius=60.0		#Radio de las ruedas
+distAxes=220.0			#Distancias entre ejes
+axesLength=400.0		#Longitud entre ejes
 
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

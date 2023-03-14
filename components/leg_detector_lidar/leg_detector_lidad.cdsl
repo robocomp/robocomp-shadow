@@ -1,0 +1,11 @@
+import "LegDetector2DLidar.idsl";
+
+Component leg_detector_lidad
+{
+    Communications
+    {
+        implements LegDetector2DLidar;
+    };
+    language python;
+};
+

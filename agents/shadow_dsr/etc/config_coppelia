@@ -1,0 +1,23 @@
+CommonBehavior.Endpoints=tcp -p 10700
+
+# Proxies for required interfaces
+BatteryStatusProxy = batterystatus:tcp -p 10050
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -p 10095
+CameraSimpleProxy = camerasimple:tcp  -p 10005
+OmniRobotProxy = omnirobot:tcp  -p 10004
+FullPoseEstimationProxy = fullposeestimation:tcp  -p 10696
+LaserProxy = laser:tcp  -p 10003
+RealSenseFaceIDProxy = realsensefaceid:tcp  -p 11070
+JointMotorSimpleProxy = jointmotorsimple:tcp -p 10086
+
+agent_id = 30 # Change id
+agent_name = shadow_dsr
+tree_view = false
+graph_view = true
+2d_view = true
+3d_view = false
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
