@@ -1,0 +1,15 @@
+import "Laser.idsl";
+import "JoystickAdapter.idsl";
+
+Component force_field_follower
+{
+    Communications
+    {
+        requires Laser;
+        subscribesTo JoystickAdapter;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
