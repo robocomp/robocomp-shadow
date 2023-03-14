@@ -1,8 +1,8 @@
 CommonBehavior.Endpoints=tcp -p 10001
 
 # Proxies for required interfaces
-CameraSimpleProxy = camerasimple:tcp -h 192.168.3.15 -p 10005
-RealSenseFaceIDProxy = realsensefaceid:tcp -h 192.168.3.15 -p 11070
+CameraSimpleProxy = camerasimple:tcp -h localhost -p 10005
+RealSenseFaceIDProxy = realsensefaceid:tcp -h localhost -p 11070
 ImageComparisonProxy = imagecomparison:tcp -h localhost -p 17607
 
 
