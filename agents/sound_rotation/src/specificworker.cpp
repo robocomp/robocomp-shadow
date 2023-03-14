@@ -36,7 +36,7 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
-	//G->write_to_json_file("./"+agent_name+".json");
+	G->write_to_json_file("./"+agent_name+".json");
 	G.reset();
 }
 
@@ -56,16 +56,13 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 
 
 
-	try
-	{
-		agent_name = params.at("agent_name").value;
-		agent_id = stoi(params.at("agent_id").value);
-		tree_view = params.at("tree_view").value == "true";
-		graph_view = params.at("graph_view").value == "true";
-		qscene_2d_view = params.at("2d_view").value == "true";
-		osg_3d_view = params.at("3d_view").value == "true";
-	}
-	catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
+	agent_name = params["agent_name"].value;
+	agent_id = stoi(params["agent_id"].value);
+
+	tree_view = params["tree_view"].value == "true";
+	graph_view = params["graph_view"].value == "true";
+	qscene_2d_view = params["2d_view"].value == "true";
+	osg_3d_view = params["3d_view"].value == "true";
 
 	return true;
 }
@@ -87,10 +84,9 @@ void SpecificWorker::initialize(int period)
 
 		//dsr update signals
 		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		// connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+		// connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_attrs_slot);
+		// connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -116,17 +112,7 @@ void SpecificWorker::initialize(int period)
 		}
 		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-        hide();
-
-		/***
-		Custom Widget
-		In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
-		The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
-		either with a QtDesigner or directly from scratch in a class of its own.
-		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
-		***/
-		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
-
+		hide();
 		this->Period = period;
 		timer.start(Period);
 	}
@@ -135,6 +121,20 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+	//computeCODE
+	//QMutexLocker locker(mutex);
+	//try
+	//{
+	//  camera_proxy->getYImage(0,img, cState, bState);
+	//  memcpy(image_gray.data, &img[0], m_width*m_height*sizeof(uchar));
+	//  searchTags(image_gray);
+	//}
+	//catch(const Ice::Exception &e)
+	//{
+	//  std::cout << "Error reading from Camera" << e << std::endl;
+	//}
+	
+	
 }
 
 int SpecificWorker::startup_check()
@@ -144,25 +144,6 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
-void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
-{
-	if(type == current_path_name)
-		if(auto looking_for_edges = G->get_edges_by_type(looking_for_type_name); looking_for_edges.size() > 0)
-			path_id = id;
-}
-
-void SpecificWorker::del_node_slot(std::uint64_t from)
-{
-	if(path_id = from)
-	{
-		if(auto listened_person = G->get_node("listened_person"); listened_person.has_value())
-        {
-			G->delete_node(listened_person.value().id());
-			G->delete_edge(G->get_node(robot_name).value().id(), listened_person.value().id(), looking_for_type_name);
-			G->delete_edge(G->get_node(robot_mind_name).value().id(), listened_person.value().id(), "has");
-		}
-	}
-}
 
 void SpecificWorker::SoundRotation_gotKeyWord(int positionAngle)
 {
@@ -192,9 +173,26 @@ void SpecificWorker::SoundRotation_gotKeyWord(int positionAngle)
         std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
                   << " type: has" << std::endl;
     }
+
+}
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+{
+	if(type == current_path_name)
+		if(auto looking_for_edges = G->get_edges_by_type(looking_for_type_name); looking_for_edges.size() > 0)
+			path_id = id;
 }
 
-
-
+void SpecificWorker::del_node_slot(std::uint64_t from)
+{
+	if(path_id = from)
+	{
+		if(auto listened_person = G->get_node("listened_person"); listened_person.has_value())
+        {
+			G->delete_node(listened_person.value().id());
+			G->delete_edge(G->get_node(robot_name).value().id(), listened_person.value().id(), looking_for_type_name);
+			G->delete_edge(G->get_node(robot_mind_name).value().id(), listened_person.value().id(), "has");
+		}
+	}
+}
 
 
