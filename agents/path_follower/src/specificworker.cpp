@@ -318,9 +318,6 @@ std::tuple<float, float, float> SpecificWorker::update(const std::vector<Eigen::
         {
             if(abs(angle) < 10 * M_PI / 180)
             {
-                qInfo() << __FUNCTION__ << " -------------- Target achieved -----------------";
-                advVel = 0;  sideVel= 0; rotVel = 0;
-                robot_is_active = false;
                 if(auto path_d = G->get_node(current_path_name); path_d.has_value())
                     G->delete_node(path_d.value().id());
                 return std::make_tuple(0,0,0);  //adv, side, rot
@@ -516,6 +513,47 @@ void SpecificWorker::new_target_from_mouse(int pos_x, int pos_y, int id)
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
+    if(id == path_id)
+    {
+        qInfo() << "MODIFYED PATH";
+        auto x_values = G->get_attrib_by_name<path_x_values_att>(node.value());
+        auto y_values = G->get_attrib_by_name<path_y_values_att>(node.value());
+        auto is_cyclic_o = G->get_attrib_by_name<path_is_cyclic_att>(node.value());
+        qInfo() << "ENTRAAAAA";
+        if(is_cyclic_o.has_value())
+            is_cyclic.store(is_cyclic_o.value());
+        else is_cyclic.store(false);
+        qInfo() << "ENTRAAAAA";
+        if(x_values.has_value() and y_values.has_value())
+        {
+            qInfo() << "ENTRAAAAA";
+            auto x = x_values.value().get();
+            auto y = y_values.value().get();
+            qInfo() << "ENTRAAAAA";
+            std::vector<Eigen::Vector2f> path; path.reserve(x.size());
+            for (auto &&[x, y] : iter::zip(x, y))
+            {
+                if(isnan(x) or isnan(y))
+                    return;
+                path.push_back(Eigen::Vector2f(x, y));
+            }
+            qInfo() << "ENTRAAAAA";
+            std::cout << path[0] << std::endl;
+
+            path_buffer.put(std::move(path));
+            auto t_x = G->get_attrib_by_name<path_target_x_att>(node.value()); //
+            auto t_y = G->get_attrib_by_name<path_target_y_att>(node.value());
+
+            if(t_x.has_value() and t_y.has_value() and !isnan(t_x.value()) and !isnan(t_y.value()))
+                current_target = Eigen::Vector2f(t_x.value(), t_y.value());
+
+            auto cyclic = G->get_attrib_by_name<path_is_cyclic_att>(node.value()); //
+            robot_is_active = true;
+            }
+//            }
+
+    }        
+    
     if(id == interacting_person_id)
     {
         if(auto person_node = G->get_node(id); person_node.has_value())
@@ -581,19 +619,25 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
     {
         if( auto node = G->get_node(id); node.has_value())
         {
+            path_id = id;
+            qInfo() << "ENTRAAAAA";
 //            if(auto intention_node = G->get_node(plan_node_id); intention_node.has_value())
 //            {
 //                qInfo() << __FUNCTION__ << "HAY NODO INTENCIÓN";
                 auto x_values = G->get_attrib_by_name<path_x_values_att>(node.value());
                 auto y_values = G->get_attrib_by_name<path_y_values_att>(node.value());
                 auto is_cyclic_o = G->get_attrib_by_name<path_is_cyclic_att>(node.value());
+                qInfo() << "ENTRAAAAA";
                 if(is_cyclic_o.has_value())
                     is_cyclic.store(is_cyclic_o.value());
                 else is_cyclic.store(false);
+                qInfo() << "ENTRAAAAA";
                 if(x_values.has_value() and y_values.has_value())
                 {
+                    qInfo() << "ENTRAAAAA";
                     auto x = x_values.value().get();
                     auto y = y_values.value().get();
+                    qInfo() << "ENTRAAAAA";
                     std::vector<Eigen::Vector2f> path; path.reserve(x.size());
                     for (auto &&[x, y] : iter::zip(x, y))
                     {
@@ -601,7 +645,8 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
                             return;
                         path.push_back(Eigen::Vector2f(x, y));
                     }
-
+                    qInfo() << "ENTRAAAAA";
+                    std::cout << path[0] << std::endl;
 
                     path_buffer.put(std::move(path));
                     auto t_x = G->get_attrib_by_name<path_target_x_att>(node.value()); //
