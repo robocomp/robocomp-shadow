@@ -1,0 +1,9 @@
+Component follow_metrics_agent
+{
+    Communications
+    {
+    };
+    language python;
+    options dsr;
+};
+
