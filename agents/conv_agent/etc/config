@@ -3,7 +3,7 @@ AgenteConversacional.Endpoints=tcp -p 16589
 
 # Proxies for required interfaces
 # ConversationProxy = conversation:tcp -h 158.49.247.154 -p 15664
-ConversationProxy = conversation:tcp -h 192.168.3.15 -p 15664
+ConversationProxy = conversation:tcp -h localhost -p 15664
 
 agent_id = 569 # Change id
 agent_name = conversationalAgent

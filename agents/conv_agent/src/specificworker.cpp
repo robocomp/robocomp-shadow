@@ -507,9 +507,10 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
                     }
                     else
                     {
-                    if(first_follow)
-                        this->conversation_proxy->sayHi(interest_person_name, "person");
-                    this->conversation_proxy->listenToHuman();
+                        if(first_follow)
+                            this->conversation_proxy->sayHi(interest_person_name, "person");
+                        this->conversation_proxy->listenToHuman();
+                        first_follow = false;
                     }
 
                 }
@@ -585,6 +586,7 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
                 cout << "Seguir" << endl;
                 this->conversation_proxy->following(interest_person_name, "person");
                 // stop_mission();
+                first_follow = false;
                 create_ask_for_follow_plan();
                 start_mission(0);
                 break;
@@ -622,6 +624,7 @@ void SpecificWorker::AgenteConversacional_asynchronousIntentionReceiver(int inte
                             // Stop current mission
                             stop_mission();
                             create_ask_for_stop_following_plan();
+                            first_follow = false;
                             start_mission(1);
                         }   
                         else
