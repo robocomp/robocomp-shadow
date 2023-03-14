@@ -34,8 +34,8 @@ FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior AprilTagsServer CameraRGBDSimple HumanCameraBody JointMotorSimple RealSenseFaceID)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior AprilTagsServer CameraRGBDSimple HumanCameraBody JointMotorSimple RealSenseFaceID)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple EyeControl HumanCameraBody JointMotorSimple)
+ROBOCOMP_ICE_TO_SRC( CommonBehavior CameraRGBDSimple EyeControl HumanCameraBody JointMotorSimple)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 QT_WRAP_UI( UI_HEADERS mainUI.ui )

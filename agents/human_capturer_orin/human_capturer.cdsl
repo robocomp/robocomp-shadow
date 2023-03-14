@@ -1,14 +1,13 @@
 import "HumanCameraBody.idsl";
 import "CameraRGBDSimple.idsl";
 import "JointMotorSimple.idsl";
-import "RealSenseFaceID.idsl";
-import "AprilTagsServer.idsl";
+import "EyeControl.idsl";
 
 Component human_capturer
 {
     Communications
     {
-        requires HumanCameraBody, CameraRGBDSimple, JointMotorSimple, RealSenseFaceID, AprilTagsServer;
+        requires HumanCameraBody, CameraRGBDSimple, JointMotorSimple, EyeControl;
     };
     language Cpp11;
     gui Qt(QMainWindow);
