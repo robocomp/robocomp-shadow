@@ -31,18 +31,17 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <AprilTagsServer.h>
 #include <CameraRGBDSimple.h>
+#include <EyeControl.h>
 #include <HumanCameraBody.h>
 #include <JointMotorSimple.h>
-#include <RealSenseFaceID.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompAprilTagsServer::AprilTagsServerPrxPtr,RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompHumanCameraBody::HumanCameraBodyPrxPtr,RoboCompJointMotorSimple::JointMotorSimplePrxPtr,RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompEyeControl::EyeControlPrxPtr,RoboCompHumanCameraBody::HumanCameraBodyPrxPtr,RoboCompJointMotorSimple::JointMotorSimplePrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -58,11 +57,10 @@ public:
 	QMutex *mutex;
 
 
-	RoboCompAprilTagsServer::AprilTagsServerPrxPtr apriltagsserver_proxy;
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
+	RoboCompEyeControl::EyeControlPrxPtr eyecontrol_proxy;
 	RoboCompHumanCameraBody::HumanCameraBodyPrxPtr humancamerabody_proxy;
 	RoboCompJointMotorSimple::JointMotorSimplePrxPtr jointmotorsimple_proxy;
-	RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr realsensefaceid_proxy;
 
 
 protected:

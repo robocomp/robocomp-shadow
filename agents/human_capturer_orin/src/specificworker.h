@@ -145,7 +145,7 @@ class SpecificWorker : public GenericWorker
         QCPGraph *err_img, *err_dist;
 
         // Functions
-        std::optional<float> get_servo_pos_from_graph();
+        std::optional<float> get_servo_pos();
         std::vector<PersonData> build_local_people_data(const RoboCompHumanCameraBody::PeopleData &people_data_);
         double correlation(cv::Mat &image_1, cv::Mat &image_2);
         std::optional<std::tuple<cv::Point3f, cv::Point3f, cv::Point2i>>
