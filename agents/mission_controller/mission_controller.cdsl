@@ -1,7 +1,10 @@
+import "EyeControl.idsl";
+
 Component mission_controller
 {
     Communications
     {
+    	requires EyeControl;
     };
     language Cpp11;
     gui Qt(QMainWindow);
