@@ -1,0 +1,33 @@
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+# Sources set
+SET ( SOURCES
+  specificworker.cpp
+  specificmonitor.cpp
+  #$ENV{ROBOCOMP}/Classes/local_grid/local_grid.cpp
+  /home/robocomp/robocomp/classes/local_grid/local_grid.cpp
+  qgraphicscellitem.cpp
+  custom_widget.h
+  $ENV{ROBOCOMP}/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
+  room.cpp
+)
+
+# Headers set
+SET ( HEADERS
+  specificworker.h
+  specificmonitor.h
+)
+
+# OpenMP
+FIND_PACKAGE(OpenMP)
+IF(OPENMP_FOUND)
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  MESSAGE(STATUS "Found OpenMP")
+ENDIF()
+
+INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
+set(CMAKE_CXX_STANDARD 20)
+add_definitions(-g  -fmax-errors=1 -std=c++2a -fno-char8_t)
+SET (LIBS ${LIBS}   dsr_api dsr_core dsr_gui  fastcdr fastrtps osgDB OpenThreads Eigen3::Eigen omp)
+
+

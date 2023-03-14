@@ -1,0 +1,12 @@
+import "CameraRGBDSimple.idsl";
+
+Component segmentation_test
+{
+    Communications
+    {
+        requires CameraRGBDSimple;
+    };
+    language python;
+
+};
+
