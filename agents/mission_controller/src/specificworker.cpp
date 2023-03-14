@@ -187,7 +187,7 @@ void SpecificWorker::initialize(int period)
         // Eigen format
         OctaveFormat = Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ";\n", "", "", "[", "]");
         CommaInitFmt = Eigen::IOFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", ", ", "", "", " << ", ";");
-
+        hide();
         this->Period = 100;
 		timer.start(Period);
 	}
@@ -649,6 +649,7 @@ void SpecificWorker::create_follow_people_mission(uint64_t person_id)
         {
             temporary_plan.insert_attribute("person_name",  QString::fromStdString(person_name.value()));
         }
+    
         custom_widget.textedit_current_plan->appendPlainText("-> New attribute 'person_name' in Follow People plan");
         if (target_scene != nullptr)
             widget_2d->scene.removeItem(target_scene);
@@ -907,7 +908,8 @@ void SpecificWorker::del_node_slot(std::uint64_t from)
     if(current_plan.get_action()=="FOLLOW_PEOPLE" || current_plan.get_action()=="TALKING_WITH_PEOPLE")
     {
         auto person_id = current_plan.get_attribute("person_node_id");
-        if(from == from_variant_to_uint64(person_id))
+        auto person_id_int = from_variant_to_uint64(person_id);
+        if(from == person_id_int)
         {
             DSR::Node new_virtual_node = DSR::Node::create<virtual_person_node_type>("lost_person");
             G->add_or_modify_attrib_local<person_name_att>(new_virtual_node, current_plan.get_attribute("person_name").toString().toStdString());
@@ -936,25 +938,27 @@ void SpecificWorker::del_node_slot(std::uint64_t from)
                 std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << G->get_node(robot_mind_name).value().id() << "->" << new_virtual_node.id()
                           << " type: has" << std::endl;
             }
-            // slot_stop_mission();
+
             slot_stop_mission();
-            create_searching_person_mission();
-            if(temporary_plan.is_complete())
-            {
-                qInfo() << "COMPLETED";
-                insert_intention_node(temporary_plan);
-                auto temp_plan = temporary_plan;
-                plan_buffer.put(std::move(temp_plan));
-                custom_widget.textedit_current_plan->verticalScrollBar()->setValue(custom_widget.textedit_current_plan->verticalScrollBar()->maximum());
-            }
-            if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
-            {
-                if(auto grid_activated_attr = G->get_attrib_by_name<grid_activated_att>(grid_node.value()); grid_activated_attr.has_value())
-                {
-                    G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
-                    G->update_node(grid_node.value());
-                }
-            }
+
+            // CODE TO MAKE ROBOT GO TO THE LAST PERSON POSITION
+            // create_searching_person_mission();
+            // if(temporary_plan.is_complete())
+            // {
+            //     qInfo() << "COMPLETED";
+            //     insert_intention_node(temporary_plan);
+            //     auto temp_plan = temporary_plan;
+            //     plan_buffer.put(std::move(temp_plan));
+            //     custom_widget.textedit_current_plan->verticalScrollBar()->setValue(custom_widget.textedit_current_plan->verticalScrollBar()->maximum());
+            // }
+            // if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
+            // {
+            //     if(auto grid_activated_attr = G->get_attrib_by_name<grid_activated_att>(grid_node.value()); grid_activated_attr.has_value())
+            //     {
+            //         G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
+            //         G->update_node(grid_node.value());
+            //     }
+            // }
         }
 
     }
@@ -985,6 +989,7 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
 
                 if (action_name == follow_action_name)
                 {
+                    
                     if(auto lost_person_in_mind = G->get_node("lost_person"); lost_person_in_mind.has_value())
                     {
                         if (auto has_edge = G->get_edge(G->get_node(robot_mind_name).value().id(),lost_person_in_mind.value().id(),"has");has_edge.has_value())
@@ -1083,7 +1088,6 @@ void SpecificWorker::add_or_assign_node_slot(const std::uint64_t id, const std::
                 path.reserve(x_values.size());
                 for(auto &&[p, q] : iter::zip(x_values,y_values))
                     path.emplace_back(Eigen::Vector2f(p, q));
-                qInfo() << path.size();
                 draw_path(path, &widget_2d->scene);
             }
         }
@@ -1152,7 +1156,6 @@ void SpecificWorker::insert_intention_node(const Plan &plan)
                     auto follow_plan = plan;
                     auto person_id_str = follow_plan.get_attribute("person_node_id");
                     auto person_id = from_variant_to_uint64(person_id_str);
-
                 }
 
             } else
@@ -1212,14 +1215,12 @@ void SpecificWorker::slot_start_mission()
 {
     if(not temporary_plan.is_valid())
     {
-        qInfo() << "###############################";
         slot_change_mission_selector(custom_widget.list_plan->currentIndex());
     }
 
 
     if(temporary_plan.is_complete())
     {
-        qInfo() << __FUNCTION__ << 3;
         insert_intention_node(temporary_plan);
         if(temporary_plan.is_action(Plan::Actions::FOLLOW_PATH))
             follow_path_copy_path_to_graph(temporary_plan.x_path, temporary_plan.y_path);
@@ -1254,6 +1255,7 @@ void SpecificWorker::slot_stop_mission()
             G->delete_edge(mind.value().id(),intention.value().id(), "has");
 
         G->delete_node(intention.value().id());
+        this->eyecontrol_proxy->setFollowedPerson(0);
 
     }
     else
@@ -1286,7 +1288,6 @@ void SpecificWorker::slot_cancel_mission()
 void SpecificWorker::slot_change_mission_selector(int index)
 {
     // remove current filling_plan and create a new one
-    qInfo() << __FUNCTION__ << "2";
     slot_stop_mission();
     // createa new current filling_plan of the index typw
     switch(index)

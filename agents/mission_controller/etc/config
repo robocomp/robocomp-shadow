@@ -1,5 +1,7 @@
 CommonBehavior.Endpoints=tcp -p 10117
 
+EyeControlProxy = eyecontrol:tcp -h 10.42.0.2 -p 12533
+
 agent_id = 17 # Change id
 agent_name = mission_controller
 tree_view = false
