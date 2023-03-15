@@ -33,7 +33,6 @@ from queue import Queue
 from dwa_optimizer import DWA_Optimizer
 from mask2former import Mask2Former
 from floodfill_segmentator import Floodfill_Segmentator
-from llist import dllist
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
