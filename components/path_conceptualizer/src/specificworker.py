@@ -81,7 +81,9 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
+
         loss, mask, alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
+        sys.exit()
         self.draw_frame(self.winname, frame, mask, alternatives, segmented_img, instance_img, self.mask2former.labels)
 
         self.control(curvatures)

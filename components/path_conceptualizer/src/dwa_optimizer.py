@@ -5,10 +5,12 @@ import cv2
 import time
 class DWA_Optimizer():
     def __init__(self):
-        self.samples = self.sample_points_2()
-        now = time.time()
+        #self.samples = self.sample_points_2()
+        self.trajectories = self.sample_points()
+
         # add to create masks the lane skeleton
-        self.masks = self.create_masks((384, 384), self.samples)
+        #self.masks = self.create_masks((384, 384), self.samples)
+        self.masks = self.create_masks_3d((384, 384), self.trajectories)
 
     def optimize(self, loss, mask_img, x0=None):
         losses = []
@@ -37,22 +39,23 @@ class DWA_Optimizer():
         return np.stack(np.meshgrid(curvature, arc, projection), -1).reshape(-1, 3)
 
     def sample_points(self):
-        adv_max_accel = 300
+        adv_max_accel = 100
         rot_max_accel = 1
         time_ahead = 1.5
-        step_along_arc = 200
-        advance_step = 100
-        rotation_step = 0.3
+        step_along_arc = 10
+        advance_step = 20
+        rotation_step = 0.2
         current_adv_speed = 0
         current_rot_speed = 0
         max_reachable_adv_speed = adv_max_accel * time_ahead
         max_reachable_rot_speed = rot_max_accel * time_ahead
 
-        points = []
+        trajectories = []
         num_advance_points = max_reachable_adv_speed * 2 // advance_step
         num_rotation_points = max_reachable_rot_speed * 2 // rotation_step
-        for v in np.linspace(-max_reachable_adv_speed, max_reachable_adv_speed, int(num_advance_points)):
+        for v in np.linspace(0, max_reachable_adv_speed, int(num_advance_points)):
             for w in np.linspace(-max_reachable_rot_speed, max_reachable_rot_speed, int(num_rotation_points)):
+                points = []
                 new_advance = current_adv_speed + v
                 new_rotation = -current_rot_speed + w
                 if abs(w) > 0.001:
@@ -61,15 +64,17 @@ class DWA_Optimizer():
                     for t in np.linspace(step_along_arc, arc_length, int(arc_length // step_along_arc)):
                         x = r - r * np.cos(t / r)
                         y = r * np.sin(t / r)
-                        points.append([x, y, t, t / r])
+                        points.append([x, y, v, w])
                 else:       # para evitar la división por cero
                     for t in np.linspace(step_along_arc, new_advance*time_ahead, int(new_advance*time_ahead/step_along_arc)):
                         points.append([0, t, t, 0])
+                if len(points) > 2:
+                    trajectories.append(points)
 
         #for x, y, z, u in points:
         #    print(f'{x:.2f}, {y:.2f}, {z:.2f}, {u:.2f}')
-        print(len(points), "points")
-        return points
+        print(len(trajectories), "trajectories")
+        return trajectories
 
     def create_masks(self, shape, samples):
         masks = []
@@ -151,5 +156,42 @@ class DWA_Optimizer():
 
             # cv2.imshow("mask", mask_poly)
             # cv2.waitKey(2)
+
+        return masks
+
+    def create_masks_3d(self, shape, trajectories):
+        # samples are tuples [x, y]
+        # we need to duplicate and translate the tuple
+
+        masks = []
+        height, width = shape[0:2]
+        max_curvature = 150
+        halfcurv = max_curvature // 2
+        height = height - 10  # margin from bottom margin
+        hwidth = width // 2
+        lane_width = 150
+        number_of_points = 5
+
+        for t in trajectories:
+            points = []
+            nt = np.array(t).copy()
+            print(nt.size)
+            nt[:, 0] += hwidth
+            nt[:, 1] = height - nt[:, 1]
+            ls = nt.copy()
+            rs = nt.copy()
+            ls[:, 0] -= 100
+            #ls[ls[:, 0] < 0] = 0
+            rs[:, 0] += 100
+            #rs[rs[:, 0] > width] = width
+            points.extend(ls.astype(int).tolist())
+            points.extend(rs[::-1].astype(int).tolist())  #invert order
+            mask_poly = np.zeros(shape, np.uint8)
+            cv2.fillPoly(mask_poly, pts=[np.array(points)[:, [0, 1]]], color=255)
+            masks.append(mask_poly)
+            #cv2.polylines(mask_poly, pts=[nt[:, [0, 1]].astype(int)], isClosed=False, color=255)
+
+            cv2.imshow("mask", mask_poly)
+            cv2.waitKey(100)
 
         return masks
