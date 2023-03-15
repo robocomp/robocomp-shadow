@@ -62,8 +62,13 @@ class DWA_Optimizer():
                     r = new_advance / new_rotation
                     arc_length = abs(new_rotation * time_ahead * r)
                     for t in np.linspace(step_along_arc, arc_length, int(arc_length // step_along_arc)):
-                        x = r - r * np.cos(t / r)
+                        #x = r - r * np.cos(t / r)
+                        x = r * np.cos(t / r) - (r-100)
+                        x = r * np.cos(t / r) + (r+100)
                         y = r * np.sin(t / r)
+
+
+
                         points.append([x, y, v, w])
                 else:       # para evitar la división por cero
                     for t in np.linspace(step_along_arc, new_advance*time_ahead, int(new_advance*time_ahead/step_along_arc)):
