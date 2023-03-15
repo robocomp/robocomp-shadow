@@ -7,13 +7,14 @@ class DWA_Optimizer():
     def __init__(self):
         self.samples = self.sample_points_2()
         now = time.time()
+        # add to create masks the lane skeleton
         self.masks = self.create_masks((384, 384), self.samples)
 
     def optimize(self, loss, mask_img, x0=None):
         losses = []
         alternative_masks = []
         curvatures = []
-        curvature_threshold = 20
+        curvature_threshold = 25
         for mask, sample in zip(self.masks, self.samples):
             losses.append(loss(mask_img, mask, sample))
 
@@ -26,10 +27,8 @@ class DWA_Optimizer():
                     #and arc > winner_arc * 0.5:
                 alternative_masks.append(self.masks[sorted_loss_index[i]])
                 curvatures.append(curvature)
-            # if len(alternative_masks) > 3:
-            #     break
 
-        return losses[sorted_loss_index[0]], self.masks[sorted_loss_index[0]], alternative_masks
+        return losses[sorted_loss_index[0]], self.masks[sorted_loss_index[0]], alternative_masks, curvatures
 
     def sample_points_2(self):
         curvature = np.arange(-38, 38, 3)
