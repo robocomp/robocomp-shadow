@@ -29,6 +29,7 @@ import traceback
 import cv2
 import time
 import threading
+from enum import Enum
 from queue import Queue
 from dwa_optimizer import DWA_Optimizer
 from mask2former import Mask2Former
@@ -59,6 +60,13 @@ class SpecificWorker(GenericWorker):
             cv2.namedWindow(self.winname)
             cv2.setMouseCallback(self.winname, self.mouse_click)
 
+            # signals
+            self.Human_Choices = Enum("Human_Choices", ['none', 'left', 'right', 'centre'])
+            self.human_choice = self.Human_Choices.none
+            self.ui.pushButton_left.clicked.connect(self.slot_button_left)
+            self.ui.pushButton_right.clicked.connect(self.slot_button_right)
+            self.ui.pushButton_centre.clicked. connect(self.slot_button_centre)
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
     def __del__(self):
@@ -73,11 +81,23 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
-        loss, mask, alternatives = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
+        loss, mask, alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
         self.draw_frame(self.winname, frame, mask, alternatives, segmented_img, instance_img, self.mask2former.labels)
+
+        self.control(curvatures)
+
         return True
 
 #########################################################################
+    def control(self, curvatures):
+        print(curvatures)
+        if self.human_choice == self.Human_Choices.left:
+            print(min(curvatures))
+        if self.human_choice == self.Human_Choices.right:
+            print(max(curvatures))
+        if self.human_choice == self.Human_Choices.centre:
+            print(min(curvatures, key=lambda x: abs(x)))
+
     def target_function_mask(self, mask_img, mask_poly, vector):
         result = cv2.bitwise_and(mask_img, mask_poly)
         lane_size = np.count_nonzero(mask_poly)
@@ -146,6 +166,14 @@ class SpecificWorker(GenericWorker):
             print("Clicked:", self.selected_point)
             print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
 
+    def slot_button_left(self):
+        self.human_choice = self.Human_Choices.left
+
+    def slot_button_right(self):
+        self.human_choice = self.Human_Choices.right
+
+    def slot_button_centre(self):
+        self.human_choice = self.Human_Choices.centre
 
     ########################################################################
     def startup_check(self):
