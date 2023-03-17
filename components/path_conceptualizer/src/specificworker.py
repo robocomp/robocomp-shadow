@@ -44,7 +44,29 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.dwa_optimizer = DWA_Optimizer()
+            # camera matrix
+            try:
+                image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
+                print("Camera specs:")
+                print(" width:", image.width)
+                print(" height:", image.height)
+                print(" depth", image.depth)
+                print(" focalx", image.focalx)
+                print(" focaly", image.focaly)
+                print(" period", image.period)
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Cannot connect to camera. Aborting")
+
+            rx = np.deg2rad(20)  # get from camera_proxy
+            cam_to_robot = self.make_matrix_rt(rx, 0, 0, 0, -15, 1580)  # converts points in camera CS to robot CS
+            robot_to_cam = np.linalg.inv(cam_to_robot)
+
+            # optimizer
+            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
+            # while cv2.waitKey(25) & 0xFF != ord('q'):
+            #     pass
+
             self.mask2former = Mask2Former()
             self.floodfill = Floodfill_Segmentator()
 
@@ -81,12 +103,10 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
-
-        loss, mask, alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
-        sys.exit()
-        self.draw_frame(self.winname, frame, mask, alternatives, segmented_img, instance_img, self.mask2former.labels)
-
-        self.control(curvatures)
+        alternatives = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
+        print(len(alternatives))
+        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels)
+        #self.control([])
 
         return True
 
@@ -100,12 +120,11 @@ class SpecificWorker(GenericWorker):
         if self.human_choice == self.Human_Choices.centre:
             print(min(curvatures, key=lambda x: abs(x)))
 
-    def target_function_mask(self, mask_img, mask_poly, vector):
+    def target_function_mask(self, mask_img, mask_poly):
         result = cv2.bitwise_and(mask_img, mask_poly)
         lane_size = np.count_nonzero(mask_poly)
         segmented_size = np.count_nonzero(mask_img)
         inliers = np.count_nonzero(result)
-        curvature, _, _ = vector
         loss = abs(segmented_size - lane_size) + 5 * abs(lane_size - inliers)  # + 300*abs(curvature)
         return float(loss)
 
@@ -123,16 +142,17 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e)
 
-    def draw_frame(self, winname, frame, mask_poly, alternatives, segmented_img, instance_img, labels):
+    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels):
         alpha = 0.8
-        color_lane = cv2.cvtColor(mask_poly, cv2.COLOR_GRAY2BGR)
-        color_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (0, 255, 0)  # green
-        frame_new = cv2.addWeighted(frame, alpha, color_lane, 1 - alpha, 0)
+        #color_lane = cv2.cvtColor(mask_poly, cv2.COLOR_GRAY2BGR)
+        # color_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (0, 255, 0)  # green
+        # frame_new = cv2.addWeighted(frame, alpha, color_lane, 1 - alpha, 0)
         # cv2.circle(frame_new, target, 5, (255, 0, 0), cv2.FILLED)
 
+        frame_new = frame.copy()
         for alt in alternatives:
             alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-            alt_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (255, 0, 0)  # green
+            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = (0, 0, 255)  # green
             frame_new = cv2.addWeighted(frame_new, alpha, alt_lane, 1 - alpha, 0)
 
         # compute rois for doors
@@ -162,6 +182,21 @@ class SpecificWorker(GenericWorker):
         cv2.imshow(winname, np.asarray(img))
         cv2.waitKey(2)
 
+    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
+        a = roll
+        b = pitch
+        g = heading
+        mat = np.array([[np.cos(b) * np.cos(g),
+                         (np.sin(a) * np.sin(b) * np.cos(g) + np.cos(a) * np.sin(g)), (np.sin(a) * np.sin(g) -
+                                                                                       np.cos(a) * np.sin(b) * np.cos(
+                        g)), x0],
+                        [-np.cos(b) * np.sin(g), (np.cos(a) * np.cos(g) - np.sin(a) * np.sin(b) * np.sin(g)),
+                         (np.sin(a) * np.cos(g) + np.cos(a) * np.sin(b) * np.sin(g)), y0],
+                        [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
+                        [0, 0, 0, 1]])
+        return mat
+
+    #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_point = (x, y)
