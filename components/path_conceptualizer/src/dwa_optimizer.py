@@ -4,33 +4,35 @@ import numpy as np
 import cv2
 import time
 class DWA_Optimizer():
-    def __init__(self):
-        #self.samples = self.sample_points_2()
-        self.trajectories = self.sample_points()
-
-        # add to create masks the lane skeleton
-        #self.masks = self.create_masks((384, 384), self.samples)
-        self.masks = self.create_masks_3d((384, 384), self.trajectories)
+    def __init__(self, camera_matrix, focalx, focaly, frame_shape):
+        trajectories, params = self.sample_points()
+        self.samples = params
+        # project polygons to image
+        self.projected_trajectories = self.project_polygons(trajectories, camera_matrix, focalx, focaly, frame_shape)
+        self.masks, polygons = self.create_masks_3d(frame_shape, self.projected_trajectories)
 
     def optimize(self, loss, mask_img, x0=None):
+        curvature_threshold = 4000  # range: 0 - 1.5
         losses = []
-        alternative_masks = []
-        curvatures = []
-        curvature_threshold = 25
-        for mask, sample in zip(self.masks, self.samples):
-            losses.append(loss(mask_img, mask, sample))
+        for mask in self.masks:
+            losses.append(loss(mask_img, mask))
 
         sorted_loss_index = np.argsort(losses)
-        winner_curvature, winner_arc, _ = self.samples[sorted_loss_index[0]]
-        curvatures.append(winner_curvature)
-        for i in range(1, len(sorted_loss_index)):
-            curvature, arc, _ = self.samples[sorted_loss_index[i]]
-            if np.all(abs(curvatures-curvature) > curvature_threshold):
-                    #and arc > winner_arc * 0.5:
-                alternative_masks.append(self.masks[sorted_loss_index[i]])
+        # cluster by curvatures
+        winner_arc, winner_curvature = self.samples[sorted_loss_index[0]]
+        # get the largest with curvature 0 as the first one
+        path_set = [self.masks[sorted_loss_index[0]]]
+        # initilize path_set with the first mask in the sorted list with curvature = 0 aka the first straight line
+        #path_set = [self.masks[np.where(np.array(self.samples)[sorted_loss_index][:, 1] == 0)[0][0]]]
+        curvatures = [winner_curvature]
+        for i in range(0, len(sorted_loss_index)):
+            arc, curvature = self.samples[sorted_loss_index[i]]
+            if np.all(abs(np.array(curvatures)-curvature) > curvature_threshold):
+                path_set.append(self.masks[sorted_loss_index[i]])
                 curvatures.append(curvature)
 
-        return losses[sorted_loss_index[0]], self.masks[sorted_loss_index[0]], alternative_masks, curvatures
+        #print("_------------------------------")
+        return path_set
 
     def sample_points_2(self):
         curvature = np.arange(-38, 38, 3)
@@ -39,44 +41,75 @@ class DWA_Optimizer():
         return np.stack(np.meshgrid(curvature, arc, projection), -1).reshape(-1, 3)
 
     def sample_points(self):
-        adv_max_accel = 100
-        rot_max_accel = 1
-        time_ahead = 1.5
+        adv_max_accel = 500
+        rot_max_accel = 0.6
+        time_ahead = 2.5
         step_along_arc = 10
-        advance_step = 20
-        rotation_step = 0.2
+        step_along_ang = 0.1
+        advance_step = 100
+        rotation_step = 0.15
         current_adv_speed = 0
         current_rot_speed = 0
         max_reachable_adv_speed = adv_max_accel * time_ahead
         max_reachable_rot_speed = rot_max_accel * time_ahead
+        robot_semi_width = 200
 
         trajectories = []
-        num_advance_points = max_reachable_adv_speed * 2 // advance_step
-        num_rotation_points = max_reachable_rot_speed * 2 // rotation_step
-        for v in np.linspace(0, max_reachable_adv_speed, int(num_advance_points)):
-            for w in np.linspace(-max_reachable_rot_speed, max_reachable_rot_speed, int(num_rotation_points)):
-                points = []
+        params = []
+        for v in np.arange(300, max_reachable_adv_speed, advance_step):
+            for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
                 new_rotation = -current_rot_speed + w
-                if abs(w) > 0.001:
+                arc_length = new_advance * time_ahead
+                if abs(w) > 0.1:
                     r = new_advance / new_rotation
-                    arc_length = abs(new_rotation * time_ahead * r)
-                    for t in np.linspace(step_along_arc, arc_length, int(arc_length // step_along_arc)):
-                        #x = r - r * np.cos(t / r)
-                        x = r * np.cos(t / r) - r
-                        y = r * np.sin(t / r)
-                        # now compute the arcs corresponding to r - 100 and r + 100
-                        points.append([x, y, v, w])
-                else:       # para evitar la división por cero
-                    for t in np.linspace(step_along_arc, new_advance*time_ahead, int(new_advance*time_ahead/step_along_arc)):
-                        points.append([0, t, t, 0])
-                if len(points) > 2:
-                    trajectories.append(points)
+                    ang_length = arc_length / r
 
-        #for x, y, z, u in points:
-        #    print(f'{x:.2f}, {y:.2f}, {z:.2f}, {u:.2f}')
+                    # now compute LEFT arcs corresponding to r - 100 and r + 100
+                    points = []
+                    for t in np.arange(0, ang_length, step_along_ang):
+                        xl = (r-robot_semi_width)*np.cos(t)-r
+                        yl = (r-robot_semi_width)*np.sin(t)
+                        points.append([xl, yl])
+                    ipoints = []
+                    for t in np.arange(0, ang_length, step_along_ang):     # inverse order to build a proper polygon
+                        xh = (r+robot_semi_width)*np.cos(t)-r
+                        yh = (r+robot_semi_width)*np.sin(t)
+                        ipoints.append([xh, yh])
+                    ipoints.reverse()
+                    if len(points) > 2 and len(ipoints) > 2:
+                        points.extend(ipoints)
+                        trajectories.append(points)
+                        params.append([new_advance, r])
+
+                    # now compute RIGHT arcs corresponding to r - 100 and r + 100
+                    points = []
+                    for t in np.arange(0, ang_length, step_along_ang):
+                        xl = r - (r-robot_semi_width) * np.cos(t)
+                        yl = (r-robot_semi_width) * np.sin(t)
+                        points.append([xl, yl])
+                    ipoints = []
+                    for t in np.arange(0, ang_length, step_along_ang):  # inverse order to build a proper polygon
+                        xh = r - (r+robot_semi_width) * np.cos(t)
+                        yh = (r+robot_semi_width) * np.sin(t)
+                        ipoints.append([xh, yh])
+                    ipoints.reverse()
+                    if len(points) > 2 and len(ipoints) > 2:
+                        points.extend(ipoints)
+                        trajectories.append(points)
+                        params.append([new_advance, -r])
+
+            else:       # avoid division by zero
+                    points = []
+                    points.append([-robot_semi_width, 0])
+                    points.append([-robot_semi_width, arc_length])
+                    points.append([robot_semi_width, arc_length])
+                    points.append([robot_semi_width, 0])
+                    trajectories.append(points)
+                    params.append([new_advance, max_reachable_adv_speed * 10])
+
         print(len(trajectories), "trajectories")
-        return trajectories
+        return trajectories, params
 
     def create_masks(self, shape, samples):
         masks = []
@@ -162,38 +195,39 @@ class DWA_Optimizer():
         return masks
 
     def create_masks_3d(self, shape, trajectories):
-        # samples are tuples [x, y]
-        # we need to duplicate and translate the tuple
-
         masks = []
-        height, width = shape[0:2]
-        max_curvature = 150
-        halfcurv = max_curvature // 2
-        height = height - 10  # margin from bottom margin
-        hwidth = width // 2
-        lane_width = 150
-        number_of_points = 5
-
-        for t in trajectories:
-            points = []
+        height, width, _ = shape
+        for t in trajectories:  # [xl,yl]
             nt = np.array(t).copy()
-            print(nt.size)
-            nt[:, 0] += hwidth
-            nt[:, 1] = height - nt[:, 1]
-            ls = nt.copy()
-            rs = nt.copy()
-            ls[:, 0] -= 100
-            #ls[ls[:, 0] < 0] = 0
-            rs[:, 0] += 100
-            #rs[rs[:, 0] > width] = width
-            points.extend(ls.astype(int).tolist())
-            points.extend(rs[::-1].astype(int).tolist())  #invert order
-            mask_poly = np.zeros(shape, np.uint8)
-            cv2.fillPoly(mask_poly, pts=[np.array(points)[:, [0, 1]]], color=255)
+            # nt[:, 0] += hwidth          # center in image
+            # nt[:, 1] = height - nt[:, 1]
+            mask_poly = np.zeros((shape[0], shape[1]), np.uint8)
+            cv2.fillPoly(mask_poly, pts=[nt.astype(int)], color=255)
             masks.append(mask_poly)
-            #cv2.polylines(mask_poly, pts=[nt[:, [0, 1]].astype(int)], isClosed=False, color=255)
+            #cv2.polylines(mask_poly, pts=[nt.astype(int)], isClosed=True, color=255)
+            #cv2.imshow("mask", mask_poly)
+            #cv2.waitKey(200)
+        return masks, trajectories
 
-            cv2.imshow("mask", mask_poly)
-            cv2.waitKey(100)
+    def project_polygons(self, polygons, mat, focalx, focaly, rgb_shape):
 
-        return masks
+        # get 3D points in robot CS, transform to camera CS and project with projection equations
+        # transform to camera CS
+        frame_width, frame_height, _ = rgb_shape
+        projected_polygons = []
+        for po in polygons:
+            extra_cols = np.array([np.zeros(len(po)), np.ones(len(po))]).transpose()
+            npo = np.array(po)
+            npo = np.append(npo, extra_cols, axis=1).transpose()
+            cam_poly = mat.dot(npo).transpose()    # n x 4
+            # project
+            xs = np.array([((cam_poly[:, 0] * focaly) / cam_poly[:, 1]) + (frame_width/2),
+                           ((cam_poly[:, 2] * -focalx) / cam_poly[:, 1]) + (frame_height/2)]).transpose()
+            #print(xs)
+            # print("--------------")
+            #focaly * tp.x() / tp.y() + rgb_width / 2,
+            #-rgb_focalx * tp.z() / tp.y() + rgb_height / 2
+            projected_polygons.append(xs)  # now in camera CS
+
+        return projected_polygons
+
