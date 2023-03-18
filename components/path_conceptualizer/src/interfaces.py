@@ -7,6 +7,10 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
+Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
+import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
+import RoboCompOmniRobot
 
 class ImgType(list):
     def __init__(self, iterable=list()):
@@ -103,6 +107,8 @@ class Requires:
         self.mprx={}
 
         self.CameraRGBDSimple = self.create_proxy("CameraRGBDSimpleProxy", RoboCompCameraRGBDSimple.CameraRGBDSimplePrx)
+
+        self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 
     def get_proxies_map(self):
         return self.mprx

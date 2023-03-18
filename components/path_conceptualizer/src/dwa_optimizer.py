@@ -2,7 +2,9 @@ import sys
 
 import numpy as np
 import cv2
-import time
+import matplotlib.pyplot as plt
+from hdbscan import HDBSCAN
+
 class DWA_Optimizer():
     def __init__(self, camera_matrix, focalx, focaly, frame_shape):
         trajectories, params = self.sample_points()
@@ -12,7 +14,7 @@ class DWA_Optimizer():
         self.masks, polygons = self.create_masks_3d(frame_shape, self.projected_trajectories)
 
     def optimize(self, loss, mask_img, x0=None):
-        curvature_threshold = 4000  # range: 0 - 1.5
+        curvature_threshold = 0.2  # range: -1, 1
         losses = []
         for mask in self.masks:
             losses.append(loss(mask_img, mask))
@@ -31,8 +33,7 @@ class DWA_Optimizer():
                 path_set.append(self.masks[sorted_loss_index[i]])
                 curvatures.append(curvature)
 
-        #print("_------------------------------")
-        return path_set
+        return path_set, curvatures
 
     def sample_points_2(self):
         curvature = np.arange(-38, 38, 3)
@@ -107,8 +108,13 @@ class DWA_Optimizer():
                     points.append([robot_semi_width, 0])
                     trajectories.append(points)
                     params.append([new_advance, max_reachable_adv_speed * 10])
+                    params.append([new_advance, -max_reachable_adv_speed * 10])
 
         print(len(trajectories), "trajectories")
+        params = np.array(params)
+        params[:, 1] = 100*np.reciprocal(np.array(params)[:, 1])
+        #plt.plot(params[:, 0])
+        #plt.show()
         return trajectories, params
 
     def create_masks(self, shape, samples):
