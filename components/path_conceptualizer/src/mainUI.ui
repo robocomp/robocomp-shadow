@@ -27,6 +27,9 @@
        <property name="text">
         <string>left</string>
        </property>
+       <property name="checkable">
+        <bool>false</bool>
+       </property>
       </widget>
      </item>
      <item>
@@ -34,12 +37,18 @@
        <property name="text">
         <string>centre</string>
        </property>
+       <property name="checkable">
+        <bool>false</bool>
+       </property>
       </widget>
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_right">
        <property name="text">
         <string>right</string>
+       </property>
+       <property name="checkable">
+        <bool>false</bool>
        </property>
       </widget>
      </item>

@@ -104,26 +104,28 @@ class SpecificWorker(GenericWorker):
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
         alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
-        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels)
-        self.control(curvatures)
+        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels, curvatures)
+        self.control(curvatures, self.dwa_optimizer.trajectories)
 
         return True
 
 #########################################################################
-    def control(self, curvatures):
+    def control(self, curvatures, trajectories):
+        # we need to choose a trajectory matching the UI choice
         if self.human_choice == self.Human_Choices.left:
-            print(min(curvatures))
-        if self.human_choice == self.Human_Choices.right:
-            print(max(curvatures))
-        if self.human_choice == self.Human_Choices.centre:
-            print(np.min(np.abs(curvatures)))
-            # send robot to the middle point in the selected polygon
-            target =
-        try:
-            self.omnirobot_proxy.setSpeedBase(side, adv, rot)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
+            print(f'{min(curvatures):.2f}')
+
+        # if self.human_choice == self.Human_Choices.right:
+        #     print(max(curvatures))
+        # if self.human_choice == self.Human_Choices.centre:
+        #     print(np.min(np.abs(curvatures)))
+        #     # send robot to the middle point in the selected polygon
+        #     target =
+        # try:
+        #     self.omnirobot_proxy.setSpeedBase(side, adv, rot)
+        # except Ice.Exception as e:
+        #     traceback.print_exc()
+        #     print(e)
 
     def target_function_mask(self, mask_img, mask_poly):
         result = cv2.bitwise_and(mask_img, mask_poly)
@@ -147,18 +149,35 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e)
 
-    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels):
+    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures):
         alpha = 0.8
         #color_lane = cv2.cvtColor(mask_poly, cv2.COLOR_GRAY2BGR)
         # color_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (0, 255, 0)  # green
         # frame_new = cv2.addWeighted(frame, alpha, color_lane, 1 - alpha, 0)
         # cv2.circle(frame_new, target, 5, (255, 0, 0), cv2.FILLED)
 
-        frame_new = frame.copy()
-        for alt in alternatives:
+        selected_index = None
+        if self.ui.pushButton_left.isDown():
+            selected_index = np.argmin(curvatures)
+        elif self.ui.pushButton_centre.isDown():
+            selected_index = np.argmin(np.abs(curvatures))  # closer to 0
+            print("centre", selected_index)
+        elif self.ui.pushButton_right.isDown():
+            selected_index = np.argmax(curvatures)
+        else:
+            selected_index = None
+
+        if selected_index is not None:
+            print(selected_index, len(alternatives), curvatures[selected_index], curvatures)
+
+        for s, alt in enumerate(alternatives):
             alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = (0, 0, 255)  # green
-            frame_new = cv2.addWeighted(frame_new, alpha, alt_lane, 1 - alpha, 0)
+            if s == selected_index:
+                color = (0, 0, 255)
+            else:
+                color = (100, 100, 100)
+            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+            frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
 
         # compute rois for doors
         # inst = instance_img['segments_info']
@@ -170,7 +189,7 @@ class SpecificWorker(GenericWorker):
         #     mask_23 = cv2.boundingRect(mask)
         #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
 
-        cv2.imshow(winname, frame_new)
+        cv2.imshow(winname, frame)
         cv2.waitKey(2)
 
     def draw_semantic_segmentation(self, winname, seg, color_image):
@@ -209,13 +228,16 @@ class SpecificWorker(GenericWorker):
             print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
 
     def slot_button_left(self):
-        self.human_choice = self.Human_Choices.left
+        #self.human_choice = self.Human_Choices.left
+        pass
 
     def slot_button_right(self):
-        self.human_choice = self.Human_Choices.right
+        #self.human_choice = self.Human_Choices.right
+        pass
 
     def slot_button_centre(self):
-        self.human_choice = self.Human_Choices.centre
+        #self.human_choice = self.Human_Choices.centre
+        pass
 
     ########################################################################
     def startup_check(self):
