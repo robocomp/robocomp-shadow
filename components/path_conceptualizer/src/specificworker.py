@@ -65,7 +65,7 @@ class SpecificWorker(GenericWorker):
             # optimizer
             self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
             # while cv2.waitKey(25) & 0xFF != ord('q'):
-            #     pass
+            #      pass
 
             self.mask2former = Mask2Former()
             self.floodfill = Floodfill_Segmentator()
@@ -103,22 +103,27 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
-        alternatives = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
-        print(len(alternatives))
+        alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
         self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels)
-        #self.control([])
+        self.control(curvatures)
 
         return True
 
 #########################################################################
     def control(self, curvatures):
-        print(curvatures)
         if self.human_choice == self.Human_Choices.left:
             print(min(curvatures))
         if self.human_choice == self.Human_Choices.right:
             print(max(curvatures))
         if self.human_choice == self.Human_Choices.centre:
-            print(min(curvatures, key=lambda x: abs(x)))
+            print(np.min(np.abs(curvatures)))
+            # send robot to the middle point in the selected polygon
+            target =
+        try:
+            self.omnirobot_proxy.setSpeedBase(side, adv, rot)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
 
     def target_function_mask(self, mask_img, mask_poly):
         result = cv2.bitwise_and(mask_img, mask_poly)
