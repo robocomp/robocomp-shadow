@@ -37,6 +37,91 @@ from floodfill_segmentator import Floodfill_Segmentator
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
+_COLORS = np.array(
+    [
+        0.000, 0.447, 0.741,
+        0.850, 0.325, 0.098,
+        0.929, 0.694, 0.125,
+        0.494, 0.184, 0.556,
+        0.466, 0.674, 0.188,
+        0.301, 0.745, 0.933,
+        0.635, 0.078, 0.184,
+        0.300, 0.300, 0.300,
+        0.600, 0.600, 0.600,
+        1.000, 0.000, 0.000,
+        1.000, 0.500, 0.000,
+        0.749, 0.749, 0.000,
+        0.000, 1.000, 0.000,
+        0.000, 0.000, 1.000,
+        0.667, 0.000, 1.000,
+        0.333, 0.333, 0.000,
+        0.333, 0.667, 0.000,
+        0.333, 1.000, 0.000,
+        0.667, 0.333, 0.000,
+        0.667, 0.667, 0.000,
+        0.667, 1.000, 0.000,
+        1.000, 0.333, 0.000,
+        1.000, 0.667, 0.000,
+        1.000, 1.000, 0.000,
+        0.000, 0.333, 0.500,
+        0.000, 0.667, 0.500,
+        0.000, 1.000, 0.500,
+        0.333, 0.000, 0.500,
+        0.333, 0.333, 0.500,
+        0.333, 0.667, 0.500,
+        0.333, 1.000, 0.500,
+        0.667, 0.000, 0.500,
+        0.667, 0.333, 0.500,
+        0.667, 0.667, 0.500,
+        0.667, 1.000, 0.500,
+        1.000, 0.000, 0.500,
+        1.000, 0.333, 0.500,
+        1.000, 0.667, 0.500,
+        1.000, 1.000, 0.500,
+        0.000, 0.333, 1.000,
+        0.000, 0.667, 1.000,
+        0.000, 1.000, 1.000,
+        0.333, 0.000, 1.000,
+        0.333, 0.333, 1.000,
+        0.333, 0.667, 1.000,
+        0.333, 1.000, 1.000,
+        0.667, 0.000, 1.000,
+        0.667, 0.333, 1.000,
+        0.667, 0.667, 1.000,
+        0.667, 1.000, 1.000,
+        1.000, 0.000, 1.000,
+        1.000, 0.333, 1.000,
+        1.000, 0.667, 1.000,
+        0.333, 0.000, 0.000,
+        0.500, 0.000, 0.000,
+        0.667, 0.000, 0.000,
+        0.833, 0.000, 0.000,
+        1.000, 0.000, 0.000,
+        0.000, 0.167, 0.000,
+        0.000, 0.333, 0.000,
+        0.000, 0.500, 0.000,
+        0.000, 0.667, 0.000,
+        0.000, 0.833, 0.000,
+        0.000, 1.000, 0.000,
+        0.000, 0.000, 0.167,
+        0.000, 0.000, 0.333,
+        0.000, 0.000, 0.500,
+        0.000, 0.000, 0.667,
+        0.000, 0.000, 0.833,
+        0.000, 0.000, 1.000,
+        0.000, 0.000, 0.000,
+        0.143, 0.143, 0.143,
+        0.286, 0.286, 0.286,
+        0.429, 0.429, 0.429,
+        0.571, 0.571, 0.571,
+        0.714, 0.714, 0.714,
+        0.857, 0.857, 0.857,
+        0.000, 0.447, 0.741,
+        0.314, 0.717, 0.741,
+        0.50, 0.5, 0
+    ]
+).astype(np.float32).reshape(-1, 3)
+
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -44,6 +129,10 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+            self.yolo_objects = None
+            self.segmented_img = None
+            self.target_object = None
+
             # camera matrix
             try:
                 image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
@@ -93,6 +182,18 @@ class SpecificWorker(GenericWorker):
             icon = QIcon(pixmap)
             self.ui.pushButton_right.setIcon(icon)
 
+            # yolo
+            try:
+                self.yolo_object_names = self.yoloobjects_proxy.getYoloObjectNames()
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e)
+
+            # bins
+            plusbins = np.geomspace(0.001, 1, 10)
+            minusbins = -np.geomspace(0.0001, 1, 10)
+            self.bins = np.append(minusbins[::-1], plusbins)  # compose both gemspaces from -1 to 1 with high density close to 0
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
     def __del__(self):
@@ -104,13 +205,20 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
-        self.segmented_img = segmented_img
-        #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
-        alternatives, curvatures, targets = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
-        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels,
-                        curvatures, targets)
+        # read frame
+        frame, mask_img, self.segmented_img, instance_img, self.yolo_objects = self.frame_queue.get()
+
+        # compute optimum path given a possible target object
+        alternatives, curvatures, targets = self.dwa_optimizer.optimize(mask_img=mask_img,
+                                                                        target_object=self.target_object)
+
+        # take control actions
         self.control(curvatures, targets)
+
+        # draw
+        self.draw_frame(self.winname, frame, alternatives, self.segmented_img, instance_img, self.mask2former.labels,
+                        curvatures, targets)
+        # self.draw_semantic_segmentation(self.winname, segmented_img, frame)
 
         return True
 
@@ -118,28 +226,19 @@ class SpecificWorker(GenericWorker):
     def control(self, curvatures, targets):
         # we need to assign curvatures to buttons
         self.selected_index = None
-        #bins = np.arange(-1, 1, 2/5)
-        plusbins = np.geomspace(0.001, 1, 10)
-        minusbins = -np.geomspace(0.0001, 1, 10)
-        bins = np.append(minusbins[::-1], plusbins)
-        digitized = np.digitize(curvatures, bins)//4
-        #print(bins, digitized, curvatures)
+        digitized = np.digitize(curvatures, self.bins)//4  # (10+10)/5
         for i, b in enumerate(self.buttons):
-            if i not in digitized:
-                b.setEnabled(False)
-            else:
-                b.setEnabled(True)
-                if b.isDown():
-                    self.selected_index = int(np.where(digitized == i)[0][0])
+            b.setEnabled(i in digitized)
+            if b.isDown():
+                self.selected_index = int(np.where(digitized == i)[0][0])
 
+        adv = 0
+        rot = 0
         if self.selected_index is not None:
             current_target = targets[self.selected_index]
             target = current_target[len(current_target)//2]
             rot = np.arctan2(target[0], target[1])
             adv = 300
-        else:
-            adv = 0
-            rot = 0
         try:
             self.omnirobot_proxy.setSpeedBase(0, adv, rot)
             print("Control", adv, rot)
@@ -147,13 +246,38 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e)
 
-    def target_function_mask(self, mask_img, mask_poly):
-        result = cv2.bitwise_and(mask_img, mask_poly)
-        lane_size = np.count_nonzero(mask_poly)
-        segmented_size = np.count_nonzero(mask_img)
-        inliers = np.count_nonzero(result)
-        loss = abs(segmented_size - lane_size) + 5 * abs(lane_size - inliers)  # + 300*abs(curvature)
-        return float(loss)
+    def read_yolo_objects(self):
+        yolo_objects = self.yoloobjects_proxy.getYoloObjects()
+        try:
+            yolo_objects = self.yoloobjects_proxy.getYoloObjects()
+            # for obj in yolo_objects.objects:
+            #     print(self.yolo_object_names[obj.type])
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+        return yolo_objects.objects
+
+    def draw_yolo_boxes(self, img, yolo_objects, class_names):
+        for box in yolo_objects:
+            x0 = box.left
+            y0 = box.top
+            x1 = box.left
+            y1 = box.bot
+            color = (_COLORS[box.type] * 255).astype(np.uint8).tolist()
+            text = '{} - {:.1f}%'.format(class_names[box.type], box.score * 100)
+            txt_color = (0, 0, 0) if np.mean(_COLORS[box.type]) > 0.5 else (255, 255, 255)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+            txt_bk_color = (_COLORS[box.type] * 255 * 0.7).astype(np.uint8).tolist()
+            cv2.rectangle(
+                img,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                txt_bk_color,
+                -1
+            )
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
 
     def thread_frame_capture(self, queue, segmentator):
         while True:
@@ -163,7 +287,10 @@ class SpecificWorker(GenericWorker):
                 frame = cv2.resize(frame, (384, 384))
                 mask_img, segmented_img, instance_img = segmentator.process(frame)
                 #mask_img, segmented_img, instance_img = self.mask2former.process(frame)
-                queue.put([frame, mask_img, segmented_img, instance_img])
+                yolo_objects = self.read_yolo_objects()
+                if yolo_objects:
+                    self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
+                queue.put([frame, mask_img, segmented_img, instance_img, yolo_objects])
                 time.sleep(0.050)
             except Ice.Exception as e:
                 traceback.print_exc()
@@ -231,9 +358,16 @@ class SpecificWorker(GenericWorker):
     #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            self.selected_point = (x, y)
-            print("Clicked:", self.selected_point)
-            print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
+            point = (x, y)
+            #print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
+
+            # check if clicked point on yolo object. If so, set it as the new target object
+            for b in self.yolo_objects:
+                if x >= b.left and x < b.right and y >= b.top and y < b.bot:
+                    self.selected_object = b
+                    print("Selected object", self.yolo_object_names[self.selected_object.type])
+                else:
+                    self.selected_object = None
 
     ########################################################################
     def startup_check(self):

@@ -1,6 +1,8 @@
 # Proxies for required interfaces
 CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
+YoloObjectsProxy = yoloobjects:tcp -h localhost -p 10054
+
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
