@@ -118,39 +118,34 @@ class SpecificWorker(GenericWorker):
     def control(self, curvatures, targets):
         # we need to assign curvatures to buttons
         self.selected_index = None
-        bins = np.arange(-1, 1, 2/5)
-        digitized = np.digitize(curvatures, bins)
-        print(bins, digitized, curvatures)
+        #bins = np.arange(-1, 1, 2/5)
+        plusbins = np.geomspace(0.001, 1, 10)
+        minusbins = -np.geomspace(0.0001, 1, 10)
+        bins = np.append(minusbins[::-1], plusbins)
+        digitized = np.digitize(curvatures, bins)//4
+        #print(bins, digitized, curvatures)
         for i, b in enumerate(self.buttons):
             if i not in digitized:
                 b.setEnabled(False)
             else:
                 b.setEnabled(True)
                 if b.isDown():
-                    self.selected_index = int(curvatures[digitized == i][0])
-
-        # if self.ui.pushButton_left.isDown():
-        #     self.selected_index = np.argmax(curvatures)
-        # elif self.ui.pushButton_leftleft.isDown():
-        #         self.selected_index = np.argmax(curvatures)
-        # elif self.ui.pushButton_centre.isDown():
-        #     self.selected_index = np.argmin(np.abs(curvatures))  # closer to 0
-        # elif self.ui.pushButton_right.isDown():
-        #     self.selected_index = np.argmin(curvatures)
-        # else:
-        #     self.selected_index = None
+                    self.selected_index = int(np.where(digitized == i)[0][0])
 
         if self.selected_index is not None:
             current_target = targets[self.selected_index]
             target = current_target[len(current_target)//2]
             rot = np.arctan2(target[0], target[1])
-            adv = np.linalg.norm(target)
-            try:
-                #self.omnirobot_proxy.setSpeedBase(0, adv, rot)
-                print("Control", adv, rot)
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e)
+            adv = 300
+        else:
+            adv = 0
+            rot = 0
+        try:
+            self.omnirobot_proxy.setSpeedBase(0, adv, rot)
+            print("Control", adv, rot)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
 
     def target_function_mask(self, mask_img, mask_poly):
         result = cv2.bitwise_and(mask_img, mask_poly)
@@ -239,18 +234,6 @@ class SpecificWorker(GenericWorker):
             self.selected_point = (x, y)
             print("Clicked:", self.selected_point)
             print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
-
-    def slot_button_left(self):
-        #self.human_choice = self.Human_Choices.left
-        pass
-
-    def slot_button_right(self):
-        #self.human_choice = self.Human_Choices.right
-        pass
-
-    def slot_button_centre(self):
-        #self.human_choice = self.Human_Choices.centre
-        pass
 
     ########################################################################
     def startup_check(self):

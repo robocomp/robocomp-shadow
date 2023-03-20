@@ -19,7 +19,7 @@ class DWA_Optimizer():
         self.masks = self.create_masks_3d(frame_shape, projected_polygons)
 
     def optimize(self, loss, mask_img, x0=None):
-        curvature_threshold = 0.03  # range: -1, 1
+        curvature_threshold = 0.025  # range: -1, 1
         losses = []
         for mask in self.masks:
             losses.append(loss(mask_img, mask))
@@ -91,7 +91,7 @@ class DWA_Optimizer():
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
-                        params.append([new_advance, r])
+                        params.append([new_advance, -r])
                         targets.append(central)
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
@@ -116,7 +116,7 @@ class DWA_Optimizer():
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
-                        params.append([new_advance, -r])
+                        params.append([new_advance, r])
                         targets.append(central)
 
             else:       # avoid division by zero
