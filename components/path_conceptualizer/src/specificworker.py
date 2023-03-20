@@ -83,11 +83,15 @@ class SpecificWorker(GenericWorker):
             cv2.setMouseCallback(self.winname, self.mouse_click)
 
             # signals
-            self.Human_Choices = Enum("Human_Choices", ['none', 'left', 'right', 'centre'])
-            self.human_choice = self.Human_Choices.none
-            self.ui.pushButton_left.clicked.connect(self.slot_button_left)
-            self.ui.pushButton_right.clicked.connect(self.slot_button_right)
-            self.ui.pushButton_centre.clicked. connect(self.slot_button_centre)
+            self.selected_index = None
+            self.buttons = [self.ui.pushButton_leftleft, self.ui.pushButton_left, self.ui.pushButton_centre,
+                            self.ui.pushButton_right, self.ui.pushButton_rightright]
+            pixmap = QPixmap("icons/vector-simple-arrow-sign-icon.png")
+            icon = QIcon(pixmap)
+            self.ui.pushButton_centre.setIcon(icon)
+            pixmap = QPixmap("icons/th.png")
+            icon = QIcon(pixmap)
+            self.ui.pushButton_right.setIcon(icon)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -103,29 +107,50 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, segmented_img, instance_img = self.frame_queue.get()
         self.segmented_img = segmented_img
         #self.draw_semantic_segmentation(self.winname, segmented_img, frame)
-        alternatives, curvatures = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
-        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels, curvatures)
-        self.control(curvatures, self.dwa_optimizer.trajectories)
+        alternatives, curvatures, targets = self.dwa_optimizer.optimize(loss=self.target_function_mask, mask_img=mask_img)
+        self.draw_frame(self.winname, frame, alternatives, segmented_img, instance_img, self.mask2former.labels,
+                        curvatures, targets)
+        self.control(curvatures, targets)
 
         return True
 
 #########################################################################
-    def control(self, curvatures, trajectories):
-        # we need to choose a trajectory matching the UI choice
-        if self.human_choice == self.Human_Choices.left:
-            print(f'{min(curvatures):.2f}')
+    def control(self, curvatures, targets):
+        # we need to assign curvatures to buttons
+        self.selected_index = None
+        bins = np.arange(-1, 1, 2/5)
+        digitized = np.digitize(curvatures, bins)
+        print(bins, digitized, curvatures)
+        for i, b in enumerate(self.buttons):
+            if i not in digitized:
+                b.setEnabled(False)
+            else:
+                b.setEnabled(True)
+                if b.isDown():
+                    self.selected_index = int(curvatures[digitized == i][0])
 
-        # if self.human_choice == self.Human_Choices.right:
-        #     print(max(curvatures))
-        # if self.human_choice == self.Human_Choices.centre:
-        #     print(np.min(np.abs(curvatures)))
-        #     # send robot to the middle point in the selected polygon
-        #     target =
-        # try:
-        #     self.omnirobot_proxy.setSpeedBase(side, adv, rot)
-        # except Ice.Exception as e:
-        #     traceback.print_exc()
-        #     print(e)
+        # if self.ui.pushButton_left.isDown():
+        #     self.selected_index = np.argmax(curvatures)
+        # elif self.ui.pushButton_leftleft.isDown():
+        #         self.selected_index = np.argmax(curvatures)
+        # elif self.ui.pushButton_centre.isDown():
+        #     self.selected_index = np.argmin(np.abs(curvatures))  # closer to 0
+        # elif self.ui.pushButton_right.isDown():
+        #     self.selected_index = np.argmin(curvatures)
+        # else:
+        #     self.selected_index = None
+
+        if self.selected_index is not None:
+            current_target = targets[self.selected_index]
+            target = current_target[len(current_target)//2]
+            rot = np.arctan2(target[0], target[1])
+            adv = np.linalg.norm(target)
+            try:
+                #self.omnirobot_proxy.setSpeedBase(0, adv, rot)
+                print("Control", adv, rot)
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e)
 
     def target_function_mask(self, mask_img, mask_poly):
         result = cv2.bitwise_and(mask_img, mask_poly)
@@ -149,35 +174,23 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e)
 
-    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures):
+    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures, targets):
         alpha = 0.8
-        #color_lane = cv2.cvtColor(mask_poly, cv2.COLOR_GRAY2BGR)
-        # color_lane[np.all(color_lane == (255, 255, 255), axis=-1)] = (0, 255, 0)  # green
-        # frame_new = cv2.addWeighted(frame, alpha, color_lane, 1 - alpha, 0)
-        # cv2.circle(frame_new, target, 5, (255, 0, 0), cv2.FILLED)
-
-        selected_index = None
-        if self.ui.pushButton_left.isDown():
-            selected_index = np.argmin(curvatures)
-        elif self.ui.pushButton_centre.isDown():
-            selected_index = np.argmin(np.abs(curvatures))  # closer to 0
-            print("centre", selected_index)
-        elif self.ui.pushButton_right.isDown():
-            selected_index = np.argmax(curvatures)
-        else:
-            selected_index = None
-
-        if selected_index is not None:
-            print(selected_index, len(alternatives), curvatures[selected_index], curvatures)
 
         for s, alt in enumerate(alternatives):
             alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-            if s == selected_index:
+            if s == self.selected_index:
                 color = (0, 0, 255)
             else:
                 color = (100, 100, 100)
             alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
             frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
+
+        if self.selected_index is not None:
+            target = np.array(targets[self.selected_index])
+            points = self.dwa_optimizer.project_polygons([target])[0]
+            for p in points:
+                cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
 
         # compute rois for doors
         # inst = instance_img['segments_info']

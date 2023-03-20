@@ -3,44 +3,54 @@ import sys
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-from hdbscan import HDBSCAN
 
 class DWA_Optimizer():
     def __init__(self, camera_matrix, focalx, focaly, frame_shape):
-        polygons, params = self.sample_points()
-        self.params = params
-        self.trajectories = polygons
-        # project polygons to image
-        projected_polygons = self.project_polygons(polygons, camera_matrix, focalx, focaly, frame_shape)
+        polygons, params, targets = self.sample_points()
+        self.params = np.array(params)
+        self.polygons = polygons
+        self.targets = targets
+        self.camera_matrix = camera_matrix
+        self.focalx = focalx
+        self.focaly = focaly
+        self.frame_shape = frame_shape
+        # project polygons on image
+        projected_polygons = self.project_polygons(polygons)
         self.masks = self.create_masks_3d(frame_shape, projected_polygons)
 
     def optimize(self, loss, mask_img, x0=None):
-        curvature_threshold = 0  # range: -1, 1
+        curvature_threshold = 0.03  # range: -1, 1
         losses = []
         for mask in self.masks:
             losses.append(loss(mask_img, mask))
-
         sorted_loss_index = np.argsort(losses)
-        # cluster by curvatures
-        winner_arc, winner_curvature = self.params[sorted_loss_index[0]]
-        path_set = [self.masks[sorted_loss_index[0]]]
-        curvatures = [winner_curvature]
-        for i in range(1, len(sorted_loss_index)):
-            arc, curvature = self.params[sorted_loss_index[i]]
-            if np.all(abs(np.array(curvatures)-curvature) > curvature_threshold):   # next one is separated by thresh.
-                path_set.append(self.masks[sorted_loss_index[i]])
-                curvatures.append(curvature)
 
-        return path_set, curvatures
+        # initialize path_set with the first mask in the sorted list with curvature = 0 aka the first straight line
+        index = int(np.argwhere(self.params[sorted_loss_index][:, 1] == 0)[0][0])
+        #print(index, self.params[sorted_loss_index[index]])
+        path_set = [self.masks[sorted_loss_index[index]]]
+        #path_set = [self.masks[sorted_loss_index[0]]]
+        #curvatures = np.array([winner_curvature])
+        curvatures = np.array([self.params[sorted_loss_index[index]][1]])
+        selected_targets = [self.targets[sorted_loss_index[index]]]
+        #print(index, self.params[sorted_loss_index])
+        for i in sorted_loss_index:
+            arc, curvature = self.params[i]
+            if np.all(np.abs(curvatures-curvature) > curvature_threshold) :   # next one is separated by thresh.
+                path_set.append(self.masks[i])
+                curvatures = np.append(curvatures, curvature)
+                selected_targets.append(self.targets[i])
+
+        #print("curvatures", len(curvatures), curvatures)
+        return path_set, curvatures, selected_targets
 
     def sample_points(self):
-        adv_max_accel = 500
-        rot_max_accel = 0.3
+        adv_max_accel = 600
+        rot_max_accel = 0.2
         time_ahead = 2.5
-        step_along_arc = 10
-        step_along_ang = 0.1
+        step_along_ang = 0.05
         advance_step = 100
-        rotation_step = 0.15
+        rotation_step = 0.1
         current_adv_speed = 0
         current_rot_speed = 0
         max_reachable_adv_speed = adv_max_accel * time_ahead
@@ -49,17 +59,19 @@ class DWA_Optimizer():
 
         trajectories = []
         params = []
+        targets = []
         for v in np.arange(500, max_reachable_adv_speed, advance_step):
             for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
                 new_rotation = -current_rot_speed + w
                 arc_length = new_advance * time_ahead
-                if abs(w) > 0.1:
+                if w > 0:
                     r = new_advance / new_rotation
                     ang_length = arc_length / r
 
-                    # now compute LEFT arcs corresponding to r - 100 and r + 100
+                    # compute LEFT arcs corresponding to r - 100 and r + 100
                     points = []
+                    central = []
                     for t in np.arange(0, ang_length, step_along_ang):
                         xl = (r-robot_semi_width)*np.cos(t)-r
                         yl = (r-robot_semi_width)*np.sin(t)
@@ -70,13 +82,21 @@ class DWA_Optimizer():
                         yh = (r+robot_semi_width)*np.sin(t)
                         ipoints.append([xh, yh])
                     ipoints.reverse()
+                    # compute central line
+                    for t in np.arange(0, ang_length, step_along_ang):
+                        xl = r*np.cos(t)-r
+                        yl = r*np.sin(t)
+                        central.append([xl, yl])
+                    # add to trajectories
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, r])
+                        targets.append(central)
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
                     points = []
+                    central = []
                     for t in np.arange(0, ang_length, step_along_ang):
                         xl = r - (r-robot_semi_width) * np.cos(t)
                         yl = (r-robot_semi_width) * np.sin(t)
@@ -87,27 +107,40 @@ class DWA_Optimizer():
                         yh = (r+robot_semi_width) * np.sin(t)
                         ipoints.append([xh, yh])
                     ipoints.reverse()
+                    # compute central line
+                    for t in np.arange(0, ang_length, step_along_ang):
+                        xl = r - r*np.cos(t)
+                        yl = r*np.sin(t)
+                        central.append([xl, yl])
+                    # add to trajectories
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, -r])
+                        targets.append(central)
 
             else:       # avoid division by zero
                     points = []
+                    central = []
                     points.append([-robot_semi_width, 0])
                     points.append([-robot_semi_width, arc_length])
                     points.append([robot_semi_width, arc_length])
                     points.append([robot_semi_width, 0])
                     trajectories.append(points)
-                    params.append([new_advance, max_reachable_adv_speed * 10])
-                    params.append([new_advance, -max_reachable_adv_speed * 10])
+                    params.append([new_advance, np.inf])
+                    central.append([0, arc_length/3])
+                    central.append([0, arc_length/2])
+                    central.append([0, arc_length])
+                    targets.append(central)
+                    print("target in dwa", central)
 
-        print(len(trajectories), "trajectories")
+        #print(len(trajectories), "trajectories")
         params = np.array(params)
-        params[:, 1] = 100*np.reciprocal(np.array(params)[:, 1])
-        #plt.plot(params[:, 0])
+        params[:, 1] = 100*np.reciprocal(np.array(params)[:, 1])     # compute curvature from radius
+        #np.savetxt('params.txt', params, fmt='%f')
+        #plt.plot(params[:, 1])
         #plt.show()
-        return trajectories, params
+        return trajectories, params, targets
 
     def create_masks_3d(self, shape, trajectories):
         masks = []
@@ -122,20 +155,20 @@ class DWA_Optimizer():
             #cv2.waitKey(200)
         return masks
 
-    def project_polygons(self, polygons, mat, focalx, focaly, rgb_shape):
+    def project_polygons(self, polygons):
 
         # get 3D points in robot CS, transform to camera CS and project with projection equations
         # transform to camera CS
-        frame_width, frame_height, _ = rgb_shape
+        frame_width, frame_height, _ = self.frame_shape
         projected_polygons = []
         for po in polygons:
             extra_cols = np.array([np.zeros(len(po)), np.ones(len(po))]).transpose()
             npo = np.array(po)
             npo = np.append(npo, extra_cols, axis=1).transpose()
-            cam_poly = mat.dot(npo).transpose()    # n x 4
+            cam_poly = self.camera_matrix.dot(npo).transpose()    # n x 4
             # project on camera
-            xs = np.array([((cam_poly[:, 0] * focaly) / cam_poly[:, 1]) + (frame_width/2),
-                           ((cam_poly[:, 2] * -focalx) / cam_poly[:, 1]) + (frame_height/2)]).transpose()
+            xs = np.array([((cam_poly[:, 0] * self.focaly) / cam_poly[:, 1]) + (frame_width/2),
+                           ((cam_poly[:, 2] * -self.focalx) / cam_poly[:, 1]) + (frame_height/2)]).transpose()
             projected_polygons.append(xs)  # now in camera CS
 
         return projected_polygons
@@ -231,3 +264,14 @@ class DWA_Optimizer():
 
  # initilize path_set with the first mask in the sorted list with curvature = 0 aka the first straight line
         #path_set = [self.masks[np.where(np.array(self.samples)[sorted_loss_index][:, 1] == 0)[0][0]]]
+
+        # radius = self.params[:, 1]
+        # radius_histogram, bins = np.histogram(radius, 200, density=True)
+        # cdf = radius_histogram.cumsum()  # cumulative distribution function
+        # cdf = (200-1)*cdf/cdf[-1]  # normalize
+        # use linear interpolation of cdf to find new pixel values
+        # self.params[:, 1] = np.interp(radius, bins[:-1], cdf)
+        # print(self.params[:, 1])
+        # cluster by curvatures
+        winner_arc, winner_curvature = self.params[sorted_loss_index[0]]
+        # print(self.params[sorted_loss_index])

@@ -23,6 +23,13 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
+      <widget class="QPushButton" name="pushButton_leftleft">
+       <property name="text">
+        <string>leftleft</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_left">
        <property name="text">
         <string>left</string>
@@ -49,6 +56,13 @@
        </property>
        <property name="checkable">
         <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_rightright">
+       <property name="text">
+        <string>rightright</string>
        </property>
       </widget>
      </item>
