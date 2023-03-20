@@ -1,11 +1,12 @@
 import "CameraRGBDSimple.idsl";
 import "OmniRobot.idsl";
+import "YoloObjects.idsl";
 
 Component path_conceptualizer
 {
     Communications
     {
-        requires CameraRGBDSimple, OmniRobot;
+        requires CameraRGBDSimple, OmniRobot, YoloObjects;
     };
     language python;
     gui Qt(QWidget);

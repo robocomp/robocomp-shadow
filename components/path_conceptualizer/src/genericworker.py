@@ -49,6 +49,7 @@ class GenericWorker(QtWidgets.QWidget):
 
         self.camerargbdsimple_proxy = mprx["CameraRGBDSimpleProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
+        self.yoloobjects_proxy = mprx["YoloObjectsProxy"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)

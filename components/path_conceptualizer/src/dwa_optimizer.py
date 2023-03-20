@@ -6,43 +6,50 @@ import matplotlib.pyplot as plt
 
 class DWA_Optimizer():
     def __init__(self, camera_matrix, focalx, focaly, frame_shape):
-        polygons, params, targets = self.sample_points()
+        self.polygons, params, self.targets = self.sample_points()
         self.params = np.array(params)
-        self.polygons = polygons
-        self.targets = targets
         self.camera_matrix = camera_matrix
         self.focalx = focalx
         self.focaly = focaly
         self.frame_shape = frame_shape
         # project polygons on image
-        projected_polygons = self.project_polygons(polygons)
+        projected_polygons = self.project_polygons(self.polygons)
         self.masks = self.create_masks_3d(frame_shape, projected_polygons)
 
-    def optimize(self, loss, mask_img, x0=None):
+    def optimize(self, mask_img, target_object, x0=None):
         curvature_threshold = 0.025  # range: -1, 1
         losses = []
-        for mask in self.masks:
-            losses.append(loss(mask_img, mask))
+        for i, mask in enumerate(self.masks):
+            distance_to_target_object = 0
+            if target_object is not None:
+                target_center = np.array([target_object.right - target_object.left, target_object.bot - target_object.top])
+                tip_of_path = self.get_tip_of_path(self.polygons[i])
+                distance_to_target_object = np.linalg.norm(target_center - tip_of_path)
+            loss = self.loss_function(mask_img, mask, distance_to_target_object)
+            losses.append(loss)
         sorted_loss_index = np.argsort(losses)
 
         # initialize path_set with the first mask in the sorted list with curvature = 0 aka the first straight line
         index = int(np.argwhere(self.params[sorted_loss_index][:, 1] == 0)[0][0])
-        #print(index, self.params[sorted_loss_index[index]])
         path_set = [self.masks[sorted_loss_index[index]]]
-        #path_set = [self.masks[sorted_loss_index[0]]]
-        #curvatures = np.array([winner_curvature])
         curvatures = np.array([self.params[sorted_loss_index[index]][1]])
-        selected_targets = [self.targets[sorted_loss_index[index]]]
-        #print(index, self.params[sorted_loss_index])
+        selected_target_trajs = [self.targets[sorted_loss_index[index]]]
         for i in sorted_loss_index:
             arc, curvature = self.params[i]
-            if np.all(np.abs(curvatures-curvature) > curvature_threshold) :   # next one is separated by thresh.
+            if np.all(np.abs(curvatures-curvature) > curvature_threshold):   # next one is separated by thresh.
                 path_set.append(self.masks[i])
                 curvatures = np.append(curvatures, curvature)
-                selected_targets.append(self.targets[i])
+                selected_target_trajs.append(self.targets[i])
 
-        #print("curvatures", len(curvatures), curvatures)
-        return path_set, curvatures, selected_targets
+        return path_set, curvatures, selected_target_trajs
+
+    def loss_function(self, mask_img, mask_path, distance_to_target_object=0):
+        result = cv2.bitwise_and(mask_img, mask_path)
+        lane_size = np.count_nonzero(mask_path)
+        segmented_size = np.count_nonzero(mask_img)
+        inliers = np.count_nonzero(result)
+        loss = abs(segmented_size - lane_size) + 5*abs(lane_size - inliers)  + distance_to_target_object
+        return float(loss)
 
     def sample_points(self):
         adv_max_accel = 600
@@ -132,7 +139,6 @@ class DWA_Optimizer():
                     central.append([0, arc_length/2])
                     central.append([0, arc_length])
                     targets.append(central)
-                    print("target in dwa", central)
 
         #print(len(trajectories), "trajectories")
         params = np.array(params)
