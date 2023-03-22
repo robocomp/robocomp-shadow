@@ -1635,6 +1635,40 @@ void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string 
 }
 void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
+    if (std::count(att_names.begin(), att_names.end(), "distance_to_robot"))
+    {
+        qInfo() << "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAaa";
+        if(auto robot_node = G->get_node(robot_name); robot_node.has_value())
+            if(auto person_node = G->get_node(id); person_node.has_value())          
+                if(auto dist_value = G->get_attrib_by_name<distance_to_robot_att>(person_node.value()); dist_value.has_value())        
+                    if (auto person_of_interest_edges = G->get_edges_by_type(person_of_interest_type_name); person_of_interest_edges.size() == 0)    
+                    {
+                        if(dist_value.value() < 2000)
+                        {
+                            // person_buffer.put(std::move(id));
+                            DSR::Edge edge = DSR::Edge::create<person_of_interest_edge_type>(robot_node.value().id(), person_node.value().id());
+                            if (G->insert_or_assign_edge(edge))
+                            {
+                                std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id()
+                                        << "->" << person_node.value().id()
+                                        << " type: person_of_interest_edge_type" << std::endl;
+                            }
+                            else
+                            {
+                                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id()
+                                        << "->" << person_node.value().id()
+                                        << " type: person_of_interest_edge_type" << std::endl;
+                                std::terminate();
+                            }
+                        }  
+                    }  
+                    else
+                    {
+                        if(dist_value.value() >= 2000)
+                            if(auto poi_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), person_of_interest_type_name); poi_edge.has_value())
+                                G->delete_edge(robot_node.value().id(), person_node.value().id(), person_of_interest_type_name);
+                    }
+    }
     // if (std::count(att_names.begin(), att_names.end(), "checked_face"))
     // {
         

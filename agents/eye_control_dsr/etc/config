@@ -1,5 +1,5 @@
 # Proxies for required interfaces
-JointMotorSimpleProxy = jointmotorsimple:tcp -h 192.168.3.5 -p 17193
+JointMotorSimpleProxy = jointmotorsimple:tcp -h localhost -p 16034
 MoveTowardsProxy = movetowards:tcp -h localhost -p 14084
 
 # This property is used by the clients to connect to IceStorm.

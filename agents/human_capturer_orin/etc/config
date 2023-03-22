@@ -4,9 +4,8 @@ CommonBehavior.Endpoints=tcp -p 10000
 
 CameraRGBDSimpleProxy = camerargbdsimple:tcp -h 10.42.0.2 -p 14842
 HumanCameraBodyProxy = humancamerabody:tcp -h 10.42.0.2 -p 14213
-JointMotorSimpleProxy = jointmotorsimple:tcp -h 192.168.3.15 -p 17193
-RealSenseFaceIDProxy = realsensefaceid:tcp -h 192.168.3.15 -p 11070
-AprilTagsServerProxy = apriltagsserver:tcp -h 192.168.3.15 -p 12555
+JointMotorSimpleProxy = jointmotorsimple:tcp -h localhost -p 17193
+EyeControlProxy = eyecontrol:tcp -h 10.42.0.2 -p 12533
 
 
 agent_id = 2689 # Change id

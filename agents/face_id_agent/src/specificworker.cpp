@@ -142,18 +142,38 @@ void SpecificWorker::compute()
                         {
                             for (auto identified_person: recognised_people)
                             {
+                                std::cout << identified_person.name << " " << identified_person.faceROI.x << " " << identified_person.faceROI.y << " " << identified_person.faceROI.width << " " << identified_person.faceROI.height << std::endl;
                                 // Get face image with Face ID image and rectangle data given by Face ID component
-                                if(identified_person.faceROI.x + identified_person.faceROI.width < face_id_image.value().cols && identified_person.faceROI.y + identified_person.faceROI.height < face_id_image.value().rows)
+                                qInfo() << "FACE ID IMAGE SIZE:" << face_id_image.value().rows << face_id_image.value().cols;
+                                if(identified_person.faceROI.x >= 0 and identified_person.faceROI.y >= 0 and identified_person.faceROI.width > 0 and identified_person.faceROI.height > 0 and identified_person.faceROI.x + identified_person.faceROI.width < face_id_image.value().cols and identified_person.faceROI.y + identified_person.faceROI.height < face_id_image.value().rows)
                                 {
+                                    qInfo() << "D6";
+                                    cv::imwrite("person_id_image.png", face_id_image.value() );
                                     auto personROI = face_id_image.value()(cv::Rect(identified_person.faceROI.x, identified_person.faceROI.y, identified_person.faceROI.width, identified_person.faceROI.height));
-                                    cv::imwrite("person_face.png", personROI );
+                                    qInfo() << "D6";
+                                    
                                     // Generate gray ROI to avoid matching problems at calculating correlation, due to image color differences between Face ID and depth cameras
                                     cv::Mat LAB_personROI, LAB_personROI_CH_L;
-                                    cv::cvtColor(personROI, LAB_personROI, cv::COLOR_RGB2Lab);
+                                    qInfo() << "DASDFASDf";
+                                    try
+                                    {
+                                        cv::cvtColor(personROI, LAB_personROI, cv::COLOR_RGB2Lab);
+                                    }
+                                    catch (std::exception& e)
+                                    {
+                                        std::cout << "Exception caught : " << e.what() << std::endl;
+                                        return;
+                                    }
+                                    
+                                    qInfo() << "D6";
                                     extractChannel(LAB_personROI, LAB_personROI_CH_L, 0);
+                                    qInfo() << "D6";
                                     // Get max correlation point in image
+                                    qInfo() << "D6";
+                                    cv::imwrite("person_face.png", LAB_personROI_CH_L );
                                     if(auto max_correlation_point = get_max_correlation_point(LAB_personROI_CH_L, person_gray_roi.value()); max_correlation_point.has_value())
                                     {
+                                        qInfo() << "D7";
                                         auto is_point_in_face = check_if_max_correlation_in_face(person_gray_roi.value(), max_correlation_point.value());
                                         cv::circle(person_gray_roi.value(), max_correlation_point.value(), 10, cv::Scalar(255, 0, 0), 2);
                                         cv::imwrite("person_roi.png", person_gray_roi.value() );
@@ -290,7 +310,9 @@ std::optional<cv::Mat> SpecificWorker::get_face_ID_image()
     {
         auto face_id = camerasimple_proxy->getImage();
         cv::Mat face_id_frame (cv::Size(face_id.width, face_id.height), CV_8UC3, &face_id.image[0]);
+
         cv::cvtColor(face_id_frame, face_id_frame, cv::COLOR_BGR2RGB);
+
         return face_id_frame;
     }
     catch(const Ice::Exception &e) { return {};}
@@ -318,13 +340,20 @@ std::optional<cv::Mat> SpecificWorker::get_face_ID_image()
 
 std::optional<cv::Point2i> SpecificWorker::get_max_correlation_point(cv::Mat face_person_roi, cv::Mat person_roi)
 {
+    qInfo() << "D6";
     if(person_roi.cols >= face_person_roi.cols && person_roi.rows >= face_person_roi.rows)
     {
+        qInfo() << "D6";
         cv::Mat result;
+        qInfo() << "D6";
         cv::matchTemplate(person_roi, face_person_roi, result, cv::TM_CCOEFF);
+        qInfo() << "D6";
         cv::Point2i max_point_correlated, min_point_correlated, roi_center;
+        qInfo() << "D6";
         double max_value, min_value;
+        qInfo() << "D6";
         cv::minMaxLoc(result, &min_value, &max_value, &min_point_correlated, &max_point_correlated, cv::Mat());
+        qInfo() << "D6";
         return cv::Point2i (max_point_correlated.x + face_person_roi.cols / 2, max_point_correlated.y + face_person_roi.rows / 2);
     }
     else return{};
@@ -454,15 +483,33 @@ void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::
                     if(auto cont_value = G->get_attrib_by_name<inter_cont_att>(person_node.value()); cont_value.has_value())                    
                         if (auto interacting_edges = G->get_edges_by_type(interacting_type_name); interacting_edges.size() == 0)
                         {
-                            qInfo() << "LLEGA";
                             if (auto recognizing_edges = G->get_edges_by_type(recognizing_type_name); recognizing_edges.size() == 0)
                             {
-                                qInfo() << "LLEGA 2";
-                                qInfo() << dist_value.value();
-                                qInfo() << cont_value.value();
-                                if(dist_value.value() < 1400 && cont_value.value() == 5)
+                                if(dist_value.value() < 1000 && cont_value.value() == 5)
                                 {
-                                    qInfo() << "LLEGA3";
+                                    if(auto person_name = G->get_attrib_by_name<person_name_att>(person_node.value()); person_name.has_value())      
+                                    {
+                                        std::string person_name_str = person_name.value();
+                                        if(!person_name_str.empty())
+                                        {
+                                            DSR::Edge edge = DSR::Edge::create<interacting_edge_type>(robot_node.value().id(), person_node.value().id());
+                                            if (G->insert_or_assign_edge(edge))
+                                            {
+                                                std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id()
+                                                        << "->" << person_node.value().id()
+                                                        << " type: interacting_edge_type" << std::endl;
+                                            }
+                                            else
+                                            {
+                                                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id()
+                                                        << "->" << person_node.value().id()
+                                                        << " type: interacting_edge_type" << std::endl;
+                                                std::terminate();
+                                            }
+                                            return;
+                                        }
+
+                                    }
                                     // person_buffer.put(std::move(id));
                                     DSR::Edge edge = DSR::Edge::create<recognizing_edge_type>(robot_node.value().id(), person_node.value().id());
                                     if (G->insert_or_assign_edge(edge))
@@ -480,7 +527,7 @@ void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::
                                     }
                                 }
                             }
-                            else if(dist_value.value() >= 1400 && cont_value.value() == -5)
+                            else if(dist_value.value() >= 1000 && cont_value.value() == -5)
                             {
                                 G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), false);
                                 if(auto recognizing_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name))
@@ -489,7 +536,7 @@ void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::
                                 //     G->delete_edge(robot_node.value().id(), person_node.value().id(), interacting_type_name);
                             }      
                         }
-                        else if(dist_value.value() >= 1400 && cont_value.value() == -5)
+                        else if(dist_value.value() >= 1000 && cont_value.value() == -5)
                         {
                             G->add_or_modify_attrib_local<checked_face_att>(person_node.value(), false);
                             // if(auto recognizing_existing_edge = G->get_edge(robot_node.value().id(), person_node.value().id(), recognizing_type_name))

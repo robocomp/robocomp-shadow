@@ -1,0 +1,9 @@
+Component keyword_identifier_agent
+{
+    Communications
+    {
+    };
+    language python;
+    options dsr;
+};
+

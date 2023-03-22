@@ -1,10 +1,10 @@
-CommonBehavior.Endpoints=tcp -p 100011
+CommonBehavior.Endpoints=tcp -p 10000
 
 # Endpoints for implements interfaces
-SoundRotation.Endpoints=tcp -p 12127
+SoundRotation.Endpoints=tcp -p 0
 
 
-agent_id = 1212 # Change id
+agent_id = 0 # Change id
 agent_name = sound_rotation
 tree_view = true
 graph_view = true

@@ -51,7 +51,7 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.last_timestamp = 0
         self.last_person_position = 240
-        self.Period = 100
+        self.Period = 1
 
         QObject.connect(self.ui.horizontalSlider_pos, QtCore.SIGNAL('valueChanged(int)'), self.slot_change_pos)
         QObject.connect(self.ui.horizontalSlider_max_speed, QtCore.SIGNAL('valueChanged(int)'), self.slot_change_max_speed)
@@ -95,6 +95,9 @@ class SpecificWorker(GenericWorker):
 
         self.lineal_speed_coefficients=[0,0,0]
         self.lineal_speed_avg = 0
+        
+        self.moving_flag = False
+        self.movement_data = None
 
         self.act_chased_person = None
         self.intention_id = None
@@ -149,7 +152,7 @@ class SpecificWorker(GenericWorker):
         self.inner_api = inner_api(self.g)
 
         try:
-            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
@@ -180,15 +183,18 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        #obtenemos datos
-
-        camera_node = self.g.get_node('giraff_camera_realsense')
-        image_data = camera_node.attrs['cam_rgb'].value
-        image_width = camera_node.attrs['cam_rgb_width'].value
-        image_height = camera_node.attrs['cam_rgb_height'].value
-        image = np.frombuffer(image_data, np.uint8).reshape(image_height, image_width, 3)
-        self.refesco_ventana(image_width, image_height, image)
-        # self.plot_data()
+        self.obtencion_datos()
+        if self.moving_flag:
+            goal_rad = self.motor.pos - self.movement_data["error_rads"]
+            goal = self.tracker_camera(self.movement_data)
+            goal.position = goal_rad
+            # if abs(self.last_goal.position-goal.position)>0.02 and abs(goal.position) < (math.pi/2):
+            if abs(goal.position) < (math.pi/2):
+                self.last_goal = goal
+                self.jointmotorsimple_proxy.setPosition("", goal)
+                # self.error_ant = error
+                # self.rad_old = goal.position
+            self.moving_flag = False
 
 
     def draw_error_data(self):
@@ -213,31 +219,31 @@ class SpecificWorker(GenericWorker):
 
     def tracker_camera(self, data):
         goal = ifaces.RoboCompJointMotorSimple.MotorGoalPosition()
-        if abs(data["error_rads"]) > 0.1:
+        if abs(data["error_rads"]) > 0.3:
             self.sacadic = True
-            print("SACADIC IN")
             goal.maxSpeed = 0
         else:
             # self.sacadic = False
-            print("SACADIC OUT")
-            goal.maxSpeed = abs(abs((((data["error_rads"] + MIN_VELOCITY) * 2.5)) * (1.5/(data["distance"]/1000))) - 0.3 * abs(data["act_rot_speed"]))
+            goal.maxSpeed = self.k5 *abs(abs((((data["error_rads"] + MIN_VELOCITY) * 2.5)) * (2000/data["distance"])) - 0.3 * abs(data["act_rot_speed"]))
             # goal.maxSpeed = 0
-
-        goal.position = data["goal_rads"]
 
         return goal
 
     def obtencion_datos(self):
-        try:
-            servo_node = self.g.get_node("servo")
-            servo_pos = servo_node.attrs["servo_pos"].value
-            servo_speed = servo_node.attrs["servo_speed"].value
-            servo_isMoving = servo_node.attrs["servo_moving"].value
-            self.motor.pos = servo_pos
-            self.motor.vel = servo_speed
-            self.motor.isMoving = servo_isMoving
-        except:
-            print("CAN'T GET SERVO DATA")
+        # try:
+        servo_data = self.jointmotorsimple_proxy.getMotorState("")
+        self.motor.pos = servo_data.pos
+        self.motor.vel = servo_data.vel
+        self.motor.isMoving = servo_data.isMoving
+        servo_node = self.g.get_node('servo')
+        print(servo_data.pos, servo_data.vel,servo_data.isMoving)
+        servo_node.attrs['servo_pos'] = Attribute(float(self.motor.pos), self.agent_id)
+        servo_node.attrs['servo_speed'] = Attribute(float(self.motor.vel), self.agent_id)
+        servo_node.attrs['servo_moving'] = Attribute(self.motor.isMoving, self.agent_id)
+        self.g.update_node(servo_node)
+            
+        # except:
+        #     print("CAN'T GET SERVO DATA")
 
     def refesco_ventana(self, height, width, image):
         qt_image = QImage(image, height, width, QImage.Format_RGB888)
@@ -376,10 +382,11 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def slot_change_pos(self, pos):   # comes in degrees -150 .. 150. Sent in radians -2.62 .. 2.62
-        servo_node = self.g.get_node("servo")
-        servo_node.attrs['servo_ref_pos'] = Attribute(float(0.1), self.agent_id)
-        servo_node.attrs['servo_ref_speed'] = Attribute(float(0.0), self.agent_id)
-        self.g.update_node(servo_node)
+        goal = ifaces.RoboCompJointMotorSimple.MotorGoalPosition()
+        goal.position = (2.62/150.0)*pos
+        # goal.position = 0
+        goal.maxSpeed = 0
+        self.jointmotorsimple_proxy.setPosition("", goal)
 
     @QtCore.Slot()
     def slot_change_max_speed(self, max_speed):
@@ -599,7 +606,42 @@ class SpecificWorker(GenericWorker):
     # =============================================
 
     def update_node_att(self, id: int, attribute_names: [str]):
-        pass
+        if "person_pixel_x" in attribute_names:
+            person_node = self.g.get_node(id)
+            if (self.act_chased_person != None) and (person_node!= None) and (person_node.id == self.act_chased_person):
+                puntoMedioX = person_node.attrs['person_pixel_x'].value
+                # if(puntoMedioX!=self.last_puntoMedioX):
+                self.last_puntoMedioX = puntoMedioX
+                distance = person_node.attrs['distance_to_robot'].value
+
+                # print("POSICION PERSONA EN IMAGEN: ", puntoMedioX)
+                # print("POSICION SERVO: ", self.motor.pos)
+                # print("POSICION ASIGNADA A SERVO ANTERIOR: ", self.rad_old)
+
+                robot_node = self.g.get_node("robot")
+
+                error = puntoMedioX - 240
+
+                error_rads = 0.7 * np.arctan2(error, 382) 
+                print("ERROR RADSE:", round(np.rad2deg(error_rads)))
+                # Rotational speed given by odometry
+                act_rot_speed = robot_node.attrs["robot_ref_rot_speed"].value
+                rad_seg = self.k5 * error_rads
+                # print("POSICION ASIGNADA A SERVO: ", goal_rad)
+
+                self.movement_data =  {
+                    "error_rads": error_rads,
+                    "speed": rad_seg,
+                    "act_rot_speed": act_rot_speed,
+                    "distance": distance,
+                }
+                self.moving_flag = True
+                
+
+                # else:
+                #     print("El punto no ha sido modificado")
+            # except:
+            #     print("DATA CANT BE OBTAINED")
 
     def update_node(self, id: int, type: str):
         if type == "intention":
@@ -611,54 +653,6 @@ class SpecificWorker(GenericWorker):
             if (list(intention_data.keys())[0] == "TALKING_WITH_PEOPLE"):
                 self.act_chased_person = int(intention_data["TALKING_WITH_PEOPLE"]["person_node_id"])
 
-        if type == "person":
-            # try:
-            self.obtencion_datos()
-            person_node = self.g.get_node(id)
-            if (self.act_chased_person != None) and (person_node!= None) and (person_node.id == self.act_chased_person):
-                print("ENTRANDO")
-                puntoMedioX = person_node.attrs['person_pixel_x'].value
-                if(puntoMedioX!=self.last_puntoMedioX):
-                    self.last_puntoMedioX = puntoMedioX
-                    distance = person_node.attrs['distance_to_robot'].value
-
-                    # print("POSICION PERSONA EN IMAGEN: ", puntoMedioX)
-                    # print("POSICION SERVO: ", self.motor.pos)
-                    # print("POSICION ASIGNADA A SERVO ANTERIOR: ", self.rad_old)
-
-                    robot_node = self.g.get_node("robot")
-
-                    error = puntoMedioX - 240
-
-                    error_rads = np.arctan2(error, 382)
-
-                    # Rotational speed given by odometry
-                    act_rot_speed = robot_node.attrs["robot_ref_rot_speed"].value
-
-                    goal_rad = self.motor.pos - error_rads
-                    rad_seg = self.k5 * error_rads
-                    # print("POSICION ASIGNADA A SERVO: ", goal_rad)
-
-                    tracker_data = {
-                        "goal_rads" : goal_rad,
-                        "error_rads": rad_seg,
-                        "act_rot_speed": act_rot_speed,
-                        "distance": distance,
-                    }
-
-                    goal = self.tracker_camera(tracker_data)
-                    if abs(self.last_goal.position-goal.position)>0.02 and abs(goal.position) < (math.pi/2):
-                        self.last_goal = goal
-                        servo_node = self.g.get_node("servo")
-                        servo_node.attrs['servo_ref_pos'] = Attribute(float(goal.position), self.agent_id)
-                        servo_node.attrs['servo_ref_speed'] = Attribute(float(goal.maxSpeed), self.agent_id)
-                        self.g.update_node(servo_node)
-                        self.error_ant = error
-                        self.rad_old = goal_rad
-                else:
-                    print("El punto no ha sido modificado")
-            # except:
-            #     print("DATA CANT BE OBTAINED")
 
     def delete_node(self, id: int):
         if id == self.intention_id:

@@ -10,7 +10,7 @@ graph_view = false
 robot_length = 500
 robot_width = 400
 robot_radius = 250
-max_advance_speed = 800
+max_advance_speed = 400
 max_rotation_speed = 1.57
 max_side_speed = 300
 lateral_correction_gain = 0.0
@@ -19,7 +19,7 @@ rotation_gain = 1
 times_final_distance_to_target_before_zero_rotation = 3
 advance_gaussian_cut_x = 0.7
 advance_gaussian_cut_y = 0.2
-final_distance_to_target = 1000  # mm
+final_distance_to_target = 500  # mm
 
 ################################################
 Ice.Warn.Connections=0

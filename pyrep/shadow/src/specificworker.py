@@ -149,49 +149,49 @@ class SpecificWorker(GenericWorker):
                                                      "has_points": False
                                                     }
 
-        self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
-        try:
-            cam = VisionSensor(self.omni_camera_rgb_name)
-            self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
-                                                             "id": 0,
-                                                             "angle": np.radians(cam.get_perspective_angle()),
-                                                             "width": cam.get_resolution()[0],
-                                                             "height": cam.get_resolution()[1],
-                                                             "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-                                                                 np.radians(cam.get_perspective_angle() / 2.0))),
-                                                             "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-                                                                 np.radians(cam.get_perspective_angle() / 2))),
-                                                             "rgb": np.array(0),
-                                                             "depth": np.ndarray(0),
-                                                             "is_ready": False,
-                                                             "is_rgbd": False,
-                                                             "rotated": False,
-                                                             "has_depth": False
-                                                             }
-        except:
-            print("Camera OMNI sensorRGB  not found in Coppelia")
-
-        self.omni_camera_depth_name = "/Shadow/omnicamera/sensorDepth"
-        try:
-            cam = VisionSensor(self.omni_camera_depth_name)
-            self.cameras_write[self.omni_camera_depth_name] = {"handle": cam,
-                                                               "id": 0,
-                                                               "angle": np.radians(cam.get_perspective_angle()),
-                                                               "width": cam.get_resolution()[0],
-                                                               "height": cam.get_resolution()[1],
-                                                               "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2.0))),
-                                                               "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2))),
-                                                               "rgb": np.array(0),
-                                                               "depth": np.ndarray(0),
-                                                               "is_ready": False,
-                                                               "is_rgbd": False,
-                                                               "rotated": False,
-                                                               "has_depth": False
-                                                               }
-        except:
-            print("Camera OMNI sensorDEPTH not found in Coppelia")
+        # self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
+        # try:
+        #     cam = VisionSensor(self.omni_camera_rgb_name)
+        #     self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
+        #                                                      "id": 0,
+        #                                                      "angle": np.radians(cam.get_perspective_angle()),
+        #                                                      "width": cam.get_resolution()[0],
+        #                                                      "height": cam.get_resolution()[1],
+        #                                                      "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+        #                                                          np.radians(cam.get_perspective_angle() / 2.0))),
+        #                                                      "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+        #                                                          np.radians(cam.get_perspective_angle() / 2))),
+        #                                                      "rgb": np.array(0),
+        #                                                      "depth": np.ndarray(0),
+        #                                                      "is_ready": False,
+        #                                                      "is_rgbd": False,
+        #                                                      "rotated": False,
+        #                                                      "has_depth": False
+        #                                                      }
+        # except:
+        #     print("Camera OMNI sensorRGB  not found in Coppelia")
+        #
+        # self.omni_camera_depth_name = "/Shadow/omnicamera/sensorDepth"
+        # try:
+        #     cam = VisionSensor(self.omni_camera_depth_name)
+        #     self.cameras_write[self.omni_camera_depth_name] = {"handle": cam,
+        #                                                        "id": 0,
+        #                                                        "angle": np.radians(cam.get_perspective_angle()),
+        #                                                        "width": cam.get_resolution()[0],
+        #                                                        "height": cam.get_resolution()[1],
+        #                                                        "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+        #                                                            np.radians(cam.get_perspective_angle() / 2.0))),
+        #                                                        "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+        #                                                            np.radians(cam.get_perspective_angle() / 2))),
+        #                                                        "rgb": np.array(0),
+        #                                                        "depth": np.ndarray(0),
+        #                                                        "is_ready": False,
+        #                                                        "is_rgbd": False,
+        #                                                        "rotated": False,
+        #                                                        "has_depth": False
+        #                                                        }
+        # except:
+        #     print("Camera OMNI sensorDEPTH not found in Coppelia")
 
         self.cameras_read = self.cameras_write.copy()
 
@@ -270,7 +270,8 @@ class SpecificWorker(GenericWorker):
                 self.pr.step()
                 self.read_robot_pose()
                 self.move_robot()
-                self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
+                #self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
+                self.read_cameras([self.top_camera_name])
                 #ksself.read_people()
                 if not self.IGNORE_JOYSITCK:
                     self.read_joystick()
@@ -380,43 +381,43 @@ class SpecificWorker(GenericWorker):
                                                           compressed=False)
             cam["is_ready"] = True
 
-         if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
-             cam = self.cameras_write[self.omni_camera_rgb_name]
-             image_float = cam["handle"].capture_rgb()
-             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                   dtype=cv2.CV_8U)
-             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-                                                          width=cam["width"],
-                                                          height=cam["height"],
-                                                          depth=3,
-                                                          focalx=cam["focalx"],
-                                                          focaly=cam["focaly"],
-                                                          alivetime=int(time.time() * 1000),
-                                                          period=50,  # ms
-                                                          image=image.tobytes(),
-                                                          compressed=False)
-
-             cam["is_ready"] = True
-
-         if self.omni_camera_depth_name in camera_names:  # RGB not-rotated
-             cam = self.cameras_write[self.omni_camera_depth_name]
-             image_float = cam["handle"].capture_rgb()
-             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                   dtype=cv2.CV_8U)
-             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-             cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-                                                          width=cam["width"],
-                                                          height=cam["height"],
-                                                          depth=3,
-                                                          focalx=cam["focalx"],
-                                                          focaly=cam["focaly"],
-                                                          alivetime=int(time.time() * 1000),
-                                                          period=50,  # ms
-                                                          image=image.tobytes(),
-                                                          compressed=False)
-
-             cam["is_ready"] = True
+         # if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
+         #     cam = self.cameras_write[self.omni_camera_rgb_name]
+         #     image_float = cam["handle"].capture_rgb()
+         #     image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+         #                           dtype=cv2.CV_8U)
+         #     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+         #     cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+         #                                                  width=cam["width"],
+         #                                                  height=cam["height"],
+         #                                                  depth=3,
+         #                                                  focalx=cam["focalx"],
+         #                                                  focaly=cam["focaly"],
+         #                                                  alivetime=int(time.time() * 1000),
+         #                                                  period=50,  # ms
+         #                                                  image=image.tobytes(),
+         #                                                  compressed=False)
+         #
+         #     cam["is_ready"] = True
+         #
+         # if self.omni_camera_depth_name in camera_names:  # RGB not-rotated
+         #     cam = self.cameras_write[self.omni_camera_depth_name]
+         #     image_float = cam["handle"].capture_rgb()
+         #     image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+         #                           dtype=cv2.CV_8U)
+         #     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+         #     cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+         #                                                  width=cam["width"],
+         #                                                  height=cam["height"],
+         #                                                  depth=3,
+         #                                                  focalx=cam["focalx"],
+         #                                                  focaly=cam["focaly"],
+         #                                                  alivetime=int(time.time() * 1000),
+         #                                                  period=50,  # ms
+         #                                                  image=image.tobytes(),
+         #                                                  compressed=False)
+         #
+         #     cam["is_ready"] = True
 
          self.cameras_write, self.cameras_read = self.cameras_read, self.cameras_write
 

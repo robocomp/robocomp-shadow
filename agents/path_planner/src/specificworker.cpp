@@ -166,7 +166,7 @@ void SpecificWorker::initialize(int period)
 		timer.start(Period);
 
 	}
-
+    hide();
     ////////////////////////////
     int period2 = 300;
     this->Period2 = period2;
@@ -457,7 +457,6 @@ void SpecificWorker::compute()
         }
         else if(action_name == searching_person_action_name or action_name == goto_action_name)
         {
-            
             if(auto grid_node = G->get_node(grid_type_name); grid_node.has_value())
             {
                 G->add_or_modify_attrib_local<grid_activated_att>(grid_node.value(), true);
@@ -483,6 +482,7 @@ void SpecificWorker::compute()
         }
         if(auto listened_person = G->get_node("listened_person"); listened_person.has_value())
         {
+            qInfo() << "LISTENED PERSON";
             if(auto looking_for_edge = G->get_edge(G->get_node(robot_name).value().id(), listened_person.value().id(), looking_for_type_name); looking_for_edge.has_value())
             {
                 if(auto path_d = G->get_node(current_path_name); !path_d.has_value())
@@ -920,7 +920,7 @@ std::vector<Eigen::Vector2f> SpecificWorker::add_path_section_to_person(std::vec
    auto last_path_point = ref_path.back();
 //    auto grid_target_pose = from_world_to_grid(target.get_pos());
    auto destination_pose = target_before_objetive(last_path_point, target.get_pos());
-   auto new_path = grid.compute_path(e2q(last_path_point), e2q(destination_pose));
+   auto new_path = grid.compute_path(e2q(last_path_point), e2q(destination_pose), 1);
 //    auto new_path = grid.compute_path(e2q(from_world_to_grid(robot_pose.pos)), e2q(from_world_to_grid(target.to_eigen())), constants.robot_length/2);
 
    if(new_path.size() > 0)
@@ -972,7 +972,7 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
             auto nose_3d = inner_eigen->transform(grid_type_name, Mat::Vector3d(0, 500, 0), robot_name).value();
             auto robot_nose = Eigen::Vector2f(nose_3d.x(), nose_3d.y());
         //    path = grid.compute_path(e2q(robot_nose), e2q(target.get_pos()), constants.robot_length);
-           path = grid.compute_path(e2q(robot_pose.get_pos()), e2q(target.get_pos()));
+           path = grid.compute_path(e2q(robot_pose.get_pos()), e2q(target.get_pos()), 1);
         }
         else
         {
@@ -1079,7 +1079,7 @@ void SpecificWorker::run_current_plan(const QPolygonF &laser_poly)
     }
     else
     {
-        path = grid.compute_path(e2q(robot_pose.get_pos()), e2q(target.get_pos()));
+        path = grid.compute_path(e2q(robot_pose.get_pos()), e2q(target.get_pos()), 1);
         qWarning() << __FUNCTION__ << "Empty path. Computing new path";
     }
 }
@@ -1413,10 +1413,13 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
 {
     if(type == looking_for_type_name)
     {
+        qInfo() << "POS DEG";
         if(auto virtual_person_node = G->get_node(to); virtual_person_node.has_value())
         {
+            qInfo() << "POS DEG";
             if(auto person_deg_position = G->get_attrib_by_name<position_deg_att>(virtual_person_node.value()); person_deg_position.has_value())
             {
+                qInfo() << "POS DEG";
                 Eigen::AngleAxisf z_axis_rotation_matrix (-person_deg_position.value() * M_PI / 180 , Eigen::Vector3f::UnitZ());
                 Eigen::Vector3f generated_pos(0, 1500, 1);
                 Eigen::Vector3f pos = z_axis_rotation_matrix * generated_pos;
@@ -1434,6 +1437,7 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
                     G->update_node(grid_node.value());
                 }
                 target.set_active(true);
+                qInfo() << "POS DEG";
             }
         }
     }
