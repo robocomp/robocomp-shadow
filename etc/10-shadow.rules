@@ -1,0 +1,3 @@
+ATTRS{serial}=="A10MODYM", SUBSYSTEM=="tty", SYMLINK="Driver_base", MODE="666"
+ATTRS{serial}=="A10MPAB5", SUBSYSTEM=="tty", SYMLINK="Dynamixel", MODE="666"
+ATTRS{serial}=="VE6GBFM4", SUBSYSTEM=="tty", SYMLINK="Victron", MODE="666"
