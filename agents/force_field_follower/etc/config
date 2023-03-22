@@ -1,0 +1,37 @@
+CommonBehavior.Endpoints=tcp -p 10001
+
+# Proxies for required interfaces
+LaserProxy = laser:tcp -h localhost -p 10003
+
+# Endpoints for subscriptions interfaces
+JoystickAdapterTopic.Endpoints=tcp -p 18896
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+agent_id = 43 # Change id
+agent_name = force_field_follower
+tree_view = false
+graph_view = true
+2d_view = true
+3d_view = false
+#Ice.MessageSizeMax=20004800
+
+robot_length = 700
+robot_width = 600
+robot_radius = 250
+max_advance_speed = 350
+max_rotation_speed = 1.57
+max_side_speed = 175
+lateral_correction_gain = 0.0
+lateral_correction_for_side_velocity = 0
+rotation_gain = 1
+times_final_distance_to_target_before_zero_rotation = 3
+advance_gaussian_cut_x = 0.7
+advance_gaussian_cut_y = 0.2
+final_distance_to_target = 1000  # mm
+
+InnerModelPath = innermodel.xml
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800

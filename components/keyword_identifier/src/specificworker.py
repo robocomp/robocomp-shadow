@@ -56,6 +56,8 @@ class SpecificWorker(GenericWorker):
         else:
             print("################## NO MIC FOUND. CHECK IF CONNECTED ##################")
         self.dir_list = []
+        self.start = False
+        self.recording = False
         # self.porcupine = pvporcupine.create(keywords=["picovoice", "blueberry"],
         #                                keyword_paths=["Hey-Giraffe_en_linux_v2_1_0.ppn"],
         #                                access_key="eeegi+PSnbxq38fvCQJOCLjx280A8CNzdf4Q5NkCCxyZYFbNURErfw==")
@@ -85,37 +87,38 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        porcupine = pvporcupine.create(keywords=["picovoice", "blueberry"],
-                                       keyword_paths=["Hey-Giraffe_en_linux_v2_1_0.ppn"],
-                                       access_key="zvBFLun7pJBxuAqmhqhbfm0y1xICq0MW3YQhDkrSphWvqwLLbHgJfA==")
+        if self.start:
+            porcupine = pvporcupine.create(keywords=["picovoice", "blueberry"],
+                                        keyword_paths=["Hey-Giraffe_en_linux_v2_1_0.ppn"],
+                                        access_key="zvBFLun7pJBxuAqmhqhbfm0y1xICq0MW3YQhDkrSphWvqwLLbHgJfA==")
 
-        pa = pyaudio.PyAudio()
-        for i in range(pa.get_device_count()):
-            print(pa.get_device_info_by_index(i))
-            if "ReSpeaker 4 Mic Array" in pa.get_device_info_by_index(i)["name"]:
-                dev_index = i
-                break
-        audio_stream = pa.open(
-            input_device_index=dev_index,
-            rate=porcupine.sample_rate,
-            channels=1,
-            format=pyaudio.paInt16,
-            input=True,
-            frames_per_buffer=porcupine.frame_length)
-        while True:
-            try:
+            pa = pyaudio.PyAudio()
+            for i in range(pa.get_device_count()):
+                print(pa.get_device_info_by_index(i))
+                if "ReSpeaker 4 Mic Array" in pa.get_device_info_by_index(i)["name"]:
+                    dev_index = i
+                    break
+                
+            audio_stream = pa.open(
+                input_device_index=dev_index,
+                rate=porcupine.sample_rate,
+                channels=1,
+                format=pyaudio.paInt16,
+                input=True,
+                frames_per_buffer=porcupine.frame_length)
+            while self.recording:
+                # try:
                 dir = self.Mic_tuning.direction
-                if 270 >= dir >= 90:
-                    dir = -(dir - 90)
+                if 270 >= dir and dir >= 90:
+                    dir = -(dir - 270)
                 elif dir < 90:
-                    dir = 90 - dir
+                    dir = -(90 + dir)
                 else:
-                    dir = -(dir - 450)
+                    dir = -(dir - 270)
 
                 if len(self.dir_list) > 9:
                     self.dir_list.pop(0)
-                self.dir_list.append(dir)
-                print(dir)
+                self.dir_list.append(dir-180)
                 pcm = audio_stream.read(porcupine.frame_length)
                 pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
 
@@ -125,8 +128,8 @@ class SpecificWorker(GenericWorker):
                     print("KEYWORD")
                     print(sum(self.dir_list)/len(self.dir_list))
                     self.soundrotation_proxy.gotKeyWord(sum(self.dir_list)/len(self.dir_list))
-            except:
-                print("PROBLEMA CON EL MICRO")
+                # except:
+                #     print("PROBLEMA CON EL MICRO")
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)

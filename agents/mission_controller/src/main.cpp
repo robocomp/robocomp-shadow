@@ -129,11 +129,28 @@ int ::mission_controller::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompEyeControl::EyeControlPrxPtr eyecontrol_proxy;
 
 	string proxy, tmp;
 	initialize();
 
-	tprx = std::tuple<>();
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "EyeControlProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy EyeControlProxy\n";
+		}
+		eyecontrol_proxy = Ice::uncheckedCast<RoboCompEyeControl::EyeControlPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy EyeControl: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("EyeControlProxy initialized Ok!");
+
+
+	tprx = std::make_tuple(eyecontrol_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

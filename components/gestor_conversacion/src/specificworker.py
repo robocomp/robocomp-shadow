@@ -74,9 +74,9 @@ for path in os.listdir(lines_path):
 r = sr.Recognizer()
 for i, microphone_name in enumerate(sr.Microphone.list_microphone_names()):
     print(microphone_name)
-    if "Voice Tracker II" in microphone_name:
+    if "ReSpeaker 4 Mic Array" in microphone_name:
         print("Micrófono seleccionado")
-        m = sr.Microphone(device_index=i, sample_rate=8000)
+        m = sr.Microphone(device_index=i, sample_rate=16000)
         # m = sr.Microphone(device_index=i)
 
 class Line:
@@ -130,6 +130,8 @@ class SpecificWorker(GenericWorker):
         self.isBlocked = False
         self.process_queue = []
         self.isLost = False
+        text = ",,, Hola. Puedo hablar."
+        os.system("google_speech -l es "+ "'t " + text+ "'")
 
     def __del__(self):
         """Destructor"""
@@ -182,6 +184,7 @@ class SpecificWorker(GenericWorker):
     def recorder(self):
         # data = input()
         # return data
+        time.sleep(2)
         with m as source:
             try:
                 r.adjust_for_ambient_noise(source)
@@ -203,7 +206,7 @@ class SpecificWorker(GenericWorker):
     def recorder_binary(self):
         # data = input()
         # return data
-
+        time.sleep(1)
         with m as source:
             r.adjust_for_ambient_noise(source)
             print("Grabando")
@@ -222,10 +225,10 @@ class SpecificWorker(GenericWorker):
     def talker(self, text):
         # print(text)
         lang = "es"
-        speech = Speech(text, lang)
+        # speech = Speech(text, lang)
         # self.emotionalmotor_proxy.talking(True)
         # speech.save("act_audio.mp3")
-        # os.system("mpg123 " + "act_audio.mp3")
+        os.system("google_speech -l es "+ "' t " + text+ "'")
         # self.emotionalmotor_proxy.talking(False)
         return
 

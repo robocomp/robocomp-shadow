@@ -126,7 +126,7 @@ class SpecificWorker : public GenericWorker
             float robot_length = 500;
             float robot_width = 400;
             float robot_radius = robot_length / 2.0;
-            float max_adv_speed = 800;
+            float max_adv_speed = 400;
             float max_rot_speed = 2;
             float max_side_speed = 0;
             float max_lag = 100;  // ms
@@ -136,7 +136,7 @@ class SpecificWorker : public GenericWorker
             float times_final_distance_to_target_before_zero_rotation = 3;
             float advance_gaussian_cut_x = 0.7;
             float advance_gaussian_cut_y = 0.3;
-            float final_distance_to_target = 2; // mm
+            float final_distance_to_target = 500; // mm
         };
         CONSTANTS consts;
 
@@ -167,6 +167,7 @@ class SpecificWorker : public GenericWorker
 
         uint64_t node_string2id(Plan currentPlan);
         uint64_t interacting_person_id = 0;
+        uint64_t path_id = 0;
 
         // For knowing intention node
         std::uint64_t plan_node_id;

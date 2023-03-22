@@ -1,5 +1,5 @@
 # Proxies for required interfaces
-SoundRotationProxy = soundrotation:tcp -h 192.168.3.32 -p 12127
+SoundRotationProxy = soundrotation:tcp -h localhost -p 12127
 
 
 

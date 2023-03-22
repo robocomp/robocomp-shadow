@@ -129,30 +129,13 @@ int ::human_capturer::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
-	RoboCompAprilTagsServer::AprilTagsServerPrxPtr apriltagsserver_proxy;
 	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
+	RoboCompEyeControl::EyeControlPrxPtr eyecontrol_proxy;
 	RoboCompHumanCameraBody::HumanCameraBodyPrxPtr humancamerabody_proxy;
 	RoboCompJointMotorSimple::JointMotorSimplePrxPtr jointmotorsimple_proxy;
-	RoboCompRealSenseFaceID::RealSenseFaceIDPrxPtr realsensefaceid_proxy;
 
 	string proxy, tmp;
 	initialize();
-
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "AprilTagsServerProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy AprilTagsServerProxy\n";
-		}
-		apriltagsserver_proxy = Ice::uncheckedCast<RoboCompAprilTagsServer::AprilTagsServerPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy AprilTagsServer: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("AprilTagsServerProxy initialized Ok!");
-
 
 	try
 	{
@@ -168,6 +151,22 @@ int ::human_capturer::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	rInfo("CameraRGBDSimpleProxy initialized Ok!");
+
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "EyeControlProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy EyeControlProxy\n";
+		}
+		eyecontrol_proxy = Ice::uncheckedCast<RoboCompEyeControl::EyeControlPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy EyeControl: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("EyeControlProxy initialized Ok!");
 
 
 	try
@@ -202,23 +201,7 @@ int ::human_capturer::run(int argc, char* argv[])
 	rInfo("JointMotorSimpleProxy initialized Ok!");
 
 
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "RealSenseFaceIDProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy RealSenseFaceIDProxy\n";
-		}
-		realsensefaceid_proxy = Ice::uncheckedCast<RoboCompRealSenseFaceID::RealSenseFaceIDPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy RealSenseFaceID: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("RealSenseFaceIDProxy initialized Ok!");
-
-
-	tprx = std::make_tuple(apriltagsserver_proxy,camerargbdsimple_proxy,humancamerabody_proxy,jointmotorsimple_proxy,realsensefaceid_proxy);
+	tprx = std::make_tuple(camerargbdsimple_proxy,eyecontrol_proxy,humancamerabody_proxy,jointmotorsimple_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

@@ -158,7 +158,7 @@ void SpecificWorker::compute()
 {
     custom_plot.resize(custom_widget.timeseries_frame->size());
     // Get servo position from graph
-    if(auto servo_position_aux = get_servo_pos_from_graph(); servo_position_aux.has_value())
+    if(auto servo_position_aux = get_servo_pos(); servo_position_aux.has_value())
     {
         servo_position = servo_position_aux.value();
     }
@@ -179,15 +179,14 @@ void SpecificWorker::compute()
 //    qInfo() << __FUNCTION__ << " New_people:" << people_data.peoplelist.size();
 }
 //////////////////////////////////////////////////////////////////////////////////////
-std::optional<float> SpecificWorker::get_servo_pos_from_graph()
+std::optional<float> SpecificWorker::get_servo_pos()
 {
+    auto servo_angle = this->eyecontrol_proxy->getServoAngle();
     if(auto servo_node = G->get_node(servo_name); servo_node.has_value())
     {
-        if(auto servo_pos = G->get_attrib_by_name<servo_pos_att>(servo_node.value()); servo_pos.has_value())
-        {
-            return servo_pos.value();
-        }
-        else return {};
+        G->add_or_modify_attrib_local<servo_pos_att>(servo_node.value(), servo_angle);
+        G->update_node(servo_node.value());
+        return servo_angle;
     }
     else return {};
 }
@@ -197,23 +196,26 @@ std::vector<SpecificWorker::PersonData> SpecificWorker::build_local_people_data(
     std::vector<PersonData> new_people_vector;         // vector of local person structures
     for(const auto &img_person : people_data_.peoplelist)
     {
-        PersonData new_person = {.id=img_person.id, .image=img_person.roi, .orientation=calculate_orientation(img_person)};
-        // cv::Mat roi = cv::Mat(new_person.image.width, new_person.image.height, CV_8UC3, (uchar*)&new_person.image.image[0]);
-        if(auto coords = get_transformed_joint_list(img_person.joints); coords.has_value())
+        if(img_person.joints.size() > 0)
         {
-            new_person.joints = coords.value();
-            if(auto pos = position_filter(new_person.joints); pos.has_value())
+            PersonData new_person = {.id=img_person.id, .image=img_person.roi, .orientation=calculate_orientation(img_person)};
+            // cv::Mat roi = cv::Mat(new_person.image.width, new_person.image.height, CV_8UC3, (uchar*)&new_person.image.image[0]);
+            if(auto coords = get_transformed_joint_list(img_person.joints); coords.has_value())
             {
-                new_person.personCoords_robot = get<0>(pos.value());
-                new_person.personCoords_world = get<1>(pos.value());
-                // qInfo() << __FUNCTION__ << " Person pos robot: " << new_person.personCoords_robot.x << " " << new_person.personCoords_robot.y << " " << new_person.personCoords_robot.z;
-                // qInfo() << __FUNCTION__ << " Person pos world: " << new_person.personCoords_world.x << " " << new_person.personCoords_world.y << " " << new_person.personCoords_world.z;
-                new_person.pixels = get<2>(pos.value());
-                new_people_vector.push_back(new_person);
+                new_person.joints = coords.value();
+                if(auto pos = position_filter(new_person.joints); pos.has_value())
+                {
+                    new_person.personCoords_robot = get<0>(pos.value());
+                    new_person.personCoords_world = get<1>(pos.value());
+                    // qInfo() << __FUNCTION__ << " Person pos robot: " << new_person.personCoords_robot.x << " " << new_person.personCoords_robot.y << " " << new_person.personCoords_robot.z;
+                    // qInfo() << __FUNCTION__ << " Person pos world: " << new_person.personCoords_world.x << " " << new_person.personCoords_world.y << " " << new_person.personCoords_world.z;
+                    new_person.pixels = get<2>(pos.value());
+                    new_people_vector.push_back(new_person);
+                }
+                else continue; // If joint list or position filtered values are not found, pass to the next person
             }
-            else continue; // If joint list or position filtered values are not found, pass to the next person
+            else continue;
         }
-        else continue;
     }
     qInfo() << new_people_vector.size();
     return new_people_vector;
@@ -1275,11 +1277,58 @@ void SpecificWorker::update_person(DSR::Node node, SpecificWorker::PersonData pe
 //                return;
 //            }
         // Modify distance from human to robot
-        float dist_to_robot = sqrt(pow(persondata.personCoords_robot.x, 2) + pow(persondata.personCoords_robot.y, 2));
+        float dist_to_robot = 0;
+        if(auto last_pix_x = G->get_attrib_by_name<person_pixel_x_att>(node); last_pix_x.has_value())  
+            if(auto last_pix_y = G->get_attrib_by_name<person_pixel_y_att>(node); last_pix_y.has_value())  
+                if(auto last_distance_to_robot = G->get_attrib_by_name<distance_to_robot_att>(node); last_distance_to_robot.has_value())  
+                {
+                    float dist_to_robot = alpha*last_distance_to_robot.value() + beta*sqrt(pow(persondata.personCoords_robot.x, 2) + pow(persondata.personCoords_robot.y, 2));
 
-        G->add_or_modify_attrib_local<distance_to_robot_att>(node, dist_to_robot);        
-        G->add_or_modify_attrib_local<person_pixel_x_att>(node, persondata.pixels.x);
-        G->add_or_modify_attrib_local<person_pixel_y_att>(node, persondata.pixels.y);
+
+                    if(dist_to_robot < 1800)
+                    {
+                        if (auto person_of_interest_edges = G->get_edges_by_type(person_of_interest_type_name); person_of_interest_edges.size() == 0)    
+                        {
+                            if(auto person_orin_id = G->get_attrib_by_name<person_id_att>(node); person_orin_id.has_value())
+                                this->eyecontrol_proxy->setFollowedPerson(person_orin_id.value());
+                            else
+                                return;
+                            // person_buffer.put(std::move(id));
+
+                            DSR::Edge edge = DSR::Edge::create<person_of_interest_edge_type>(robot_node.value().id(), node.id());
+                            if (G->insert_or_assign_edge(edge))
+                            {
+                                std::cout << __FUNCTION__ << " Edge successfully inserted: " << robot_node.value().id()
+                                        << "->" << node.id()
+                                        << " type: person_of_interest_edge_type" << std::endl;
+                            }
+                            else
+                            {
+                                std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << robot_node.value().id()
+                                        << "->" << node.id()
+                                        << " type: person_of_interest_edge_type" << std::endl;
+                                std::terminate();
+                            }
+                        }  
+                    }  
+                    else
+                    {
+                        auto interacting_edges = G->get_edges_by_type(interacting_type_name); 
+                        auto following_edges = G->get_edges_by_type(following_action_type_name);
+                        auto recognizing_edges = G->get_edges_by_type(recognizing_type_name);
+                        if(following_edges.size() == 0 and interacting_edges.size() == 0 and recognizing_edges.size() == 0)
+                            if(auto poi_edge = G->get_edge(robot_node.value().id(), node.id(), person_of_interest_type_name); poi_edge.has_value())
+                            {
+                                this->eyecontrol_proxy->setFollowedPerson(0);
+                                G->delete_edge(robot_node.value().id(), node.id(), person_of_interest_type_name);
+                            }
+                    }
+
+                    G->add_or_modify_attrib_local<distance_to_robot_att>(node, dist_to_robot);    
+                    G->add_or_modify_attrib_local<person_pixel_x_att>(node, int(alpha*persondata.pixels.x + beta*last_pix_x.value()));
+                    G->add_or_modify_attrib_local<person_pixel_y_att>(node, int(alpha*persondata.pixels.y + beta*last_pix_y.value()));
+                }
+
         // Getting image data
         if(persondata.image.topX + persondata.image.width < 480 && persondata.image.topY + persondata.image.height < 640)
         {
@@ -1600,25 +1649,20 @@ void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string 
 {
     if (type == "intention")
     {
-        qInfo() << "1";
         if (auto intention = G->get_node(id); intention.has_value())
         {
-            qInfo() << "2";
             std::optional<std::string> plan = G->get_attrib_by_name<current_intention_att>(intention.value());
             if (plan.has_value())
             {
-                qInfo() << "3";
                 Plan my_plan(plan.value());
                 if(my_plan.get_action() == "FOLLOW_PEOPLE")
                 {
-                    qInfo() << "4";
                     auto person_id = my_plan.get_attribute("person_node_id");
                     uint64_t value;
                     std::istringstream iss(person_id.toString().toUtf8().constData());
                     iss >> value;
                     if(auto followed_person_node = G->get_node(value); followed_person_node.has_value())
                     {
-                        qInfo() << "5";
                         DSR::Edge following_edge = DSR::Edge::create<following_action_edge_type>(G->get_node("robot").value().id(), followed_person_node.value().id());
                         if (G->insert_or_assign_edge(following_edge))
                         {
@@ -1636,6 +1680,7 @@ void SpecificWorker::modify_node_slot(const std::uint64_t id, const std::string 
 }
 void SpecificWorker::modify_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
+
     // if (std::count(att_names.begin(), att_names.end(), "checked_face"))
     // {
         
@@ -1754,3 +1799,6 @@ int SpecificWorker::startup_check()
 //                    G->update_node(world_node.value());
 //                    G->update_node(new_node);
 //                    insert_mind(id_result.value(), id);
+
+// this->eyecontrol_proxy->getServoAngle(...)
+// this->eyecontrol_proxy->setFollowedPerson(...)
