@@ -3,4 +3,4 @@ PROJECT(  path_conceptualizer )
 
 INCLUDE( /opt/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase OmniRobot YoloObjects )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase MPC OmniRobot YoloObjects )
