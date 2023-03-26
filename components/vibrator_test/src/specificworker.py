@@ -1,0 +1,141 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+#    Copyright (C) 2023 by YOUR NAME HERE
+#
+#    This file is part of RoboComp
+#
+#    RoboComp is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    RoboComp is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+from PySide2.QtCore import QTimer
+from PySide2.QtWidgets import QApplication
+from rich.console import Console
+from genericworker import *
+import interfaces as ifaces
+import time
+
+sys.path.append('/opt/robocomp/lib')
+console = Console(highlight=False)
+
+
+# If RoboComp was compiled with Python bindings you can use InnerModel in Python
+# import librobocomp_qmat
+# import librobocomp_osgviewer
+# import librobocomp_innermodel
+
+
+class SpecificWorker(GenericWorker):
+    def __init__(self, proxy_map, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map)
+        self.Period = 2000
+        self.enable =False
+        if startup_check:
+            self.startup_check()
+        else:
+            self.timer.timeout.connect(self.compute)
+            self.timer.start(self.Period)
+
+    def __del__(self):
+        """Destructor"""
+
+    def setParams(self, params):
+        return True
+
+
+    @QtCore.Slot()
+    def compute(self):
+        print('SpecificWorker.compute...')
+
+        return True
+
+    def startup_check(self):
+        print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
+        test = ifaces.RoboCompOmniRobot.TMechParams()
+        print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.AxisParams()
+        print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.ButtonParams()
+        print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.TData()
+        QTimer.singleShot(200, QApplication.instance().quit)
+
+
+    # =============== Methods for Component SubscribesTo ================
+    # ===================================================================
+    def vibration_test(self):
+        #avanza 2 metros
+        self.omnirobot_proxy.setSpeedBase(200,0,0)
+        time.sleep(10)
+        #gira 2 vueltaws y media
+        self.omnirobot_proxy.setSpeedBase(200,0,1)
+        time.sleep(5)
+        #2metros de movimiento lateral
+        self.omnirobot_proxy.setSpeedBase(0,200,0)
+        time.sleep(10)
+        #ponemos recto
+        self.omnirobot_proxy.setSpeedBase(0,0,1)
+        time.sleep(1)
+        #avanzamos rapido
+        self.omnirobot_proxy.setSpeedBase(800,0,0)
+        time.sleep(4)
+        #Giramos para diagonal
+        self.omnirobot_proxy.setSpeedBase(0,0,0.5)
+        time.sleep(1)
+        #avanzamos rapido
+        self.omnirobot_proxy.setSpeedBase(-200,-200,0)
+        time.sleep(5)
+        #paramos
+        self.omnirobot_proxy.setSpeedBase(0,0,0)
+
+
+    #
+    # SUBSCRIPTION to sendData method from JoystickAdapter interface
+    #
+    def JoystickAdapter_sendData(self, data):
+    
+        for b in data.buttons:
+            if b.name == "test" and self.enable ==False:
+                self.enable = True
+                self.vibration_test()
+                self.enable = False
+
+
+    # ===================================================================
+    # ===================================================================
+
+
+
+    ######################
+    # From the RoboCompOmniRobot you can call this methods:
+    # self.omnirobot_proxy.correctOdometer(...)
+    # self.omnirobot_proxy.getBasePose(...)
+    # self.omnirobot_proxy.getBaseState(...)
+    # self.omnirobot_proxy.resetOdometer(...)
+    # self.omnirobot_proxy.setOdometer(...)
+    # self.omnirobot_proxy.setOdometerPose(...)
+    # self.omnirobot_proxy.setSpeedBase(...)
+    # self.omnirobot_proxy.stopBase(...)
+
+    ######################
+    # From the RoboCompOmniRobot you can use this types:
+    # RoboCompOmniRobot.TMechParams
+
+    ######################
+    # From the RoboCompJoystickAdapter you can use this types:
+    # RoboCompJoystickAdapter.AxisParams
+    # RoboCompJoystickAdapter.ButtonParams
+    # RoboCompJoystickAdapter.TData
+
+
