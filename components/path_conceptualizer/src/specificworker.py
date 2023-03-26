@@ -209,11 +209,10 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, self.segmented_img, instance_img, self.yolo_objects = self.frame_queue.get()
 
         # compute optimum path given a possible target object
-        alternatives, curvatures, targets = self.dwa_optimizer.optimize(mask_img=mask_img,
-                                                                        target_object=self.target_object)
-
+        alternatives, curvatures, targets, controls = self.dwa_optimizer.optimize(mask_img=mask_img,
+                                                                                  target_object=self.target_object)
         # take control actions
-        self.control(curvatures, targets)
+        self.control(curvatures, targets, controls)
 
         # draw
         self.draw_frame(self.winname, frame, alternatives, self.segmented_img, instance_img, self.mask2former.labels,
@@ -223,7 +222,7 @@ class SpecificWorker(GenericWorker):
         return True
 
 #########################################################################
-    def control(self, curvatures, targets):
+    def control(self, curvatures, targets, controls):
         # we need to assign curvatures to buttons
         self.selected_index = None
         digitized = np.digitize(curvatures, self.bins)//4  # (10+10)/5
@@ -232,19 +231,43 @@ class SpecificWorker(GenericWorker):
             if b.isDown():
                 self.selected_index = int(np.where(digitized == i)[0][0])
 
-        adv = 0
-        rot = 0
         if self.selected_index is not None:
             current_target = targets[self.selected_index]
-            target = current_target[len(current_target)//2]
-            rot = np.arctan2(target[0], target[1])
-            adv = 300
+            control = controls[self.selected_index]
+            print(control, curvatures[self.selected_index])
+        else:
+            self.stop_robot()
+            return
+
+        # MPC
+        # try:
+        #     path = [ifaces.RoboCompMPC.Point(x=x, y=y) for x, y in current_target[1:11]]
+        #     control = self.mpc_proxy.newPath(path)
+        #     print("Control", control)
+        # except Ice.Exception as e:
+        #     traceback.print_exc()
+        #     print(e, "Error connecting to MPC")
+        #     return
+
+        # # omnirobot
+        # if control.valid:
+        #     try:
+        #         self.omnirobot_proxy.setSpeedBase(control.side, control.adv, control.rot)
+        #     except Ice.Exception as e:
+        #         traceback.print_exc()
+        #         print(e, "Error connecting to omnirobot")
+
+        # omnirobot
+        adv, rot = control
+        if adv > 1000:
+            adv = 1000
+        side = 0
+
         try:
-            self.omnirobot_proxy.setSpeedBase(0, adv, rot)
-            print("Control", adv, rot)
+            self.omnirobot_proxy.setSpeedBase(side, adv, rot*2)
         except Ice.Exception as e:
             traceback.print_exc()
-            print(e)
+            print(e, "Error connecting to omnirobot")
 
     def read_yolo_objects(self):
         yolo_objects = self.yoloobjects_proxy.getYoloObjects()
@@ -354,6 +377,13 @@ class SpecificWorker(GenericWorker):
                         [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
                         [0, 0, 0, 1]])
         return mat
+
+    def stop_robot(self):
+        try:
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to omnirobot")
 
     #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):

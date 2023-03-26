@@ -9,6 +9,8 @@ Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/MPC.ice")
+import RoboCompMPC
 Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
 import RoboCompOmniRobot
 Ice.loadSlice("-I ./src/ --all ./src/YoloObjects.ice")
@@ -68,6 +70,24 @@ class PointsType(list):
         super(PointsType, self).insert(index, item)
 
 setattr(RoboCompCameraRGBDSimple, "PointsType", PointsType)
+class Path(list):
+    def __init__(self, iterable=list()):
+        super(Path, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompMPC.Point)
+        super(Path, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompMPC.Point)
+        super(Path, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompMPC.Point)
+        super(Path, self).insert(index, item)
+
+setattr(RoboCompMPC, "Path", Path)
 class TObjects(list):
     def __init__(self, iterable=list()):
         super(TObjects, self).__init__(iterable)
@@ -181,6 +201,8 @@ class Requires:
         self.mprx={}
 
         self.CameraRGBDSimple = self.create_proxy("CameraRGBDSimpleProxy", RoboCompCameraRGBDSimple.CameraRGBDSimplePrx)
+
+        self.MPC = self.create_proxy("MPCProxy", RoboCompMPC.MPCPrx)
 
         self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 

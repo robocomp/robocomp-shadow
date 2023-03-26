@@ -29,19 +29,24 @@ class DWA_Optimizer():
             losses.append(loss)
         sorted_loss_index = np.argsort(losses)
 
-        # initialize path_set with the first mask in the sorted list with curvature = 0 aka the first straight line
-        index = int(np.argwhere(self.params[sorted_loss_index][:, 1] == 0)[0][0])
+        # initialize path_set, curvatures and selected_trajectories
+        # with the first mask in the sorted list with curvature = 0 aka the first straight line
+        index = int(np.argwhere(self.params[sorted_loss_index][:, 2] == 0)[0][0])     # take curvature
         path_set = [self.masks[sorted_loss_index[index]]]
-        curvatures = np.array([self.params[sorted_loss_index[index]][1]])
+        curvatures = np.array([self.params[sorted_loss_index[index]][2]])
         selected_target_trajs = [self.targets[sorted_loss_index[index]]]
+        controls = self.params[sorted_loss_index[index]][0:2].reshape(1, 2)
+
+        # clustering
         for i in sorted_loss_index:
-            arc, curvature = self.params[i]
+            advance, rotation, curvature = self.params[i]
             if np.all(np.abs(curvatures-curvature) > curvature_threshold):   # next one is separated by thresh.
                 path_set.append(self.masks[i])
                 curvatures = np.append(curvatures, curvature)
                 selected_target_trajs.append(self.targets[i])
+                controls = np.append(controls, np.array([advance, rotation]).reshape(1, 2), axis=0)
 
-        return path_set, curvatures, selected_target_trajs
+        return path_set, curvatures, selected_target_trajs, controls
 
     def loss_function(self, mask_img, mask_path, distance_to_target_object=0):
         result = cv2.bitwise_and(mask_img, mask_path)
@@ -70,7 +75,7 @@ class DWA_Optimizer():
         for v in np.arange(500, max_reachable_adv_speed, advance_step):
             for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
-                new_rotation = -current_rot_speed + w
+                new_rotation = current_rot_speed + w
                 arc_length = new_advance * time_ahead
                 if w > 0:
                     r = new_advance / new_rotation
@@ -98,7 +103,7 @@ class DWA_Optimizer():
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
-                        params.append([new_advance, -r])
+                        params.append([new_advance, -new_rotation, -r])
                         targets.append(central)
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
@@ -123,7 +128,7 @@ class DWA_Optimizer():
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
-                        params.append([new_advance, r])
+                        params.append([new_advance, new_rotation, r])
                         targets.append(central)
 
             else:       # avoid division by zero
@@ -134,18 +139,16 @@ class DWA_Optimizer():
                     points.append([robot_semi_width, arc_length])
                     points.append([robot_semi_width, 0])
                     trajectories.append(points)
-                    params.append([new_advance, np.inf])
-                    central.append([0, arc_length/3])
-                    central.append([0, arc_length/2])
+                    params.append([new_advance, 0.0, np.inf])
+                    central.append([0, arc_length/5])
+                    central.append([0, 2*arc_length/5])
+                    central.append([0, 3*arc_length/5])
+                    central.append([0, 4*arc_length/5])
                     central.append([0, arc_length])
                     targets.append(central)
 
-        #print(len(trajectories), "trajectories")
         params = np.array(params)
-        params[:, 1] = 100*np.reciprocal(np.array(params)[:, 1])     # compute curvature from radius
-        #np.savetxt('params.txt', params, fmt='%f')
-        #plt.plot(params[:, 1])
-        #plt.show()
+        params[:, 2] = 100*np.reciprocal(params[:, 2])     # compute curvature from radius
         return trajectories, params, targets
 
     def create_masks_3d(self, shape, trajectories):
