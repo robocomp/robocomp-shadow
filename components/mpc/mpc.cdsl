@@ -1,0 +1,11 @@
+import "MPC.idsl";
+
+Component MPC
+{
+    Communications
+    {
+        implements MPC;
+    };
+    language Cpp11;
+};
+
