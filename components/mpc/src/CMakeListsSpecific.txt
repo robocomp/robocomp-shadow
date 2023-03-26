@@ -1,0 +1,19 @@
+# Sources set
+SET ( SOURCES
+  specificworker.cpp
+  specificmonitor.cpp
+  mpc.cpp
+)
+
+# Headers set
+SET ( HEADERS
+  specificworker.h
+  specificmonitor.h
+)
+
+# no-char8_t to avoid a problem with ICE Connection lib.
+add_definitions(-O3  -fmax-errors=1 -fno-char8_t)
+
+SET (LIBS ${LIBS} casadi )
+
+
