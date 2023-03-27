@@ -4,7 +4,8 @@ class Floodfill_Segmentator():
     def __init__(self):
         pass
     def process(self, frame):
-        point = (220, 260)
+        height, width = frame.shape[:2]
+        point = (width//2, height-5)
         frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         connectivity = 4
         flags = connectivity | (255 << 8)

@@ -1,8 +1,7 @@
-import sys
-
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
 
 class DWA_Optimizer():
     def __init__(self, camera_matrix, focalx, focaly, frame_shape):
@@ -27,26 +26,57 @@ class DWA_Optimizer():
                 distance_to_target_object = np.linalg.norm(target_center - tip_of_path)
             loss = self.loss_function(mask_img, mask, distance_to_target_object)
             losses.append(loss)
-        sorted_loss_index = np.argsort(losses)
+        losses = np.array(losses)
+        #sorted_loss_index = np.argsort(losses)
+        params = self.params
+        params = np.c_[params, losses]
 
         # initialize path_set, curvatures and selected_trajectories
         # with the first mask in the sorted list with curvature = 0 aka the first straight line
-        index = int(np.argwhere(self.params[sorted_loss_index][:, 2] == 0)[0][0])     # take curvature
-        path_set = [self.masks[sorted_loss_index[index]]]
-        curvatures = np.array([self.params[sorted_loss_index[index]][2]])
-        selected_target_trajs = [self.targets[sorted_loss_index[index]]]
-        controls = self.params[sorted_loss_index[index]][0:2].reshape(1, 2)
+        # index = int(np.argwhere(self.params[sorted_loss_index][:, 2] == 0)[0][0])     # take curvature
+        # path_set = [self.masks[sorted_loss_index[index]]]
+        # curvatures = np.array([self.params[sorted_loss_index[index]][2]])
+        # selected_target_trajs = [self.targets[sorted_loss_index[index]]]
+        # controls = self.params[sorted_loss_index[index]][0:2].reshape(1, 2)
 
         # clustering
-        for i in sorted_loss_index:
-            advance, rotation, curvature = self.params[i]
-            if np.all(np.abs(curvatures-curvature) > curvature_threshold):   # next one is separated by thresh.
-                path_set.append(self.masks[i])
-                curvatures = np.append(curvatures, curvature)
-                selected_target_trajs.append(self.targets[i])
-                controls = np.append(controls, np.array([advance, rotation]).reshape(1, 2), axis=0)
+        # path_set = []
+        # curvatures = []
+        # selected_target_trajs = []
+        # controls = []
+        # kmeans = KMeans(init="random", n_clusters=3, n_init=10, max_iter=300, random_state=42)
+        # kmeans.fit(self.params[:, 2].reshape(-1, 1))
+        # # sort each set wrt loss
+        # for i in range(len(kmeans.cluster_centers_)):
+        #     print(np.array(losses)[np.argwhere(kmeans.labels_ == i)])
+        #     index = 0
+        #     #index = int(np.argsort(np.array(losses)[kmeans.labels_ == i].nonzero()])[0])
+        #     curvatures.append(self.params[index, 2])
+        #     print(i, index)
+        #     path_set.append(self.masks[index])
+        #     selected_target_trajs.append(self.targets[index])
+        #     advance = self.params[index][0]
+        #     rotation = self.params[index][0]
+        #     controls.append([advance, rotation])
 
-        return path_set, curvatures, selected_target_trajs, controls
+        # assign selected trajs to cluster centers
+        # for c in len(kmeans.cluster_centers_):
+        #     index = np.argmin(curvatures - c)
+        #     path_set.append(self.masks[index])
+        #     selected_target_trajs.append(self.targets[index])
+        #     advance, rotation, curvature = self.params[index]
+        #     controls = np.append(controls, np.array([advance, rotation]).reshape(1, 2), axis=0)
+
+        # for i in sorted_loss_index:
+        #     advance, rotation, curvature = self.params[i]
+        #     if np.all(np.abs(curvatures-curvature) > curvature_threshold):   # next one is separated by thresh.
+        #         path_set.append(self.masks[i])
+        #         curvatures = np.append(curvatures, curvature)
+        #         selected_target_trajs.append(self.targets[i])
+        #         controls = np.append(controls, np.array([advance, rotation]).reshape(1, 2), axis=0)
+
+        #return path_set, curvatures, selected_target_trajs, controls
+        return params, self.targets
 
     def loss_function(self, mask_img, mask_path, distance_to_target_object=0):
         result = cv2.bitwise_and(mask_img, mask_path)
@@ -72,7 +102,7 @@ class DWA_Optimizer():
         trajectories = []
         params = []
         targets = []
-        for v in np.arange(500, max_reachable_adv_speed, advance_step):
+        for v in np.arange(400, max_reachable_adv_speed, advance_step):
             for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
                 new_rotation = current_rot_speed + w
