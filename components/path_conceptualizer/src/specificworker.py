@@ -132,6 +132,7 @@ class SpecificWorker(GenericWorker):
             self.yolo_objects = None
             self.segmented_img = None
             self.target_object = None
+            self.selected_object = None
 
             # camera matrix
             try:
@@ -209,19 +210,66 @@ class SpecificWorker(GenericWorker):
         frame, mask_img, self.segmented_img, instance_img, self.yolo_objects = self.frame_queue.get()
 
         # compute optimum path given a possible target object
-        alternatives, curvatures, targets, controls = self.dwa_optimizer.optimize(mask_img=mask_img,
-                                                                                  target_object=self.target_object)
+        #alternatives, curvatures, targets, controls = self.dwa_optimizer.optimize(mask_img=mask_img,
+        #                                                                          target_object=self.target_object)
+        params, targets = self.dwa_optimizer.optimize(mask_img=mask_img, target_object=self.target_object)
         # take control actions
-        self.control(curvatures, targets, controls)
+        #self.control(curvatures, targets, controls)
+        self.control_2(params, targets)
 
         # draw
-        self.draw_frame(self.winname, frame, alternatives, self.segmented_img, instance_img, self.mask2former.labels,
-                        curvatures, targets)
+        # self.draw_frame(self.winname, frame, alternatives, self.segmented_img, instance_img, self.mask2former.labels,
+        #                 curvatures, targets)
         # self.draw_semantic_segmentation(self.winname, segmented_img, frame)
 
         return True
 
 #########################################################################
+    def control_2(self, params, targets):
+
+        control = []
+        self.selected_index = None
+        ref_curvatures = [-0.2, -0.1, 0.0, 0.1, 0.2]
+        # search high scored path close to reference curvature
+        #sorted_params_by_curvature = np.argsort(params, axis=2) # sort by curvature
+        for c, button, i in zip(ref_curvatures, self.buttons, range(len(self.buttons))):
+            # get the 5 closest elements by curvature and select the one with minimum loss
+            candidates = np.argsort(np.abs(params[:, 2] - c))[0:5]
+            local_index = np.argmin(params[candidates][:, 3])
+            advance, _, _, _ = params[candidates][local_index]
+            # check here that loss or arc is enough
+            if advance > 100:
+                button.setEnabled(True)
+                if button.isDown():
+                    self.selected_index = candidates[local_index]
+                    print("Down:", i, params[candidates][local_index])
+
+        if self.selected_index is not None:
+            control = params[self.selected_index][0:2]
+            advance, rotation, curvature, loss = params[self.selected_index]
+            print("Arrow:", advance, rotation, curvature, loss, "dist:", np.linalg.norm(targets[self.selected_index][-1]))
+        elif self.selected_object is not None:
+            # select closest direction to target
+            center_object = np.array([self.selected_object.x, self.selected_object.y])
+            object_index = np.argmin(np.linalg.norm(params[self.selected_index][4][-1] - center_object))
+            control = params[object_index][0:2]
+        else:
+            self.stop_robot()
+            return
+
+        # omnirobot
+        adv, rot = control  # TODO: move limit to sampler
+        if adv > 1000:
+            adv = 1000
+        side = 0
+
+        try:
+            print("Proxy:", side, adv, rot * 2)
+            self.omnirobot_proxy.setSpeedBase(side, adv, rot * 2)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to omnirobot")
+
     def control(self, curvatures, targets, controls):
         # we need to assign curvatures to buttons
         self.selected_index = None
@@ -230,40 +278,27 @@ class SpecificWorker(GenericWorker):
             b.setEnabled(i in digitized)
             if b.isDown():
                 self.selected_index = int(np.where(digitized == i)[0][0])
-
         if self.selected_index is not None:
             current_target = targets[self.selected_index]
             control = controls[self.selected_index]
-            print(control, curvatures[self.selected_index])
+            print(control, curvatures[self.selected_index], "dist:", np.linalg.norm(targets[self.selected_index][-1]))
+        elif self.selected_object is not None:
+            # select closest direction to target
+            center_object = np.array([self.selected_object.x, self.selected_object.y])
+            object_index = np.argmin(np.linalg.norm(targets[-1] - center_object))
+            control = controls[object_index]
         else:
             self.stop_robot()
             return
 
-        # MPC
-        # try:
-        #     path = [ifaces.RoboCompMPC.Point(x=x, y=y) for x, y in current_target[1:11]]
-        #     control = self.mpc_proxy.newPath(path)
-        #     print("Control", control)
-        # except Ice.Exception as e:
-        #     traceback.print_exc()
-        #     print(e, "Error connecting to MPC")
-        #     return
-
-        # # omnirobot
-        # if control.valid:
-        #     try:
-        #         self.omnirobot_proxy.setSpeedBase(control.side, control.adv, control.rot)
-        #     except Ice.Exception as e:
-        #         traceback.print_exc()
-        #         print(e, "Error connecting to omnirobot")
-
         # omnirobot
-        adv, rot = control
+        adv, rot = control  #TODO: move limit to sampler
         if adv > 1000:
             adv = 1000
         side = 0
 
         try:
+            print(side, adv, rot*2)
             self.omnirobot_proxy.setSpeedBase(side, adv, rot*2)
         except Ice.Exception as e:
             traceback.print_exc()
@@ -430,3 +465,20 @@ class SpecificWorker(GenericWorker):
     # RoboCompCameraRGBDSimple.TRGBD
 
 
+  # MPC
+        # try:
+        #     path = [ifaces.RoboCompMPC.Point(x=x, y=y) for x, y in current_target[1:11]]
+        #     control = self.mpc_proxy.newPath(path)
+        #     print("Control", control)
+        # except Ice.Exception as e:
+        #     traceback.print_exc()
+        #     print(e, "Error connecting to MPC")
+        #     return
+
+        # # omnirobot
+        # if control.valid:
+        #     try:
+        #         self.omnirobot_proxy.setSpeedBase(control.side, control.adv, control.rot)
+        #     except Ice.Exception as e:
+        #         traceback.print_exc()
+        #         print(e, "Error connecting to omnirobot")
