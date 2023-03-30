@@ -1,6 +1,0 @@
-#!/bin/bash
-# Scrip de auto arraque del shadow, este sera ejecutado en /etc/rc.local
-sleep 10
-rcnode &
-~/robocomp/components/robocomp-shadow/components/shadowbase/src/shadowbase.py ~/robocomp/components/robocomp-shadow/components/shadowbase/etc/config &
-~/robocomp/components/robocomp-robolab/components/hardware/external_control/joystickpublish/bin/JoystickPublish ~/robocomp/components/robocomp-robolab/components/hardware/external_control/joystickpublish/etc/config_shadow &
