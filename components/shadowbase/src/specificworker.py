@@ -40,7 +40,6 @@ import numpy as np
 import traceback
 
 import SVD48V
-import victron
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
