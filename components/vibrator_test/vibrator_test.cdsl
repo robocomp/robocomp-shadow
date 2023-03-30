@@ -1,11 +1,13 @@
 import "OmniRobot.idsl";
 import "JoystickAdapter.idsl"; 
+import "IMU.idsl";
+
 
 Component shadowbase
 {
 	Communications
 	{
-		requires OmniRobot;
+		requires OmniRobot, IMU;
 		subscribesTo JoystickAdapter;
 	};
 	language python;
