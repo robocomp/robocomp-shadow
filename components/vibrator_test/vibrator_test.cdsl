@@ -3,7 +3,7 @@ import "JoystickAdapter.idsl";
 import "IMU.idsl";
 
 
-Component shadowbase
+Component vibrator_test
 {
 	Communications
 	{
