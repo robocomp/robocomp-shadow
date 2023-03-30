@@ -39,8 +39,10 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 4
+        self.Period = 30
         self.enable =False
+        self.data = pandas.DataFrame(columns=["tiempo", "x", "y", "z"])
+        self.tstart = time.time()
         if startup_check:
             self.startup_check()
         else:
@@ -48,7 +50,8 @@ class SpecificWorker(GenericWorker):
             self.timer.start(self.Period)
 
     def __del__(self):
-        """Destructor"""
+        if self.enable:
+            self.data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_vibrator.csv")
 
     def setParams(self, params):
         return True
@@ -60,7 +63,7 @@ class SpecificWorker(GenericWorker):
             print('Scan...')
             try:
                 imu = self.imu_proxy.getAcceleration()
-                self.data.append({"tiempo":time.time()-self.tstart, "x":imu.x, "y":imu.y, "z":imu.z})
+                self.data = self.data.append({"tiempo":time.time()-self.tstart, "x":imu.XAcc, "y":imu.YAcc, "z":imu.ZAcc}, ignore_index=True)
             except Exception as e :
                 print(e)
             
@@ -91,33 +94,32 @@ class SpecificWorker(GenericWorker):
     # =============== Methods for Component SubscribesTo ================
     # ===================================================================
     def vibration_test(self):
-        time.sleep(5)
-        # try:
-        #     #avanza 2 metros
-        #     self.omnirobot_proxy.setSpeedBase(200,0,0)
-        #     time.sleep(10)
-        #     #gira 2 vueltaws y media
-        #     self.omnirobot_proxy.setSpeedBase(200,0,1)
-        #     time.sleep(5)
-        #     #2metros de movimiento lateral
-        #     self.omnirobot_proxy.setSpeedBase(0,200,0)
-        #     time.sleep(10)
-        #     #ponemos recto
-        #     self.omnirobot_proxy.setSpeedBase(0,0,1)
-        #     time.sleep(1)
-        #     #avanzamos rapido
-        #     self.omnirobot_proxy.setSpeedBase(800,0,0)
-        #     time.sleep(4)
-        #     #Giramos para diagonal
-        #     self.omnirobot_proxy.setSpeedBase(0,0,0.5)
-        #     time.sleep(1)
-        #     #avanzamos rapido
-        #     self.omnirobot_proxy.setSpeedBase(-200,-200,0)
-        #     time.sleep(5)
-        #     #paramos
-        #     self.omnirobot_proxy.setSpeedBase(0,0,0)
-        # except Exception as e :
-        #     print(e)
+        try:
+            #avanza 2 metros
+            self.omnirobot_proxy.setSpeedBase(0,200,0)
+            time.sleep(10)
+            #gira 2 vueltaws y media
+            self.omnirobot_proxy.setSpeedBase(0,0,1)
+            time.sleep(5)
+            #2metros de movimiento lateral
+            self.omnirobot_proxy.setSpeedBase(200,0,0)
+            time.sleep(10)
+            #ponemos recto
+            self.omnirobot_proxy.setSpeedBase(0,0,1)
+            time.sleep(1)
+            #avanzamos rapido
+            self.omnirobot_proxy.setSpeedBase(800,0,0)
+            time.sleep(4)
+            #Giramos para diagonal
+            self.omnirobot_proxy.setSpeedBase(0,0,0.5)
+            time.sleep(1)
+            #avanzamos rapido
+            self.omnirobot_proxy.setSpeedBase(-200,-200,0)
+            time.sleep(5)
+            #paramos
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+        except Exception as e :
+            print(e)
 
 
     #
