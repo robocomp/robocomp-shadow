@@ -157,6 +157,12 @@ class SpecificWorker(GenericWorker):
     def startup_check(self):
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
+        print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.AxisParams()
+        print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.ButtonParams()
+        print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
 
@@ -256,6 +262,12 @@ class SpecificWorker(GenericWorker):
     ######################
     # From the RoboCompOmniRobot you can use this types:
     # RoboCompOmniRobot.TMechParams
+
+    ######################
+    # From the RoboCompJoystickAdapter you can use this types:
+    # RoboCompJoystickAdapter.AxisParams
+    # RoboCompJoystickAdapter.ButtonParams
+    # RoboCompJoystickAdapter.TData
 
 
     # =============== Methods for Component SubscribesTo ================
