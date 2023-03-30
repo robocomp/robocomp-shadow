@@ -7,6 +7,8 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/IMU.ice")
+import RoboCompIMU
 Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
 import RoboCompJoystickAdapter
 Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
@@ -88,6 +90,8 @@ class Requires:
     def __init__(self, ice_connector):
         self.ice_connector = ice_connector
         self.mprx={}
+
+        self.IMU = self.create_proxy("IMUProxy", RoboCompIMU.IMUPrx)
 
         self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 

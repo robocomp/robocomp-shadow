@@ -2,7 +2,8 @@
 JoystickAdapterTopic.Endpoints=tcp -p 18896
 
 # Proxies for required interfaces
-OmniRobotProxy = omnirobot:tcp -h localhost -p 10032
+IMUProxy = imu:tcp -h localhost -p 10020
+OmniRobotProxy = omnirobot:tcp -h localhost -p 18121
 
 
 
