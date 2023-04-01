@@ -18,6 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
+import sys
 
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
@@ -160,11 +161,19 @@ class SpecificWorker(GenericWorker):
             self.mask2former = Mask2Former()
             self.floodfill = Floodfill_Segmentator()
 
+            # yolo
+            try:
+                self.yolo_object_names = self.yoloobjects_proxy.getYoloObjectNames()
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e)
+                sys.exit()
+
             # start frame thread
             self.buffer = []
             self.ready = False
             self.frame_queue = Queue(1)     # Hay que poner 1
-            self.thread_frame = threading.Thread(target=self.thread_frame_capture, args=(self.frame_queue, self.floodfill), daemon=True)
+            self.thread_frame = threading.Thread(target=self.thread_frame_capture, args=(self.frame_queue, self.mask2former), daemon=True)
             self.thread_frame.start()
             print("Video frame started")
 
@@ -182,13 +191,6 @@ class SpecificWorker(GenericWorker):
             pixmap = QPixmap("icons/th.png")
             icon = QIcon(pixmap)
             self.ui.pushButton_right.setIcon(icon)
-
-            # yolo
-            try:
-                self.yolo_object_names = self.yoloobjects_proxy.getYoloObjectNames()
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e)
 
             # bins
             plusbins = np.geomspace(0.001, 1, 10)
@@ -208,14 +210,30 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         # read frame
         frame, mask_img, self.segmented_img, instance_img, self.yolo_objects = self.frame_queue.get()
+        frame = self.draw_semantic_segmentation(self.winname, frame, self.segmented_img)
 
         # compute optimum path given a possible target object
         #alternatives, curvatures, targets, controls = self.dwa_optimizer.optimize(mask_img=mask_img,
         #                                                                          target_object=self.target_object)
-        params, targets = self.dwa_optimizer.optimize(mask_img=mask_img, target_object=self.target_object)
+        #params, targets = self.dwa_optimizer.optimize(mask_img=mask_img, target_object=self.target_object)
+        candidates = self.dwa_optimizer.discard(mask_img=mask_img)
         # take control actions
-        #self.control(curvatures, targets, controls)
-        self.control_2(params, targets)
+
+        control, selected = self.check_visual_target(candidates)
+        #control, selected = self.check_human_interface(candidates)
+
+        print("candidates:", len(candidates), "selected:", selected is not None, self.selected_object)
+
+        self.control_2(control)
+
+        if selected is None:
+            selected = candidates
+        else:
+            print("selected_object", self.yolo_object_names[self.selected_object.type])
+        self.draw_frame(self.winname, frame, selected)
+
+        cv2.imshow(self.winname, frame)
+        cv2.waitKey(2)
 
         # draw
         # self.draw_frame(self.winname, frame, alternatives, self.segmented_img, instance_img, self.mask2former.labels,
@@ -225,50 +243,71 @@ class SpecificWorker(GenericWorker):
         return True
 
 #########################################################################
-    def control_2(self, params, targets):
-
-        control = []
+    def check_human_interface(self, candidates):
+        if len(candidates) == 0:
+            return None, candidates
+        control = None
         self.selected_index = None
         ref_curvatures = [-0.2, -0.1, 0.0, 0.1, 0.2]
-        # search high scored path close to reference curvature
-        #sorted_params_by_curvature = np.argsort(params, axis=2) # sort by curvature
+        # search paths close to reference curvature
+
         for c, button, i in zip(ref_curvatures, self.buttons, range(len(self.buttons))):
             # get the 5 closest elements by curvature and select the one with minimum loss
-            candidates = np.argsort(np.abs(params[:, 2] - c))[0:5]
-            local_index = np.argmin(params[candidates][:, 3])
-            advance, _, _, _ = params[candidates][local_index]
+            selected = sorted(candidates, key=lambda item: np.abs(item["params"][2] - c))[0:5]
+            # local_index = np.argmin(params[candidates][:, 3])
+            selected = sorted(selected, key=lambda item: item["loss"])
+            # advance, _, _, _ = params[candidates][local_index]
+            # print("selected", len(selected))
+            advance, _, _ = selected[0]["params"]
             # check here that loss or arc is enough
             if advance > 100:
                 button.setEnabled(True)
                 if button.isDown():
-                    self.selected_index = candidates[local_index]
-                    print("Down:", i, params[candidates][local_index])
+                    # self.selected_index = candidates[local_index]
+                    self.selected_index = 0
+                    # print("Down:", i, params[candidates][local_index])
+                    print("Down:", i, selected[0]["params"])
+                    control = selected[0]["params"][0:2]
+                    advance, rotation, curvature = selected[0]["params"]
+                    # print("Arrow:", advance, rotation, curvature, loss, "dist:", np.linalg.norm(targets[self.selected_index][-1]))
+                    print("Arrow:", advance, rotation, curvature, selected[0]["loss"])
+                    return control, selected
 
-        if self.selected_index is not None:
-            control = params[self.selected_index][0:2]
-            advance, rotation, curvature, loss = params[self.selected_index]
-            print("Arrow:", advance, rotation, curvature, loss, "dist:", np.linalg.norm(targets[self.selected_index][-1]))
-        elif self.selected_object is not None:
+        return control, candidates
+
+    def check_visual_target(self, candidates):
+        control = None
+        selected = None
+        if len(candidates) > 0 and self.selected_object is not None:
+            #print("Entering", self.yolo_object_names[self.selected_object.type])
             # select closest direction to target
             center_object = np.array([self.selected_object.x, self.selected_object.y])
-            object_index = np.argmin(np.linalg.norm(params[self.selected_index][4][-1] - center_object))
-            control = params[object_index][0:2]
+            # object_index = np.argmin(np.linalg.norm(params[self.selected_index][4][-1] - center_object))
+            selected = sorted(candidates, key=lambda item: (np.linalg.norm(item["trajectory"][-1] - center_object)))
+            control = selected[0]["params"][0:2]
+            #print(control, "from visual target")
+            return control, [selected[0]]
+        else:
+            return control, selected
+
+    def control_2(self, control):
+        if control is not None:
+            adv, rot = control  # TODO: move limit to sampler
+            if adv > 800:
+                adv = 800
+            side = 0
+
+            try:
+                adv = 1000 * self.sigmoid(rot) * self.distance_to_target()
+                print("Proxy:", side, adv, rot)
+                self.omnirobot_proxy.setSpeedBase(side, adv, rot)
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Error connecting to omnirobot")
         else:
             self.stop_robot()
+            print("stopping")
             return
-
-        # omnirobot
-        adv, rot = control  # TODO: move limit to sampler
-        if adv > 1000:
-            adv = 1000
-        side = 0
-
-        try:
-            print("Proxy:", side, adv, rot * 2)
-            self.omnirobot_proxy.setSpeedBase(side, adv, rot * 2)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error connecting to omnirobot")
 
     def control(self, curvatures, targets, controls):
         # we need to assign curvatures to buttons
@@ -304,6 +343,20 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e, "Error connecting to omnirobot")
 
+    def sigmoid(self, rot):
+        xset = 0.4
+        yset = 0.3
+        s = -xset * xset / np.log(yset)
+        return np.exp(-rot * rot / s)
+
+    def distance_to_target(self):
+        center_object = np.array([self.selected_object.x, self.selected_object.y])
+        dist = np.linalg.norm(center_object)
+        if dist > 1000:
+            return 1
+        else:
+            return 0.001 * dist
+
     def read_yolo_objects(self):
         yolo_objects = self.yoloobjects_proxy.getYoloObjects()
         try:
@@ -317,24 +370,26 @@ class SpecificWorker(GenericWorker):
 
     def draw_yolo_boxes(self, img, yolo_objects, class_names):
         for box in yolo_objects:
+            if box.score<0.6:
+                continue
             x0 = box.left
             y0 = box.top
-            x1 = box.left
+            x1 = box.right
             y1 = box.bot
             color = (_COLORS[box.type] * 255).astype(np.uint8).tolist()
             text = '{} - {:.1f}%'.format(class_names[box.type], box.score * 100)
-            txt_color = (0, 0, 0) if np.mean(_COLORS[box.type]) > 0.5 else (255, 255, 255)
+            txt_color = (255, 0, 0)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
-            txt_bk_color = (_COLORS[box.type] * 255 * 0.7).astype(np.uint8).tolist()
-            cv2.rectangle(
-                img,
-                (x0, y0 + 1),
-                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
-                txt_bk_color,
-                -1
-            )
+            #txt_bk_color = (_COLORS[box.type] * 255 * 0.7).astype(np.uint8).tolist()
+            # cv2.rectangle(
+            #     img,
+            #     (x0, y0 + 1),
+            #     (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+            #     txt_bk_color,
+            #     -1
+            # )
             cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
 
     def thread_frame_capture(self, queue, segmentator):
@@ -354,23 +409,26 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e)
 
-    def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures, targets):
+    def draw_frame(self, winname, frame, candidates):
         alpha = 0.8
+        for s, c in enumerate(candidates):
+            # alt = c["mask"]
+            # alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+            # if s == self.selected_index:
+            #     color = (0, 0, 255)
+            # else:
+            #     color = (100, 100, 100)
+            # alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+            # frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
+            #
+            cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')], False, (255, 255, 255))
 
-        for s, alt in enumerate(alternatives):
-            alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-            if s == self.selected_index:
-                color = (0, 0, 255)
-            else:
-                color = (100, 100, 100)
-            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
-            frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
 
-        if self.selected_index is not None:
-            target = np.array(targets[self.selected_index])
-            points = self.dwa_optimizer.project_polygons([target])[0]
-            for p in points:
-                cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
+        # if self.selected_index is not None:
+        #     target = np.array(targets[self.selected_index])
+        #     points = self.dwa_optimizer.project_polygons([target])[0]
+        #     for p in points:
+        #         cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
 
         # compute rois for doors
         # inst = instance_img['segments_info']
@@ -382,10 +440,41 @@ class SpecificWorker(GenericWorker):
         #     mask_23 = cv2.boundingRect(mask)
         #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
 
-        cv2.imshow(winname, frame)
-        cv2.waitKey(2)
+        # cv2.imshow(winname, frame)
+        # cv2.waitKey(2)
 
-    def draw_semantic_segmentation(self, winname, seg, color_image):
+    # def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures, targets):
+    #     alpha = 0.8
+    #
+    #     for s, alt in enumerate(alternatives):
+    #         alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+    #         if s == self.selected_index:
+    #             color = (0, 0, 255)
+    #         else:
+    #             color = (100, 100, 100)
+    #         alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+    #         frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
+    #
+    #     if self.selected_index is not None:
+    #         target = np.array(targets[self.selected_index])
+    #         points = self.dwa_optimizer.project_polygons([target])[0]
+    #         for p in points:
+    #             cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
+    #
+    #     # compute rois for doors
+    #     # inst = instance_img['segments_info']
+    #     # door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
+    #     # inst_img = instance_img['segmentation']
+    #     # for door_id in door_ids:
+    #     #     mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+    #     #     mask[inst_img == door_id] = 255
+    #     #     mask_23 = cv2.boundingRect(mask)
+    #     #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
+    #
+    #     cv2.imshow(winname, frame)
+    #     cv2.waitKey(2)
+
+    def draw_semantic_segmentation(self, winname, color_image, seg):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.mask2former.color_palette)
         for label, color in enumerate(palette):
@@ -394,10 +483,11 @@ class SpecificWorker(GenericWorker):
         color_seg = color_seg[..., ::-1]
 
         # Show image + mask
-        img = np.array(color_image) * 0.5 + color_seg * 0.5
+        img = np.array(color_image) * 0.6 + color_seg * 0.4
         img = img.astype(np.uint8)
-        cv2.imshow(winname, np.asarray(img))
-        cv2.waitKey(2)
+        return img
+        # cv2.imshow(winname, np.asarray(img))
+        # cv2.waitKey(2)
 
     def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
         a = roll
@@ -423,16 +513,15 @@ class SpecificWorker(GenericWorker):
     #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
+            self.selected_object = None
             point = (x, y)
-            #print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
+            print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
 
             # check if clicked point on yolo object. If so, set it as the new target object
             for b in self.yolo_objects:
                 if x >= b.left and x < b.right and y >= b.top and y < b.bot:
                     self.selected_object = b
-                    print("Selected object", self.yolo_object_names[self.selected_object.type])
-                else:
-                    self.selected_object = None
+                    print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
 
     ########################################################################
     def startup_check(self):

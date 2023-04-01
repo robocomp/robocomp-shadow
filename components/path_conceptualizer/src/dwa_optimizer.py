@@ -5,15 +5,34 @@ from sklearn.cluster import KMeans
 
 class DWA_Optimizer():
     def __init__(self, camera_matrix, focalx, focaly, frame_shape):
-        self.polygons, params, self.targets = self.sample_points()
-        self.params = np.array(params)
+        self.candidates = self.sample_points()
+        #self.params = np.array(candidates["params"])
         self.camera_matrix = camera_matrix
         self.focalx = focalx
         self.focaly = focaly
         self.frame_shape = frame_shape
         # project polygons on image
-        projected_polygons = self.project_polygons(self.polygons)
-        self.masks = self.create_masks_3d(frame_shape, projected_polygons)
+        self.candidates = self.project_polygons(self.candidates)
+        self.candidates = self.create_masks_3d(frame_shape, self.candidates)
+
+    def discard(self, mask_img):
+        # discard all paths with less than 95% occupancy
+        survivors = []
+        for c in self.candidates:
+            mask = c["mask"]
+            result = cv2.bitwise_and(mask_img, mask)
+            lane_size = np.count_nonzero(mask)
+            inliers = np.count_nonzero(result)
+            segmented_size = np.count_nonzero(mask_img)
+            #print(inliers * 100 / lane_size)
+            if inliers * 100 / lane_size > 96:
+                loss = abs(segmented_size - lane_size) + 5 * abs(lane_size - inliers)
+                survivor = {"mask": mask, "polygon": c["polygon"],
+                            "params": c["params"], "loss": loss,
+                            "projected_polygon": c["projected_polygon"],
+                            "trajectory": c["trajectory"]}
+                survivors.append(survivor)
+        return survivors
 
     def optimize(self, mask_img, target_object, x0=None):
         curvature_threshold = 0.025  # range: -1, 1
@@ -88,7 +107,7 @@ class DWA_Optimizer():
 
     def sample_points(self):
         adv_max_accel = 600
-        rot_max_accel = 0.2
+        rot_max_accel = 0.4
         time_ahead = 2.5
         step_along_ang = 0.05
         advance_step = 100
@@ -99,9 +118,9 @@ class DWA_Optimizer():
         max_reachable_rot_speed = rot_max_accel * time_ahead
         robot_semi_width = 200
 
-        trajectories = []
         params = []
         targets = []
+        trajectories = []
         for v in np.arange(400, max_reachable_adv_speed, advance_step):
             for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
@@ -179,28 +198,37 @@ class DWA_Optimizer():
 
         params = np.array(params)
         params[:, 2] = 100*np.reciprocal(params[:, 2])     # compute curvature from radius
-        return trajectories, params, targets
+        candidates = []
+        for pa, tg, tr in zip(params, targets, trajectories):
+            candidate = {}
+            candidate["polygon"] = tr
+            candidate["params"] = pa
+            candidate["trajectory"] = tg
+            candidates.append(candidate)
+        return candidates
 
-    def create_masks_3d(self, shape, trajectories):
-        masks = []
+    def create_masks_3d(self, shape, candidates):
+        #masks = []
         height, width, _ = shape
-        for t in trajectories:  # [xl,yl]
+        for c in candidates:  # [xl,yl]
+            t = c["projected_polygon"]
             nt = np.array(t).copy()
             mask_poly = np.zeros((shape[0], shape[1]), np.uint8)
             cv2.fillPoly(mask_poly, pts=[nt.astype(int)], color=255)
-            masks.append(mask_poly)
+            #masks.append(mask_poly)
+            c["mask"] = mask_poly
             #cv2.polylines(mask_poly, pts=[nt.astype(int)], isClosed=True, color=255)
             #cv2.imshow("mask", mask_poly)
             #cv2.waitKey(200)
-        return masks
+        return candidates
 
-    def project_polygons(self, polygons):
+    def project_polygons(self, candidates):
 
         # get 3D points in robot CS, transform to camera CS and project with projection equations
         # transform to camera CS
         frame_width, frame_height, _ = self.frame_shape
-        projected_polygons = []
-        for po in polygons:
+        for c in candidates:
+            po = c["polygon"]
             extra_cols = np.array([np.zeros(len(po)), np.ones(len(po))]).transpose()
             npo = np.array(po)
             npo = np.append(npo, extra_cols, axis=1).transpose()
@@ -208,9 +236,9 @@ class DWA_Optimizer():
             # project on camera
             xs = np.array([((cam_poly[:, 0] * self.focaly) / cam_poly[:, 1]) + (frame_width/2),
                            ((cam_poly[:, 2] * -self.focalx) / cam_poly[:, 1]) + (frame_height/2)]).transpose()
-            projected_polygons.append(xs)  # now in camera CS
+            c["projected_polygon"] = xs.astype(int)  # now in camera CS
 
-        return projected_polygons
+        return candidates
 
  # def sample_points_2(self):
  #        curvature = np.arange(-38, 38, 3)
