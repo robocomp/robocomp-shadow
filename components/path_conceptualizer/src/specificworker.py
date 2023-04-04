@@ -209,29 +209,27 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # read frame
-        frame, mask_img, self.segmented_img, instance_img, self.yolo_objects = self.frame_queue.get()
-        frame = self.draw_semantic_segmentation(self.winname, frame, self.segmented_img)
+        frame, mask_img, self.segmented_img, rois, self.yolo_objects = self.frame_queue.get()
+        frame = self.draw_semantic_segmentation(self.winname, frame, self.segmented_img, rois)
 
-        # compute optimum path given a possible target object
-        #alternatives, curvatures, targets, controls = self.dwa_optimizer.optimize(mask_img=mask_img,
-        #                                                                          target_object=self.target_object)
-        #params, targets = self.dwa_optimizer.optimize(mask_img=mask_img, target_object=self.target_object)
+        # compute all feasible routes
         candidates = self.dwa_optimizer.discard(mask_img=mask_img)
         # take control actions
 
-        control, selected = self.check_visual_target(candidates)
-        #control, selected = self.check_human_interface(candidates)
-
-        print("candidates:", len(candidates), "selected:", selected is not None, self.selected_object)
+        active, control, selected = self.check_human_interface(candidates)
+        if not active:
+            active, control, selected = self.check_visual_target(candidates)
+            if not active:
+                self.draw_frame(self.winname, frame, candidates)
+                cv2.imshow(self.winname, frame)
+                cv2.waitKey(2)
+                return
+            else:
+                print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
 
         self.control_2(control)
 
-        if selected is None:
-            selected = candidates
-        else:
-            print("selected_object", self.yolo_object_names[self.selected_object.type])
         self.draw_frame(self.winname, frame, selected)
-
         cv2.imshow(self.winname, frame)
         cv2.waitKey(2)
 
@@ -244,8 +242,12 @@ class SpecificWorker(GenericWorker):
 
 #########################################################################
     def check_human_interface(self, candidates):
+        # pre-conditions
+        if any([button.isDown() for button in self.buttons]) is not True:
+            return False, None, candidates
         if len(candidates) == 0:
-            return None, candidates
+            return False, None, candidates
+        # core
         control = None
         self.selected_index = None
         ref_curvatures = [-0.2, -0.1, 0.0, 0.1, 0.2]
@@ -271,42 +273,63 @@ class SpecificWorker(GenericWorker):
                     advance, rotation, curvature = selected[0]["params"]
                     # print("Arrow:", advance, rotation, curvature, loss, "dist:", np.linalg.norm(targets[self.selected_index][-1]))
                     print("Arrow:", advance, rotation, curvature, selected[0]["loss"])
-                    return control, selected
+                    return True, control, selected
 
-        return control, candidates
+        return False, control, candidates
 
     def check_visual_target(self, candidates):
-        control = None
-        selected = None
-        if len(candidates) > 0 and self.selected_object is not None:
-            #print("Entering", self.yolo_object_names[self.selected_object.type])
-            # select closest direction to target
-            center_object = np.array([self.selected_object.x, self.selected_object.y])
-            # object_index = np.argmin(np.linalg.norm(params[self.selected_index][4][-1] - center_object))
-            selected = sorted(candidates, key=lambda item: (np.linalg.norm(item["trajectory"][-1] - center_object)))
-            control = selected[0]["params"][0:2]
-            #print(control, "from visual target")
-            return control, [selected[0]]
+        # pre-conditions
+        if len(candidates) == 0:
+            return False, None, candidates
+        if self.selected_object is None:
+            return False, None, candidates
+
+        # if a visual target is already selected, update it with one of the new objects
+        if self.previous_yolo_id is not None:
+            try:
+                # find the object in self.yolo_objects that has the same id
+                current = next(x for x in self.yolo_objects if x.score > 0.7 and x.id == self.previous_yolo_id)
+                print("CheckVisualTarget:", current.id, current.type)
+                self.selected_object = current
+            except:
+                self.previous_yolo_id = None
+                print("CheckVisualTarget,no match found. Resetting id")
+                return False, None, candidates
+                self.selected_object = None
         else:
-            return control, selected
+            current = self.selected_object
+
+        # select closest direction to target
+        center_object = np.array([current.x, current.y])
+        selected = sorted(candidates, key=lambda item: (np.linalg.norm(item["trajectory"][-1] - center_object)))
+        control = selected[0]["params"][0:2]
+        self.previous_yolo_id = self.selected_object.id
+        return True, control, [selected[0]]
 
     def control_2(self, control):
+        MAX_ADV_SPEED = 500
         if control is not None:
             adv, rot = control  # TODO: move limit to sampler
-            if adv > 800:
-                adv = 800
+            if adv > MAX_ADV_SPEED:
+                adv = MAX_ADV_SPEED
             side = 0
-
-            try:
-                adv = 1000 * self.sigmoid(rot) * self.distance_to_target()
-                print("Proxy:", side, adv, rot)
-                self.omnirobot_proxy.setSpeedBase(side, adv, rot)
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Error connecting to omnirobot")
+            d_coeff, dist = self.distance_to_target()
+            if dist < 900:
+                self.stop_robot()
+                self.selected_object = None
+                self.previous_yolo_id = None
+                print("Control_2: Target achieved")
+            else:
+                try:
+                    adv = MAX_ADV_SPEED * self.sigmoid(rot) * d_coeff
+                    print("Control_2 Proxy:", side, adv, rot, "Dist to target:", dist)
+                    self.omnirobot_proxy.setSpeedBase(side, adv, rot)
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Error connecting to omnirobot")
         else:
             self.stop_robot()
-            print("stopping")
+            print("Control_2: stopping")
             return
 
     def control(self, curvatures, targets, controls):
@@ -352,10 +375,10 @@ class SpecificWorker(GenericWorker):
     def distance_to_target(self):
         center_object = np.array([self.selected_object.x, self.selected_object.y])
         dist = np.linalg.norm(center_object)
-        if dist > 1000:
-            return 1
+        if dist > 1500:
+            return 1, dist
         else:
-            return 0.001 * dist
+            return (1/1500.0) * dist, dist
 
     def read_yolo_objects(self):
         yolo_objects = self.yoloobjects_proxy.getYoloObjects()
@@ -368,42 +391,19 @@ class SpecificWorker(GenericWorker):
             print(e)
         return yolo_objects.objects
 
-    def draw_yolo_boxes(self, img, yolo_objects, class_names):
-        for box in yolo_objects:
-            if box.score<0.6:
-                continue
-            x0 = box.left
-            y0 = box.top
-            x1 = box.right
-            y1 = box.bot
-            color = (_COLORS[box.type] * 255).astype(np.uint8).tolist()
-            text = '{} - {:.1f}%'.format(class_names[box.type], box.score * 100)
-            txt_color = (255, 0, 0)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
-            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
-            #txt_bk_color = (_COLORS[box.type] * 255 * 0.7).astype(np.uint8).tolist()
-            # cv2.rectangle(
-            #     img,
-            #     (x0, y0 + 1),
-            #     (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
-            #     txt_bk_color,
-            #     -1
-            # )
-            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
-
     def thread_frame_capture(self, queue, segmentator):
         while True:
             try:
-                image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
-                frame = np.frombuffer(image.image, dtype=np.uint8).reshape((image.height, image.width, 3))
-                frame = cv2.resize(frame, (384, 384))
-                mask_img, segmented_img, instance_img = segmentator.process(frame)
-                #mask_img, segmented_img, instance_img = self.mask2former.process(frame)
+                #image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
+                rgbd = self.camerargbdsimple_proxy.getAll("/Shadow/camera_top")  # TODO: cambiar a variable
+                depth_frame = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape((rgbd.depth.height, rgbd.depth.width, 1))
+                frame = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape((rgbd.image.height, rgbd.image.width, 3))
+                #frame = cv2.resize(frame, (384, 384))
+                mask_img, segmented_img, rois = segmentator.process(frame, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
                 yolo_objects = self.read_yolo_objects()
                 if yolo_objects:
                     self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
-                queue.put([frame, mask_img, segmented_img, instance_img, yolo_objects])
+                queue.put([frame, mask_img, segmented_img, rois, yolo_objects])
                 time.sleep(0.050)
             except Ice.Exception as e:
                 traceback.print_exc()
@@ -474,7 +474,7 @@ class SpecificWorker(GenericWorker):
     #     cv2.imshow(winname, frame)
     #     cv2.waitKey(2)
 
-    def draw_semantic_segmentation(self, winname, color_image, seg):
+    def draw_semantic_segmentation(self, winname, color_image, seg, rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.mask2former.color_palette)
         for label, color in enumerate(palette):
@@ -485,9 +485,33 @@ class SpecificWorker(GenericWorker):
         # Show image + mask
         img = np.array(color_image) * 0.6 + color_seg * 0.4
         img = img.astype(np.uint8)
+        txt_color = (0, 0, 255)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        if rois is not None:
+            for r in rois:
+                text = '{}-{}'.format(r.type, r.id)
+                txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+                cv2.rectangle(img, r.roi, (0, 0, 255), 2)
+                cv2.putText(img, text, (r.roi[0], r.roi[1] + txt_size[1]), font, 0.4, txt_color, thickness=1)
         return img
-        # cv2.imshow(winname, np.asarray(img))
-        # cv2.waitKey(2)
+
+    def draw_yolo_boxes(self, img, yolo_objects, class_names):
+        for box in yolo_objects:
+            if box.score < 0.6:
+                continue
+            x0 = box.left
+            y0 = box.top
+            x1 = box.right
+            y1 = box.bot
+            # color = (_COLORS[box.type] * 255).astype(np.uint8).tolist()
+            color = (255, 0, 0)
+            text = '{} - {:.1f}%'.format(class_names[box.type], box.score * 100)
+            txt_color = (255, 0, 0)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
 
     def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
         a = roll
@@ -522,6 +546,8 @@ class SpecificWorker(GenericWorker):
                 if x >= b.left and x < b.right and y >= b.top and y < b.bot:
                     self.selected_object = b
                     print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
+                    self.previous_yolo_id = None
+                    break
 
     ########################################################################
     def startup_check(self):
