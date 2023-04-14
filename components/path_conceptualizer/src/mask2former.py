@@ -173,23 +173,25 @@ class Mask2Former():
            'flag': 149
         }
 
-    def draw_semantic_segmentation(self, seg, color_image):
+    def draw_semantic_segmentation(self, winname, color_image, seg):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)  # height, width, 3
         palette = np.array(self.color_palette)
         for label, color in enumerate(palette):
-            color_seg[seg == label, :] = color
+           color_seg[seg == label, :] = color
         # Convert to BGR
         color_seg = color_seg[..., ::-1]
 
         # Show image + mask
         img = np.array(color_image) * 0.5 + color_seg * 0.5
         img = img.astype(np.uint8)
-        cv2.imshow("", np.asarray(img))
+        cv2.imshow(winname, np.asarray(img))
         cv2.waitKey(2)
 
     def create_mask(self, seg):
         mask = np.zeros((seg.shape[0], seg.shape[1], 1), dtype=np.uint8)  # height, width, 3
-        mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
+        #mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
+        mask[(seg == 3), :] = 255
+
         # labels_ids = torch.unique(seg).tolist()
         # for label_id in labels_ids:
         #     label = self.model.config.id2label[label_id]
