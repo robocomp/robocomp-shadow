@@ -41,7 +41,8 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 30
         self.enable =False
-        self.data = pandas.DataFrame(columns=["tiempo", "x", "y", "z"])
+        self.columns=["tiempo", "x", "y", "z"]
+        self.data = pandas.DataFrame(columns=self.columns)
         self.tstart = time.time()
         if startup_check:
             self.startup_check()
@@ -63,7 +64,7 @@ class SpecificWorker(GenericWorker):
             print('Scan...')
             try:
                 imu = self.imu_proxy.getAcceleration()
-                self.data = self.data.append({"tiempo":time.time()-self.tstart, "x":imu.XAcc, "y":imu.YAcc, "z":imu.ZAcc}, ignore_index=True)
+                self.data = pandas.concat([self.data, pandas.DataFrame({"tiempo":time.time()-self.tstart, "x":imu.XAcc, "y":imu.YAcc, "z":imu.ZAcc}, index=[0])], ignore_index=True)
             except Exception as e :
                 print(e)
             
@@ -94,28 +95,51 @@ class SpecificWorker(GenericWorker):
     # =============== Methods for Component SubscribesTo ================
     # ===================================================================
     def vibration_test(self):
+        print("START VIBRATOR")
         try:
-            #avanza 2 metros
-            self.omnirobot_proxy.setSpeedBase(0,200,0)
+            #avanza  lento
+            self.omnirobot_proxy.setSpeedBase(0,300,0)
             time.sleep(10)
-            #gira 2 vueltaws y media
+            #gira 2 vueltas y media
             self.omnirobot_proxy.setSpeedBase(0,0,1)
-            time.sleep(5)
-            #2metros de movimiento lateral
-            self.omnirobot_proxy.setSpeedBase(200,0,0)
+            time.sleep(6.25)
+            #movimiento lateral lento
+            self.omnirobot_proxy.setSpeedBase(300,0,0)
             time.sleep(10)
             #ponemos recto
             self.omnirobot_proxy.setSpeedBase(0,0,1)
-            time.sleep(1)
+            time.sleep(1.25)
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+            time.sleep(0.25)
             #avanzamos rapido
-            self.omnirobot_proxy.setSpeedBase(800,0,0)
-            time.sleep(4)
+            self.omnirobot_proxy.setSpeedBase(0,-800,0)
+            time.sleep(3.75)
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+            time.sleep(0.25)
+            #gira 2 vueltaws y media
+            self.omnirobot_proxy.setSpeedBase(0,0,1)
+            time.sleep(6.25)
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+            time.sleep(0.25)
+            #movimiento lateral rapido
+            self.omnirobot_proxy.setSpeedBase(-800,0,0)
+            time.sleep(3.75)
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+            time.sleep(0.25)
             #Giramos para diagonal
             self.omnirobot_proxy.setSpeedBase(0,0,0.5)
             time.sleep(1)
-            #avanzamos rapido
-            self.omnirobot_proxy.setSpeedBase(-200,-200,0)
+            #avanzamos lento
+            self.omnirobot_proxy.setSpeedBase(300,300,0)
             time.sleep(5)
+            self.omnirobot_proxy.setSpeedBase(0,0,0)
+            time.sleep(0.25)
+            #avanzamos rapido
+            self.omnirobot_proxy.setSpeedBase(-800,-800,0)
+            time.sleep(3.75)
+            #Giramos para ponermos rectos
+            self.omnirobot_proxy.setSpeedBase(0,0,0.5)
+            time.sleep(1.25)
             #paramos
             self.omnirobot_proxy.setSpeedBase(0,0,0)
         except Exception as e :
@@ -128,13 +152,15 @@ class SpecificWorker(GenericWorker):
     def JoystickAdapter_sendData(self, data):
     
         for b in data.buttons:
-            if b.name == "test" and self.enable ==False:
+            if b.name == "test" and b.step == 1 and self.enable ==False:
                 self.data = pandas.DataFrame(columns=["tiempo", "x", "y", "z"])
                 self.tstart = time.time()
                 self.enable = True
                 self.vibration_test()
+                print("Result:\n", self.data)
                 self.data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_vibrator.csv")
                 self.enable = False
+            
 
 
 
