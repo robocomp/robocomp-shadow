@@ -334,16 +334,17 @@ class Mask2Former():
         top = int(box[1] / depth_to_rgb_factor_rows)
         bot = int(box[1]+box[3] / depth_to_rgb_factor_rows)
         roi = depth[top: top + bot, left: left + right]
-        box_depth = 5000
         if roi.any():
             box_depth = np.min(roi) * 1000
-        y = depth
+        else:
+            box_depth = -1
+        y = box_depth
         cx_i = int(box[0] + box[2]/2)
         cy_i = int(box[1] + box[3]/2)
         cx = cx_i - depth.shape[1] / 2
         cy = cy_i - depth.shape[0] / 2
-        x = cx * depth / dfocalx
-        z = -cy * depth / dfocaly  # Z upwards
+        x = cx * box_depth / dfocalx
+        z = -cy * box_depth / dfocaly  # Z upwards
 
         return self.TBox(id_, type_, box, 0.7, box_depth, x, y, z)
 

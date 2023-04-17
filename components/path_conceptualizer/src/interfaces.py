@@ -7,12 +7,16 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
+Ice.loadSlice("-I ./src/ --all ./src/CameraSimple.ice")
+import RoboCompCameraSimple
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/MPC.ice")
 import RoboCompMPC
 Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
 import RoboCompOmniRobot
+Ice.loadSlice("-I ./src/ --all ./src/SemanticSegmentation.ice")
+import RoboCompSemanticSegmentation
 Ice.loadSlice("-I ./src/ --all ./src/YoloObjects.ice")
 import RoboCompYoloObjects
 
@@ -70,6 +74,24 @@ class PointsType(list):
         super(PointsType, self).insert(index, item)
 
 setattr(RoboCompCameraRGBDSimple, "PointsType", PointsType)
+class ImgType(list):
+    def __init__(self, iterable=list()):
+        super(ImgType, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, byte)
+        super(ImgType, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).insert(index, item)
+
+setattr(RoboCompCameraSimple, "ImgType", ImgType)
 class Path(list):
     def __init__(self, iterable=list()):
         super(Path, self).__init__(iterable)
@@ -88,6 +110,24 @@ class Path(list):
         super(Path, self).insert(index, item)
 
 setattr(RoboCompMPC, "Path", Path)
+class TObjects(list):
+    def __init__(self, iterable=list()):
+        super(TObjects, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
+        super(TObjects, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompSemanticSegmentation.TBox)
+        super(TObjects, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
+        super(TObjects, self).insert(index, item)
+
+setattr(RoboCompSemanticSegmentation, "TObjects", TObjects)
 class TObjects(list):
     def __init__(self, iterable=list()):
         super(TObjects, self).__init__(iterable)
@@ -205,6 +245,8 @@ class Requires:
         self.MPC = self.create_proxy("MPCProxy", RoboCompMPC.MPCPrx)
 
         self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
+
+        self.SemanticSegmentation = self.create_proxy("SemanticSegmentationProxy", RoboCompSemanticSegmentation.SemanticSegmentationPrx)
 
         self.YoloObjects = self.create_proxy("YoloObjectsProxy", RoboCompYoloObjects.YoloObjectsPrx)
 
