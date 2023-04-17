@@ -11,4 +11,8 @@ cd /home/robocomp/robocomp/components/robocomp-shadow/components/shadowbase
 src/shadowbase.py etc/config &
 # Ubicamos en componente del joystick y ejecutamos
 cd /home/robocomp/robocomp/components/robocomp-robolab/components/hardware/external_control/joystickpublish
-bin/JoystickPublish etc/config_shadow &
+# Por fallo en identificar el mando se realizaran varios intentos siendo la ejecucion en primer plano
+for i in {1..10};do
+    sleep 10
+    bin/JoystickPublish etc/config_shadow 
+done
