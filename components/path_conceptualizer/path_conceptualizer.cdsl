@@ -2,12 +2,13 @@ import "CameraRGBDSimple.idsl";
 import "OmniRobot.idsl";
 import "YoloObjects.idsl";
 import "MPC.idsl";
+import "SemanticSegmentation.idsl";
 
 Component path_conceptualizer
 {
     Communications
     {
-        requires CameraRGBDSimple, OmniRobot, YoloObjects, MPC;
+        requires CameraRGBDSimple, OmniRobot, YoloObjects, MPC, SemanticSegmentation;
     };
     language python;
     gui Qt(QWidget);

@@ -131,6 +131,7 @@ class SpecificWorker(GenericWorker):
             self.startup_check()
         else:
             self.yolo_objects = None
+            self.seg_objects = None
             self.segmented_img = None
             self.target_object = None
             self.selected_object = None
@@ -162,12 +163,12 @@ class SpecificWorker(GenericWorker):
             self.floodfill = Floodfill_Segmentator()
 
             # yolo
-            try:
-                self.yolo_object_names = self.yoloobjects_proxy.getYoloObjectNames()
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e)
-                sys.exit()
+            # try:
+            #     self.yolo_object_names = self.yoloobjects_proxy.getYoloObjectNames()
+            # except Ice.Exception as e:
+            #     traceback.print_exc()
+            #     print(e)
+            #     sys.exit()
 
             # start frame thread
             self.buffer = []
@@ -197,6 +198,8 @@ class SpecificWorker(GenericWorker):
             minusbins = -np.geomspace(0.0001, 1, 10)
             self.bins = np.append(minusbins[::-1], plusbins)  # compose both gemspaces from -1 to 1 with high density close to 0
 
+
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
     def __del__(self):
@@ -209,8 +212,11 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # read frame
-        frame, mask_img, self.segmented_img, rois, self.yolo_objects = self.frame_queue.get()
-        frame = self.draw_semantic_segmentation(self.winname, frame, self.segmented_img, rois)
+        frame, mask_img, self.segmented_img, self.yolo_objects, self.seg_objects = self.frame_queue.get()
+
+        # grounding
+        #self.objects = self.ground_objects(self.objects, self.seg_objects)
+        frame = self.draw_semantic_segmentation(self.winname, frame, self.segmented_img, self.yolo_objects, self.seg_objects)
 
         # compute all feasible routes
         candidates = self.dwa_optimizer.discard(mask_img=mask_img)
@@ -227,7 +233,7 @@ class SpecificWorker(GenericWorker):
             else:
                 print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
 
-        self.control_2(control)
+        #self.control_2(control)
 
         self.draw_frame(self.winname, frame, selected)
         cv2.imshow(self.winname, frame)
@@ -241,6 +247,10 @@ class SpecificWorker(GenericWorker):
         return True
 
 #########################################################################
+
+
+        return objects
+
     def check_human_interface(self, candidates):
         # pre-conditions
         if any([button.isDown() for button in self.buttons]) is not True:
@@ -399,11 +409,16 @@ class SpecificWorker(GenericWorker):
                 depth_frame = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape((rgbd.depth.height, rgbd.depth.width, 1))
                 frame = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape((rgbd.image.height, rgbd.image.width, 3))
                 #frame = cv2.resize(frame, (384, 384))
-                mask_img, segmented_img, rois = segmentator.process(frame, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
-                yolo_objects = self.read_yolo_objects()
-                if yolo_objects:
-                    self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
-                queue.put([frame, mask_img, segmented_img, rois, yolo_objects])
+                seg_objects = self.semanticsegmentation_proxy.getInstances()
+                segmented_img = self.semanticsegmentation_proxy.getSegmentedImage()
+                segmented_img = np.frombuffer(segmented_img.image, dtype=np.uint8).reshape(segmented_img.height, segmented_img.width)
+                mask_img = self.semanticsegmentation_proxy.getMaskedImage("floor")
+                mask_img = np.frombuffer(mask_img.image, dtype=np.uint8).reshape(mask_img.height, mask_img.width)
+                #mask_img, segmented_img, seg_objects = segmentator.process(frame, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
+                #pythonyolo_objects = self.read_yolo_objects()
+                # if yolo_objects:
+                #     self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
+                queue.put([frame, mask_img, segmented_img, [], seg_objects])
                 time.sleep(0.050)
             except Ice.Exception as e:
                 traceback.print_exc()
@@ -474,7 +489,7 @@ class SpecificWorker(GenericWorker):
     #     cv2.imshow(winname, frame)
     #     cv2.waitKey(2)
 
-    def draw_semantic_segmentation(self, winname, color_image, seg, rois):
+    def draw_semantic_segmentation(self, winname, color_image, seg, yolo_rois, seg_rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.mask2former.color_palette)
         for label, color in enumerate(palette):
@@ -488,12 +503,19 @@ class SpecificWorker(GenericWorker):
         txt_color = (0, 0, 255)
         font = cv2.FONT_HERSHEY_SIMPLEX
 
-        if rois is not None:
-            for r in rois:
+        if yolo_rois is not None:
+            for r in yolo_rois:
+                text = 'YOLO {}-{}'.format(r.type, r.id)
+                txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+                rect = [r.left, r.top, r.right-r.left, r.bot-r.top]
+                cv2.rectangle(img, rect, (255, 0, 0), 2)
+                cv2.putText(img, text, (r.left, r.top + txt_size[1]), font, 0.4, txt_color, thickness=1)
+        if seg_rois is not None:
+            for r in seg_rois:
                 text = '{}-{}'.format(r.type, r.id)
                 txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
-                cv2.rectangle(img, r.roi, (0, 0, 255), 2)
-                cv2.putText(img, text, (r.roi[0], r.roi[1] + txt_size[1]), font, 0.4, txt_color, thickness=1)
+                cv2.rectangle(img, (r.left, r.top, r.right, r.bot), (0, 0, 255), 2)
+                cv2.putText(img, text, (r.left, r.top + txt_size[1]), font, 0.4, txt_color, thickness=1)
         return img
 
     def draw_yolo_boxes(self, img, yolo_objects, class_names):
@@ -597,3 +619,17 @@ class SpecificWorker(GenericWorker):
         #     except Ice.Exception as e:
         #         traceback.print_exc()
         #         print(e, "Error connecting to omnirobot")
+
+    # def ground_objects(self, objects, seg_objects):
+    #     # update, add, delete cycle against objects. We assume seg_objects are already being tracked by ByteTracker
+    #     # so their ids are consistent
+    #     # update
+    #     local_objs = []
+    #     for obj in objects:
+    #         for s_obj in seg_objects:
+    #             if obj.id == s_obj.id:
+    #                 local_objs.append(s_obj)
+    #     # remove matched objects from seg_objects
+    #     for obj in local_objs:
+    #         seg_objects.remove(obj)
+    #     # add
