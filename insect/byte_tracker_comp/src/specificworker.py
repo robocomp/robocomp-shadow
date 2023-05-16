@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+#    Copyright (C) 2023 by YOUR NAME HERE
+#
+#    This file is part of RoboComp
+#
+#    RoboComp is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    RoboComp is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+from PySide2.QtCore import QTimer
+from PySide2.QtWidgets import QApplication
+from rich.console import Console
+from genericworker import *
+import interfaces as ifaces
+import numpy as np
+import cv2
+
+sys.path.append('/opt/robocomp/lib')
+console = Console(highlight=False)
+sys.path.append('/home/robolab/robocomp/components/robocomp-shadow-insect/components/byte_tracker_comp/ByteTrack')
+from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
+from yolox.tracker.byte_tracker import BYTETracker
+# If RoboComp was compiled with Python bindings you can use InnerModel in Python
+# import librobocomp_qmat
+# import librobocomp_osgviewer
+# import librobocomp_innermodel
+
+
+class SpecificWorker(GenericWorker):
+    def __init__(self, proxy_map, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map)
+        self.Period = 2000
+        if startup_check:
+            self.startup_check()
+        else:
+            self.timer.timeout.connect(self.compute)
+            self.timer.start(self.Period)
+        self.tracker = BYTETracker(frame_rate=30)
+
+    def __del__(self):
+        """Destructor"""
+
+    def setParams(self, params):
+        # try:
+        #	self.innermodel = InnerModel(params["InnerModelPath"])
+        # except:
+        #	traceback.print_exc()
+        #	print("Error reading config params")
+        return True
+
+
+    @QtCore.Slot()
+    def compute(self):
+        print('SpecificWorker.compute...')
+        return True
+
+    def startup_check(self):
+        print(f"Testing RoboCompYoloObjects.TBox from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TBox()
+        print(f"Testing RoboCompYoloObjects.TKeyPoint from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TKeyPoint()
+        print(f"Testing RoboCompYoloObjects.TPerson from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TPerson()
+        print(f"Testing RoboCompYoloObjects.TConnection from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TConnection()
+        print(f"Testing RoboCompYoloObjects.TJointData from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TJointData()
+        print(f"Testing RoboCompYoloObjects.TData from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TData()
+        QTimer.singleShot(200, QApplication.instance().quit)
+
+
+
+
+    #
+    # IMPLEMENTATION of getTargets method from ByteTrack interface
+    #
+    def ByteTrack_getTargets(self, ps, pb, clases):
+        ret = ifaces.RoboCompByteTrack.TOnlineTargets()
+        scores = np.array(ps)
+        boxes = np.array(pb)
+        clases = np.array(clases)
+        for i in self.tracker.update_original(scores, boxes, clases):
+            target = ifaces.RoboCompByteTrack.Targets()
+            tlwh = ifaces.RoboCompByteTrack.TPeopleBox(i.tlwh)
+            target.trackid = i.track_id
+            target.score = i.score
+            target.tlwh = tlwh
+            target.clase = i.clase
+            ret.append(target)
+        return ret
+    #
+    # IMPLEMENTATION of getTargetswithdepth method from ByteTrack interface
+    #
+    def ByteTrack_getTargetswithdepth(self, ps, pb, depth, clases):
+        ret = ifaces.RoboCompByteTrack.TOnlineTargets()
+        depth = np.frombuffer(depth.depth, dtype=np.float32).reshape(depth.height, depth.width, 1)
+        scores = np.array(ps)
+        boxes = np.array(pb)
+        clases = np.array(clases)
+        for i in self.tracker.update2(scores, boxes, depth, clases):
+            target = ifaces.RoboCompByteTrack.Targets()
+            tlwh = ifaces.RoboCompByteTrack.TPeopleBox(i.tlwh)
+            target.trackid = i.track_id
+            target.score = i.score
+            target.tlwh = tlwh
+            target.clase = i.clase
+            ret.append(target)
+        return ret
+    # ===================================================================
+    # ===================================================================
+
+    def ByteTrack_setTargets(self, ps, pb, clases, sender):
+        scores = np.array(ps)
+        boxes = np.array(pb)
+        clases = np.array(clases)
+        print(self.tracker.update_original(scores, boxes, clases))
+        #
+        # write your CODE here
+        #
+        pass
+
+    def ByteTrack_allTargets(self):
+        ret = ifaces.RoboCompByteTrack.OnlineTargets()
+        #
+        # write your CODE here
+        #
+        return ret
+
+    ######################
+    # From the RoboCompByteTrack you can use this types:
+    # RoboCompByteTrack.Targets
+
+

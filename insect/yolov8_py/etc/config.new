@@ -1,0 +1,19 @@
+# Endpoints for implements interfaces
+YoloObjects.Endpoints=tcp -p 17901
+
+
+# Proxies for required interfaces
+ByteTrackProxy = bytetrack:tcp -h localhost -p 15700
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10243
+
+
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
