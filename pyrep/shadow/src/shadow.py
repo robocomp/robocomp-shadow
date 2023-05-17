@@ -164,6 +164,10 @@ if __name__ == '__main__':
     adapter.add(billcoppeliaI.BillCoppeliaI(worker), ic.stringToIdentity('billcoppelia'))
     adapter.activate()
 
+    adapter = ic.createObjectAdapter('Lidar3D')
+    adapter.add(lidar3dI.Lidar3DI(worker), ic.stringToIdentity('lidar3d'))
+    adapter.activate()
+
     JoystickAdapter_adapter = ic.createObjectAdapter("JoystickAdapterTopic")
     joystickadapterI_ = joystickadapterI.JoystickAdapterI(worker)
     joystickadapter_proxy = JoystickAdapter_adapter.addWithUUID(joystickadapterI_).ice_oneway()
