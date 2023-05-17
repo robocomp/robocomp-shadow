@@ -1,0 +1,13 @@
+import "ByteTrack.idsl";
+
+Component byte_tracker
+{
+    Communications
+    {
+        implements ByteTrack;
+   
+    };
+    language python;
+
+};
+

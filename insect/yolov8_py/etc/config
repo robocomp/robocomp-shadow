@@ -1,0 +1,19 @@
+# Endpoints for implements interfaces
+YoloObjects.Endpoints=tcp -p 10054
+
+# Proxies for required interfaces
+# CameraRGBDSimpleProxy = camerargbdsimple:tcp -h robex.local -p 10095
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
+ByteTrackProxy = bytetrack:tcp -h localhost -p 13441
+
+display = true
+depth = true
+classes-path-file = /home/robolab/robocomp/components/robocomp-shadow/insect/yolov8_py/etc/classes.txt
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
