@@ -91,7 +91,6 @@ class SpecificWorker(GenericWorker):
         self.pr.start()
 
         # robot
-
         self.robot = Shadow()
         self.robot_object = Shape("/Shadow")
         self.ShadowBase_WheelRadius = 44  # mm coppelia
@@ -106,70 +105,51 @@ class SpecificWorker(GenericWorker):
         self.cameras_write = {}
         self.cameras_read = {}
 
-        # self.tablet_camera_name = "camera_tablet"
-        # cam = VisionSensor(self.tablet_camera_name)
-        # self.cameras_write[self.tablet_camera_name] = { "handle": cam,
-        #                                                 "id": 0,
-        #                                                 "angle": np.radians(cam.get_perspective_angle()),
-        #                                                 "width": cam.get_resolution()[0],
-        #                                                 "height": cam.get_resolution()[1],
-        #                                                 "focalx": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                  np.radians(cam.get_perspective_angle() / 2)),
-        #                                                 "focaly": (cam.get_resolution()[1] / 2) / np.tan(
-        #                                                     np.radians(cam.get_perspective_angle() / 2)),
-        #                                                 "rgb": np.array(0),
-        #                                                 "depth": np.ndarray(0),
-        #                                                 "is_ready": False,
-        #                                                 "is_rgbd": False,
-        #                                                 "rotated": False,
-        #                                                 "has_depth": False
-        #                                         }
-
         self.top_camera_name = "/Shadow/camera_top"
-        try:
-            cam = VisionSensor(self.top_camera_name)
-        except:
-            traceback.print_exc()
-
-        self.cameras_write[self.top_camera_name] = {"handle": cam,
-                                                     "id": 0,
-                                                     "angle": np.radians(cam.get_perspective_angle()),
-                                                     "width": cam.get_resolution()[0],
-                                                     "height": cam.get_resolution()[1],
-                                                     "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-                                                        np.radians(cam.get_perspective_angle() / 2.0))),
-                                                     "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-                                                         np.radians(cam.get_perspective_angle() / 2))),
-                                                     "rgb": np.array(0),
-                                                     "depth": np.ndarray(0),
-                                                     "is_ready": False,
-                                                     "is_rgbd": True,
-                                                     "rotated": True,
-                                                     "has_depth": True,
-                                                     "has_points": False
-                                                    }
-
-        # self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
         # try:
-        #     cam = VisionSensor(self.omni_camera_rgb_name)
-        #     self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
-        #                                                      "id": 0,
-        #                                                      "angle": np.radians(cam.get_perspective_angle()),
-        #                                                      "width": cam.get_resolution()[0],
-        #                                                      "height": cam.get_resolution()[1],
-        #                                                      "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-        #                                                          np.radians(cam.get_perspective_angle() / 2.0))),
-        #                                                      "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-        #                                                          np.radians(cam.get_perspective_angle() / 2))),
-        #                                                      "rgb": np.array(0),
-        #                                                      "depth": np.ndarray(0),
-        #                                                      "is_ready": False,
-        #                                                      "is_rgbd": False,
-        #                                                      "rotated": False,
-        #                                                      "has_depth": False
-        #                                                      }
+        #     cam = VisionSensor(self.top_camera_name)
         # except:
-        #     print("Camera OMNI sensorRGB  not found in Coppelia")
+        #     traceback.print_exc()
+        #
+        # self.cameras_write[self.top_camera_name] = {"handle": cam,
+        #                                              "id": 0,
+        #                                              "angle": np.radians(cam.get_perspective_angle()),
+        #                                              "width": cam.get_resolution()[0],
+        #                                              "height": cam.get_resolution()[1],
+        #                                              "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+        #                                                 np.radians(cam.get_perspective_angle() / 2.0))),
+        #                                              "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+        #                                                  np.radians(cam.get_perspective_angle() / 2))),
+        #                                              "rgb": np.array(0),
+        #                                              "depth": np.ndarray(0),
+        #                                              "is_ready": False,
+        #                                              "is_rgbd": True,
+        #                                              "rotated": True,
+        #                                              "has_depth": True,
+        #                                              "has_points": False
+        #                                             }
+
+        self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
+        try:
+            cam = VisionSensor(self.omni_camera_rgb_name)
+            self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
+                                                             "id": 0,
+                                                             "angle": np.radians(cam.get_perspective_angle()),
+                                                             "width": cam.get_resolution()[0],
+                                                             "height": cam.get_resolution()[1],
+                                                             "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
+                                                                 np.radians(cam.get_perspective_angle() / 2.0))),
+                                                             "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
+                                                                 np.radians(cam.get_perspective_angle() / 2))),
+                                                             "rgb": np.array(0),
+                                                             "depth": np.ndarray(0),
+                                                             "is_ready": False,
+                                                             "is_rgbd": False,
+                                                             "rotated": False,
+                                                             "has_depth": False
+                                                             }
+        except:
+            print("Camera OMNI sensorRGB  not found in Coppelia")
         #
         # self.omni_camera_depth_name = "/Shadow/omnicamera/sensorDepth"
         # try:
@@ -195,6 +175,9 @@ class SpecificWorker(GenericWorker):
 
         self.cameras_read = self.cameras_write.copy()
 
+        # Lidar3d
+        self.lidar3d_data = []
+
         # Read existing people
         self.people = {}
         if Dummy.exists("Bill_base"):
@@ -210,38 +193,7 @@ class SpecificWorker(GenericWorker):
             elif Dummy.exists(name):
                 self.people[name] = Dummy(name)
 
-        # laser
-        # self.lasers = {}
-        # self.hokuyo_front_left_name = "Hokuyo_sensor2"
-        # cam = VisionSensor(self.hokuyo_front_left_name)
-        # self.lasers[self.hokuyo_front_left_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                              "semiwidth": cam.get_resolution()[0] / 2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                   np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": -np.pi/3.0
-        #                                              }
-        # self.hokuyo_front_right_name = "Hokuyo_sensor1"
-        # cam = VisionSensor(self.hokuyo_front_right_name)
-        # self.lasers[self.hokuyo_front_right_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                               "semiwidth": cam.get_resolution()[0]/2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                 np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": np.pi / 3.0
-        #                                             }
-        # self.ldata_write = []
-        # self.ldata_read = []
+
         
         # PoseEstimation
         self.robot_full_pose_write = RoboCompFullPoseEstimation.FullPoseEuler()
@@ -256,9 +208,9 @@ class SpecificWorker(GenericWorker):
         # self.tablet_new_pos = None
 
         # Eye pan motor
-        self.eye_motor = Joint("/Shadow/camera_pan_joint")
-        self.eye_new_pos = None
-        self.eye_new_vel = None
+        # self.eye_motor = Joint("/Shadow/camera_pan_joint")
+        # self.eye_new_pos = None
+        # self.eye_new_vel = None
 
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
@@ -270,12 +222,13 @@ class SpecificWorker(GenericWorker):
                 self.pr.step()
                 self.read_robot_pose()
                 self.move_robot()
-                #self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name, self.top_camera_name])
-                self.read_cameras([self.top_camera_name])
+                self.read_cameras([self.omni_camera_rgb_name])
+                self.read_lidar3d()
+                #self.read_cameras([self.top_camera_name])
                 #ksself.read_people()
                 if not self.IGNORE_JOYSITCK:
                     self.read_joystick()
-                self.move_eye()
+                #self.move_eye()
                 tc.wait()
             except KeyboardInterrupt:
                 print("keyboard")
@@ -346,7 +299,6 @@ class SpecificWorker(GenericWorker):
     ### CAMERAS get and publish cameras data
     ###########################################
     def read_cameras(self, camera_names):
-
          if self.top_camera_name in camera_names:  # RGBD rotated
             cam = self.cameras_write[self.top_camera_name]
             image_float = cam["handle"].capture_rgb()
@@ -420,6 +372,12 @@ class SpecificWorker(GenericWorker):
          #     cam["is_ready"] = True
 
          self.cameras_write, self.cameras_read = self.cameras_read, self.cameras_write
+
+    ###########################################
+    ### CAMERAS get and publish cameras data
+    ###########################################
+    def read_lidar3d(self):
+        i, self.lidar3d_data, s, b = self.pr.script_call("get_data@/Shadow/VelodyneVPL16", 1)
 
     ###########################################
     ### JOYSITCK read and move the robot
@@ -868,5 +826,42 @@ class SpecificWorker(GenericWorker):
         bill_target.set_position([tx/1000.0, ty/1000.0, current_pos[2]])
 
     # ===================================================================
+    def Lidar3D_getLidarData(self):
+        lidar3D = []
+        for x, y, z in self.grouper(self.lidar3d_data, 3):
+            lidar3D.append(Lidar3D.TPoint(x=x, y=y, z=z, intensity=0))
+        return lidar3D
 
-
+    # =====================================================================
+# laser
+        # self.lasers = {}
+        # self.hokuyo_front_left_name = "Hokuyo_sensor2"
+        # cam = VisionSensor(self.hokuyo_front_left_name)
+        # self.lasers[self.hokuyo_front_left_name] = { "handle": cam,
+        #                                               "id": 0,
+        #                                               "angle": np.radians(cam.get_perspective_angle()),
+        #                                               "width": cam.get_resolution()[0],
+        #                                              "semiwidth": cam.get_resolution()[0] / 2.0,
+        #                                               "height": cam.get_resolution()[1],
+        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
+        #                                                   np.radians(cam.get_perspective_angle() / 2)),
+        #                                               "rgb": np.array(0),
+        #                                               "depth": np.ndarray(0),
+        #                                               "offset_angle": -np.pi/3.0
+        #                                              }
+        # self.hokuyo_front_right_name = "Hokuyo_sensor1"
+        # cam = VisionSensor(self.hokuyo_front_right_name)
+        # self.lasers[self.hokuyo_front_right_name] = { "handle": cam,
+        #                                               "id": 0,
+        #                                               "angle": np.radians(cam.get_perspective_angle()),
+        #                                               "width": cam.get_resolution()[0],
+        #                                               "semiwidth": cam.get_resolution()[0]/2.0,
+        #                                               "height": cam.get_resolution()[1],
+        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
+        #                                                 np.radians(cam.get_perspective_angle() / 2)),
+        #                                               "rgb": np.array(0),
+        #                                               "depth": np.ndarray(0),
+        #                                               "offset_angle": np.pi / 3.0
+        #                                             }
+        # self.ldata_write = []
+        # self.ldata_read = []

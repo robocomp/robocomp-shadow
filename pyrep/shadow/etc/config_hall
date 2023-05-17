@@ -9,7 +9,7 @@ RSSIStatus.Endpoints=tcp -p 10060
 JointMotorSimple.Endpoints=tcp -p 10086
 CameraSimple.Endpoints=tcp -p 10005
 BillCoppelia.Endpoints=tcp -p 11046
-
+Lidar3D.Endpoints=tcp -p 11032
 
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 13100
@@ -25,7 +25,7 @@ Ice.Trace.Protocol=0
 ##################################################
 
 #scene_file = ../../etc/corralgiraff.ttt
-scene_file = ../../etc/informatica.ttt
+scene_file = ../../etc/informatica_blender.ttt
 ignore_joystick = fasle
 
 

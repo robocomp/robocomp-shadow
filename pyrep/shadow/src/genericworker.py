@@ -54,6 +54,8 @@ Ice.loadSlice("-I ./src/ --all ./src/RSSIStatus.ice")
 import RoboCompRSSIStatus
 Ice.loadSlice("-I ./src/ --all ./src/JointMotorSimple.ice")
 import RoboCompJointMotorSimple
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+import RoboCompLidar3D
 
 import camerargbdsimpleI
 import camerasimpleI
@@ -66,6 +68,7 @@ import batterystatusI
 import rssistatusI
 import jointmotorsimpleI
 import billcoppeliaI
+import lidar3dI
 
 class GenericWorker():
 
