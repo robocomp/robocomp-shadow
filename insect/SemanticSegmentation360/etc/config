@@ -1,0 +1,19 @@
+# Endpoints for implements interfaces
+SemanticSegmentation.Endpoints=tcp -p 14601
+
+
+# Proxies for required interfaces
+ByteTrackProxy = bytetrack:tcp -h 192.168.50.114 -p 13441
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
+
+
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
