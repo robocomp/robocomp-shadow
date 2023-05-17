@@ -1,0 +1,14 @@
+import "Camera360RGB.idsl";
+import "ByteTrack.idsl";
+import "YoloObjects.idsl";
+
+Component yolov8_360
+{
+    Communications
+    {
+        implements YoloObjects;
+        requires Camera360RGB, ByteTrack;
+    };
+    language python;
+};
+

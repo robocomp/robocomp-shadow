@@ -1,0 +1,14 @@
+import "CameraRGBDSimple.idsl";
+import "YoloObjects.idsl";
+import "ByteTrack.idsl";
+
+Component yolov8_py
+{
+    Communications
+    {
+        implements YoloObjects;
+        requires CameraRGBDSimple, ByteTrack;
+    };
+    language python;
+};
+
