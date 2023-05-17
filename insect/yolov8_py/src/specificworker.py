@@ -27,28 +27,19 @@ from genericworker import *
 import interfaces as ifaces
 import numpy as np
 import time
-import math
 import cv2
 from threading import Thread, Event
 import traceback
 import queue
-import json
-from typing import NamedTuple, List, Mapping, Optional, Tuple, Union
 from shapely.geometry import box
 from collections import defaultdict
 import itertools
 
 sys.path.append('/home/robocomp/software/TensorRT-For-YOLO-Series')
-from utils.utils import preproc, vis
 from utils.utils import BaseEngine
 
-#sys.path.append('/home/robocomp/software/ByteTrack')
-#from yolox.tracker.byte_tracker import BYTETracker
 
-# from mediapipe.framework.formats import landmark_pb2, detection_pb2, location_data_pb2
-# import mediapipe as mp
 
-sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
@@ -169,9 +160,6 @@ class SpecificWorker(GenericWorker):
             # trt
             self.yolo_object_predictor = BaseEngine(engine_path='yolov8.trt')
 
-            # byte tracker
-            #self.tracker = BYTETracker(frame_rate=30)
-
             # Hz
             self.cont = 0
             self.last_time = time.time()
@@ -196,7 +184,11 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
+            self.classes = []
             self.display = params["display"] == "true" or params["display"] == "True"
+            self.depth_flag = params["depth"] == "true" or params["depth"] == "True"
+            with open(params["classes-path-file"]) as f:
+                [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
             print("Params read. Starting...", params)
         except:
             print("Error reading config params")
@@ -206,77 +198,51 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        desired_clases = ["person", "chair"]
-        classes = []
-        for element in desired_clases:
-            classes.append(_OBJECT_NAMES.index(element))
-        t1 = time.time()
-        rgb, depth, blob, alive_time, period = self.read_queue.get()
-        #t2 = time.time()
+        if self.depth_flag:
+            rgb, depth, blob, alive_time, period = self.read_queue.get()
+        else:
+            rgb, blob, alive_time, period = self.read_queue.get()
 
         dets = self.yolov7_objects(blob)
 
         if dets is not None:
-            boxes, scores, cls_inds = dets[:, :4], dets[:, 4], dets[:, 5]
+            boxes, scores, cls_inds = self.dets_to_robocompifaces(dets[:, :4], dets[:, 4], dets[:, 5])
 
-            desired_inds = [i for i, cls in enumerate(cls_inds) if cls in classes]  # index of elements with value 0
-            print("compute", scores)
-            print(desired_inds)
-            desired_scores = scores[desired_inds]
-            #print("PEOPLE_SCORES", people_scores)
-            desired_boxes = boxes[desired_inds]
-            desired_clases = cls_inds[desired_inds]
-            #print(scores)
-            # print("DETS boxes", boxes)
-            #################################
-            boxes = ifaces.RoboCompByteTrack.Boxes()
-            for i in desired_boxes:
-                box = ifaces.RoboCompByteTrack.Box(i)
-                boxes.append(box)
-            scores = ifaces.RoboCompByteTrack.Scores(desired_scores)
-            cls_inds = ifaces.RoboCompByteTrack.Clases([int(a) for a in desired_clases])
+        if not self.display and not self.depth_flag:
+            self.bytetrack_proxy.setTargets(scores, boxes, cls_inds, "Yolo") # ByteTracker without return and no depth
 
-            self.bytetrack_proxy.setTargets(scores, boxes, cls_inds, "Yolo")
-            ###################################
-            # print(scores)
-            #t3 = time.time()
-            # people_inds = [i for i, cls in enumerate(cls_inds) if cls == 0]  # index of elements with value 0
-            # print("compute", scores)
-            # print(people_inds)
-            # people_scores = scores[people_inds]
-            # #print("PEOPLE_SCORES", people_scores)
-            # people_boxes = boxes[people_inds]
+        elif not self.display:
+            _ = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth, cls_inds) # ByteTracker with depth
 
-            #print("PEOPLE_BOXES", people_boxes)
-            #print("TIPO DEPTH: ", depth)
-            # print(boxes)
-            # print(scores)
-        #     tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds = self.track(boxes_ro, scores, cls_inds, depth)
-        #     #t4 = time.time()
-        #
-        #     self.objects_write = self.post_process(tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds)
-        #     #t5 = time.time()
-        #
-        #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
-        #
-        #     if self.display:
-        #         rgb = self.display_data(rgb, tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds,
-        #                                 class_names=self.yolo_object_predictor.class_names)
-        #
-        # if self.display:
-        #     cv2.imshow("Detected Objects", rgb)
-        #     cv2.waitKey(1)
+        else:
+            tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds = self.track(boxes, scores, cls_inds,
+                                                                                           False) if not self.depth_flag else self.track(boxes, scores, cls_inds,
+                                                                                           depth)
+            self.objects_write = self.post_process(tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds)
 
-        #print(1000.0*(t2-t1), 1000.0*(t3-t2), 1000.0*(t4-t3), 1000.0*(t5-t4))
+            self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
-        # FPS
-        # try:
-        #     self.show_fps(alive_time, period)
-        # except KeyboardInterrupt:
-        #     event.set()
+            rgb = self.display_data(rgb, tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds,
+                                        class_names=self.yolo_object_predictor.class_names)
+
+            cv2.imshow("Detected Objects", rgb)
+            cv2.waitKey(1)
 
 
-    ###########################################################################################3
+    def dets_to_robocompifaces(self, boxes, scores, cls_inds):
+        desired_inds = [i for i, cls in enumerate(cls_inds) if
+                        cls in self.classes]  # index of elements that match desired classes
+        desired_scores = scores[desired_inds]
+        desired_boxes = boxes[desired_inds]
+        desired_clases = cls_inds[desired_inds]
+        boxes = ifaces.RoboCompByteTrack.Boxes()
+        for i in desired_boxes:
+            box = ifaces.RoboCompByteTrack.Box(i)
+            boxes.append(box)
+        scores = ifaces.RoboCompByteTrack.Scores(desired_scores)
+        cls_inds = ifaces.RoboCompByteTrack.Clases([int(a) for a in desired_clases])
+        return boxes, scores, cls_inds
+
 
     def get_rgb(self, name):
         try:
@@ -292,18 +258,16 @@ class SpecificWorker(GenericWorker):
     def get_rgb_thread(self, camera_name: str, event: Event):
         while not event.isSet():
             try:
-                # print("LLEGAAAAAAA")
                 rgbd = self.camerargbdsimple_proxy.getAll(camera_name)
                 color = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape(rgbd.image.height, rgbd.image.width, 3)
-                #cv2.imshow("AAAA", color)
-                # color = cv2.rotate(color, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                # cv2.imshow("AAAA", color)
-                #cv2.waitKey(1)
-                depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height, rgbd.depth.width, 1)
-                # print("LEN DEPTH YOLO", rgbd.depth.height, " ", rgbd.depth.width)
                 blob = self.pre_process(color, (640, 640))
                 delta = int(1000 * time.time() - rgbd.image.alivetime)
-                self.read_queue.put([color, rgbd.depth, blob, delta, rgbd.image.period])
+                if self.depth_flag:
+                    # depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height,
+                    #                                                                   rgbd.depth.width, 1)
+                    self.read_queue.put([color, rgbd.depth, blob, delta, rgbd.image.period])
+                else:
+                    self.read_queue.put([color, blob, delta, rgbd.image.period])
                 event.wait(self.thread_period/1000)
             except:
                 print("Error communicating with CameraRGBDSimple")
@@ -334,61 +298,14 @@ class SpecificWorker(GenericWorker):
         final_cls_ids = []
         final_ids = []
         tracked_boxes = []
-        tracked_scores=[]
-        tracked_cls_inds=[]
-        tracked_inds = []
-        online_targets = []
-        final_classes = []
-
-        # for j in classes:
-        #     boxes_ro = ifaces.RoboCompByteTrack.TPeopleBoxes()
-        #     inds = [i for i, cls in enumerate(cls_inds) if cls == j]
-        #     scores_a = scores[inds]
-        #     boxes_a = boxes[inds]
-        #     for i in boxes_a:
-        #         box = ifaces.RoboCompByteTrack.TPeopleBox(i)
-        #         boxes_ro.append(box)
-        #     scores_ro = ifaces.RoboCompByteTrack.TPeopleScores(scores_a)
-        #     online_targets.extend(self.bytetrack_proxy.getTargets(scores_ro, boxes_ro, depth_image, j))
-        #     final_classes
-        #     # print(online_targets)
-
-        # for j in clases:
-        #     boxes_ro = ifaces.RoboCompByteTrack.TPeopleBoxes()
-        #     inds = [i for i, cls in enumerate(cls_inds) if cls == j]
-        #     print("TIPO", type(scores))
-        #     scores_a = copy.deepcopy(scores[inds])
-        #     boxes_a = boxes[inds]
-        #     for i in boxes_a:
-        #         box = ifaces.RoboCompByteTrack.TPeopleBox(i)
-        #         boxes_ro.append(box)
-        #     scores_ro = ifaces.RoboCompByteTrack.TPeopleScores(scores_a)
-        #     print("tipo despues de robocomp", type(scores))
-        #     tracked_boxes_a, tracked_scores_a, tracked_cls_inds_a, tracked_inds_a = self.track(boxes_ro, scores_ro, cls_inds, depth_image)
-        #     tracked_boxes.append(tracked_boxes_a)
-        #     tracked_scores.append(tracked_scores_a)
-        #     tracked_cls_inds.append(tracked_cls_inds_a)
-        #     tracked_inds.append(tracked_inds_a)
-
-
-        # people_inds = [i for i, cls in enumerate(cls_inds) if cls == 0]   # index of elements with value 0
-        # people_scores = scores[people_inds]
-        # print(people_scores)
-        # people_boxes = boxes[people_inds]
-        # print(people_boxes)
-
-        #online_targets = self.tracker.update2(scores, boxes, [640, 640], (640, 640), cls_inds)
-        # print("boxes", type(boxes))
-        print("tipo cls_inds", type(cls_inds))
-        print(" cls_inds", cls_inds)
-        cls_inds = [int(a) for a in cls_inds]
-        online_targets = self.bytetrack_proxy.getTargets(scores, boxes, cls_inds)
-        # online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image, cls_inds)
-        # # online_targets = self.tracker.update2(people_scores, people_boxes, [640, 640], (640, 640), depth_image)
-        tracked_boxes = []
         tracked_scores = []
         tracked_ids = []
         tracked_clases = []
+
+        if self.depth_flag:
+            online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image, cls_inds)
+        else:
+            online_targets = self.bytetrack_proxy.getTargets(scores, boxes, cls_inds)
         for t in online_targets:
             tlwh = t.tlwh
             tid = t.trackid
@@ -398,7 +315,6 @@ class SpecificWorker(GenericWorker):
                 tracked_ids.append(tid)
                 tracked_scores.append(t.score)
                 tracked_clases.append(t.clase)
-
         if tracked_boxes:
             tracked_boxes = np.asarray(tracked_boxes)
             tracked_boxes[:, 2] = tracked_boxes[:, 0] + tracked_boxes[:, 2]
@@ -406,11 +322,8 @@ class SpecificWorker(GenericWorker):
 
             # we replace the original person boxes by the tracked ones
             # non_people_cls_inds = [i for i, cls in enumerate(cls_inds) if cls != 0]  # index of non-person elements
-            #final_boxes = np.append(boxes[non_people_cls_inds], tracked_boxes, axis=0)  # non-person boxes + tracked people
             final_boxes = tracked_boxes  # non-person boxes + tracked people
-            #final_scores = np.append(scores[non_people_cls_inds], tracked_scores, axis=0)
             final_scores = tracked_scores
-            # final_ids =  tracked_ids
             final_ids =  tracked_ids
             final_cls_ids = tracked_clases
 
@@ -423,9 +336,6 @@ class SpecificWorker(GenericWorker):
 
         for i in range(len(final_boxes)):
             box = final_boxes[i]
-            # if score < conf:
-            #    continue
-            # copy to interface
             ibox = ifaces.RoboCompYoloObjects.TBox()
             ibox.type = int(final_cls_inds[i])
             ibox.id = int(final_inds[i])
@@ -435,29 +345,8 @@ class SpecificWorker(GenericWorker):
             ibox.right = int(box[2])
             ibox.bot = int(box[3])
             data.objects.append(ibox)
-
-        #data.objects = self.nms(data.objects)
         return data
 
-    def nms(self, objects):
-        d = defaultdict(list)
-        for obj in objects:
-            d[obj.type].append(obj)
-        removed = []
-        for typ, same_type_objs in d.items():
-            power_set = itertools.combinations(same_type_objs, 2)  # possible combs of same type
-            # compute IOU
-            for a, b in power_set:
-                p1 = box(a.left, a.top, a.right, a.bot)  # shapely object
-                p2 = box(b.left, b.top, b.right, b.bot)
-                intersect = p1.intersection(p2).area / p1.union(p2).area
-                if intersect > 0.65:
-                    removed.append(a.id if abs(a.prob) > abs(b.prob) else b.id)
-        ret = []
-        for obj in objects:
-            if obj.id not in removed:
-                ret.append(obj)
-        return ret
 
     def show_fps(self, alive_time, period):
         if time.time() - self.last_time > 1:
@@ -587,21 +476,4 @@ class SpecificWorker(GenericWorker):
     # From the RoboCompByteTrack you can use this types:
     # RoboCompByteTrack.Targets
 
-# MEDIAPIPE DATA   https://google.github.io/mediapipe/solutions/pose.html
-# WHITE_COLOR = (224, 224, 224)
-# BLACK_COLOR = (0, 0, 0)
-# RED_COLOR = (0, 0, 255)
-# GREEN_COLOR = (0, 128, 0)
-# BLUE_COLOR = (255, 0, 0)
-# _PRESENCE_THRESHOLD = 0.5
-# _VISIBILITY_THRESHOLD = 0.5
-# _JOINT_NAMES = ['nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner', 'right_eye',
-#                 'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left', 'mouth_right', 'left_shoulder',
-#                 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_pinky', 'right_pinky',
-#                 'left_index', 'right_index', 'left_thumb', 'right_thumb', 'left_hip', 'right_hip', 'left_knee',
-#                 'right_knee', 'left_ankle', 'right_ankle', 'left_heel', 'right_heel', 'left_foot_index',
-#                 'right_foot_index']
-# _CONNECTIONS = [[1, 2], [2, 3], [3, 7], [0, 1], [0, 4], [4, 5], [5, 6], [6, 8], [10, 9], [12, 14], [14, 16],
-#                 [16, 22], [16, 20], [16, 18], [18, 20], [11, 13], [13, 15], [15, 21], [15, 19], [15, 17], [19, 17],
-#                 [12, 24], [24, 26], [26, 28], [28, 32], [32, 30], [28, 30], [11, 23], [24, 23], [23, 25], [25, 27],
-#                 [27, 29], [29, 31], [27, 31]]
+

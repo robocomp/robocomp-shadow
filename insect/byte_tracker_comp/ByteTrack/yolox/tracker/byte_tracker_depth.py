@@ -223,7 +223,7 @@ class BYTETracker(object):
         self.mot20 = False
         self.match_thresh = 0.99999999
 
-
+        self.track_buffer = buffer_
         self.det_thresh = self.track_thresh + 0.1
         self.buffer_size = int(frame_rate / 30.0 * self.track_buffer)
         self.max_time_lost = self.buffer_size
