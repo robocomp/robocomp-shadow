@@ -829,7 +829,7 @@ class SpecificWorker(GenericWorker):
     def Lidar3D_getLidarData(self):
         lidar3D = []
         for x, y, z in self.grouper(self.lidar3d_data, 3):
-            lidar3D.append(Lidar3D.TPoint(x=x, y=y, z=z, intensity=0))
+            lidar3D.append(RoboCompLidar3D.TPoint(x=x, y=z, z=y, intensity=0))
         return lidar3D
 
     # =====================================================================
