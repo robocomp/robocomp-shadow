@@ -1,0 +1,19 @@
+import "CameraRGBDSimple.idsl";
+import "OmniRobot.idsl";
+import "VisualElements.idsl";
+import "MPC.idsl";
+import "SemanticSegmentation.idsl";
+
+Component controller
+{
+    Communications
+    {
+        requires CameraRGBDSimple, OmniRobot, MPC, SemanticSegmentation;
+        implements VisualElements;
+    };
+    language python;
+    gui Qt(QWidget);
+
+};
+
+
