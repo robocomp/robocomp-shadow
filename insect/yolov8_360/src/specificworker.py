@@ -158,7 +158,7 @@ class SpecificWorker(GenericWorker):
             self.startup_check()
         else:
             # trt
-            self.yolo_object_predictor = BaseEngine(engine_path='yolov8.trt')
+            self.yolo_object_predictor = BaseEngine(engine_path='yolov8x.trt')
 
             # Hz
             self.cont = 0
@@ -168,13 +168,13 @@ class SpecificWorker(GenericWorker):
             # camera read thread
             self.read_queue = queue.Queue(1)
             self.event = Event()
-            self.read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event], 
-                                      name="read_queue", daemon=True)
-            self.read_thread.start()
+
+            self.image_width = 960
+            self.image_height = 960
 
             # result data
-            self.objects_write = ifaces.RoboCompYoloObjects.TData()
-            self.objects_read = ifaces.RoboCompYoloObjects.TData()
+            # self.objects_write = ifaces.RoboCompYoloObjects.TData()
+            # self.objects_read = ifaces.RoboCompYoloObjects.TData()
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -187,6 +187,9 @@ class SpecificWorker(GenericWorker):
             self.classes = []
             self.display = params["display"] == "true" or params["display"] == "True"
             self.depth_flag = params["depth"] == "true" or params["depth"] == "True"
+            self.read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
+                                      name="read_queue", daemon=True)
+            self.read_thread.start()
             with open(params["classes-path-file"]) as f:
                 [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
             print("Params read. Starting...", params)
@@ -206,27 +209,30 @@ class SpecificWorker(GenericWorker):
         dets = self.yolov7_objects(blob)
 
         if dets is not None:
-            boxes, scores, cls_inds = self.dets_to_robocompifaces(dets[:, :4], dets[:, 4], dets[:, 5])
+            # img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])), class_names=self.yolo_object_predictor.class_names)
+            # cv2.imshow("Detected Objects", img)
+            # cv2.waitKey(1)
+            self.send_to_bytetrack(dets[:, :4], dets[:, 4], dets[:, 5])
 
-        if not self.display and not self.depth_flag:
-            self.bytetrack_proxy.setTargets(scores, boxes, cls_inds, "Yolo") # ByteTracker without return and no depth
-
-        elif not self.display:
-            _ = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth, cls_inds) # ByteTracker with depth
-
-        else:
-            tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds = self.track(boxes, scores, cls_inds,
-                                                                                           False) if not self.depth_flag else self.track(boxes, scores, cls_inds,
-                                                                                           depth)
-            self.objects_write = self.post_process(tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds)
-
-            self.objects_write, self.objects_read = self.objects_read, self.objects_write
-
-            rgb = self.display_data(rgb, tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds,
-                                        class_names=self.yolo_object_predictor.class_names)
-
-            cv2.imshow("Detected Objects", rgb)
-            cv2.waitKey(1)
+        # if not self.display and not self.depth_flag:
+        #     self.bytetrack_proxy.setTargets(scores, boxes, cls_inds, "Yolo") # ByteTracker without return and no depth
+        #
+        # elif not self.display:
+        #     _ = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth, cls_inds) # ByteTracker with depth
+        #
+        # else:
+        #     tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds = self.track(boxes, scores, cls_inds,
+        #                                                                                    False) if not self.depth_flag else self.track(boxes, scores, cls_inds,
+        #                                                                                    depth)
+        #     self.objects_write = self.post_process(tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds)
+        #
+        #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
+        #
+        #     rgb = self.display_data(rgb, tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds,
+        #                                 class_names=self.yolo_object_predictor.class_names)
+        #
+        #     cv2.imshow("Detected Objects", rgb)
+        #     cv2.waitKey(1)
 
         # FPS
         try:
@@ -235,39 +241,39 @@ class SpecificWorker(GenericWorker):
             self.event.set()
 
 
-    def dets_to_robocompifaces(self, boxes, scores, cls_inds):
+    def send_to_bytetrack(self, boxes, scores, cls_inds):
+        ret = ifaces.RoboCompVisualElements.TObjects()
         desired_inds = [i for i, cls in enumerate(cls_inds) if
                         cls in self.classes]  # index of elements that match desired classes
         desired_scores = scores[desired_inds]
         desired_boxes = boxes[desired_inds]
         desired_clases = cls_inds[desired_inds]
-        boxes = ifaces.RoboCompByteTrack.Boxes()
-        for i in desired_boxes:
-            box = ifaces.RoboCompByteTrack.Box(i)
-            boxes.append(box)
-        scores = ifaces.RoboCompByteTrack.Scores(desired_scores)
-        cls_inds = ifaces.RoboCompByteTrack.Clases([int(a) for a in desired_clases])
-        return boxes, scores, cls_inds
-
-
-    def get_rgb(self, name):
+        for index in range(len(desired_scores)):
+            act_object = ifaces.RoboCompVisualElements.TObject()
+            act_object.type = int(desired_clases[index])
+            act_object.left = int(desired_boxes[index][0])
+            act_object.top = int(desired_boxes[index][1])
+            act_object.right = int(desired_boxes[index][2])
+            act_object.bot = int(desired_boxes[index][3])
+            act_object.score = desired_scores[index]
+            ret.append(act_object)
         try:
-            rgb = self.camerargbdsimple_proxy.getImage(name)
-            frame = np.frombuffer(rgb.image, dtype=np.uint8)
-            frame = frame.reshape((rgb.height, rgb.width, 3))
+            self.visualelements_proxy.setVisualObjects(ret, 0)
         except:
-            print("Error communicating with CameraRGBDSimple")
+            print("Error communicating with BYTETRACK")
             traceback.print_exc()
             return
-        return frame
 
     def get_rgb_thread(self, camera_name: str, event: Event):
         while not event.isSet():
             try:
-                # rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 920, 920)
-                rgbd = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
+                self.image_height = rgbd.height
+                self.image_width = rgbd.width
+                print(self.image_height, self.image_width)
+                # rgbd = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
                 color = np.frombuffer(rgbd.image, dtype=np.uint8).reshape(rgbd.height, rgbd.width, 3)
-                color = cv2.resize(color, (640, 640))
+                # color = cv2.resize(color, (640, 640))
                 blob = self.pre_process(color, (640, 640))
                 delta = int(1000 * time.time() - rgbd.alivetime)
                 if self.depth_flag:
@@ -278,7 +284,7 @@ class SpecificWorker(GenericWorker):
                     self.read_queue.put([color, blob, delta, rgbd.period])
                 event.wait(self.thread_period/1000)
             except:
-                print("Error communicating with CameraRGBDSimple")
+                print("Error communicating with Camera360RGB")
                 traceback.print_exc()
 
     ###############################################################
@@ -348,10 +354,15 @@ class SpecificWorker(GenericWorker):
             ibox.type = int(final_cls_inds[i])
             ibox.id = int(final_inds[i])
             ibox.prob = final_scores[i]
+            # ibox.left = int(box[0]*(self.image_width/640))
+            # ibox.top = int(box[1]*(self.image_height/640))
+            # ibox.right = int(box[2]*(self.image_width/640))
+            # ibox.bot = int(box[3]*(self.image_height/640))
             ibox.left = int(box[0])
             ibox.top = int(box[1])
             ibox.right = int(box[2])
             ibox.bot = int(box[3])
+
             data.objects.append(ibox)
         return data
 
@@ -371,8 +382,8 @@ class SpecificWorker(GenericWorker):
     def display_data(self, img, boxes, scores, cls_inds, inds, class_names=None):
         #print(len(inds), len(boxes))
         for i in range(len(boxes)):
-            if inds[i] == -1:
-                continue
+            # if inds[i] == -1:
+            #     continue
             bb = boxes[i]
             cls_ids = int(cls_inds[i])
             ids = inds[i]
@@ -419,53 +430,5 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompHumanCameraBody.PeopleData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    # ===================================================================
-    #
-    # IMPLEMENTATION of getImage method from YoloObjects interface
-    #
-    def YoloObjects_getImage(self):
-        # ret = RoboCompYoloObjects.RoboCompCameraRGBDSimple::TImage()
-        #
-        # write your CODE here
-        #
-        return ret
-        #
-
-    # IMPLEMENTATION of getYoloJointNames method from YoloObjects interfa
-    #
-    def YoloObjects_getYoloJointData(self):
-        ret = ifaces.RoboCompYoloObjects.TJointData()
-        ret.jointNames = {}
-        for i, jnt in enumerate(_JOINT_NAMES):
-            ret.jointNames[i] = jnt
-        ret.connections = []
-        for a, b in _CONNECTIONS:
-            conn = ifaces.RoboCompYoloObjects.TConnection()
-            conn.first = a
-            conn.second = b
-            ret.connections.append(conn)
-        return ret
-
-    # IMPLEMENTATION of getYoloObjectNames method from YoloObjects interf
-    #
-    def YoloObjects_getYoloObjectNames(self):
-        return self.yolo_object_predictor.class_names
-
-    # IMPLEMENTATION of getYoloObjects method from YoloObjects interface
-    #
-    def YoloObjects_getYoloObjects(self):
-        return self.objects_read
-
-    ######################
-    # From the RoboCompCamera360RGB you can call this methods:
-    # self.camera360rgb_proxy.getROI(...)
-
- ######################
-    # From the RoboCompByteTrack you can call this methods:
-    # self.bytetrack_proxy.getTargets(...)
-
-    ######################
-    # From the RoboCompByteTrack you can use this types:
-    # RoboCompByteTrack.Targets
 
 

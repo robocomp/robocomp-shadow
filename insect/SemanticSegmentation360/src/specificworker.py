@@ -30,6 +30,7 @@ from threading import Thread, Event
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
+from transformers import SamModel, SamProcessor
 import time
 import queue
 import cv2
@@ -52,7 +53,7 @@ class SpecificWorker(GenericWorker):
             self.z = z_
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 50
+        self.Period = 330
         self.thread_period = 50
         if startup_check:
             self.startup_check()
@@ -70,6 +71,13 @@ class SpecificWorker(GenericWorker):
             self.processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-tiny-ade-semantic")
             self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
                 "facebook/mask2former-swin-tiny-ade-semantic")
+
+            # self.model = SamModel.from_pretrained("facebook/sam-vit-base")
+            # self.processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
+
+            # self.processor = AutoImageProcessor.from_pretrained("facebook/mask2former-swin-large-ade-panoptic")
+            # self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
+            #     "facebook/mask2former-swin-large-ade-panoptic")
             self.color_palette = [list(np.random.choice(range(256), size=3)) for _ in
                                   range(len(self.model.config.id2label))]
             self.model = self.model.to('cuda:0')
@@ -226,87 +234,88 @@ class SpecificWorker(GenericWorker):
                 'flag': 149
             }
             self.selected_labels = {
-                # 'bed ': 7,
-                # 'windowpane': 8,
-                # 'cabinet': 10,
+                'bed ': 7,
+                'windowpane': 8,
+                'cabinet': 10,
                 'person': 12,
-                # 'earth': 13,
-                # 'door': 14,
-                # 'table': 15,
-                # 'plant': 17,
-                # 'curtain': 18,
-                # 'chair': 19,
-                # 'painting': 22,
-                # 'sofa': 23,
-                # 'shelf': 24,
-                # 'mirror': 27,
-                # 'armchair': 30,
-                # 'seat': 31,
-                # 'desk': 33,
-                # 'wardrobe': 35,
-                # 'lamp': 36,
-                # 'bathtub': 37,
-                # 'railing': 38,
-                # 'cushion': 39,
-                # 'base': 40,
-                # 'box': 41,
-                # 'column': 42,
-                # 'signboard': 43,
-                # 'chest of drawers': 44,
-                # 'counter': 45,
-                # 'sink': 47,
-                # 'refrigerator': 50,
-                # 'grandstand': 51,
-                # 'stairs': 53,
-                # 'runway': 54,
-                # 'case': 55,
-                # 'pillow': 57,
-                # 'stairway': 59,
-                # 'bookcase': 62,
-                # 'blind': 63,
-                # 'coffee table': 64,
-                # 'toilet': 65,
-                # 'flower': 66,
-                # 'book': 67,
-                # 'bench': 69,
-                # 'countertop': 70,
-                # 'stove': 71,
-                # 'palm': 72,
-                # 'kitchen island': 73,
-                # 'computer': 74,
-                # 'swivel chair': 75,
-                # 'bar': 77,
-                # 'arcade machine': 78,
-                # 'light': 82,
-                # 'television receiver': 89,
-                # 'bottle': 98,
-                # 'buffet': 99,
-                # 'poster': 100,
-                # 'stage': 101,
-                # 'basket': 112,
-                # 'bag': 115,
-                # 'oven': 118,
-                # 'ball': 119,
-                # 'food': 120,
-                # 'step': 121,
-                # 'tank': 122,
-                # 'microwave': 124,
-                # 'pot': 125,
-                # 'dishwasher': 129,
-                # 'screen': 130,
-                # 'vase': 135,
-                # 'tray': 137,
-                # 'ashcan': 138,
-                # 'plate': 142,
-                # 'monitor': 143,
-                # 'radiator': 146,
-                # 'glass': 147,
-                # 'clock': 148,
+                'earth': 13,
+                'door': 14,
+                'table': 15,
+                'plant': 17,
+                'curtain': 18,
+                'chair': 19,
+                'painting': 22,
+                'sofa': 23,
+                'shelf': 24,
+                'mirror': 27,
+                'armchair': 30,
+                'seat': 31,
+                'desk': 33,
+                'wardrobe': 35,
+                'lamp': 36,
+                'bathtub': 37,
+                'railing': 38,
+                'cushion': 39,
+                'base': 40,
+                'box': 41,
+                'column': 42,
+                'signboard': 43,
+                'chest of drawers': 44,
+                'counter': 45,
+                'sink': 47,
+                'refrigerator': 50,
+                'grandstand': 51,
+                'stairs': 53,
+                'runway': 54,
+                'case': 55,
+                'pillow': 57,
+                'stairway': 59,
+                'bookcase': 62,
+                'blind': 63,
+                'coffee table': 64,
+                'toilet': 65,
+                'flower': 66,
+                'book': 67,
+                'bench': 69,
+                'countertop': 70,
+                'stove': 71,
+                'palm': 72,
+                'kitchen island': 73,
+                'computer': 74,
+                'swivel chair': 75,
+                'bar': 77,
+                'arcade machine': 78,
+                'light': 82,
+                'television receiver': 89,
+                'bottle': 98,
+                'buffet': 99,
+                'poster': 100,
+                'stage': 101,
+                'basket': 112,
+                'bag': 115,
+                'oven': 118,
+                'ball': 119,
+                'food': 120,
+                'step': 121,
+                'tank': 122,
+                'microwave': 124,
+                'pot': 125,
+                'dishwasher': 129,
+                'screen': 130,
+                'vase': 135,
+                'tray': 137,
+                'ashcan': 138,
+                'plate': 142,
+                'monitor': 143,
+                'radiator': 146,
+                'glass': 147,
+                'clock': 148,
             }
 
             self.camera_name = "/Shadow/camera_top"
             self.winname = "Path Concept"
             cv2.namedWindow(self.winname)
+            cv2.setMouseCallback(self.winname, self.mouse_click)
 
   
             self.read_queue = queue.Queue(1)
@@ -315,6 +324,7 @@ class SpecificWorker(GenericWorker):
             self.instance_img = None
             self.mask_image = None
             self.rois = None
+            self.id_to_label = {}
             rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
             # rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
             self.x_ratio = int(rgb.width / 384)
@@ -344,26 +354,20 @@ class SpecificWorker(GenericWorker):
         now = time.time()
         try:
             rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
-
-            
-            # model predicts class_queries_logits of shape `(batch_size, num_queries)`
-            # and masks_queries_logits of shape `(batch_size, num_queries, height, width)`
-            # class_queries_logits = outputs.class_queries_logits
-            # masks_queries_logits = outputs.masks_queries_logits
-
             # you can pass them to processor for postprocessing
             self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
                 0].cpu()
             self.instance_img = self.processor.post_process_instance_segmentation(outputs)[0]
             self.mask_image = self.create_mask(self.segmented_img)
-            self.rois = self.extract_roi_instances(self.instance_img)
-
-            # self.rois = self.extract_roi_instances(self.instance_img, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
-
+            self.rois, masks = self.extract_roi_instances_sec(self.instance_img, 14)
+            self.convert_to_visualelements_structure(self.rois)
+            # for i, mask in enumerate(masks):
+            #     cv2.imshow(str(i), mask)
+            #     cv2.waitKey(2)
             #self.objects_write, self.objects_read = self.objects_read, self.objects_write
-            frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, self.rois)
-            cv2.imshow(self.winname, frame)
-            cv2.waitKey(2)
+            # frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, self.rois)
+            # cv2.imshow(self.winname, frame)
+            # cv2.waitKey(2)
 
         except:
             print("Error communicating with CameraRGBDSimple")
@@ -376,7 +380,52 @@ class SpecificWorker(GenericWorker):
             self.event.set()
         print("Elapsed:", int((time.time() - now)*1000), " msecs")
 
-    def draw_semantic_segmentation(self, winname, color_image, seg, rois):
+    # @QtCore.Slot()
+    # def compute(self):
+    #     now = time.time()
+    #     try:
+    #         rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
+    #         # you can pass them to processor for postprocessing
+    #         self.panoptic_img = self.processor.post_process_panoptic_segmentation(outputs, target_sizes=[im_pil_size], label_ids_to_fuse=[3])[
+    #             0]
+    #         self.segmented_img = self.panoptic_img["segmentation"].cpu()
+    #         # self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
+    #         #     0].cpu()
+    #         rois = self.get_rois_from_labels(self.panoptic_img, self.segmented_img, 14)
+    #         frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
+    #         # cv2.imshow(self.winname, cv2.resize(frame, (600, 600)))
+    #         cv2.imshow(self.winname, frame)
+    #         cv2.waitKey(2)
+    #
+    #     except:
+    #         print("Error communicating with CameraRGBDSimple")
+    #         traceback.print_exc()
+    #
+    #     # FPS
+    #     try:
+    #         self.show_fps(alive_time, period)
+    #     except KeyboardInterrupt:
+    #         self.event.set()
+    #     # print("Elapsed:", int((time.time() - now)*1000), " msecs")
+
+    def convert_to_visualelements_structure(self, rois):
+        objects = ifaces.RoboCompVisualElements.TObjects()
+        for roi in rois:
+            act_object = ifaces.RoboCompVisualElements.TObject()
+            act_object.type = int(roi.type)
+            act_object.left = roi.left
+            act_object.top = roi.top
+            act_object.right = roi.right
+            act_object.bot = roi.bot
+            act_object.score = roi.score
+            objects.append(act_object)
+        try:
+            self.visualelements_proxy.setVisualObjects(objects, 1)
+        except:
+            print("Error communicating with BYTETRACK")
+            traceback.print_exc()
+            return
+    def draw_panoptic_segmentation(self, winname, color_image, seg, rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.color_palette)
         for label, color in enumerate(palette):
@@ -401,6 +450,47 @@ class SpecificWorker(GenericWorker):
                 cv2.putText(img, text, (r.left*self.x_ratio, r.top*self.y_ratio + txt_size[1]), font, 0.4, txt_color, thickness=1)
         return img
 
+    def draw_semantic_segmentation(self, winname, color_image, seg, rois):
+        color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
+        palette = np.array(self.color_palette)
+        for label, color in enumerate(palette):
+            color_seg[seg == label, :] = color
+        # Convert to BGR
+        color_seg = color_seg[..., ::-1]
+
+        # Show image + mask
+        img = np.array(color_image) * 0.6 + color_seg * 0.4
+        img = img.astype(np.uint8)
+        txt_color = (0, 0, 255)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        if rois is not None:
+            for r in rois:
+                # print(r)
+                text = '{}-{}-{:.2f}'.format(r.type, r.id, r.y)
+                txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+                # cv2.rectangle(img, (r.left*self.x_ratio, r.top*self.y_ratio), (r.right*self.x_ratio, r.bot*self.y_ratio), (0, 0, 255), 2)
+                cv2.rectangle(img, (r.left, r.top), (r.right, r.bot), (0, 0, 255), 2)
+                cv2.putText(img, text, (r.left*self.x_ratio, r.top*self.y_ratio + txt_size[1]), font, 0.4, txt_color, thickness=1)
+        return img
+
+    # Given a class, return all instances in a class
+    def extract_roi_instances_pan(self, img_dict, img_seg, label):
+        ids = [x["id"] for x in img_dict["segments_info"] if x["label_id"] == label]
+        boxes = []
+        masks = []
+        for id in ids:
+            mask = np.zeros((img_seg.shape[0], img_seg.shape[1], 1), dtype=np.uint8)
+            # mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
+            mask[(img_seg == id), :] = 255
+
+            bbox = self.do_box(id, label, mask, img_seg.shape)
+            boxes.append(bbox)
+            masks.append(mask)
+        return boxes, masks
+
+
+
     def create_mask(self, seg):
         mask = np.zeros((seg.shape[0], seg.shape[1], 1), dtype=np.uint8)  # height, width, 3
         #mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
@@ -424,28 +514,36 @@ class SpecificWorker(GenericWorker):
     #             box_list.append(tbox)
     #     return box_list
 
-    def extract_roi_instances(self, instance_img):
+    def extract_roi_instances_sec(self, instance_img, label):
         inst = instance_img['segments_info']
         ids_list = []
-        for sl_key, sl_val in self.selected_labels.items():
-            ids_list.append([[v['id'] for v in inst if v['label_id'] == sl_val and v['score'] > 0.7], sl_key])
+        # for sl_key, sl_val in self.labels.items():
+        #     ids_list.append([[v['id'] for v in inst if v['label_id'] == label and v['score'] > 0.7], sl_key])
+        for v in inst:
+            if v['label_id'] == label:
+                ids_list.append(v['id'])
 
         inst_img = instance_img['segmentation']
 
         box_list = []
-        for ids, cls in ids_list:
-            for id_ in ids:
-                mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
-                mask[inst_img == id_] = 255
-                tbox = self.do_box(id_, cls, mask, inst_img.shape)
-                box_list.append(tbox)
-        return box_list
+        mask_list = []
+        # for ids, cls in ids_list:
+        for id_ in ids_list:
+            mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+            mask[inst_img == id_] = 255
+            tbox = self.do_box(id_, label, mask, inst_img.shape)
+            box_list.append(tbox)
+            mask_list.append(mask)
+        return box_list, mask_list
 
 
     def do_box(self, id_, type_, mask, rgb_shape):
         box = cv2.boundingRect(mask)
-        print("BOX:", box)
-        return ifaces.RoboCompSemanticSegmentation.TBox(id_, str(type_), box[0], box[1], box[2], box[3], 0.7, 0, 0, 0, 0)
+        left = int(box[0])
+        right = int(box[0]+box[2])
+        top = int(box[1])
+        bot = int(box[1]+box[3])
+        return ifaces.RoboCompSemanticSegmentation.TBox(id_, str(type_), left, top, right, bot, 0.7, 0, 0, 0, 0)
         #return self.TBox(id_, type_, box, 0.7, box_depth, x, y, z)
 
     def show_fps(self, alive_time, period):
@@ -462,6 +560,7 @@ class SpecificWorker(GenericWorker):
 
     def get_rgb_thread(self, camera_name: str, event: Event):
         while not event.isSet():
+            now = time.time()
             try:
                 rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
                 rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
@@ -473,10 +572,24 @@ class SpecificWorker(GenericWorker):
                     outputs = self.model(**inputs)
                 self.read_queue.put([img, outputs, delta, im_pil.size[::-1], rgb.period])
                 event.wait(self.thread_period/1000)
+
             except:
                 print("Error communicating with CameraRGBDSimple")
                 traceback.print_exc()
 
+    def mouse_click(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            self.selected_object = None
+            point = (x, y)
+            print(list(self.labels.keys())[list(self.labels.values()).index(self.segmented_img[y, x].item())])
+
+            # check if clicked point on yolo object. If so, set it as the new target object
+            # for b in self.yolo_objects:
+            #     if x >= b.left and x < b.right and y >= b.top and y < b.bot:
+            #         self.selected_object = b
+            #         print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
+            #         self.previous_yolo_id = None
+            #         break
     ##############################################################################################3
     def startup_check(self):
         print(f"Testing RoboCompCameraRGBDSimple.Point3D from ifaces.RoboCompCameraRGBDSimple")
