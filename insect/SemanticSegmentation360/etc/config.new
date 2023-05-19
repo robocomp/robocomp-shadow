@@ -1,10 +1,10 @@
 # Endpoints for implements interfaces
-SemanticSegmentation.Endpoints=tcp -p 14601
+SemanticSegmentation.Endpoints=tcp -p 15971
 
 
 # Proxies for required interfaces
-ByteTrackProxy = bytetrack:tcp -h localhost -p 18762
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 17151
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 13570
+VisualElementsProxy = visualelements:tcp -h localhost -p 17524
 
 
 
