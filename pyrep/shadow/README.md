@@ -10,6 +10,14 @@ Please follow these steps:
 
    /home/xxxyour-userxxx/.local/lib/python3.10/site-packages/pyrep/robots/mobiles/shadow.py
    (for a local install of Pyrep in python3.10)
+ 
+- Comment out the following lines in /home/xxxyour-userxxx/.local/lib/python3.6/site-packages/pyrep/objects/object.py :
+  assert_type = self._get_requested_type()
+  actual = ObjectType(sim.simGetObjectType(self._handle))
+  if actual != assert_type:
+      raise WrongObjectTypeError(
+          'You requested object of type %s, but the actual type was '
+          '%s' % (assert_type.name, actual.name))
 
 - To start the component copy the config file form etc to . and use the script run.sh. 
 
