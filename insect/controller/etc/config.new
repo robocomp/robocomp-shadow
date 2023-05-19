@@ -1,0 +1,21 @@
+# Endpoints for implements interfaces
+VisualElements.Endpoints=tcp -p 17639
+
+
+# Proxies for required interfaces
+CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 15635
+MPCProxy = mpc:tcp -h localhost -p 11368
+OmniRobotProxy = omnirobot:tcp -h localhost -p 14187
+SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 12147
+
+
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
