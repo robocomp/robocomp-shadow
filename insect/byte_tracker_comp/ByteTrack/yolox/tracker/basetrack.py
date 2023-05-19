@@ -43,7 +43,6 @@ class BaseTrack(object):
             BaseTrack._class_count[clase] += 1
         else:
             BaseTrack._class_count[clase] = 1
-        print("DICCIONARIO BASETRACK", BaseTrack._class_count)
         return BaseTrack._class_count[clase]
 
     def activate(self, *args):

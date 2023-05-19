@@ -32,7 +32,7 @@ import cv2
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 sys.path.append('/home/robolab/robocomp/components/robocomp-shadow/insect/byte_tracker_comp/ByteTrack')
-from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
+# from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from yolox.tracker.byte_tracker import BYTETracker
 
 # If RoboComp was compiled with Python bindings you can use InnerModel in Python
@@ -51,10 +51,12 @@ class SpecificWorker(GenericWorker):
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
         from queue import Queue
-        self.yolo_queue = Queue(maxsize = 1)
-        self.ss_queue = Queue(maxsize = 1)
-        self.yolo_tracks = []
-        self.ss_tracks = []
+
+        self.process_queue = Queue(maxsize = 1)
+
+        self.image_height = 640
+        self.image_width = 640
+        self.publisher = 0
         from queue import Queue
 
     def __del__(self):
@@ -75,22 +77,61 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Track YOLO data
-        yolo_rois = self.yolo_queue.get()
-        self.yolo_tracks = self.to_bytetrack_interface(self.tracker.update_original(yolo_rois["scores"], yolo_rois["boxes"], yolo_rois["clases"]))
+        # Get elements data from queue
+        data = self.process_queue.get()
+        # Get tracks from Bytetrack and convert data to VisualElements interface
+        processed_data = self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]), np.array(data["boxes"]), np.array(data["clases"])))
 
-        # Track SS data
-        ss_rois = self.ss_queue.get()
-        self.ss_tracks = self.to_bytetrack_interface(self.tracker.update_original(ss_rois["scores"], ss_rois["boxes"], ss_rois["clases"]))
+        img = self.read_image()
+        img = self.display_data(img, processed_data)
+        cv2.imshow("Image", img)
+        cv2.waitKey(1)
+        try:
+            self.visualelements_proxy.setVisualObjects(processed_data, self.publisher)
+        except:
+            print("Error communicating with BYTETRACK")
+            traceback.print_exc()
+            return
 
-    def to_bytetrack_interface(self, tracks):
-        ret = ifaces.RoboCompByteTrack.TOnlineTargets()
+    def read_image(self):
+        rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
+        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+        img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (640, 640))
+        return img
+
+    def display_data(self, img, data):
+        image_shape = img.shape
+        for element in data:
+            x0 = int(element.left*(image_shape[0]/self.image_width))
+            y0 = int(element.top*(image_shape[1]/self.image_height))
+            x1 = int(element.right*(image_shape[0]/self.image_width))
+            y1 = int(element.bot*(image_shape[1]/self.image_height))
+            cv2.rectangle(img, (x0, y0), (x1, y1), (0,255,0), 2)
+            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(
+                img,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                (255, 0, 0),
+                -1
+            )
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, (0,255,0), thickness=1)
+        return img
+
+    def to_visualelements_interface(self, tracks):
+        ret = ifaces.RoboCompVisualElements.TObjects()
         for track in tracks:
-            target = ifaces.RoboCompByteTrack.Targets()
-            target.trackid = track.track_id
+            target = ifaces.RoboCompVisualElements.TObject()
+            target.id = track.track_id
             target.score = track.score
-            target.tlwh = ifaces.RoboCompByteTrack.Box(track.tlwh)
-            target.clase = track.clase
+            target.left = int(track.tlwh[0])
+            target.top = int(track.tlwh[1])
+            target.right = int(track.tlwh[0]+track.tlwh[2])
+            target.bot = int(track.tlwh[1]+track.tlwh[3])
+            target.type = track.clase
             ret.append(target)
         return ret
 
@@ -109,56 +150,63 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompYoloObjects.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-
-
-
+    def VisualElements_setVisualObjects(self, visualObjects, publisher):
+        target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
+        for object in visualObjects:
+            target_data_dict["scores"].append(object.score)
+            target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
+            target_data_dict["clases"].append(object.type)
+        self.process_queue.put(target_data_dict)
+        self.publisher = publisher
+        if publisher == 0:
+            self.image_height = 640
+            self.image_width = 640
+        elif publisher == 1:
+            self.image_height = 384
+            self.image_width = 384
     #
     # IMPLEMENTATION of getTargets method from ByteTrack interface
     #
-    def ByteTrack_getTargets(self, ps, pb, clases):
-        ret = ifaces.RoboCompByteTrack.OnlineTargets()
-        scores = np.array(ps)
-        boxes = np.array(pb)
-        clases = np.array(clases)
-        for i in self.tracker.update_original(scores, boxes, clases):
-            target = ifaces.RoboCompByteTrack.Targets()
-            tlwh = ifaces.RoboCompByteTrack.Box(i.tlwh)
-            target.trackid = i.track_id
-            target.score = i.score
-            target.tlwh = tlwh
-            target.clase = i.clase
-            ret.append(target)
-        return ret
+    # def ByteTrack_getTargets(self, ps, pb, clases):
+    #     ret = ifaces.RoboCompByteTrack.OnlineTargets()
+    #     scores = np.array(ps)
+    #     boxes = np.array(pb)
+    #     clases = np.array(clases)
+    #     for i in self.tracker.update_original(scores, boxes, clases):
+    #         target = ifaces.RoboCompByteTrack.Targets()
+    #         tlwh = ifaces.RoboCompByteTrack.Box(i.tlwh)
+    #         target.trackid = i.track_id
+    #         target.score = i.score
+    #         target.tlwh = tlwh
+    #         target.clase = i.clase
+    #         ret.append(target)
+    #     return ret
+    # #
+    # # IMPLEMENTATION of getTargetswithdepth method from ByteTrack interface
+    # #
+    # def ByteTrack_getTargetswithdepth(self, ps, pb, depth, clases):
+    #     ret = ifaces.RoboCompByteTrack.OnlineTargets()
+    #     depth = np.frombuffer(depth.depth, dtype=np.float32).reshape(depth.height, depth.width, 1)
+    #     scores = np.array(ps)
+    #     boxes = np.array(pb)
+    #     clases = np.array(clases)
+    #     for i in self.tracker.update2(scores, boxes, depth, clases):
+    #         target = ifaces.RoboCompByteTrack.Targets()
+    #         tlwh = ifaces.RoboCompByteTrack.Box(i.tlwh)
+    #         target.trackid = i.track_id
+    #         target.score = i.score
+    #         target.tlwh = tlwh
+    #         target.clase = i.clase
+    #         ret.append(target)
+    #     return ret
+    # # ===================================================================
+    # # ===================================================================
     #
-    # IMPLEMENTATION of getTargetswithdepth method from ByteTrack interface
+    # def ByteTrack_setTargets(self, ps, pb, clases, sender):
     #
-    def ByteTrack_getTargetswithdepth(self, ps, pb, depth, clases):
-        ret = ifaces.RoboCompByteTrack.OnlineTargets()
-        depth = np.frombuffer(depth.depth, dtype=np.float32).reshape(depth.height, depth.width, 1)
-        scores = np.array(ps)
-        boxes = np.array(pb)
-        clases = np.array(clases)
-        for i in self.tracker.update2(scores, boxes, depth, clases):
-            target = ifaces.RoboCompByteTrack.Targets()
-            tlwh = ifaces.RoboCompByteTrack.Box(i.tlwh)
-            target.trackid = i.track_id
-            target.score = i.score
-            target.tlwh = tlwh
-            target.clase = i.clase
-            ret.append(target)
-        return ret
-    # ===================================================================
-    # ===================================================================
-
-    def ByteTrack_setTargets(self, ps, pb, clases, sender):
-        target_data_dict = {"scores" : np.array(ps)}, {"boxes" : np.array(pb)}, {"clases" : np.array(clases)}
-        if sender == "yolo":
-            self.yolo_queue.put(target_data_dict)
-        if sender == "semantic_segmentator":
-            self.ss_queue.put(target_data_dict)
-
-    def ByteTrack_allTargets(self):
-        return self.yolo_tracks.extend(self.ss_tracks)
+    #
+    # def ByteTrack_allTargets(self):
+    #     return self.read_tracks
 
     ######################
     # From the RoboCompByteTrack you can use this types:

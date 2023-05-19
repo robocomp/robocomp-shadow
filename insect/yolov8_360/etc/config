@@ -1,12 +1,8 @@
-# Endpoints for implements interfaces
-YoloObjects.Endpoints=tcp -p 18413
-
 # Proxies for required interfaces
-
-ByteTrackProxy = bytetrack:tcp -h 192.168.50.114 -p 13441
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
+VisualElementsProxy = visualelements:tcp -h localhost -p 15207
 
-display = true
+display = false
 depth = false
 classes-path-file = /home/robolab/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt
 
