@@ -1,13 +1,13 @@
 import "Camera360RGB.idsl";
 import "SemanticSegmentation.idsl";
-import "ByteTrack.idsl";
+import "VisualElements.idsl";
 
 Component SemanticSegmentation360
 {
     Communications
     {
         implements SemanticSegmentation;
-        requires Camera360RGB, ByteTrack;
+        requires Camera360RGB, VisualElements;
     };
     language python;
 };
