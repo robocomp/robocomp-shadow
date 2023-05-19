@@ -216,7 +216,7 @@ class SpecificWorker(GenericWorker):
         pp.pprint(params)
 
     def compute(self):
-        tc = TimeControl(0.05)
+        self.tc = TimeControl(0.05)
         while True:
             try:
                 self.pr.step()
@@ -229,7 +229,7 @@ class SpecificWorker(GenericWorker):
                 if not self.IGNORE_JOYSITCK:
                     self.read_joystick()
                 #self.move_eye()
-                tc.wait()
+                self.tc.wait()
             except KeyboardInterrupt:
                 print("keyboard")
                 sys.exit()
@@ -303,14 +303,12 @@ class SpecificWorker(GenericWorker):
             cam = self.cameras_write[self.top_camera_name]
             image_float = cam["handle"].capture_rgb()
             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                   dtype=cv2.CV_8U)
+                                  dtype=cv2.CV_8U)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
             depth = cam["handle"].capture_depth(True)  # meters
             depth = np.frombuffer(depth, dtype=np.float32).reshape((cam["height"], cam["width"]))
             depth = cv2.rotate(depth, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            #dd = cv2.normalize(src=depth, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            #cv2.imshow("d", dd)
             # we change width and height here to follow the rotation operation
             cam["depth"] = RoboCompCameraRGBDSimple.TDepth( cameraID=cam["id"],
                                                             width=cam["height"],  # cambiados
@@ -333,24 +331,14 @@ class SpecificWorker(GenericWorker):
                                                           compressed=False)
             cam["is_ready"] = True
 
-         # if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
-         #     cam = self.cameras_write[self.omni_camera_rgb_name]
-         #     image_float = cam["handle"].capture_rgb()
-         #     image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-         #                           dtype=cv2.CV_8U)
-         #     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-         #     cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
-         #                                                  width=cam["width"],
-         #                                                  height=cam["height"],
-         #                                                  depth=3,
-         #                                                  focalx=cam["focalx"],
-         #                                                  focaly=cam["focaly"],
-         #                                                  alivetime=int(time.time() * 1000),
-         #                                                  period=50,  # ms
-         #                                                  image=image.tobytes(),
-         #                                                  compressed=False)
-         #
-         #     cam["is_ready"] = True
+         if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
+             cam = self.cameras_write[self.omni_camera_rgb_name]
+             image_float = cam["handle"].capture_rgb()
+             image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+                                   dtype=cv2.CV_8U)
+             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             cam["rgb"] = image
+             cam["is_ready"] = True
          #
          # if self.omni_camera_depth_name in camera_names:  # RGB not-rotated
          #     cam = self.cameras_write[self.omni_camera_depth_name]
@@ -833,6 +821,50 @@ class SpecificWorker(GenericWorker):
         return lidar3D
 
     # =====================================================================
+
+    #
+    # IMPLEMENTATION of getROI method from Camera360RGB interface
+    #
+    def Camera360RGB_getROI(self, cx, cy, sx, sy, roiwidth, roiheight):
+        camera = self.omni_camera_rgb_name
+        if camera in self.cameras_read.keys() and self.cameras_read[camera]["is_ready"]:
+            cam = self.cameras_read[camera]
+            image = self.cameras_read[camera]["rgb"]
+            if sx == -1:
+                sx = image.shape[1]
+            if sy == -1:
+                sy = image.shape[0]
+            if cx == -1:
+                cx = image.shape[1] // 2
+            if cy == -1:
+                cy = image.shape[0] // 2
+            if roiwidth == -1:
+                roiwidth = image.shape[1]
+            if roiheight == -1:
+                roiheight = image.shape[0]
+            dst = image[cy - (sy // 2) : cy + (sy // 2), cx - (sx // 2) : cx + (sx // 2)]
+            rdst = cv2.resize(dst, (roiwidth, roiheight), cv2.INTER_LINEAR)
+            res = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+                                                  width=rdst.shape[1],
+                                                  height=rdst.shape[0],
+                                                  depth=3,
+                                                  focalx=cam["focalx"],
+                                                  focaly=cam["focaly"],
+                                                  alivetime=int(time.time() * 1000),
+                                                  period=1000//self.tc.counter if self.tc.counter > 0 else 0,  # ms
+                                                  image=rdst.tobytes(),
+                                                  compressed=False)
+            return res
+
+        else:
+            print("No camera found with this name: " + camera)
+            #ex.what = "No camera found with this name: " + camera
+            #raise e
+
+        return RoboCompCameraRGBDSimple.TImage()
+    # ===================================================================
+    # ===================================================================
+
 # laser
         # self.lasers = {}
         # self.hokuyo_front_left_name = "Hokuyo_sensor2"

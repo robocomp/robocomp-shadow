@@ -128,6 +128,10 @@ if __name__ == '__main__':
     adapter.add(camerargbdsimpleI.CameraRGBDSimpleI(worker), ic.stringToIdentity('camerargbdsimple'))
     adapter.activate()
 
+    adapter = ic.createObjectAdapter('Camera360RGB')
+    adapter.add(camera360rgbI.Camera360RGBI(worker), ic.stringToIdentity('camera360rgb'))
+    adapter.activate()
+
     adapter = ic.createObjectAdapter('CameraSimple')
     adapter.add(camerasimpleI.CameraSimpleI(worker), ic.stringToIdentity('camerasimple'))
     adapter.activate()

@@ -32,6 +32,8 @@ Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
 import RoboCompCommonBehavior
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
+Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
+import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/CameraSimple.ice")
 import RoboCompCameraSimple
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
@@ -59,6 +61,7 @@ import RoboCompLidar3D
 
 import camerargbdsimpleI
 import camerasimpleI
+import camera360rgbI
 import laserI
 import omnirobotI
 import joystickadapterI
