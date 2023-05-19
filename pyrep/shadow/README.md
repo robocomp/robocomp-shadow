@@ -6,10 +6,10 @@ The main limitation is that it cannot be regenerated using RoboComp's code gener
 Please follow these steps:
 
 - Install https://github.com/stepjam/PyRep
-- You need to copy the viriato.py file in this directory to:
+- You need to copy the shadow.py file in the component's root folder to:
 
-   /home/xxxyour-userxxx/.local/lib/python3.6/site-packages/pyrep/robots/mobiles/viriato.py
-   (for a local install of Pyrep in python3.6)
+   /home/xxxyour-userxxx/.local/lib/python3.10/site-packages/pyrep/robots/mobiles/shadow.py
+   (for a local install of Pyrep in python3.10)
 
 - To start the component copy the config file form etc to . and use the script run.sh. 
 
@@ -17,15 +17,6 @@ Please follow these steps:
  
   export LD_LIBRARY_PATH=$COPPELIASIM_ROOT
   export QT_QPA_PLATFORM_PLUGIN_PATH=$COPPELIASIM_ROOT
-
-- You also need to create a file named shadow.py in this folder: /home/robocomp/.local/lib/python3.8/site-packages/pyrep/robots/mobiles with this contents:
-
-  from pyrep.robots.mobiles.holonomic_base import HolonomicBase
-  class Shadow(HolonomicBase):
-        def __init__(self, count: int = 0, distance_from_target: float = 0):
-            super().__init__(
-                count, 4, distance_from_target, '/Shadow', 4, 6, 0.035)
-
 
 . If you have a joystick, start ~/robocomp/components/robocomp-robolab/components/hardware/external_control/joystickpublish
 . Check the config file to set the ranges of the axis.
