@@ -26,11 +26,10 @@ from genericworker import *
 import interfaces as ifaces
 import traceback
 from threading import Thread, Event
-## Runs with pytorch 1.10.1
+# Runs with pytorch 1.10.1
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
-from transformers import SamModel, SamProcessor
 import time
 import queue
 import cv2
@@ -51,6 +50,9 @@ class SpecificWorker(GenericWorker):
             self.x = x_  # roi center coordinates in camera
             self.y = y_
             self.z = z_
+
+            self.display = False
+
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 330
@@ -58,9 +60,8 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-
+            # keyboard event to stop thread
             self.event = Event()
-            
 
             # Hz
             self.cont = 0
@@ -317,23 +318,31 @@ class SpecificWorker(GenericWorker):
             cv2.namedWindow(self.winname)
             cv2.setMouseCallback(self.winname, self.mouse_click)
 
-  
+            # queue for image reading thread
             self.read_queue = queue.Queue(1)
 
             self.segmented_img = None
             self.instance_img = None
             self.mask_image = None
-            self.rois = None
             self.id_to_label = {}
-            rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
-            # rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-            self.x_ratio = int(rgb.width / 384)
-            self.y_ratio = int(rgb.height / 384) # TODO: Create constant
+
+            # read test image to get sizes
+            try:
+                rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
+                # rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                self.x_ratio = int(rgb.width / 384)
+                self.y_ratio = int(rgb.height / 384) # TODO: Create constant
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Aborting...")
+                sys.exit()
 
             # Thread to read images
-            self.read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event], 
+            self.read_thread = Thread(target=self.get_rgb_thread, args=[self.event],
                                       name="read_queue", daemon=True)
             self.read_thread.start()
+
+            # init compute
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -341,33 +350,43 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
-        # try:
-        #	self.innermodel = InnerModel(params["InnerModelPath"])
-        # except:
-        #	traceback.print_exc()
-        #	print("Error reading config params")
+        try:
+        	self.display = (params["display"] == "true" or params["display"] == "True")
+        except:
+        	traceback.print_exc()
+        	print("Error reading config params")
         return True
-
 
     @QtCore.Slot()
     def compute(self):
         now = time.time()
         try:
             rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
-            # you can pass them to processor for postprocessing
+
+            # postprocess segmentation result
             self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
                 0].cpu()
             self.instance_img = self.processor.post_process_instance_segmentation(outputs)[0]
+
+            # create masks from segmented img
             self.mask_image = self.create_mask(self.segmented_img)
-            self.rois, masks = self.extract_roi_instances_sec(self.instance_img, 14)
-            self.convert_to_visualelements_structure(self.rois)
+
+            # extract rois from selected classes (door)
+            rois, masks = self.extract_roi_instances_seg(self.instance_img, 14)
+
+            # create Ice interface data structure and send to ByteTracker
+            self.convert_to_visualelements_structure(rois)
+
             # for i, mask in enumerate(masks):
             #     cv2.imshow(str(i), mask)
             #     cv2.waitKey(2)
             #self.objects_write, self.objects_read = self.objects_read, self.objects_write
-            # frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, self.rois)
-            # cv2.imshow(self.winname, frame)
-            # cv2.waitKey(2)
+
+            if self.display:
+                print("Rois: ", len(rois))
+                frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
+                cv2.imshow(self.winname, frame)
+                cv2.waitKey(2)
 
         except:
             print("Error communicating with CameraRGBDSimple")
@@ -378,35 +397,60 @@ class SpecificWorker(GenericWorker):
             self.show_fps(alive_time, period)
         except KeyboardInterrupt:
             self.event.set()
-        print("Elapsed:", int((time.time() - now)*1000), " msecs")
+         #print("Elapsed:", int((time.time() - now)*1000), " msecs")
 
-    # @QtCore.Slot()
-    # def compute(self):
-    #     now = time.time()
-    #     try:
-    #         rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
-    #         # you can pass them to processor for postprocessing
-    #         self.panoptic_img = self.processor.post_process_panoptic_segmentation(outputs, target_sizes=[im_pil_size], label_ids_to_fuse=[3])[
-    #             0]
-    #         self.segmented_img = self.panoptic_img["segmentation"].cpu()
-    #         # self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
-    #         #     0].cpu()
-    #         rois = self.get_rois_from_labels(self.panoptic_img, self.segmented_img, 14)
-    #         frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
-    #         # cv2.imshow(self.winname, cv2.resize(frame, (600, 600)))
-    #         cv2.imshow(self.winname, frame)
-    #         cv2.waitKey(2)
-    #
-    #     except:
-    #         print("Error communicating with CameraRGBDSimple")
-    #         traceback.print_exc()
-    #
-    #     # FPS
-    #     try:
-    #         self.show_fps(alive_time, period)
-    #     except KeyboardInterrupt:
-    #         self.event.set()
-    #     # print("Elapsed:", int((time.time() - now)*1000), " msecs")
+    ##################################################################################################
+    def get_rgb_thread(self, event: Event):
+       ''' 
+       :param event: keyboard event to stop the thread
+       :return:
+       '''
+
+       while not event.is_set():
+            now = time.time()
+            try:
+                rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
+                rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+                img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
+                im_pil = Image.fromarray(img)
+                inputs = self.processor(images=im_pil, return_tensors="pt").to('cuda:0')
+                delta = int(1000 * time.time() - rgb.alivetime)
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
+                self.read_queue.put([img, outputs, delta, im_pil.size[::-1], rgb.period])
+                event.wait(self.thread_period/1000)
+
+            except Ice.Exception as e:
+                print(e, "Error communicating with CameraRGBDSimple")
+                traceback.print_exc()
+
+    def create_mask(self, seg):
+        mask = np.zeros((seg.shape[0], seg.shape[1], 1), dtype=np.uint8)  # height, width, 3
+        # mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
+        mask[(seg == 3), :] = 255
+        return mask
+
+    def extract_roi_instances_seg(self, instance_img, label):
+        inst = instance_img['segments_info']
+        ids_list = []
+        # for sl_key, sl_val in self.labels.items():
+        #     ids_list.append([[v['id'] for v in inst if v['label_id'] == label and v['score'] > 0.7], sl_key])
+        for v in inst:
+            if v['label_id'] == label:
+                ids_list.append(v['id'])
+
+        inst_img = instance_img['segmentation']
+
+        box_list = []
+        mask_list = []
+        # for ids, cls in ids_list:
+        for id_ in ids_list:
+            mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+            mask[inst_img == id_] = 255
+            tbox = self.do_box(id_, label, mask, inst_img.shape)
+            box_list.append(tbox)
+            mask_list.append(mask)
+        return box_list, mask_list
 
     def convert_to_visualelements_structure(self, rois):
         objects = ifaces.RoboCompVisualElements.TObjects()
@@ -421,10 +465,11 @@ class SpecificWorker(GenericWorker):
             objects.append(act_object)
         try:
             self.visualelements_proxy.setVisualObjects(objects, 1)
-        except:
-            print("Error communicating with BYTETRACK")
-            traceback.print_exc()
-            return
+        except Ice.Exception as e:
+            print(e, "Error communicating with ByteTracker")
+
+    ############################## UTILS ###############################################
+
     def draw_panoptic_segmentation(self, winname, color_image, seg, rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.color_palette)
@@ -489,54 +534,6 @@ class SpecificWorker(GenericWorker):
             masks.append(mask)
         return boxes, masks
 
-
-
-    def create_mask(self, seg):
-        mask = np.zeros((seg.shape[0], seg.shape[1], 1), dtype=np.uint8)  # height, width, 3
-        #mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
-        mask[(seg == 3), :] = 255
-        return mask
-
-    # def extract_roi_instances(self, instance_img, depth, dfocalx, dfocaly):
-    #     inst = instance_img['segments_info']
-    #     ids_list = []
-    #     for sl_key, sl_val in self.selected_labels.items():
-    #         ids_list.append([[v['id'] for v in inst if v['label_id'] == sl_val and v['score'] > 0.7], sl_key])
-
-    #     inst_img = instance_img['segmentation']
-
-    #     box_list = []
-    #     for ids, cls in ids_list:
-    #         for id_ in ids:
-    #             mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
-    #             mask[inst_img == id_] = 255
-    #             tbox = self.do_box(id_, cls, mask, depth, inst_img.shape, dfocalx, dfocaly)
-    #             box_list.append(tbox)
-    #     return box_list
-
-    def extract_roi_instances_sec(self, instance_img, label):
-        inst = instance_img['segments_info']
-        ids_list = []
-        # for sl_key, sl_val in self.labels.items():
-        #     ids_list.append([[v['id'] for v in inst if v['label_id'] == label and v['score'] > 0.7], sl_key])
-        for v in inst:
-            if v['label_id'] == label:
-                ids_list.append(v['id'])
-
-        inst_img = instance_img['segmentation']
-
-        box_list = []
-        mask_list = []
-        # for ids, cls in ids_list:
-        for id_ in ids_list:
-            mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
-            mask[inst_img == id_] = 255
-            tbox = self.do_box(id_, label, mask, inst_img.shape)
-            box_list.append(tbox)
-            mask_list.append(mask)
-        return box_list, mask_list
-
-
     def do_box(self, id_, type_, mask, rgb_shape):
         box = cv2.boundingRect(mask)
         left = int(box[0])
@@ -558,25 +555,6 @@ class SpecificWorker(GenericWorker):
         else:
             self.cont += 1
 
-    def get_rgb_thread(self, camera_name: str, event: Event):
-        while not event.isSet():
-            now = time.time()
-            try:
-                rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
-                rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
-                img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
-                im_pil = Image.fromarray(img)
-                inputs = self.processor(images=im_pil, return_tensors="pt").to('cuda:0')
-                delta = int(1000 * time.time() - rgb.alivetime)
-                with torch.no_grad():
-                    outputs = self.model(**inputs)
-                self.read_queue.put([img, outputs, delta, im_pil.size[::-1], rgb.period])
-                event.wait(self.thread_period/1000)
-
-            except:
-                print("Error communicating with CameraRGBDSimple")
-                traceback.print_exc()
-
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
@@ -590,6 +568,7 @@ class SpecificWorker(GenericWorker):
             #         print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
             #         self.previous_yolo_id = None
             #         break
+
     ##############################################################################################3
     def startup_check(self):
         print(f"Testing RoboCompCameraRGBDSimple.Point3D from ifaces.RoboCompCameraRGBDSimple")
@@ -606,7 +585,7 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompSemanticSegmentation.TBox()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    # =============== Methods for Component Implements ==================
+    # =============== Ice service methods ===============================
     # ===================================================================
     #
     # IMPLEMENTATION of getInstances method from SemanticSegmentation interface
@@ -650,7 +629,6 @@ class SpecificWorker(GenericWorker):
         else:
             return ifaces.RoboCompCameraSimple.TImage()
     # ===================================================================
-    # ===================================================================
 
     ######################
     # From the RoboCompCameraRGBDSimple you can call this methods:
@@ -672,3 +650,30 @@ class SpecificWorker(GenericWorker):
     # RoboCompSemanticSegmentation.TBox
 
 
+# @QtCore.Slot()
+    # def compute(self):
+    #     now = time.time()
+    #     try:
+    #         rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
+    #         # you can pass them to processor for postprocessing
+    #         self.panoptic_img = self.processor.post_process_panoptic_segmentation(outputs, target_sizes=[im_pil_size], label_ids_to_fuse=[3])[
+    #             0]
+    #         self.segmented_img = self.panoptic_img["segmentation"].cpu()
+    #         # self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
+    #         #     0].cpu()
+    #         rois = self.get_rois_from_labels(self.panoptic_img, self.segmented_img, 14)
+    #         frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
+    #         # cv2.imshow(self.winname, cv2.resize(frame, (600, 600)))
+    #         cv2.imshow(self.winname, frame)
+    #         cv2.waitKey(2)
+    #
+    #     except:
+    #         print("Error communicating with CameraRGBDSimple")
+    #         traceback.print_exc()
+    #
+    #     # FPS
+    #     try:
+    #         self.show_fps(alive_time, period)
+    #     except KeyboardInterrupt:
+    #         self.event.set()
+    #     # print("Elapsed:", int((time.time() - now)*1000), " msecs")
