@@ -24,40 +24,53 @@ from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
-
 import interfaces as ifaces
 import numpy as np
 import cv2
+import time
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
-sys.path.append('/home/robolab/robocomp/components/robocomp-shadow/insect/byte_tracker_comp/ByteTrack')
+sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/byte_tracker/ByteTrack')
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from yolox.tracker.byte_tracker import BYTETracker
-
-# If RoboComp was compiled with Python bindings you can use InnerModel in Python
-# import librobocomp_qmat
-# import librobocomp_osgviewer
-# import librobocomp_innermodel
-
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 1
+        self.Period = 100
         if startup_check:
             self.startup_check()
         else:
+            self.objects_read = []
+            self.objects_write = []
+            self.display = False
+
+            # Hz
+            self.cont = 0
+            self.last_time = time.time()
+            self.fps = 0
+
+            # read test image to get sizes
+            try:
+                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                self.center_x = rgb.width // 2
+                self.center_y = rgb.height // 2
+                print("Camera specs:")
+                print(" width:", rgb.width)
+                print(" height:", rgb.height)
+                print(" depth", rgb.depth)
+                print(" focalx", rgb.focalx)
+                print(" focaly", rgb.focaly)
+                print(" period", rgb.period)
+                print(" ratio {:.2f}.format(image.width/image.height)")
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Aborting...")
+                sys.exit()
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
-        from queue import Queue
-
-        self.process_queue = Queue(maxsize = 1)
-
-        self.image_height = 640
-        self.image_width = 640
-        self.publisher = 0
-        from queue import Queue
 
     def __del__(self):
         """Destructor"""
@@ -68,6 +81,8 @@ class SpecificWorker(GenericWorker):
                 self.tracker = BYTETrackerDepth(frame_rate=30)
             else:
                 self.tracker = BYTETracker(frame_rate=30)
+            if params["display"] == "true" or params["display"] == "True":
+                self.display = True
         except:
             traceback.print_exc()
             print("Error reading config params")
@@ -77,52 +92,40 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Get elements data from queue
-        data = self.process_queue.get()
+        # Read visual elements from segmentator
+        data = self.read_visual_objects()
+
         # Get tracks from Bytetrack and convert data to VisualElements interface
-        processed_data = self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]), np.array(data["boxes"]), np.array(data["clases"])))
+        processed_data = self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
+                                                          np.array(data["boxes"]), np.array(data["clases"])))
 
-        img = self.read_image()
-        img = self.display_data(img, processed_data)
-        cv2.imshow("Image", img)
-        cv2.waitKey(1)
+        # read image
+        if self.display:
+            img = self.read_image()
+            img = self.display_data(img, processed_data)
+            cv2.imshow("Image", img)
+            cv2.waitKey(1)
+
+        self.show_fps()
+
+    #########################################################################################################
+    def read_visual_objects(self):
+        data = {"scores": [], "boxes": [], "clases": []}
         try:
-            self.visualelements_proxy.setVisualObjects(processed_data, self.publisher)
-        except:
-            print("Error communicating with BYTETRACK")
+            visual_objects = self.visualelements_proxy.getVisualObjects()
+            for object in visual_objects:
+                data["scores"].append(object.score)
+                data["boxes"].append([object.left, object.top, object.right, object.bot])
+                data["clases"].append(object.type)
+            # TODO: read image sizes from v_objects
+
+        except Ice.Exception as e:
             traceback.print_exc()
-            return
-
-    def read_image(self):
-        rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
-        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
-        img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (640, 640))
-        return img
-
-    def display_data(self, img, data):
-        image_shape = img.shape
-        for element in data:
-            x0 = int(element.left*(image_shape[0]/self.image_width))
-            y0 = int(element.top*(image_shape[1]/self.image_height))
-            x1 = int(element.right*(image_shape[0]/self.image_width))
-            y1 = int(element.bot*(image_shape[1]/self.image_height))
-            cv2.rectangle(img, (x0, y0), (x1, y1), (0,255,0), 2)
-            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
-            cv2.rectangle(
-                img,
-                (x0, y0 + 1),
-                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
-                (255, 0, 0),
-                -1
-            )
-            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, (0,255,0), thickness=1)
-        return img
+            print(e, "Error reading from Visual Objects interface")
+        return data
 
     def to_visualelements_interface(self, tracks):
-        ret = ifaces.RoboCompVisualElements.TObjects()
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
         for track in tracks:
             target = ifaces.RoboCompVisualElements.TObject()
             target.id = track.track_id
@@ -132,8 +135,48 @@ class SpecificWorker(GenericWorker):
             target.right = int(track.tlwh[0]+track.tlwh[2])
             target.bot = int(track.tlwh[1]+track.tlwh[3])
             target.type = track.clase
-            ret.append(target)
-        return ret
+            self.objects_write.append(target)
+
+        # swap
+        self.objects_write, self.objects_read = self.objects_read, self.objects_write
+        return self.objects_read
+
+    def read_image(self):
+        rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+        return rgb_frame
+
+    def display_data(self, image, objects):
+        for element in objects:
+            x0 = int(element.left*(image.shape[0]/image.shape[1]))
+            y0 = int(element.top*(image.shape[1]/image.shape[0]))
+            x1 = int(element.right*(image.shape[0]/image.shape[1]))
+            y1 = int(element.bot*(image.shape[1]/image.shape[0]))
+            cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(
+                image,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                (255, 0, 0),
+                -1
+            )
+            cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0,255,0), thickness=1)
+        return image
+
+    def show_fps(self):
+        if time.time() - self.last_time > 1:
+            self.last_time = time.time()
+            cur_period = int(1000./self.cont)
+            #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
+            print("Freq:", self.cont, "ms. Curr period:", cur_period)
+            #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
+            self.cont = 0
+        else:
+            self.cont += 1
+    ##############################################################################################
 
     def startup_check(self):
         print(f"Testing RoboCompYoloObjects.TBox from ifaces.RoboCompYoloObjects")
@@ -150,20 +193,30 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompYoloObjects.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    def VisualElements_setVisualObjects(self, visualObjects, publisher):
-        target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
-        for object in visualObjects:
-            target_data_dict["scores"].append(object.score)
-            target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
-            target_data_dict["clases"].append(object.type)
-        self.process_queue.put(target_data_dict)
-        self.publisher = publisher
-        if publisher == 0:
-            self.image_height = 640
-            self.image_width = 640
-        elif publisher == 1:
-            self.image_height = 384
-            self.image_width = 384
+    ##############################################################################################
+    # IMPLEMENTATION of getVisualObjects method from VisualElements interface
+    ##############################################################################################
+
+    def VisualElements_getVisualObjects(self):
+        return self.objects_read
+
+
+    ##############################################################################################
+
+    # def VisualElements_setVisualObjects(self, visualObjects, publisher):
+    #     target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
+    #     for object in visualObjects:
+    #         target_data_dict["scores"].append(object.score)
+    #         target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
+    #         target_data_dict["clases"].append(object.type)
+    #     self.process_queue.put(target_data_dict)
+    #     self.publisher = publisher
+    #     if publisher == 0:
+    #         self.image_height = 640
+    #         self.image_width = 640
+    #     elif publisher == 1:
+    #         self.image_height = 384
+    #         self.image_width = 384
     #
     # IMPLEMENTATION of getTargets method from ByteTrack interface
     #
