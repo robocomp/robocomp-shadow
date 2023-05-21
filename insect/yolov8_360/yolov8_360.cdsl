@@ -5,7 +5,8 @@ Component yolov8_360
 {
     Communications
     {
-        requires Camera360RGB, VisualElements;
+        requires Camera360RGB;
+        implements VisualElements;
     };
     language python;
 };
