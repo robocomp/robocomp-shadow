@@ -24,6 +24,8 @@ class DWA_Optimizer():
             lane_size = np.count_nonzero(mask)
             inliers = np.count_nonzero(result)
             segmented_size = np.count_nonzero(mask_img)
+            if lane_size == 0:
+                continue
             #print(inliers * 100 / lane_size)
             if inliers * 100 / lane_size > 96:
                 loss = abs(segmented_size - lane_size) + 5 * abs(lane_size - inliers)

@@ -1,12 +1,13 @@
 # Proxies for required interfaces
-CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 10095
-OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
-YoloObjectsProxy = yoloobjects:tcp -h localhost -p 10054
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 MPCProxy = mpc:tcp -h localhost -p 12341
-SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 11709
+OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
+SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 14601
+MaskElementsProxy = maskelements:tcp -h localhost -p 14602
+VisualElementsProxy = visualelements:tcp -h localhost -p 16601      # yolo
+#VisualElementsProxy = visualelements:tcp -h localhost -p 16602      # semanticsegmentation
 
-
-
+Ice.MessageSizeMax=20004800
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0

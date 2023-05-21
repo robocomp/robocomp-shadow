@@ -5,20 +5,20 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
+import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
-Ice.loadSlice("-I ./src/ --all ./src/CameraSimple.ice")
-import RoboCompCameraSimple
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/MPC.ice")
 import RoboCompMPC
+Ice.loadSlice("-I ./src/ --all ./src/MaskElements.ice")
+import RoboCompMaskElements
 Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
 import RoboCompOmniRobot
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
-Ice.loadSlice("-I ./src/ --all ./src/SemanticSegmentation.ice")
-import RoboCompSemanticSegmentation
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
@@ -76,24 +76,6 @@ class PointsType(list):
         super(PointsType, self).insert(index, item)
 
 setattr(RoboCompCameraRGBDSimple, "PointsType", PointsType)
-class ImgType(list):
-    def __init__(self, iterable=list()):
-        super(ImgType, self).__init__(iterable)
-
-    def append(self, item):
-        assert isinstance(item, byte)
-        super(ImgType, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, byte)
-        super(ImgType, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, byte)
-        super(ImgType, self).insert(index, item)
-
-setattr(RoboCompCameraSimple, "ImgType", ImgType)
 class Path(list):
     def __init__(self, iterable=list()):
         super(Path, self).__init__(iterable)
@@ -112,6 +94,60 @@ class Path(list):
         super(Path, self).insert(index, item)
 
 setattr(RoboCompMPC, "Path", Path)
+class ImgType(list):
+    def __init__(self, iterable=list()):
+        super(ImgType, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, byte)
+        super(ImgType, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).insert(index, item)
+
+setattr(RoboCompMaskElements, "ImgType", ImgType)
+class TMasks(list):
+    def __init__(self, iterable=list()):
+        super(TMasks, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).insert(index, item)
+
+setattr(RoboCompMaskElements, "TMasks", TMasks)
+class TMaskNames(list):
+    def __init__(self, iterable=list()):
+        super(TMaskNames, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, str)
+        super(TMaskNames, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, str)
+        super(TMaskNames, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, str)
+        super(TMaskNames, self).insert(index, item)
+
+setattr(RoboCompMaskElements, "TMaskNames", TMaskNames)
 class TConnections(list):
     def __init__(self, iterable=list()):
         super(TConnections, self).__init__(iterable)
@@ -135,24 +171,6 @@ class TObjects(list):
         super(TObjects, self).__init__(iterable)
 
     def append(self, item):
-        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).insert(index, item)
-
-setattr(RoboCompSemanticSegmentation, "TObjects", TObjects)
-class TObjects(list):
-    def __init__(self, iterable=list()):
-        super(TObjects, self).__init__(iterable)
-
-    def append(self, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
         super(TObjects, self).append(item)
 
@@ -167,7 +185,6 @@ class TObjects(list):
 
 setattr(RoboCompVisualElements, "TObjects", TObjects)
 
-import visualelementsI
 
 
 
@@ -207,13 +224,15 @@ class Requires:
         self.ice_connector = ice_connector
         self.mprx={}
 
-        self.CameraRGBDSimple = self.create_proxy("CameraRGBDSimpleProxy", RoboCompCameraRGBDSimple.CameraRGBDSimplePrx)
+        self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
 
         self.MPC = self.create_proxy("MPCProxy", RoboCompMPC.MPCPrx)
 
+        self.MaskElements = self.create_proxy("MaskElementsProxy", RoboCompMaskElements.MaskElementsPrx)
+
         self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 
-        self.SemanticSegmentation = self.create_proxy("SemanticSegmentationProxy", RoboCompSemanticSegmentation.SemanticSegmentationPrx)
+        self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
     def get_proxies_map(self):
         return self.mprx
@@ -270,7 +289,6 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
-        self.visualelements = self.create_adapter("VisualElements", visualelementsI.VisualElementsI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)

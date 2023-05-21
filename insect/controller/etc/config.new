@@ -1,12 +1,9 @@
-# Endpoints for implements interfaces
-VisualElements.Endpoints=tcp -p 17639
-
-
 # Proxies for required interfaces
-CameraRGBDSimpleProxy = camerargbdsimple:tcp -h localhost -p 15635
-MPCProxy = mpc:tcp -h localhost -p 11368
-OmniRobotProxy = omnirobot:tcp -h localhost -p 14187
-SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 12147
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 17656
+MPCProxy = mpc:tcp -h localhost -p 10146
+MaskElementsProxy = maskelements:tcp -h localhost -p 15522
+OmniRobotProxy = omnirobot:tcp -h localhost -p 18080
+VisualElementsProxy = visualelements:tcp -h localhost -p 16520
 
 
 
