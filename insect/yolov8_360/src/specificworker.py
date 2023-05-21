@@ -157,13 +157,37 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+            self.window_name = "Yolo Segmentator"
+
             # trt
-            self.yolo_object_predictor = BaseEngine(engine_path='yolov8x.trt')
+            self.yolo_object_predictor = BaseEngine(engine_path='yolov8s.trt')
 
             # Hz
             self.cont = 0
             self.last_time = time.time()
             self.fps = 0
+
+            # interface swap objects
+            self.objects_read = []
+            self.objects_write = []
+
+            # read test image to get sizes
+            try:
+                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                self.center_x = rgb.width // 2
+                self.center_y = rgb.height // 2
+                print("Camera specs:")
+                print(" width:", rgb.width)
+                print(" height:", rgb.height)
+                print(" depth", rgb.depth)
+                print(" focalx", rgb.focalx)
+                print(" focaly", rgb.focaly)
+                print(" period", rgb.period)
+                print(" ratio {:.2f}.format(image.width/image.height)")
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Aborting...")
+                sys.exit()
 
             # camera read thread
             self.read_queue = queue.Queue(1)
@@ -206,33 +230,16 @@ class SpecificWorker(GenericWorker):
         else:
             rgb, blob, alive_time, period = self.read_queue.get()
 
-        dets = self.yolov7_objects(blob)
+        dets = self.yolov8_objects(blob)
 
         if dets is not None:
-            # img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])), class_names=self.yolo_object_predictor.class_names)
-            # cv2.imshow("Detected Objects", img)
-            # cv2.waitKey(1)
             self.send_to_bytetrack(dets[:, :4], dets[:, 4], dets[:, 5])
 
-        # if not self.display and not self.depth_flag:
-        #     self.bytetrack_proxy.setTargets(scores, boxes, cls_inds, "Yolo") # ByteTracker without return and no depth
-        #
-        # elif not self.display:
-        #     _ = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth, cls_inds) # ByteTracker with depth
-        #
-        # else:
-        #     tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds = self.track(boxes, scores, cls_inds,
-        #                                                                                    False) if not self.depth_flag else self.track(boxes, scores, cls_inds,
-        #                                                                                    depth)
-        #     self.objects_write = self.post_process(tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds)
-        #
-        #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
-        #
-        #     rgb = self.display_data(rgb, tracked_boxes, tracked_scores, tracked_cls_inds, tracked_inds,
-        #                                 class_names=self.yolo_object_predictor.class_names)
-        #
-        #     cv2.imshow("Detected Objects", rgb)
-        #     cv2.waitKey(1)
+            if self.display:
+                img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])),
+                                        class_names=self.yolo_object_predictor.class_names)
+                cv2.imshow(self.window_name, img)
+                cv2.waitKey(1)
 
         # FPS
         try:
@@ -240,37 +247,15 @@ class SpecificWorker(GenericWorker):
         except KeyboardInterrupt:
             self.event.set()
 
-
-    def send_to_bytetrack(self, boxes, scores, cls_inds):
-        ret = ifaces.RoboCompVisualElements.TObjects()
-        desired_inds = [i for i, cls in enumerate(cls_inds) if
-                        cls in self.classes]  # index of elements that match desired classes
-        desired_scores = scores[desired_inds]
-        desired_boxes = boxes[desired_inds]
-        desired_clases = cls_inds[desired_inds]
-        for index in range(len(desired_scores)):
-            act_object = ifaces.RoboCompVisualElements.TObject()
-            act_object.type = int(desired_clases[index])
-            act_object.left = int(desired_boxes[index][0])
-            act_object.top = int(desired_boxes[index][1])
-            act_object.right = int(desired_boxes[index][2])
-            act_object.bot = int(desired_boxes[index][3])
-            act_object.score = desired_scores[index]
-            ret.append(act_object)
-        try:
-            self.visualelements_proxy.setVisualObjects(ret, 0)
-        except:
-            print("Error communicating with BYTETRACK")
-            traceback.print_exc()
-            return
+    ######################################################################################################3
 
     def get_rgb_thread(self, camera_name: str, event: Event):
         while not event.isSet():
             try:
-                rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
+                #rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
+                rgbd = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
                 self.image_height = rgbd.height
                 self.image_width = rgbd.width
-                print(self.image_height, self.image_width)
                 # rgbd = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
                 color = np.frombuffer(rgbd.image, dtype=np.uint8).reshape(rgbd.height, rgbd.width, 3)
                 # color = cv2.resize(color, (640, 640))
@@ -287,6 +272,35 @@ class SpecificWorker(GenericWorker):
                 print("Error communicating with Camera360RGB")
                 traceback.print_exc()
 
+    def yolov8_objects(self, blob):
+        data = self.yolo_object_predictor.infer(blob)
+        num, final_boxes, final_scores, final_cls_inds = data
+        final_boxes = np.reshape(final_boxes, (-1, 4))
+        dets = np.concatenate([final_boxes[:num[0]], np.array(final_scores)[:num[0]].reshape(-1, 1),
+                               np.array(final_cls_inds)[:num[0]].reshape(-1, 1)], axis=-1)
+        return dets
+
+    def send_to_bytetrack(self, boxes, scores, cls_inds):
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
+        desired_inds = [i for i, cls in enumerate(cls_inds) if
+                        True]
+                        #cls in self.classes]  # index of elements that match desired classes
+        desired_scores = scores[desired_inds]
+        desired_boxes = boxes[desired_inds]
+        desired_clases = cls_inds[desired_inds]
+        for index in range(len(desired_scores)):
+            act_object = ifaces.RoboCompVisualElements.TObject()
+            act_object.type = int(desired_clases[index])
+            act_object.left = int(desired_boxes[index][0])
+            act_object.top = int(desired_boxes[index][1])
+            act_object.right = int(desired_boxes[index][2])
+            act_object.bot = int(desired_boxes[index][3])
+            act_object.score = desired_scores[index]
+            self.objects_write.append(act_object)
+
+        # swap
+        self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
     ###############################################################
     def pre_process(self, image, input_size, swap=(2, 0, 1)):
         padded_img = np.ones((input_size[0], input_size[1], 3))
@@ -297,14 +311,6 @@ class SpecificWorker(GenericWorker):
         padded_img = padded_img.transpose(swap)
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
         return padded_img
-
-    def yolov7_objects(self, blob):
-        data = self.yolo_object_predictor.infer(blob)
-        num, final_boxes, final_scores, final_cls_inds = data
-        final_boxes = np.reshape(final_boxes, (-1, 4))
-        dets = np.concatenate([final_boxes[:num[0]], np.array(final_scores)[:num[0]].reshape(-1, 1),
-                               np.array(final_cls_inds)[:num[0]].reshape(-1, 1)], axis=-1)
-        return dets
 
     def track(self, boxes, scores, cls_inds, depth_image):
         final_boxes = []
@@ -430,5 +436,22 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompHumanCameraBody.PeopleData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
+    # =============== Ice required interfaces ==================
+    #
+    # IMPLEMENTATION of getVisualObjects method from VisualElements interface
+    #
+    def VisualElements_getVisualObjects(self):
+        return self.objects_read
+    # ===================================================================
+    # ===================================================================
+
+
+    ######################
+    # From the RoboCompCamera360RGB you can call this methods:
+    # self.camera360rgb_proxy.getROI(...)
+
+    ######################
+    # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TObject
 
 

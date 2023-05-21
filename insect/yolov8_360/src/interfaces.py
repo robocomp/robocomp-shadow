@@ -105,6 +105,7 @@ class TObjects(list):
 
 setattr(RoboCompVisualElements, "TObjects", TObjects)
 
+import visualelementsI
 
 
 
@@ -145,8 +146,6 @@ class Requires:
         self.mprx={}
 
         self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
-
-        self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
     def get_proxies_map(self):
         return self.mprx
@@ -203,6 +202,7 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
+        self.visualelements = self.create_adapter("VisualElements", visualelementsI.VisualElementsI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
