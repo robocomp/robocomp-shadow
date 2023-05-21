@@ -47,10 +47,11 @@ class GenericWorker(QtWidgets.QWidget):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
-        self.camerargbdsimple_proxy = mprx["CameraRGBDSimpleProxy"]
+        self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
         self.mpc_proxy = mprx["MPCProxy"]
+        self.maskelements_proxy = mprx["MaskElementsProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
-        self.semanticsegmentation_proxy = mprx["SemanticSegmentationProxy"]
+        self.visualelements_proxy = mprx["VisualElementsProxy"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)

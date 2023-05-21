@@ -18,8 +18,8 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-import sys
 
+import sys
 from PySide2.QtCore import QTimer
 from PySide2.QtGui import QPixmap, QIcon
 from PySide2.QtWidgets import QApplication
@@ -124,7 +124,6 @@ _COLORS = np.array(
         0.50, 0.5, 0
     ]
 ).astype(np.float32).reshape(-1, 3)
-
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -137,10 +136,16 @@ class SpecificWorker(GenericWorker):
             self.target_object = None
             self.selected_object = None
 
+            # Hz
+            self.cont = 0
+            self.last_time = time.time()
+            self.fps = 0
+
             # camera matrix
             image = ifaces.RoboCompCameraRGBDSimple.TImage()
             try:
-                image = self.camerargbdsimple_proxy.getImage("/Shadow/omni_camera")
+                image = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                #image = self.semanticsegmentation_proxy.getMaskedImage("floor")  # TODO: check imae shape from YOLO and SS
                 print("Camera specs:")
                 print(" width:", image.width)
                 print(" height:", image.height)
@@ -148,9 +153,13 @@ class SpecificWorker(GenericWorker):
                 print(" focalx", image.focalx)
                 print(" focaly", image.focaly)
                 print(" period", image.period)
+                print(" ratio {:.2f}.format(image.width/image.height)")
+                self.cx = image.width // 2
+                self.cy = image.height // 2
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Cannot connect to camera. Aborting")
+                sys.exit()
 
             rx = np.deg2rad(20)  # get from camera_proxy
             cam_to_robot = self.make_matrix_rt(rx, 0, 0, 0, -15, 1580)  # converts points in camera CS to robot CS
@@ -160,12 +169,17 @@ class SpecificWorker(GenericWorker):
             self.visual_objects_queue = queue.Queue(1)
 
             # semantic_segmentation
-            self.semantic_classes = self.semanticsegmentation_proxy.getNamesofCategories()
+            try:
+                self.semantic_classes = self.maskelements_proxy.getNamesofCategories()
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Cannot connect to MaskElements interface. Aborting")
+                sys.exit()
 
             # optimizer
-            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
-            # while cv2.waitKey(25) & 0xFF != ord('q'):
-            #      pass
+            #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
+            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly,
+                                               (384, 384, 3))
 
             self.winname = "Controller"
             cv2.namedWindow(self.winname)
@@ -197,48 +211,51 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-
         # read frame from camera
+        frame = None
         try:
-            rgbd = self.camerargbdsimple_proxy.getImage("/Shadow/omni_camera")  # TODO: cambiar a variable
-            frame = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape((rgbd.image.height, rgbd.image.width, 3))
-            # frame = cv2.resize(frame, (384, 384))
+            rgb = self.camera360rgb_proxy.getROI(self.cx, self.cy,  512, 430, 384, 384)
+            frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
 
-        # get masks from SemanticSegmentator
+        # read masks from SemanticSegmentator
         try:
-            mask_floor = self.semanticsegmentation_proxy.getMaskedImage("floor")
+            masks = self.maskelements_proxy.getMasks(["floor"])
+            if(len(masks)>0):
+                mask_floor = masks[0]
+                mask_img = np.frombuffer(mask_floor.image, dtype=np.uint8).reshape((mask_floor.height, mask_floor.width, 1))
+                # compute all feasible routes
+                candidates = self.dwa_optimizer.discard(mask_img=mask_img)
+                self.draw_frame(self.winname, frame, candidates)
+                #cv2.imshow(self.winname, frame)
+                #cv2.waitKey(2)
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
 
         # get visual objects from queue
-        visual_objects = self.visual_objects_queue.get()
+        #visual_objects = self.visual_objects_queue.get()
 
-        # compute all feasible routes
-        candidates = self.dwa_optimizer.discard(mask_img=mask_img)
         # take control actions
 
-        active, control, selected = self.check_human_interface(candidates)
-        if not active:
-            active, control, selected = self.check_visual_target(candidates)
-            if not active:
-                self.draw_frame(self.winname, frame, candidates)
-                cv2.imshow(self.winname, frame)
-                cv2.waitKey(2)
-                return
-            else:
-                print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
+        # active, control, selected = self.check_human_interface(candidates)
+        # if not active:
+        #     active, control, selected = self.check_visual_target(candidates)
+        #     if not active:
+        #         self.draw_frame(self.winname, frame, candidates)
+        #         cv2.imshow(self.winname, frame)
+        #         cv2.waitKey(2)
+        #         return
+        #     else:
+        #         print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
 
         #self.control_2(control)
 
-        self.draw_frame(self.winname, frame, selected)
-        cv2.imshow(self.winname, frame)
-        cv2.waitKey(2)
 
-#########################################################################
+
+    #########################################################################
 
     def check_human_interface(self, candidates):
         # pre-conditions
@@ -413,19 +430,32 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e)
 
+    def show_fps(self):
+        if time.time() - self.last_time > 1:
+            self.last_time = time.time()
+            cur_period = int(1000./self.cont)
+            #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
+            print("Freq:", self.cont, "ms. Curr period:", cur_period)
+            #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
+            self.cont = 0
+        else:
+            self.cont += 1
+
     def draw_frame(self, winname, frame, candidates):
         alpha = 0.8
         for s, c in enumerate(candidates):
-            # alt = c["mask"]
-            # alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-            # if s == self.selected_index:
-            #     color = (0, 0, 255)
-            # else:
-            #     color = (100, 100, 100)
-            # alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
-            # frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
-            #
+            alt = c["mask"]
+            alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+            if s == self.selected_index:
+                color = (0, 0, 255)
+            else:
+                color = (100, 100, 100)
+            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+            frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
             cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')], False, (255, 255, 255))
+        cv2.imshow(winname, frame)
+        cv2.waitKey(2)
+
 
 
         # if self.selected_index is not None:
@@ -584,18 +614,6 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompVisualElements.TObject()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    # =============== Methods for Component Implements ==================
-    # ===================================================================
-
-    #
-    # IMPLEMENTATION of setVisualObjects method from VisualElements interface
-    #
-
-    def VisualElements_setVisualObjects(self, visualObjects, publisher):
-        self.visual_objects_queue.put(visualObjects)
-
-    # ===================================================================
-    # ===================================================================
 
 # MPC
         # try:
