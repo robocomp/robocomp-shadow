@@ -6,11 +6,10 @@ VisualElements.Endpoints=tcp -p 10495
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10379
 VisualElementsProxy = visualelements:tcp -h localhost -p 13274
 
+depth_flag = false
 
 
-
-
-Ice.Warn.Connections=0
+IceWarn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0
 Ice.MessageSizeMax=20004800

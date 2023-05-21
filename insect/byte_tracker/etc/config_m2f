@@ -1,12 +1,12 @@
 # Endpoints for implements interfaces
-VisualElements.Endpoints=tcp -p 17524
-
+VisualElements.Endpoints=tcp -p 16602
 
 # Proxies for required interfaces
-VisualElementsProxy = visualelements:tcp -h localhost -p 12016
+VisualElementsProxy = visualelements:tcp -h localhost -p 14601
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 
 depth_flag = false
+display = false
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

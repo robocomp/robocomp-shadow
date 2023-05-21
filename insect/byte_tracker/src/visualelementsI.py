@@ -38,5 +38,5 @@ class VisualElementsI(VisualElements):
         self.worker = worker
 
 
-    def setVisualObjects(self, visualObjects, publisher, c):
-        return self.worker.VisualElements_setVisualObjects(visualObjects, publisher)
+    def getVisualObjects(self, c):
+        return self.worker.VisualElements_getVisualObjects()
