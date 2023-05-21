@@ -50,18 +50,20 @@ class SpecificWorker(GenericWorker):
             self.x = x_  # roi center coordinates in camera
             self.y = y_
             self.z = z_
-
             self.display = False
 
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 330
+        self.Period = 200
         self.thread_period = 50
         if startup_check:
             self.startup_check()
         else:
             # keyboard event to stop thread
             self.event = Event()
+
+            self.objects_read = []
+            self.objects_write = []
 
             # Hz
             self.cont = 0
@@ -314,7 +316,7 @@ class SpecificWorker(GenericWorker):
             }
 
             self.camera_name = "/Shadow/camera_top"
-            self.winname = "Path Concept"
+            self.winname = "Semantic Segmentator"
             cv2.namedWindow(self.winname)
             cv2.setMouseCallback(self.winname, self.mouse_click)
 
@@ -328,10 +330,19 @@ class SpecificWorker(GenericWorker):
 
             # read test image to get sizes
             try:
-                rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
-                # rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
                 self.x_ratio = int(rgb.width / 384)
                 self.y_ratio = int(rgb.height / 384) # TODO: Create constant
+                self.center_x = rgb.width // 2
+                self.center_y = rgb.height // 2
+                print("Camera specs:")
+                print(" width:", rgb.width)
+                print(" height:", rgb.height)
+                print(" depth", rgb.depth)
+                print(" focalx", rgb.focalx)
+                print(" focaly", rgb.focaly)
+                print(" period", rgb.period)
+                print(" ratio {:.2f}.format(image.width/image.height)")
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Aborting...")
@@ -377,13 +388,7 @@ class SpecificWorker(GenericWorker):
             # create Ice interface data structure and send to ByteTracker
             self.convert_to_visualelements_structure(rois)
 
-            # for i, mask in enumerate(masks):
-            #     cv2.imshow(str(i), mask)
-            #     cv2.waitKey(2)
-            #self.objects_write, self.objects_read = self.objects_read, self.objects_write
-
             if self.display:
-                print("Rois: ", len(rois))
                 frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
                 cv2.imshow(self.winname, frame)
                 cv2.waitKey(2)
@@ -409,7 +414,7 @@ class SpecificWorker(GenericWorker):
        while not event.is_set():
             now = time.time()
             try:
-                rgb = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 384, 384)
+                rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 384, 384)
                 rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
                 img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
                 im_pil = Image.fromarray(img)
@@ -453,7 +458,7 @@ class SpecificWorker(GenericWorker):
         return box_list, mask_list
 
     def convert_to_visualelements_structure(self, rois):
-        objects = ifaces.RoboCompVisualElements.TObjects()
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
         for roi in rois:
             act_object = ifaces.RoboCompVisualElements.TObject()
             act_object.type = int(roi.type)
@@ -462,11 +467,15 @@ class SpecificWorker(GenericWorker):
             act_object.right = roi.right
             act_object.bot = roi.bot
             act_object.score = roi.score
-            objects.append(act_object)
-        try:
-            self.visualelements_proxy.setVisualObjects(objects, 1)
-        except Ice.Exception as e:
-            print(e, "Error communicating with ByteTracker")
+            self.objects_write.append(act_object)
+
+        # swap
+        self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
+        # try:
+        #     self.visualelements_proxy.setVisualObjects(objects, 1)
+        # except Ice.Exception as e:
+        #     print(e, "Error communicating with ByteTracker")
 
     ############################## UTILS ###############################################
 
@@ -500,8 +509,9 @@ class SpecificWorker(GenericWorker):
         palette = np.array(self.color_palette)
         for label, color in enumerate(palette):
             color_seg[seg == label, :] = color
+
         # Convert to BGR
-        color_seg = color_seg[..., ::-1]
+        # color_seg = color_seg[..., ::-1]
 
         # Show image + mask
         img = np.array(color_image) * 0.6 + color_seg * 0.4
@@ -540,8 +550,9 @@ class SpecificWorker(GenericWorker):
         right = int(box[0]+box[2])
         top = int(box[1])
         bot = int(box[1]+box[3])
-        return ifaces.RoboCompSemanticSegmentation.TBox(id_, str(type_), left, top, right, bot, 0.7, 0, 0, 0, 0)
-        #return self.TBox(id_, type_, box, 0.7, box_depth, x, y, z)
+        return ifaces.RoboCompVisualElements.TObject(id=id_, type=str(type_), left=left, top=top,
+                                                     right=right, bot=bot, score=0.7,
+                                                     depth=0, x=0, y=0, z=0)
 
     def show_fps(self, alive_time, period):
         if time.time() - self.last_time > 1:
@@ -559,7 +570,7 @@ class SpecificWorker(GenericWorker):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
             point = (x, y)
-            print(list(self.labels.keys())[list(self.labels.values()).index(self.segmented_img[y, x].item())])
+            print("Selected class: ", list(self.labels.keys())[list(self.labels.values()).index(self.segmented_img[y, x].item())])
 
             # check if clicked point on yolo object. If so, set it as the new target object
             # for b in self.yolo_objects:
@@ -586,69 +597,47 @@ class SpecificWorker(GenericWorker):
         QTimer.singleShot(200, QApplication.instance().quit)
 
     # =============== Ice service methods ===============================
-    # ===================================================================
+    # ===================================================================##
+
+    # IMPLEMENTATION of getNamesofCategories method from MaskElements interface
     #
-    # IMPLEMENTATION of getInstances method from SemanticSegmentation interface
-    #
-    def SemanticSegmentation_getInstances(self):
-        return self.rois
-    #
-    # IMPLEMENTATION of getInstancesImage method from SemanticSegmentation interface
-    #
-    def SemanticSegmentation_getInstancesImage(self):
-        img = ifaces.RoboCompCameraSimple.TImage()
-        img.image = self.instance_img
-        img.height, img.width = self.instance_img.shape
-        img.depth = 1
-        return img
-    #
-    # IMPLEMENTATION of getNamesofCategories method from SemanticSegmentation interface
-    #
-    def SemanticSegmentation_getNamesofCategories(self):
+
+    def MaskElements_getNamesofCategories(self):
         return self.labels
-    #
-    # IMPLEMENTATION of getSegmentedImage method from SemanticSegmentation interface
-    #
-    def SemanticSegmentation_getSegmentedImage(self):
-        if self.segmented_img is not None:
-            img = ifaces.RoboCompCameraSimple.TImage()
-            img.image = bytes(list(itertools.chain(*self.segmented_img.tolist())))
-            img.height, img.width = self.segmented_img.shape
-            img.depth = 1
-            return img
-        else:
-            print("Segmented image is None")
-            return ifaces.RoboCompCameraSimple.TImage()
 
-    def SemanticSegmentation_getMaskedImage(self, category):
-        if self.mask_image is not None:
-            img = ifaces.RoboCompCameraSimple.TImage()
-            img.image = self.mask_image
-            img.height, img.width, img.depth = self.mask_image.shape
-            return img
-        else:
-            return ifaces.RoboCompCameraSimple.TImage()
+    #
+    # IMPLEMENTATION of setMasks method from MaskElements interface
+    #
+    def MaskElements_getMasks(self, masks):
+        mask_list = []
+        mask = ifaces.RoboCompMaskElements.TMask()
+        mask.width = self.mask_image.shape[1]
+        mask.height = self.mask_image.shape[0]
+        mask.image = self.mask_image.tobytes()
+        mask_list.append(mask)
+        return mask_list
+
+    #
+    # IMPLEMENTATION of getVisualObjects method from VisualElements interface
+    #
+
+    def VisualElements_getVisualObjects(self):
+        return self.objects_read
+
+    # ===================================================================
     # ===================================================================
 
     ######################
-    # From the RoboCompCameraRGBDSimple you can call this methods:
-    # self.camerargbdsimple_proxy.getAll(...)
-    # self.camerargbdsimple_proxy.getDepth(...)
-    # self.camerargbdsimple_proxy.getImage(...)
-    # self.camerargbdsimple_proxy.getPoints(...)
+    # From the RoboCompCamera360RGB you can call this methods:
+    # self.camera360rgb_proxy.getROI(...)
 
     ######################
-    # From the RoboCompCameraRGBDSimple you can use this types:
-    # RoboCompCameraRGBDSimple.Point3D
-    # RoboCompCameraRGBDSimple.TPoints
-    # RoboCompCameraRGBDSimple.TImage
-    # RoboCompCameraRGBDSimple.TDepth
-    # RoboCompCameraRGBDSimple.TRGBD
+    # From the RoboCompMaskElements you can use this types:
+    # RoboCompMaskElements.TMask
 
     ######################
-    # From the RoboCompSemanticSegmentation you can use this types:
-    # RoboCompSemanticSegmentation.TBox
-
+    # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TObject
 
 # @QtCore.Slot()
     # def compute(self):
@@ -677,3 +666,40 @@ class SpecificWorker(GenericWorker):
     #     except KeyboardInterrupt:
     #         self.event.set()
     #     # print("Elapsed:", int((time.time() - now)*1000), " msecs")
+
+ # #
+ #    # IMPLEMENTATION of getInstances method from SemanticSegmentation interface
+ #    #
+ #    def SemanticSegmentation_getInstances(self):
+ #        return self.rois
+ #    #
+ #    # IMPLEMENTATION of getInstancesImage method from SemanticSegmentation interface
+ #    #
+ #    def SemanticSegmentation_getInstancesImage(self):
+ #        img = ifaces.RoboCompCameraSimple.TImage()
+ #        img.image = self.instance_img
+ #        img.height, img.width = self.instance_img.shape
+ #        img.depth = 1
+ #        return img
+ #
+ #    def SemanticSegmentation_getSegmentedImage(self):
+ #        if self.segmented_img is not None:
+ #            img = ifaces.RoboCompCameraSimple.TImage()
+ #            img.image = bytes(list(itertools.chain(*self.segmented_img.tolist())))
+ #            img.height, img.width = self.segmented_img.shape
+ #            img.depth = 1
+ #            return img
+ #        else:
+ #            print("Segmented image is None")
+ #            return ifaces.RoboCompCameraSimple.TImage()
+ #
+ #    def SemanticSegmentation_getMaskedImage(self, category):
+ #        if self.mask_image is not None:
+ #            print("request")
+ #            img = ifaces.RoboCompCameraSimple.TImage()
+ #            img.image = self.mask_image
+ #            img.height, img.width, img.depth = self.mask_image.shape
+ #            return img
+ #        else:
+ #            return ifaces.RoboCompCameraSimple.TImage()
+ #    # ===================================================================

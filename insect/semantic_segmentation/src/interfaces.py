@@ -9,12 +9,10 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
-Ice.loadSlice("-I ./src/ --all ./src/CameraSimple.ice")
-import RoboCompCameraSimple
+Ice.loadSlice("-I ./src/ --all ./src/MaskElements.ice")
+import RoboCompMaskElements
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
-Ice.loadSlice("-I ./src/ --all ./src/SemanticSegmentation.ice")
-import RoboCompSemanticSegmentation
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
@@ -89,7 +87,43 @@ class ImgType(list):
         assert isinstance(item, byte)
         super(ImgType, self).insert(index, item)
 
-setattr(RoboCompCameraSimple, "ImgType", ImgType)
+setattr(RoboCompMaskElements, "ImgType", ImgType)
+class TMasks(list):
+    def __init__(self, iterable=list()):
+        super(TMasks, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompMaskElements.TMask)
+        super(TMasks, self).insert(index, item)
+
+setattr(RoboCompMaskElements, "TMasks", TMasks)
+class TMaskNames(list):
+    def __init__(self, iterable=list()):
+        super(TMaskNames, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, str)
+        super(TMaskNames, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, str)
+        super(TMaskNames, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, str)
+        super(TMaskNames, self).insert(index, item)
+
+setattr(RoboCompMaskElements, "TMaskNames", TMaskNames)
 class TConnections(list):
     def __init__(self, iterable=list()):
         super(TConnections, self).__init__(iterable)
@@ -113,24 +147,6 @@ class TObjects(list):
         super(TObjects, self).__init__(iterable)
 
     def append(self, item):
-        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, RoboCompSemanticSegmentation.TBox)
-        super(TObjects, self).insert(index, item)
-
-setattr(RoboCompSemanticSegmentation, "TObjects", TObjects)
-class TObjects(list):
-    def __init__(self, iterable=list()):
-        super(TObjects, self).__init__(iterable)
-
-    def append(self, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
         super(TObjects, self).append(item)
 
@@ -145,7 +161,8 @@ class TObjects(list):
 
 setattr(RoboCompVisualElements, "TObjects", TObjects)
 
-import semanticsegmentationI
+import maskelementsI
+import visualelementsI
 
 
 
@@ -186,8 +203,6 @@ class Requires:
         self.mprx={}
 
         self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
-
-        self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
     def get_proxies_map(self):
         return self.mprx
@@ -244,7 +259,8 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
-        self.semanticsegmentation = self.create_adapter("SemanticSegmentation", semanticsegmentationI.SemanticSegmentationI(default_handler))
+        self.maskelements = self.create_adapter("MaskElements", maskelementsI.MaskElementsI(default_handler))
+        self.visualelements = self.create_adapter("VisualElements", visualelementsI.VisualElementsI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
