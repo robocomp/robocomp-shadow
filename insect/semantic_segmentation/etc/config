@@ -1,8 +1,8 @@
 # Endpoints for implements interfaces
-SemanticSegmentation.Endpoints=tcp -p 14601
+MaskElements.Endpoints=tcp -p 14602
+VisualElements.Endpoints=tcp -p 14601
 
 # Proxies for required interfaces
-VisualElementsProxy = visualelements:tcp -h localhost -p 17524
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 
 display = true
