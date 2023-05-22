@@ -234,6 +234,8 @@ class Requires:
 
         self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
+        self.VisualElements1 = self.create_proxy("VisualElements1Proxy", RoboCompVisualElements.VisualElementsPrx)
+
     def get_proxies_map(self):
         return self.mprx
 

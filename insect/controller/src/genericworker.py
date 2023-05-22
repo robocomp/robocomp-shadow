@@ -52,6 +52,7 @@ class GenericWorker(QtWidgets.QWidget):
         self.maskelements_proxy = mprx["MaskElementsProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
         self.visualelements_proxy = mprx["VisualElementsProxy"]
+        self.visualelements1_proxy = mprx["VisualElementsProxy1"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)

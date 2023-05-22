@@ -8,7 +8,7 @@ Component controller
 {
     Communications
     {
-        requires Camera360RGB, OmniRobot, MPC, VisualElements, MaskElements;
+        requires Camera360RGB, OmniRobot, MPC, VisualElements, VisualElements, MaskElements;
     };
     language python;
     gui Qt(QWidget);
