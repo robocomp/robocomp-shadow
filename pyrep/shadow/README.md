@@ -19,6 +19,11 @@ Please follow these steps:
           'You requested object of type %s, but the actual type was '
           '%s' % (assert_type.name, actual.name))
 
+- Comment out line 41 in file ~/.local/lib/python3.10/site-packages/pyrep/robots/mobiles/mobile_base.py
+
+You can find more detailed instructions in 
+     https://github.com/robocomp/robocomp/blob/development/doc/robocomp-pyrep.md
+
 - To start the component copy the config file form etc to . and use the script run.sh. 
 
 - Make sure first that you have commented this two lines, in case you have them:
