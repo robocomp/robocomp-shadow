@@ -39,6 +39,15 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
+
+        # ROI parameters. Must be filled up
+        self.final_xsize = 0
+        self.final_ysize = 0
+        self.roi_xcenter = 0
+        self.roi_ycenter = 0
+        self.roi_xsize = 0
+        self.roi_ysize = 0
+
         if startup_check:
             self.startup_check()
         else:
@@ -47,7 +56,7 @@ class SpecificWorker(GenericWorker):
             self.display = False
 
             # Hz
-            self.cont = 0
+            self.cont = 1
             self.last_time = time.time()
             self.fps = 0
 
@@ -103,8 +112,9 @@ class SpecificWorker(GenericWorker):
         if self.display:
             img = self.read_image()
             img = self.display_data(img, processed_data)
-            cv2.imshow("Image", img)
-            cv2.waitKey(1)
+            if img is not None:
+                cv2.imshow("Image", img)
+                cv2.waitKey(1)
 
         self.show_fps()
 
@@ -117,7 +127,16 @@ class SpecificWorker(GenericWorker):
                 data["scores"].append(object.score)
                 data["boxes"].append([object.left, object.top, object.right, object.bot])
                 data["clases"].append(object.type)
-            # TODO: read image sizes from v_objects
+
+            # get roi params from firs visual object since all are the same
+            if visual_objects:
+                roi = visual_objects[0].roi
+                self.final_xsize = roi.finalxsize
+                self.final_ysize = roi.finalysize
+                self.roi_xcenter = roi.xcenter
+                self.roi_ycenter = roi.ycenter
+                self.roi_xsize = roi.xsize
+                self.roi_ysize = roi.ysize
 
         except Ice.Exception as e:
             traceback.print_exc()
@@ -142,16 +161,22 @@ class SpecificWorker(GenericWorker):
         return self.objects_read
 
     def read_image(self):
-        rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+        #rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+        rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
         rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
         return rgb_frame
 
     def display_data(self, image, objects):
+        if len(objects) == +0:
+            return
+        xfactor = 1024/self.final_xsize
+        yfactor = 512/self.final_ysize
+        print(xfactor, yfactor)
         for element in objects:
-            x0 = int(element.left*(image.shape[0]/image.shape[1]))
-            y0 = int(element.top*(image.shape[1]/image.shape[0]))
-            x1 = int(element.right*(image.shape[0]/image.shape[1]))
-            y1 = int(element.bot*(image.shape[1]/image.shape[0]))
+            x0 = int(element.left*xfactor)
+            y0 = int(element.top*yfactor)
+            x1 = int(element.right*xfactor)
+            y1 = int(element.bot*yfactor)
             cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
             text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
             font = cv2.FONT_HERSHEY_SIMPLEX
