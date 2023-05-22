@@ -842,6 +842,7 @@ class SpecificWorker(GenericWorker):
                 roiwidth = image.shape[1]
             if roiheight == -1:
                 roiheight = image.shape[0]
+            # TODO: check that requested ROI es within limits and roiwidth, roiheight also
             dst = image[cy - (sy // 2) : cy + (sy // 2), cx - (sx // 2) : cx + (sx // 2)]
             rdst = cv2.resize(dst, (roiwidth, roiheight), cv2.INTER_LINEAR)
             res = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
