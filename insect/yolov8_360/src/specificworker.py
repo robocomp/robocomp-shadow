@@ -154,6 +154,14 @@ class SpecificWorker(GenericWorker):
         self.thread_period = 10
         self.display = True
 
+        # ROI parameters
+        self.final_xsize = 640
+        self.final_ysize = 640
+        self.roi_xcenter = 0
+        self.roi_ycenter = 0
+        self.roi_xsize = 512
+        self.roi_ysize = 430
+
         if startup_check:
             self.startup_check()
         else:
@@ -174,8 +182,8 @@ class SpecificWorker(GenericWorker):
             # read test image to get sizes
             try:
                 rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                self.center_x = rgb.width // 2
-                self.center_y = rgb.height // 2
+                self.roi_xcenter = rgb.width // 2
+                self.roi_ycenter = rgb.height // 2
                 print("Camera specs:")
                 print(" width:", rgb.width)
                 print(" height:", rgb.height)
@@ -233,8 +241,7 @@ class SpecificWorker(GenericWorker):
         dets = self.yolov8_objects(blob)
 
         if dets is not None:
-            self.send_to_bytetrack(dets[:, :4], dets[:, 4], dets[:, 5])
-
+            self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
             if self.display:
                 img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])),
                                         class_names=self.yolo_object_predictor.class_names)
@@ -250,10 +257,11 @@ class SpecificWorker(GenericWorker):
     ######################################################################################################3
 
     def get_rgb_thread(self, camera_name: str, event: Event):
-        while not event.isSet():
+        while not event.is_set():
             try:
                 #rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
-                rgbd = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+                rgbd = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                                                      self.roi_ysize, self.final_xsize, self.final_ysize)
                 self.image_height = rgbd.height
                 self.image_width = rgbd.width
                 # rgbd = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
@@ -280,7 +288,7 @@ class SpecificWorker(GenericWorker):
                                np.array(final_cls_inds)[:num[0]].reshape(-1, 1)], axis=-1)
         return dets
 
-    def send_to_bytetrack(self, boxes, scores, cls_inds):
+    def create_interface_data(self, boxes, scores, cls_inds):
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
         desired_inds = [i for i, cls in enumerate(cls_inds) if
                         True]
@@ -296,6 +304,9 @@ class SpecificWorker(GenericWorker):
             act_object.right = int(desired_boxes[index][2])
             act_object.bot = int(desired_boxes[index][3])
             act_object.score = desired_scores[index]
+            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.roi_xcenter, ycenter=self.roi_ycenter,
+                                                                xsize=self.roi_xsize, ysize=self.roi_ysize,
+                                                                finalxsize=self.final_xsize, finalysize=self.final_ysize)
             self.objects_write.append(act_object)
 
         # swap
@@ -371,7 +382,6 @@ class SpecificWorker(GenericWorker):
 
             data.objects.append(ibox)
         return data
-
 
     def show_fps(self, alive_time, period):
         if time.time() - self.last_time > 1:
