@@ -235,8 +235,19 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e)
 
-        # get visual objects from queue
-        #visual_objects = self.visual_objects_queue.get()
+        # read objects from YOLO segmentator
+        try:
+            yolo_objects = self.visualelements_proxy.getVisualObjects()
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+
+        # read objects from semantic segmentator
+        try:
+            ss_objects = self.visualelements_1_proxy.getVisualObjects()
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
 
         # take control actions
 

@@ -5,7 +5,7 @@ OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 14601
 MaskElementsProxy = maskelements:tcp -h localhost -p 14602
 VisualElementsProxy = visualelements:tcp -h localhost -p 16601      # yolo
-#VisualElementsProxy = visualelements:tcp -h localhost -p 16602      # semanticsegmentation
+VisualElements1Proxy = visualelements:tcp -h localhost -p 16602      # semanticsegmentation
 
 Ice.MessageSizeMax=20004800
 Ice.Warn.Connections=0
