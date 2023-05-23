@@ -27,7 +27,7 @@ class DWA_Optimizer():
             if lane_size == 0:
                 continue
             #print(inliers * 100 / lane_size)
-            if inliers * 100 / lane_size > 96:
+            if inliers * 100 / lane_size > 90:
                 loss = abs(segmented_size - lane_size) + 5 * abs(lane_size - inliers)
                 survivor = {"mask": mask, "polygon": c["polygon"],
                             "params": c["params"], "loss": loss,
