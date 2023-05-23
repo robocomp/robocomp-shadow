@@ -31,14 +31,10 @@ import traceback
 import cv2
 import time
 import queue
-import threading
-from enum import Enum
-from queue import Queue
 from dwa_optimizer import DWA_Optimizer
-from mask2former import Mask2Former
-from floodfill_segmentator import Floodfill_Segmentator
 sys.path.append('/home/robocomp/robocomp/lib')
 console = Console(highlight=False)
+from dataclasses import dataclass
 
 _COLORS = np.array(
     [
@@ -124,6 +120,7 @@ _COLORS = np.array(
         0.50, 0.5, 0
     ]
 ).astype(np.float32).reshape(-1, 3)
+
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -136,12 +133,23 @@ class SpecificWorker(GenericWorker):
             self.target_object = None
             self.selected_object = None
 
+            # ROI parameters
+            @dataclass
+            class TRoi:
+                final_xsize: int = 0
+                final_ysize: int = 0
+                xcenter: int = 0
+                ycenter: int = 0
+                xsize: int = 0
+                ysize: int = 0
+            self.roi = TRoi()
+
             # Hz
             self.cont = 0
             self.last_time = time.time()
             self.fps = 0
 
-            # camera matrix
+            # get camera specs
             image = ifaces.RoboCompCameraRGBDSimple.TImage()
             try:
                 image = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
@@ -154,15 +162,15 @@ class SpecificWorker(GenericWorker):
                 print(" focaly", image.focaly)
                 print(" period", image.period)
                 print(" ratio {:.2f}.format(image.width/image.height)")
-                self.cx = image.width // 2
-                self.cy = image.height // 2
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Cannot connect to camera. Aborting")
                 sys.exit()
 
+            # camera matrix
             rx = np.deg2rad(20)  # get from camera_proxy
             cam_to_robot = self.make_matrix_rt(rx, 0, 0, 0, -15, 1580)  # converts points in camera CS to robot CS
+            #cam_to_robot = self.make_matrix_rt(0, 0, 0, 0, 0, 1580)  # converts points in camera CS to robot CS
             robot_to_cam = np.linalg.inv(cam_to_robot)
 
             # visual objects
@@ -178,8 +186,7 @@ class SpecificWorker(GenericWorker):
 
             # optimizer
             #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
-            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly,
-                                               (384, 384, 3))
+            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (384, 384, 3))
 
             self.winname = "Controller"
             cv2.namedWindow(self.winname)
@@ -211,46 +218,15 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # read frame from camera
-        frame = None
-        try:
-            rgb = self.camera360rgb_proxy.getROI(self.cx, self.cy,  512, 430, 384, 384)
-            frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
 
-        # read masks from SemanticSegmentator
-        try:
-            masks = self.maskelements_proxy.getMasks(["floor"])
-            if(len(masks)>0):
-                mask_floor = masks[0]
-                mask_img = np.frombuffer(mask_floor.image, dtype=np.uint8).reshape((mask_floor.height, mask_floor.width, 1))
-                # compute all feasible routes
-                candidates = self.dwa_optimizer.discard(mask_img=mask_img)
-                self.draw_frame(self.winname, frame, candidates)
-                #cv2.imshow(self.winname, frame)
-                #cv2.waitKey(2)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
+        frame = self.read_image()
+        candidates = self.compute_candidates(["floor"])
+        #yolo_objects = self.read_yolo_objects()
+        #ss_objects = self.read_ss_objects()
 
-        # read objects from YOLO segmentator
-        try:
-            yolo_objects = self.visualelements_proxy.getVisualObjects()
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
-
-        # read objects from semantic segmentator
-        try:
-            ss_objects = self.visualelements_1_proxy.getVisualObjects()
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
+        self.draw_frame(self.winname, frame, candidates)
 
         # take control actions
-
         # active, control, selected = self.check_human_interface(candidates)
         # if not active:
         #     active, control, selected = self.check_visual_target(candidates)
@@ -267,6 +243,51 @@ class SpecificWorker(GenericWorker):
 
 
     #########################################################################
+
+    def read_image(self):
+        frame = None
+        try:
+            rgb = self.camera360rgb_proxy.getROI(512, 256, 512, 430, 384, 384)
+            frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+        return frame
+
+    def compute_candidates(self, class_names):
+        # read masks from SemanticSegmentator
+        candidates = []
+        try:
+            masks = self.maskelements_proxy.getMasks(class_names)
+            if (len(masks) == 0):
+                print("no candidates")
+                return candidates
+            mask_floor = masks[0]
+            mask_img = np.frombuffer(mask_floor.image, dtype=np.uint8).reshape((mask_floor.height, mask_floor.width, 1))
+            # compute all feasible routes
+            candidates = self.dwa_optimizer.discard(mask_img=mask_img)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+        return candidates
+
+    def read_yolo_objects(self):
+        yolo_objects = ifaces.RoboCompVisualElements.TObjects()
+        try:
+            yolo_objects = self.visualelements_proxy.getVisualObjects()
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+        return yolo_objects
+
+    def read_ss_objects(self):
+        yolo_objects = ifaces.RoboCompVisualElements.TObjects()
+        try:
+            ss_objects = self.visualelements1_proxy.getVisualObjects()
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+        return ss_objects
 
     def check_human_interface(self, candidates):
         # pre-conditions
@@ -453,7 +474,7 @@ class SpecificWorker(GenericWorker):
             self.cont += 1
 
     def draw_frame(self, winname, frame, candidates):
-        alpha = 0.8
+        alpha = 0.95
         for s, c in enumerate(candidates):
             alt = c["mask"]
             alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
