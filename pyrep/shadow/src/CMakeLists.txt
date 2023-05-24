@@ -3,5 +3,5 @@ PROJECT(  shadowPyrep )
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/robocomp.cmake )
 SET(IFACES "/ifaces")
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase JoystickAdapter Laser OmniRobot HumanToDSRPub CoppeliaUtils FullPoseEstimation BatteryStatus RSSIStatus JointMotorSimple CameraSimple BillCoppelia Camera360RGB)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior CameraRGBDSimple GenericBase JoystickAdapter Laser OmniRobot HumanToDSRPub CoppeliaUtils FullPoseEstimation BatteryStatus RSSIStatus JointMotorSimple CameraSimple BillCoppelia Camera360RGB Lidar3D)
 
