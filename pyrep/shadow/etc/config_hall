@@ -26,7 +26,8 @@ Ice.Trace.Protocol=0
 ##################################################
 
 #scene_file = ../../etc/corralgiraff.ttt
-scene_file = ../../etc/informatica_blender.ttt
+#scene_file = ../../etc/informatica_blender.ttt
+scene_file = ../../etc/informatica_blender_new_lidar.ttt
 ignore_joystick = false
 
 
