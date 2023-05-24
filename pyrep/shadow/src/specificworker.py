@@ -33,10 +33,11 @@ import numpy as np
 import numpy_indexed as npi
 import cv2
 import itertools as it
-from math import *
 import pprint
 import traceback
 from sys import getsizeof
+from dataclasses import dataclass
+
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
                  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
@@ -69,11 +70,26 @@ class TimeControl:
             self.counter = 0
             self.start_print = time.time()
 
+@dataclass
+class Consts:
+        depth_lines_max_height: float = 1550
+        depth_lines_min_height: float = 350
+        depth_lines_step: float = 100
+        num_angular_bins: int = 360
+        max_camera_depth_range: float = 5000.0
+        min_camera_depth_range: float = 300.0
+        coppelia_depth_scaling_factor: float = 19.0
+        omni_camera_height: float = 1580
+        omni_camera_y_offset: float = 0
+        min_dist_from_robot_center: float = 300
 
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map):
         super(SpecificWorker, self).__init__(proxy_map)
+        # Accessing the constants
+        self.consts = Consts()
+        self.points = []
 
     def __del__(self):
         print('SpecificWorker destructor')
@@ -129,7 +145,7 @@ class SpecificWorker(GenericWorker):
         #                                              "has_points": False
         #                                             }
 
-        self.omni_camera_rgb_name = "/Shadow/omnicamera/sensorRGB"
+        self.omni_camera_rgb_name = "/omnicamera/sensorRGB"
         try:
             cam = VisionSensor(self.omni_camera_rgb_name)
             self.cameras_write[self.omni_camera_rgb_name] = {"handle": cam,
@@ -151,7 +167,7 @@ class SpecificWorker(GenericWorker):
         except:
             print("Camera OMNI sensorRGB  not found in Coppelia")
         #
-        self.omni_camera_depth_name = "/Shadow/lidar3d/sensorDepth"
+        self.omni_camera_depth_name = "/lidar3d/sensorDepth"
         try:
             cam = VisionSensor(self.omni_camera_depth_name)
             self.cameras_write[self.omni_camera_depth_name] = {"handle": cam,
@@ -222,8 +238,8 @@ class SpecificWorker(GenericWorker):
                 self.pr.step()
                 self.read_robot_pose()
                 self.move_robot()
-                self.read_cameras([self.omni_camera_rgb_name, self.omni_camera_depth_name])
-                self.read_lidar3d()
+                self.read_cameras([self.omni_camera_rgb_name])
+                self.points = self.read_lidar3d()
                 #self.read_cameras([self.top_camera_name, ])
                 #ksself.read_people()
                 if not self.IGNORE_JOYSITCK:
@@ -345,7 +361,7 @@ class SpecificWorker(GenericWorker):
              image_float = cam["handle"].capture_rgb()
              image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
                                    dtype=cv2.CV_8U)
-             #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
              cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
                                                           width=cam["width"],
                                                           height=cam["height"],
@@ -365,7 +381,43 @@ class SpecificWorker(GenericWorker):
     ### CAMERAS get and publish cameras data
     ###########################################
     def read_lidar3d(self):
-        i, self.lidar3d_data, s, b = self.pr.script_call("get_data@/Shadow/VelodyneVPL16", 1)
+        cam = self.cameras_write[self.omni_camera_depth_name]
+        frame = cam["handle"].capture_rgb()  # comes in the RGB channel
+        depth_frame = frame[:, :, 0]
+
+        rows = int((self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
+        cols = self.consts.num_angular_bins
+        points = np.full((rows, cols, 2), fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+        semi_height = depth_frame.shape[0] // 2
+        ang_slope = 2 * np.pi / depth_frame.shape[1]
+        ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+
+        for u in range(0, depth_frame.shape[0], 10):
+            for v in range(0, depth_frame.shape[1], 10):
+                hor_ang = ang_slope * v - np.pi
+                dist = depth_frame[u, v]*1000 * self.consts.coppelia_depth_scaling_factor
+                if dist > self.consts.max_camera_depth_range:
+                    continue
+                if dist < self.consts.min_camera_depth_range:
+                    continue
+                x = -dist * np.sin(hor_ang)
+                y = dist * np.cos(hor_ang)
+                fov = 128
+                proy = dist * np.cos(np.arctan2((semi_height - u), fov))
+                z = (semi_height - u) / fov * proy
+                z += self.consts.omni_camera_height
+                y += self.consts.omni_camera_y_offset
+                if z < 0:
+                    continue
+                for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+                                                   self.consts.depth_lines_step)):
+                    if z > step and z < step + self.consts.depth_lines_step:
+                        ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
+                        new_point = np.array([x, y])
+                        if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
+                                and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
+                            points[level, ang_index] = new_point
+        return points
 
     ###########################################
     ### JOYSITCK read and move the robot
@@ -814,10 +866,14 @@ class SpecificWorker(GenericWorker):
         bill_target.set_position([tx/1000.0, ty/1000.0, current_pos[2]])
 
     # ===================================================================
-    def Lidar3D_getLidarData(self):
+    def Lidar3D_getLidarData(self, start, length):
         lidar3D = []
-        for x, y, z in self.grouper(self.lidar3d_data, 3):
-            lidar3D.append(RoboCompLidar3D.TPoint(x=x, y=z, z=y, intensity=0))
+        level, ang, _ = self.points.shape
+        height = self.consts.depth_lines_min_height
+        for a in range(ang):
+            for l in range(level):
+                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][a][0], y=self.points[l][a][1], z=height, intensity=0))
+                height += self.consts.depth_lines_step
         return lidar3D
 
     # =====================================================================

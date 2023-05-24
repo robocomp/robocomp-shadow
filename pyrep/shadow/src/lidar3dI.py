@@ -50,5 +50,5 @@ class Lidar3DI(Lidar3D):
     def __init__(self, worker):
         self.worker = worker
 
-    def getLidarData(self, c):
-        return self.worker.Lidar3D_getLidarData()
+    def getLidarData(self, start, length, c):
+        return self.worker.Lidar3D_getLidarData(start, length)
