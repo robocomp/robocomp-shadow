@@ -72,14 +72,16 @@ class TimeControl:
 
 @dataclass
 class Consts:
-        depth_lines_max_height: float = 1550
-        depth_lines_min_height: float = 350
-        depth_lines_step: float = 100
-        num_angular_bins: int = 360
-        max_camera_depth_range: float = 5000.0
-        min_camera_depth_range: float = 300.0
-        coppelia_depth_scaling_factor: float = 19.0
+        num_lidars = 32
         omni_camera_height: float = 1580
+        depth_lines_max_height: float = 1000
+        depth_lines_min_height: float = -omni_camera_height
+        depth_lines_step: int = int((depth_lines_max_height - depth_lines_min_height)/num_lidars)
+        num_rows = num_lidars
+        num_angular_bins: int = 900  # 0.4 max res
+        max_camera_depth_range: float = 10000.0
+        min_camera_depth_range: float = 300.0
+        coppelia_depth_scaling_factor: float = 4.0
         omni_camera_y_offset: float = 0
         min_dist_from_robot_center: float = 300
 
@@ -235,6 +237,7 @@ class SpecificWorker(GenericWorker):
         self.tc = TimeControl(0.05)
         while True:
             try:
+                inicio = time.time()
                 self.pr.step()
                 self.read_robot_pose()
                 self.move_robot()
@@ -299,6 +302,10 @@ class SpecificWorker(GenericWorker):
                if self.ldata_write[i].dist == 0:
                    self.ldata_write[i].dist = self.ldata_write[i - 1].dist
 
+            # probar optim gpt4
+            # for i, data in enumerate(self.ldata_write[1:], start=1):
+            #     if data.dist == 0:
+            #         data.dist = self.ldata_write[i - 1].dist
 
             self.ldata_read, self.ldata_write = self.ldata_write, self.ldata_read
 
@@ -353,6 +360,7 @@ class SpecificWorker(GenericWorker):
              image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
                                    dtype=cv2.CV_8U)
              image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             image = cv2.flip(image, 1)
              cam["rgb"] = image
              cam["is_ready"] = True
 
@@ -362,6 +370,7 @@ class SpecificWorker(GenericWorker):
              image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
                                    dtype=cv2.CV_8U)
              image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+             image = cv2.flip(image, 1)
              cam["rgb"] = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
                                                           width=cam["width"],
                                                           height=cam["height"],
@@ -380,43 +389,48 @@ class SpecificWorker(GenericWorker):
     ###########################################
     ### CAMERAS get and publish cameras data
     ###########################################
+
     def read_lidar3d(self):
+        inicio = time.time()
         cam = self.cameras_write[self.omni_camera_depth_name]
         frame = cam["handle"].capture_rgb()  # comes in the RGB channel
         depth_frame = frame[:, :, 0]
 
-        rows = int((self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
+        rows = self.consts.num_rows
         cols = self.consts.num_angular_bins
-        points = np.full((rows, cols, 2), fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+        points = np.full((rows, cols, 2),
+                         fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
         semi_height = depth_frame.shape[0] // 2
         ang_slope = 2 * np.pi / depth_frame.shape[1]
         ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
 
-        for u in range(0, depth_frame.shape[0], 10):
-            for v in range(0, depth_frame.shape[1], 10):
-                hor_ang = ang_slope * v - np.pi
-                dist = depth_frame[u, v]*1000 * self.consts.coppelia_depth_scaling_factor
-                if dist > self.consts.max_camera_depth_range:
-                    continue
-                if dist < self.consts.min_camera_depth_range:
-                    continue
-                x = -dist * np.sin(hor_ang)
-                y = dist * np.cos(hor_ang)
-                fov = 128
-                proy = dist * np.cos(np.arctan2((semi_height - u), fov))
-                z = (semi_height - u) / fov * proy
-                z += self.consts.omni_camera_height
-                y += self.consts.omni_camera_y_offset
-                if z < 0:
-                    continue
-                for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
-                                                   self.consts.depth_lines_step)):
-                    if z > step and z < step + self.consts.depth_lines_step:
-                        ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
-                        new_point = np.array([x, y])
-                        if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
-                                and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
-                            points[level, ang_index] = new_point
+        u, v = np.mgrid[0:depth_frame.shape[0]:6, 0:depth_frame.shape[1]:3]
+        hor_ang = ang_slope * v - np.pi
+        dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
+        mask = (dist <= self.consts.max_camera_depth_range) & (dist >= self.consts.min_camera_depth_range)
+        u, v, hor_ang, dist = u[mask], v[mask], hor_ang[mask], dist[mask]
+
+        x = -dist * np.sin(hor_ang)
+        y = dist * np.cos(hor_ang)
+        fov = 128
+        proy = dist * np.cos(np.arctan2((semi_height - u), fov))
+        z = (semi_height - u) / fov * proy
+        y += self.consts.omni_camera_y_offset
+        mask = z >= self.consts.depth_lines_min_height
+        x, y, z = x[mask], y[mask], z[mask]
+
+        for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+                                           self.consts.depth_lines_step)):
+            if level >= 32:
+                continue
+            mask = (z > step) & (z < step + self.consts.depth_lines_step)
+            x_level, y_level, z_level = x[mask], y[mask], z[mask]
+            ang_index = (np.pi + np.arctan2(x_level, y_level) / ang_bin).astype(int)
+            new_points = np.stack([x_level, y_level], axis=-1)
+            norms = np.linalg.norm(new_points, axis=-1)
+            mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
+            points[level, ang_index[mask]] = new_points[mask]
+
         return points
 
     ###########################################
@@ -870,10 +884,23 @@ class SpecificWorker(GenericWorker):
         lidar3D = []
         level, ang, _ = self.points.shape
         height = self.consts.depth_lines_min_height
-        for a in range(ang):
+        a = 0
+        while a <= length-1:
             for l in range(level):
-                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][a][0], y=self.points[l][a][1], z=height, intensity=0))
+                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0]/1000, y=self.points[l][start][1]/1000, z=height/1000, intensity=0))
                 height += self.consts.depth_lines_step
+            height = self.consts.depth_lines_min_height
+            start += 1
+            start = 0 if ((start % 900) == 0) else start
+            a += 1
+        # print("MIN HEIGHT ", height)
+        # for a in range(ang):
+        #     for l in range(level):
+        #         lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][a][0]/1000, y=self.points[l][a][1]/1000, z=height/1000, intensity=0))
+        #         height += self.consts.depth_lines_step
+        #     height = self.consts.depth_lines_min_height
+                # print("HEIGHT ", height)
+        #print(lidar3D)
         return lidar3D
 
     # =====================================================================
@@ -954,3 +981,49 @@ class SpecificWorker(GenericWorker):
         #                                             }
         # self.ldata_write = []
         # self.ldata_read = []
+
+        # def read_lidar3d(self):
+        #     inicio = time.time()
+        #     cam = self.cameras_write[self.omni_camera_depth_name]
+        #     frame = cam["handle"].capture_rgb()  # comes in the RGB channel
+        #     depth_frame = frame[:, :, 0]
+        #     print("PRIMERO", time.time() - inicio)
+        #     # depth_frame = cv2.flip(depth_frame, 1)
+        #
+        #     rows = int((
+        #                            self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
+        #     cols = self.consts.num_angular_bins
+        #     points = np.full((rows, cols, 2),
+        #                      fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+        #     semi_height = depth_frame.shape[0] // 2
+        #     ang_slope = 2 * np.pi / depth_frame.shape[1]
+        #     ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+        #     print("SEGUNDO ", time.time() - inicio)
+        #     for u in range(0, depth_frame.shape[0], 5):
+        #         for v in range(0, depth_frame.shape[1], 5):
+        #             hor_ang = ang_slope * v - np.pi
+        #             dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
+        #             if dist > self.consts.max_camera_depth_range:
+        #                 continue
+        #             if dist < self.consts.min_camera_depth_range:
+        #                 continue
+        #             x = -dist * np.sin(hor_ang)
+        #             y = dist * np.cos(hor_ang)
+        #             fov = 128
+        #             proy = dist * np.cos(np.arctan2((semi_height - u), fov))
+        #             z = (semi_height - u) / fov * proy
+        #             z += self.consts.omni_camera_height
+        #             y += self.consts.omni_camera_y_offset
+        #             if z < 0:
+        #                 continue
+        #             for level, step in enumerate(
+        #                     range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+        #                           self.consts.depth_lines_step)):
+        #                 if z > step and z < step + self.consts.depth_lines_step:
+        #                     ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
+        #                     new_point = np.array([x, y])
+        #                     if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
+        #                             and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
+        #                         points[level, ang_index] = new_point
+        #     return points
+        #     print("TERCERO", time.time() - inicio)
