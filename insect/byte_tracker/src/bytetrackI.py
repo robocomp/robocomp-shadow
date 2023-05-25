@@ -41,11 +41,11 @@ class ByteTrackI(ByteTrack):
     def allTargets(self, c):
         return self.worker.ByteTrack_allTargets()
 
-    def getTargets(self, ps, pb, clases, c):
-        return self.worker.ByteTrack_getTargets(ps, pb, clases)
+    def getTargets(self, objects, c):
+        return self.worker.ByteTrack_getTargets(objects)
 
-    def getTargetswithdepth(self, ps, pb, depth, clases, c):
-        return self.worker.ByteTrack_getTargetswithdepth(ps, pb, depth, clases)
+    def getTargetswithdepth(self, objects, depth, c):
+        return self.worker.ByteTrack_getTargetswithdepth(objects, depth)
 
-    def setTargets(self, ps, pb, clases, sender, c):
-        return self.worker.ByteTrack_setTargets(ps, pb, clases, sender)
+    def setTargets(self, objects, sender, c):
+        return self.worker.ByteTrack_setTargets(objects, sender)
