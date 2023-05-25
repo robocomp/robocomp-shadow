@@ -2,10 +2,13 @@
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 MPCProxy = mpc:tcp -h localhost -p 12341
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
-SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 14601
+# SemanticSegmentationProxy = semanticsegmentation:tcp -h localhost -p 14601
 MaskElementsProxy = maskelements:tcp -h localhost -p 14602
-VisualElementsProxy = visualelements:tcp -h localhost -p 16601      # yolo
-VisualElements1Proxy = visualelements:tcp -h localhost -p 16602      # semanticsegmentation
+VisualElementsProxy = visualelements:tcp -h localhost -p 15601 # yolo
+VisualElements1Proxy = visualelements:tcp -h localhost -p 14601      # semanticsegmentation
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 Ice.MessageSizeMax=20004800
 Ice.Warn.Connections=0

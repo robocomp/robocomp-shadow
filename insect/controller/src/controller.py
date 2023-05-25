@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     interface_manager = interfaces.InterfaceManager(args.iceconfigfile)
-
+    print(interface_manager.get_proxies_map())
     if interface_manager.status == 0:
         worker = SpecificWorker(interface_manager.get_proxies_map(), args.startup_check)
         worker.setParams(interface_manager.parameters)

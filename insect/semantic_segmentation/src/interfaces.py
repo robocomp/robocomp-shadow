@@ -5,6 +5,8 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/ByteTrack.ice")
+import RoboCompByteTrack
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
@@ -16,6 +18,96 @@ import RoboCompPerson
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
+class Scores(list):
+    def __init__(self, iterable=list()):
+        super(Scores, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(Scores, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(Scores, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(Scores, self).insert(index, item)
+
+setattr(RoboCompByteTrack, "Scores", Scores)
+class Box(list):
+    def __init__(self, iterable=list()):
+        super(Box, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(Box, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(Box, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(Box, self).insert(index, item)
+
+setattr(RoboCompByteTrack, "Box", Box)
+class Boxes(list):
+    def __init__(self, iterable=list()):
+        super(Boxes, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompByteTrack.Box)
+        super(Boxes, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompByteTrack.Box)
+        super(Boxes, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompByteTrack.Box)
+        super(Boxes, self).insert(index, item)
+
+setattr(RoboCompByteTrack, "Boxes", Boxes)
+class Clases(list):
+    def __init__(self, iterable=list()):
+        super(Clases, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, int)
+        super(Clases, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, int)
+        super(Clases, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, int)
+        super(Clases, self).insert(index, item)
+
+setattr(RoboCompByteTrack, "Clases", Clases)
+class OnlineTargets(list):
+    def __init__(self, iterable=list()):
+        super(OnlineTargets, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompByteTrack.Targets)
+        super(OnlineTargets, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompByteTrack.Targets)
+        super(OnlineTargets, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompByteTrack.Targets)
+        super(OnlineTargets, self).insert(index, item)
+
+setattr(RoboCompByteTrack, "OnlineTargets", OnlineTargets)
 class ImgType(list):
     def __init__(self, iterable=list()):
         super(ImgType, self).__init__(iterable)
@@ -201,6 +293,8 @@ class Requires:
     def __init__(self, ice_connector):
         self.ice_connector = ice_connector
         self.mprx={}
+
+        self.ByteTrack = self.create_proxy("ByteTrackProxy", RoboCompByteTrack.ByteTrackPrx)
 
         self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
 

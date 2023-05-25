@@ -1,8 +1,8 @@
 # Endpoints for implements interfaces
-VisualElements.Endpoints=tcp -p 16602
+ByteTrack.Endpoints=tcp -p 14738
+
 
 # Proxies for required interfaces
-VisualElementsProxy = visualelements:tcp -h localhost -p 14601
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 
 depth_flag = false
