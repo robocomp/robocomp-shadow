@@ -34,7 +34,7 @@ console = Console(highlight=False)
 sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/byte_tracker/ByteTrack')
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from yolox.tracker.byte_tracker import BYTETracker
-
+import json
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -47,6 +47,15 @@ class SpecificWorker(GenericWorker):
         self.roi_ycenter = 0
         self.roi_xsize = 0
         self.roi_ysize = 0
+        # self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
+        #                                         305.65)  # converts points in omnicamera (coppelia) to velodyne (coppelia)
+        # self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
+        #                                         108.51)
+        self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
+                                                108.51)
+        self.lidar_to_cam = np.linalg.inv(self.cam_to_lidar)
+        self.focal_x = 156
+        self.focal_y = 156
 
         if startup_check:
             self.startup_check()
@@ -138,6 +147,15 @@ class SpecificWorker(GenericWorker):
                 self.roi_xsize = roi.xsize
                 self.roi_ysize = roi.ysize
 
+            #Compute alpha start
+            width_start = self.roi_xcenter - (self.roi_xsize//2)
+            # width_final = self.roi_xcenter + (self.roi_xsize//2)
+            start_angle = (self.calculate_start_angle(1024, width_start) + 360)*900/360
+            # final_angle = self.calculate_end_angle(1024, width_final) + 900
+            # print(final_angle-start_angle)
+            print(start_angle)
+            self.lidar_in_image = self.lidar_points(int(start_angle), int(abs(start_angle)*2))
+
         except Ice.Exception as e:
             traceback.print_exc()
             print(e, "Error reading from Visual Objects interface")
@@ -167,18 +185,29 @@ class SpecificWorker(GenericWorker):
         return rgb_frame
 
     def display_data(self, image, objects):
+        # for i in self.lidar_in_image:
+        #     # print(i)
+        #     try:
+        #         cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
+        #     except:
+        #         print("PUNTO NO VÁLIDO")
         if len(objects) == +0:
             return
-        xfactor = 1024/self.final_xsize
-        yfactor = 512/self.final_ysize
+        xfactor = self.roi_xsize/self.final_xsize
+        yfactor = self.roi_ysize/self.final_ysize
         print(xfactor, yfactor)
         for element in objects:
-            x0 = int(element.left*xfactor)
-            y0 = int(element.top*yfactor)
-            x1 = int(element.right*xfactor)
-            y1 = int(element.bot*yfactor)
+            x0 = int(element.left * xfactor + (self.roi_xcenter - self.roi_xsize / 2))
+            y0 = int(element.top * yfactor + (self.roi_ycenter - self.roi_ysize / 2))
+            x1 = int(element.right * xfactor + (self.roi_xcenter - self.roi_xsize / 2))
+            y1 = int(element.bot * yfactor + (self.roi_ycenter - self.roi_ysize / 2))
             cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
-            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
+            resultados, min_distance = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+            for i in resultados:
+                cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
+            # text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
+            text = 'Class: {} - Score: {:.1f}% - ID: {} -Dist: {}'.format(element.type, element.score * 100, element.id,
+                                                                          min_distance / 1000)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
             cv2.rectangle(
@@ -225,7 +254,68 @@ class SpecificWorker(GenericWorker):
     def VisualElements_getVisualObjects(self):
         return self.objects_read
 
+    def calculate_start_angle(self, original_width, start_roi_angle):
+        # La imagen original cubre 360 grados
+        original_fov = 360
+        # original_fov = 900
 
+        # Calculamos la proporción de la posición de inicio con respecto al ancho original
+        start_ratio = start_roi_angle / original_width
+
+        # Calculamos el ángulo de inicio
+        start_angle = original_fov * start_ratio - 180
+        # start_angle = original_fov * start_ratio - 450
+
+        return start_angle
+
+    def calculate_end_angle(self, original_width, final_roi_angle):
+        # La imagen original cubre 360 grados
+        # original_fov = 360
+        original_fov = 900
+
+        # Calculamos la proporción de la posición de inicio con respecto al ancho original
+        start_ratio = final_roi_angle / original_width
+
+        # Calculamos el ángulo de inicio
+        #start_angle = original_fov * start_ratio - 180
+        start_angle = original_fov * start_ratio + 450
+
+        return start_angle
+    def lidar_points(self, alpha_roi, roi_width):
+        points = self.lidar3d_proxy.getLidarData(alpha_roi, roi_width)
+        lidar_points = np.array([[i.x*1000, i.y*1000, i.z*1000, 1] for i in points ])
+        lidar_points = np.dot(lidar_points, self.lidar_to_cam.T)[:, :3]  # Eliminar la última columna
+        lidar_in_image = np.column_stack([
+            (self.focal_x * lidar_points[:, 0] / lidar_points[:, 1]) + 512,
+            (-self.focal_y * lidar_points[:, 2] / lidar_points[:, 1]) + 256,
+            np.linalg.norm(lidar_points, axis=1)
+        ])
+        return lidar_in_image
+
+    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
+        a = roll
+        b = pitch
+        g = heading
+        mat = np.array([[np.cos(b) * np.cos(g),
+                         (np.sin(a) * np.sin(b) * np.cos(g) + np.cos(a) * np.sin(g)), (np.sin(a) * np.sin(g) -
+                                                                                       np.cos(a) * np.sin(b) * np.cos(
+                        g)), x0],
+                        [-np.cos(b) * np.sin(g), (np.cos(a) * np.cos(g) - np.sin(a) * np.sin(b) * np.sin(g)),
+                         (np.sin(a) * np.cos(g) + np.cos(a) * np.sin(b) * np.sin(g)), y0],
+                        [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
+                        [0, 0, 0, 1]])
+        return mat
+
+    def points_in_bbox(self, points, x1, y1, x2, y2):
+        resultados = []
+        min_distancia = float('inf')
+        for punto in points:
+            x, y, distancia = punto
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                resultados.append(punto)
+                if distancia < min_distancia:
+                    min_distancia = distancia
+        return resultados, min_distancia
     ##############################################################################################
 
     # def VisualElements_setVisualObjects(self, visualObjects, publisher):
