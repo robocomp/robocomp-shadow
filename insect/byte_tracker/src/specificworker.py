@@ -34,6 +34,7 @@ console = Console(highlight=False)
 sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/byte_tracker/ByteTrack')
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from yolox.tracker.byte_tracker import BYTETracker
+from dataclasses import dataclass
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -48,9 +49,23 @@ class SpecificWorker(GenericWorker):
         self.roi_xsize = 0
         self.roi_ysize = 0
 
+        # ROI offsets respect the original image
+        self.x_roi_offset = 0
+        self.y_roi_offset = 0
+
         if startup_check:
             self.startup_check()
         else:
+            # @dataclass
+            # class TRoi:
+            #     final_xsize: int = 0
+            #     final_ysize: int = 0
+            #     xcenter: int = 0
+            #     ycenter: int = 0
+            #     xsize: int = 0
+            #     ysize: int = 0
+            # self.roi = TRoi()
+
             self.objects_read = []
             self.objects_write = []
             self.display = False
@@ -61,22 +76,27 @@ class SpecificWorker(GenericWorker):
             self.fps = 0
 
             # read test image to get sizes
-            try:
-                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                self.center_x = rgb.width // 2
-                self.center_y = rgb.height // 2
-                print("Camera specs:")
-                print(" width:", rgb.width)
-                print(" height:", rgb.height)
-                print(" depth", rgb.depth)
-                print(" focalx", rgb.focalx)
-                print(" focaly", rgb.focaly)
-                print(" period", rgb.period)
-                print(" ratio {:.2f}.format(image.width/image.height)")
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Aborting...")
-                sys.exit()
+            started_camera = False
+            init_time = time.time()
+            while not started_camera and (time.time() - init_time) < 10:
+                try:
+                    rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                    # self.center_x = rgb.width // 2
+                    # self.center_y = rgb.height // 2
+                    print("Camera specs:")
+                    print(" width:", rgb.width)
+                    print(" height:", rgb.height)
+                    print(" depth", rgb.depth)
+                    print(" focalx", rgb.focalx)
+                    print(" focaly", rgb.focaly)
+                    print(" period", rgb.period)
+                    print(" ratio {:.2f}.format(image.width/image.height)")
+
+                    started_camera = True
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Trying again...")
+                    time.sleep(1)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -101,13 +121,6 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Read visual elements from segmentator
-        data = self.read_visual_objects()
-
-        # Get tracks from Bytetrack and convert data to VisualElements interface
-        processed_data = self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
-                                                          np.array(data["boxes"]), np.array(data["clases"])))
-
         # read image
         if self.display:
             img = self.read_image()
@@ -119,24 +132,33 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
     #########################################################################################################
-    def read_visual_objects(self):
-        data = {"scores": [], "boxes": [], "clases": []}
+    def read_visual_objects(self, visual_objects):
+        data = {"scores": [], "boxes": [], "clases": [], "roi": []}
         try:
-            visual_objects = self.visualelements_proxy.getVisualObjects()
             for object in visual_objects:
                 data["scores"].append(object.score)
                 data["boxes"].append([object.left, object.top, object.right, object.bot])
                 data["clases"].append(object.type)
+                data["roi"].append(object.roi)
 
             # get roi params from firs visual object since all are the same
-            if visual_objects:
-                roi = visual_objects[0].roi
-                self.final_xsize = roi.finalxsize
-                self.final_ysize = roi.finalysize
-                self.roi_xcenter = roi.xcenter
-                self.roi_ycenter = roi.ycenter
-                self.roi_xsize = roi.xsize
-                self.roi_ysize = roi.ysize
+            # if visual_objects:
+            #     roi = visual_objects[0].roi
+            #     self.final_xsize = roi.finalxsize
+            #     self.final_ysize = roi.finalysize
+            #     self.roi_xcenter = roi.xcenter
+            #     self.roi_ycenter = roi.ycenter
+            #     self.roi_xsize = roi.xsize
+            #     self.roi_ysize = roi.ysize
+            #     self.x_roi_offset = self.roi_xcenter-self.roi_xsize/2
+            #     self.y_roi_offset = self.roi_ycenter-self.roi_ysize/2
+            #     self.x_factor = self.roi_xsize / self.final_xsize
+            #     self.y_factor = self.roi_ysize / self.final_ysize
+            #     print(self.final_xsize, self.final_ysize)
+            #     print(self.roi_xcenter, self.roi_ycenter)
+            #     print(self.roi_xsize, self.roi_ysize)
+            #     print(self.x_roi_offset, self.y_roi_offset)
+            #     print(self.x_factor, self.y_factor)
 
         except Ice.Exception as e:
             traceback.print_exc()
@@ -147,13 +169,15 @@ class SpecificWorker(GenericWorker):
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
         for track in tracks:
             target = ifaces.RoboCompVisualElements.TObject()
-            target.id = track.track_id
+            target.roi = track.roi
+            target.id = int(track.track_id)
             target.score = track.score
             target.left = int(track.tlwh[0])
             target.top = int(track.tlwh[1])
-            target.right = int(track.tlwh[0]+track.tlwh[2])
-            target.bot = int(track.tlwh[1]+track.tlwh[3])
+            target.right = int((track.tlwh[0]+track.tlwh[2]))
+            target.bot = int((track.tlwh[1]+track.tlwh[3]))
             target.type = track.clase
+
             self.objects_write.append(target)
 
         # swap
@@ -168,15 +192,23 @@ class SpecificWorker(GenericWorker):
 
     def display_data(self, image, objects):
         if len(objects) == +0:
-            return
-        xfactor = 1024/self.final_xsize
-        yfactor = 512/self.final_ysize
-        print(xfactor, yfactor)
+            return image
         for element in objects:
-            x0 = int(element.left*xfactor)
-            y0 = int(element.top*yfactor)
-            x1 = int(element.right*xfactor)
-            y1 = int(element.bot*yfactor)
+            final_xsize = element.roi.finalxsize
+            final_ysize = element.roi.finalysize
+            roi_xcenter = element.roi.xcenter
+            roi_ycenter = element.roi.ycenter
+            roi_xsize = element.roi.xsize
+            roi_ysize = element.roi.ysize
+            x_roi_offset = roi_xcenter-roi_xsize/2
+            y_roi_offset = roi_ycenter-roi_ysize/2
+            x_factor = roi_xsize / final_xsize
+            y_factor = roi_ysize / final_ysize
+
+            x0 = int(element.left*x_factor + x_roi_offset)
+            y0 = int(element.top*y_factor + y_roi_offset)
+            x1 = int(element.right*x_factor + x_roi_offset)
+            y1 = int(element.bot*y_factor + y_roi_offset)
             cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
             text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -243,7 +275,56 @@ class SpecificWorker(GenericWorker):
     #         self.image_height = 384
     #         self.image_width = 384
     #
+    # IMPLEMENTATION of allTargets method from ByteTrack interface
+    #
+    def ByteTrack_allTargets(self):
+        ret = ifaces.RoboCompByteTrack.OnlineTargets()
+        #
+        # write your CODE here
+        #
+        return ret
+    #
     # IMPLEMENTATION of getTargets method from ByteTrack interface
+    #
+    def ByteTrack_getTargets(self, objects):
+        # Read visual elements from segmentator
+        data = self.read_visual_objects(objects)
+        # Get tracks from Bytetrack and convert data to VisualElements interface
+        return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
+                                                                                       np.array(data["boxes"]),
+                                                                                       np.array(data["clases"]),
+                                                                                       np.array(data["roi"])))
+    #
+    # IMPLEMENTATION of getTargetswithdepth method from ByteTrack interface
+    #
+    def ByteTrack_getTargetswithdepth(self, objects, depth):
+        ret = ifaces.RoboCompByteTrack.OnlineTargets()
+        #
+        # write your CODE here
+        #
+        return ret
+    #
+    # IMPLEMENTATION of setTargets method from ByteTrack interface
+    #
+    def ByteTrack_setTargets(self, objects, sender):
+    
+        #
+        # write your CODE here
+        #
+        pass
+
+
+    # ===================================================================
+    # ===================================================================
+
+
+    ######################
+    # From the RoboCompCamera360RGB you can call this methods:
+    # self.camera360rgb_proxy.getROI(...)
+
+    ######################
+    # From the RoboCompByteTrack you can use this types:
+    # RoboCompByteTrack.Targets
     #
     # def ByteTrack_getTargets(self, ps, pb, clases):
     #     ret = ifaces.RoboCompByteTrack.OnlineTargets()

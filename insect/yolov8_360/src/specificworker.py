@@ -38,8 +38,6 @@ import itertools
 sys.path.append('/home/robocomp/software/TensorRT-For-YOLO-Series')
 from utils.utils import BaseEngine
 
-
-
 console = Console(highlight=False)
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
@@ -154,13 +152,43 @@ class SpecificWorker(GenericWorker):
         self.thread_period = 10
         self.display = True
 
-        # ROI parameters
-        self.final_xsize = 640
-        self.final_ysize = 640
-        self.roi_xcenter = 0
-        self.roi_ycenter = 0
-        self.roi_xsize = 512
-        self.roi_ysize = 430
+        # read test image to get sizes
+        started_camera = False
+        while not started_camera:
+            try:
+                self.rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+
+                print("Camera specs:")
+                print(" width:", self.rgb.width)
+                print(" height:", self.rgb.height)
+                print(" depth", self.rgb.depth)
+                print(" focalx", self.rgb.focalx)
+                print(" focaly", self.rgb.focaly)
+                print(" period", self.rgb.period)
+                print(" ratio {:.2f}.format(image.width/image.height)")
+
+                # Image ROI require parameters
+                self.final_xsize = 640
+                self.final_ysize = 640
+                self.roi_xsize = self.rgb.width // 2
+                self.roi_ysize = self.rgb.height
+                self.roi_xcenter = self.rgb.width // 2
+                self.roi_ycenter = self.rgb.height // 2
+
+                #Target ROI size
+                self.target_roi_xsize = self.roi_xsize
+                self.target_roi_ysize = self.roi_ysize
+                self.target_roi_xcenter = self.roi_xcenter
+                self.target_roi_ycenter = self.roi_ycenter
+
+                started_camera = True
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Trying again...")
+                time.sleep(2)
+
+
+
 
         if startup_check:
             self.startup_check()
@@ -168,7 +196,7 @@ class SpecificWorker(GenericWorker):
             self.window_name = "Yolo Segmentator"
 
             # trt
-            self.yolo_object_predictor = BaseEngine(engine_path='yolov8s.trt')
+            self.yolo_object_predictor = BaseEngine(engine_path='yolov8.trt')
 
             # Hz
             self.cont = 0
@@ -179,34 +207,13 @@ class SpecificWorker(GenericWorker):
             self.objects_read = []
             self.objects_write = []
 
-            # read test image to get sizes
-            try:
-                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                self.roi_xcenter = rgb.width // 2
-                self.roi_ycenter = rgb.height // 2
-                print("Camera specs:")
-                print(" width:", rgb.width)
-                print(" height:", rgb.height)
-                print(" depth", rgb.depth)
-                print(" focalx", rgb.focalx)
-                print(" focaly", rgb.focaly)
-                print(" period", rgb.period)
-                print(" ratio {:.2f}.format(image.width/image.height)")
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Aborting...")
-                sys.exit()
+            # ID to track
+            self.tracked_element = None
+            self.tracked_id = None
 
             # camera read thread
             self.read_queue = queue.Queue(1)
             self.event = Event()
-
-            self.image_width = 960
-            self.image_height = 960
-
-            # result data
-            # self.objects_write = ifaces.RoboCompYoloObjects.TData()
-            # self.objects_read = ifaces.RoboCompYoloObjects.TData()
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -233,6 +240,7 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
+        # Get image with depth
         if self.depth_flag:
             rgb, depth, blob, alive_time, period = self.read_queue.get()
         else:
@@ -242,6 +250,9 @@ class SpecificWorker(GenericWorker):
 
         if dets is not None:
             self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
+            if self.tracked_id != None:
+                self.set_roi_dimensions(self.objects_read)
+
             if self.display:
                 img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])),
                                         class_names=self.yolo_object_predictor.class_names)
@@ -259,14 +270,12 @@ class SpecificWorker(GenericWorker):
     def get_rgb_thread(self, camera_name: str, event: Event):
         while not event.is_set():
             try:
-                #rgbd = self.camera360rgb_proxy.getROI(920, 460, 920, 920, 640, 640)
+                # print("ACT ROI:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize, self.final_xsize, self.final_ysize)
+                # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize,
+                #       self.target_roi_ysize)
                 rgbd = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
                                                       self.roi_ysize, self.final_xsize, self.final_ysize)
-                self.image_height = rgbd.height
-                self.image_width = rgbd.width
-                # rgbd = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
                 color = np.frombuffer(rgbd.image, dtype=np.uint8).reshape(rgbd.height, rgbd.width, 3)
-                # color = cv2.resize(color, (640, 640))
                 blob = self.pre_process(color, (640, 640))
                 delta = int(1000 * time.time() - rgbd.alivetime)
                 if self.depth_flag:
@@ -275,10 +284,54 @@ class SpecificWorker(GenericWorker):
                     self.read_queue.put([color, rgbd.depth, blob, delta, rgbd.period])
                 else:
                     self.read_queue.put([color, blob, delta, rgbd.period])
+                if self.roi_xcenter != self.target_roi_xcenter or self.roi_ycenter != self.target_roi_ycenter or self.roi_xsize != self.target_roi_xsize or self.roi_ysize != self.target_roi_xsize:
+                    self.from_act_roi_to_target()
+
                 event.wait(self.thread_period/1000)
             except:
                 print("Error communicating with Camera360RGB")
                 traceback.print_exc()
+
+    def from_act_roi_to_target(self):
+        # if self.roi_xcenter < self.target_roi_xcenter:
+        #     self.roi_xcenter += 2
+        # elif self.roi_xcenter > self.target_roi_xcenter:
+        #     self.roi_xcenter -= 2
+        # if self.roi_ycenter < self.target_roi_ycenter:
+        #     self.roi_ycenter += 2
+        # elif self.roi_ycenter > self.target_roi_ycenter:
+        #     self.roi_ycenter -= 2
+        # if self.roi_xsize < self.target_roi_xsize:
+        #     self.roi_xsize += 2
+        # elif self.roi_xsize > self.target_roi_xsize:
+        #     self.roi_xsize -= 2
+        # if self.roi_ysize < self.target_roi_ysize:
+        #     self.roi_ysize += 2
+        # elif self.roi_ysize > self.target_roi_ysize:
+        #     self.roi_ysize -= 2
+
+        if self.roi_xcenter < self.target_roi_xcenter:
+            if abs(self.target_roi_xcenter - self.roi_xcenter) > self.rgb.width / 2:
+                self.roi_xcenter -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            else:
+                self.roi_xcenter += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+        elif self.roi_xcenter > self.target_roi_xcenter:
+            if abs(self.target_roi_xcenter - self.roi_xcenter) > self.rgb.width / 2:
+                self.roi_xcenter += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            else:
+                self.roi_xcenter -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+        if self.roi_ycenter < self.target_roi_ycenter:
+            self.roi_ycenter += int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+        elif self.roi_ycenter > self.target_roi_ycenter:
+            self.roi_ycenter -= int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+        if self.roi_xsize < self.target_roi_xsize:
+            self.roi_xsize += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+        elif self.roi_xsize > self.target_roi_xsize:
+            self.roi_xsize -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+        if self.roi_ysize < self.target_roi_ysize:
+            self.roi_ysize += int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+        elif self.roi_ysize > self.target_roi_ysize:
+            self.roi_ysize -= int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
 
     def yolov8_objects(self, blob):
         data = self.yolo_object_predictor.infer(blob)
@@ -290,8 +343,7 @@ class SpecificWorker(GenericWorker):
 
     def create_interface_data(self, boxes, scores, cls_inds):
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        desired_inds = [i for i, cls in enumerate(cls_inds) if
-                        True]
+        desired_inds = [i for i, cls in enumerate(cls_inds) if True]
                         #cls in self.classes]  # index of elements that match desired classes
         desired_scores = scores[desired_inds]
         desired_boxes = boxes[desired_inds]
@@ -308,9 +360,40 @@ class SpecificWorker(GenericWorker):
                                                                 xsize=self.roi_xsize, ysize=self.roi_ysize,
                                                                 finalxsize=self.final_xsize, finalysize=self.final_ysize)
             self.objects_write.append(act_object)
-
+        self.objects_write = self.bytetrack_proxy.getTargets(self.objects_write)
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
+    def set_roi_dimensions(self, objects):
+        for object in objects:
+            if object.id == self.tracked_id:
+                x_roi_offset = object.roi.xcenter - object.roi.xsize / 2
+                y_roi_offset = object.roi.ycenter - object.roi.ysize / 2
+                x_factor = object.roi.xsize / object.roi.finalxsize
+                y_factor = object.roi.ysize / object.roi.finalysize
+
+                left = int(object.left * x_factor + x_roi_offset)
+                # if left < 0:
+                #     left = self.rgb.width - left % self.rgb.width
+                # else:
+                #     left %= self.rgb.width
+
+                right = (object.right * x_factor + x_roi_offset)
+
+                top = int(object.top * y_factor + y_roi_offset)
+                bot = int(object.bot * y_factor + y_roi_offset)
+                print("LEFT RIGHT:", left, right)
+                # print("target_roi_xsize:", int((object.right - object.left )*1.3))
+                # print("target_roi_ysize:", int((object.bot - object.top)*1.3))
+                # print("X Y DIFFERENCES ROI AND BB CENTER:", abs(self.target_roi_xcenter - self.roi_xcenter), abs(self.target_roi_ycenter - self.roi_ycenter))
+                # print("X Y SIZES:",  self.target_roi_xsize, self.target_roi_ysize)
+                self.target_roi_xcenter = (left + (right - left)/2) % self.rgb.width
+                print("X CENTER:", self.target_roi_xcenter)
+                self.target_roi_ycenter = (top + (bot - top)/2)
+                self.target_roi_ysize = int((bot - top)*1.3)
+                self.target_roi_xsize = self.target_roi_ysize
+
+
 
     ###############################################################
     def pre_process(self, image, input_size, swap=(2, 0, 1)):
@@ -371,10 +454,6 @@ class SpecificWorker(GenericWorker):
             ibox.type = int(final_cls_inds[i])
             ibox.id = int(final_inds[i])
             ibox.prob = final_scores[i]
-            # ibox.left = int(box[0]*(self.image_width/640))
-            # ibox.top = int(box[1]*(self.image_height/640))
-            # ibox.right = int(box[2]*(self.image_width/640))
-            # ibox.bot = int(box[3]*(self.image_height/640))
             ibox.left = int(box[0])
             ibox.top = int(box[1])
             ibox.right = int(box[2])
@@ -455,6 +534,38 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
+    # =============== Methods for Component SubscribesTo ================
+    # ===================================================================
+
+    #
+    # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
+    #
+    def SegmentatorTrackingPub_setTrack(self, track):
+        if track == -1:
+            self.tracked_element = None
+            self.tracked_id = None
+            self.target_roi_xcenter = self.rgb.width // 2
+            self.target_roi_ycenter = self.rgb.height // 2
+            self.target_roi_xsize = self.rgb.width // 2
+            self.target_roi_ysize = self.rgb.height
+            return
+
+        for track_obj in self.objects_read:
+            if track_obj.id == track:
+                self.tracked_element = track_obj
+                self.tracked_id = track
+                return
+
+    ######################
+    # From the RoboCompByteTrack you can call this methods:
+    # self.bytetrack_proxy.allTargets(...)
+    # self.bytetrack_proxy.getTargets(...)
+    # self.bytetrack_proxy.getTargetswithdepth(...)
+    # self.bytetrack_proxy.setTargets(...)
+
+    ######################
+    # From the RoboCompByteTrack you can use this types:
+    # RoboCompByteTrack.Targets
 
     ######################
     # From the RoboCompCamera360RGB you can call this methods:
@@ -462,6 +573,5 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TRoi
     # RoboCompVisualElements.TObject
-
-

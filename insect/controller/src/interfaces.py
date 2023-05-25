@@ -19,6 +19,8 @@ Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
 import RoboCompOmniRobot
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
+Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
+import RoboCompSegmentatorTrackingPub
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
@@ -194,6 +196,8 @@ class Publishes:
         self.mprx={}
         self.topic_manager = topic_manager
 
+        self.segmentatortrackingpub = self.create_topic("SegmentatorTrackingPub", RoboCompSegmentatorTrackingPub.SegmentatorTrackingPubPrx)
+
 
     def create_topic(self, topic_name, ice_proxy):
         # Create a proxy to publish a AprilBasedLocalization topic
@@ -303,7 +307,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0
