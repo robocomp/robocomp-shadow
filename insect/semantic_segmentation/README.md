@@ -1,9 +1,9 @@
-# SemanticSegmentation360
+# semantic_segmentation
 Intro to component here
 
 
 ## Configuration parameters
-As any other component, *SemanticSegmentation360* needs a configuration file to start. In
+As any other component, *semantic_segmentation* needs a configuration file to start. In
 ```
 etc/config
 ```
@@ -16,7 +16,7 @@ EXAMPLE HERE
 To avoid changing the *config* file in the repository, we can copy it to the component's home directory, so changes will remain untouched by future git pulls:
 
 ```
-cd <SemanticSegmentation360's path> 
+cd <semantic_segmentation's path> 
 ```
 ```
 cp etc/config config
@@ -25,5 +25,5 @@ cp etc/config config
 After editing the new config file we can run the component:
 
 ```
-bin/SemanticSegmentation360 config
+bin/semantic_segmentation config
 ```

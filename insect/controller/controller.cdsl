@@ -3,12 +3,14 @@ import "OmniRobot.idsl";
 import "VisualElements.idsl";
 import "MaskElements.idsl";
 import "MPC.idsl";
+import "SegmentatorTrackingPub.idsl";
 
 Component controller
 {
     Communications
     {
         requires Camera360RGB, OmniRobot, MPC, VisualElements, VisualElements, MaskElements;
+        publishes SegmentatorTrackingPub;
     };
     language python;
     gui Qt(QWidget);

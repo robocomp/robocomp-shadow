@@ -53,6 +53,7 @@ class GenericWorker(QtWidgets.QWidget):
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
         self.visualelements_proxy = mprx["VisualElementsProxy"]
         self.visualelements1_proxy = mprx["VisualElements1Proxy"]
+        self.segmentatortrackingpub_proxy = mprx["SegmentatorTrackingPub"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)

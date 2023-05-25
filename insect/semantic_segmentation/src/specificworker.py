@@ -329,24 +329,33 @@ class SpecificWorker(GenericWorker):
             self.id_to_label = {}
 
             # read test image to get sizes
-            try:
-                rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                self.x_ratio = int(rgb.width / 384)
-                self.y_ratio = int(rgb.height / 384) # TODO: Create constant
-                self.center_x = rgb.width // 2
-                self.center_y = rgb.height // 2
-                print("Camera specs:")
-                print(" width:", rgb.width)
-                print(" height:", rgb.height)
-                print(" depth", rgb.depth)
-                print(" focalx", rgb.focalx)
-                print(" focaly", rgb.focaly)
-                print(" period", rgb.period)
-                print(" ratio {:.2f}.format(image.width/image.height)")
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Aborting...")
-                sys.exit()
+            started_camera = False
+            while not started_camera:
+                try:
+                    rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+
+                    print("Camera specs:")
+                    print(" width:", rgb.width)
+                    print(" height:", rgb.height)
+                    print(" depth", rgb.depth)
+                    print(" focalx", rgb.focalx)
+                    print(" focaly", rgb.focaly)
+                    print(" period", rgb.period)
+                    print(" ratio {:.2f}.format(image.width/image.height)")
+
+                    # Image ROI require parameters
+                    self.final_xsize = 384
+                    self.final_ysize = 384
+                    self.roi_xsize = rgb.width // 2
+                    self.roi_ysize = rgb.height
+                    self.roi_xcenter = rgb.width // 2
+                    self.roi_ycenter = rgb.height // 2
+
+                    started_camera = True
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Trying again...")
+                    time.sleep(2)
 
             # Thread to read images
             self.read_thread = Thread(target=self.get_rgb_thread, args=[self.event],
@@ -414,7 +423,8 @@ class SpecificWorker(GenericWorker):
        while not event.is_set():
             now = time.time()
             try:
-                rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 384, 384)
+                rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                                                      self.roi_ysize, self.final_xsize, self.final_ysize)
                 rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
                 img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
                 im_pil = Image.fromarray(img)
@@ -467,7 +477,11 @@ class SpecificWorker(GenericWorker):
             act_object.right = roi.right
             act_object.bot = roi.bot
             act_object.score = roi.score
+            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.roi_xcenter, ycenter=self.roi_ycenter,
+                                                                xsize=self.roi_xsize, ysize=self.roi_ysize,
+                                                                finalxsize=self.final_xsize, finalysize=self.final_ysize)
             self.objects_write.append(act_object)
+        self.objects_write = self.bytetrack_proxy.getTargets(self.objects_write)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
@@ -526,7 +540,7 @@ class SpecificWorker(GenericWorker):
                 txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
                 # cv2.rectangle(img, (r.left*self.x_ratio, r.top*self.y_ratio), (r.right*self.x_ratio, r.bot*self.y_ratio), (0, 0, 255), 2)
                 cv2.rectangle(img, (r.left, r.top), (r.right, r.bot), (0, 0, 255), 2)
-                cv2.putText(img, text, (r.left*self.x_ratio, r.top*self.y_ratio + txt_size[1]), font, 0.4, txt_color, thickness=1)
+                cv2.putText(img, text, (r.left, r.top + txt_size[1]), font, 0.4, txt_color, thickness=1)
         return img
 
     # Given a class, return all instances in a class
@@ -614,6 +628,9 @@ class SpecificWorker(GenericWorker):
         mask.width = self.mask_image.shape[1]
         mask.height = self.mask_image.shape[0]
         mask.image = self.mask_image.tobytes()
+        mask.roi = ifaces.RoboCompMaskElements.TRoi(xcenter=self.roi_xcenter, ycenter=self.roi_ycenter,
+                                                            xsize=self.roi_xsize, ysize=self.roi_ysize,
+                                                            finalxsize=self.final_xsize, finalysize=self.final_ysize)
         mask_list.append(mask)
         return mask_list
 
@@ -626,6 +643,16 @@ class SpecificWorker(GenericWorker):
 
     # ===================================================================
     # ===================================================================
+    ######################
+    # From the RoboCompByteTrack you can call this methods:
+    # self.bytetrack_proxy.allTargets(...)
+    # self.bytetrack_proxy.getTargets(...)
+    # self.bytetrack_proxy.getTargetswithdepth(...)
+    # self.bytetrack_proxy.setTargets(...)
+
+    ######################
+    # From the RoboCompByteTrack you can use this types:
+    # RoboCompByteTrack.Targets
 
     ######################
     # From the RoboCompCamera360RGB you can call this methods:
@@ -633,10 +660,12 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompMaskElements you can use this types:
+    # RoboCompMaskElements.TRoi
     # RoboCompMaskElements.TMask
 
     ######################
     # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TRoi
     # RoboCompVisualElements.TObject
 
 # @QtCore.Slot()

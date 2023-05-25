@@ -1,10 +1,11 @@
 # Endpoints for implements interfaces
-MaskElements.Endpoints=tcp -p 12459
-VisualElements.Endpoints=tcp -p 14094
+MaskElements.Endpoints=tcp -p 18533
+VisualElements.Endpoints=tcp -p 12421
 
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 18333
+ByteTrackProxy = bytetrack:tcp -h localhost -p 11308
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 17389
 
 
 

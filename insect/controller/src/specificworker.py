@@ -30,6 +30,7 @@ import numpy as np
 import traceback
 import cv2
 import time
+import itertools
 import queue
 from dwa_optimizer import DWA_Optimizer
 sys.path.append('/home/robocomp/robocomp/lib')
@@ -152,15 +153,15 @@ class SpecificWorker(GenericWorker):
             # get camera specs
             image = ifaces.RoboCompCameraRGBDSimple.TImage()
             try:
-                image = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                #image = self.semanticsegmentation_proxy.getMaskedImage("floor")  # TODO: check imae shape from YOLO and SS
+                self.rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+
                 print("Camera specs:")
-                print(" width:", image.width)
-                print(" height:", image.height)
-                print(" depth", image.depth)
-                print(" focalx", image.focalx)
-                print(" focaly", image.focaly)
-                print(" period", image.period)
+                print(" width:", self.rgb.width)
+                print(" height:", self.rgb.height)
+                print(" depth", self.rgb.depth)
+                print(" focalx", self.rgb.focalx)
+                print(" focaly", self.rgb.focaly)
+                print(" period", self.rgb.period)
                 print(" ratio {:.2f}.format(image.width/image.height)")
             except Ice.Exception as e:
                 traceback.print_exc()
@@ -175,6 +176,7 @@ class SpecificWorker(GenericWorker):
 
             # visual objects
             self.visual_objects_queue = queue.Queue(1)
+            self.total_objects = []
 
             # semantic_segmentation
             try:
@@ -185,8 +187,8 @@ class SpecificWorker(GenericWorker):
                 sys.exit()
 
             # optimizer
-            #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (image.height, image.width, image.depth))
-            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, image.focalx, image.focaly, (384, 384, 3))
+            #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (self.rgb.height, self.rgb.width, self.rgb.depth))
+            self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (384, 384, 3))
 
             self.winname = "Controller"
             cv2.namedWindow(self.winname)
@@ -218,13 +220,17 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-
+        # Get camera frame
         frame = self.read_image()
-        candidates = self.compute_candidates(["floor"])
-        #yolo_objects = self.read_yolo_objects()
-        #ss_objects = self.read_ss_objects()
 
-        self.draw_frame(self.winname, frame, candidates)
+        # Get masks from mask2former
+        candidates = self.compute_candidates(["floor"])
+
+        # Get objects from yolo and mask2former, and transform them
+        self.total_objects = self.transform_and_concatenate_objects(self.read_yolo_objects(), self.read_ss_objects())
+
+        # Draw image
+        self.draw_frame(self.winname, frame, candidates, self.total_objects)
 
         # take control actions
         # active, control, selected = self.check_human_interface(candidates)
@@ -247,7 +253,8 @@ class SpecificWorker(GenericWorker):
     def read_image(self):
         frame = None
         try:
-            rgb = self.camera360rgb_proxy.getROI(512, 256, 512, 430, 384, 384)
+            # rgb = self.camera360rgb_proxy.getROI(512, 256, 512, 430, 384, 384)
+            rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
             frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
         except Ice.Exception as e:
             traceback.print_exc()
@@ -281,13 +288,36 @@ class SpecificWorker(GenericWorker):
         return yolo_objects
 
     def read_ss_objects(self):
-        yolo_objects = ifaces.RoboCompVisualElements.TObjects()
+        ss_objects = ifaces.RoboCompVisualElements.TObjects()
         try:
             ss_objects = self.visualelements1_proxy.getVisualObjects()
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
         return ss_objects
+
+    def transform_and_concatenate_objects(self, yolo_objects, ss_objects):
+        # Concatenate objects from YOLO and ss
+        total_objects = list(itertools.chain(yolo_objects, ss_objects))
+
+        # Transform objects to main image size
+        for element in total_objects:
+            final_xsize = element.roi.finalxsize
+            final_ysize = element.roi.finalysize
+            roi_xcenter = element.roi.xcenter
+            roi_ycenter = element.roi.ycenter
+            roi_xsize = element.roi.xsize
+            roi_ysize = element.roi.ysize
+            x_roi_offset = roi_xcenter-roi_xsize/2
+            y_roi_offset = roi_ycenter-roi_ysize/2
+            x_factor = roi_xsize / final_xsize
+            y_factor = roi_ysize / final_ysize
+            element.left = int(element.left * x_factor + x_roi_offset) % self.rgb.width
+            element.right = int(element.right * x_factor + x_roi_offset) % self.rgb.width
+            element.top = int(element.top*y_factor + y_roi_offset)
+            element.bot = int(element.bot*y_factor + y_roi_offset)
+            print("PERSON ID:", element.id ,"WIDTH:", element.right - element.left)
+        return total_objects
 
     def check_human_interface(self, candidates):
         # pre-conditions
@@ -428,16 +458,16 @@ class SpecificWorker(GenericWorker):
         else:
             return (1/1500.0) * dist, dist
 
-    def read_yolo_objects(self):
-        yolo_objects = self.yoloobjects_proxy.getYoloObjects()
-        try:
-            yolo_objects = self.yoloobjects_proxy.getYoloObjects()
-            # for obj in yolo_objects.objects:
-            #     print(self.yolo_object_names[obj.type])
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
-        return yolo_objects.objects
+    # def read_yolo_objects(self):
+    #     yolo_objects = self.yoloobjects_proxy.getYoloObjects()
+    #     try:
+    #         yolo_objects = self.yoloobjects_proxy.getYoloObjects()
+    #         # for obj in yolo_objects.objects:
+    #         #     print(self.yolo_object_names[obj.type])
+    #     except Ice.Exception as e:
+    #         traceback.print_exc()
+    #         print(e)
+    #     return yolo_objects.objects
 
     def thread_frame_capture(self, queue, segmentator):
         while True:
@@ -473,11 +503,12 @@ class SpecificWorker(GenericWorker):
         else:
             self.cont += 1
 
-    def draw_frame(self, winname, frame, candidates):
+    def draw_frame(self, winname, frame, candidates, objects):
         alpha = 0.95
         for s, c in enumerate(candidates):
             alt = c["mask"]
             alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+
             if s == self.selected_index:
                 color = (0, 0, 255)
             else:
@@ -485,10 +516,35 @@ class SpecificWorker(GenericWorker):
             alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
             frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
             cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')], False, (255, 255, 255))
+        frame = self.draw_objects(frame, objects)
         cv2.imshow(winname, frame)
         cv2.waitKey(2)
 
-
+    def draw_objects(self, image, objects):
+        if len(objects) == +0:
+            return image
+        for element in objects:
+            x0 = int(element.left)
+            y0 = int(element.top)
+            x1 = int(element.right)
+            y1 = int(element.bot)
+            if x1 - x0 < 0:
+                cv2.rectangle(image, (x0, y0), (self.rgb.width, y1), (0, 255, 0), 2)
+                cv2.rectangle(image, (0, y0), (x1, y1), (0, 255, 0), 2)
+            else:
+                cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score * 100, element.id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(
+                image,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                (255, 0, 0),
+                -1
+            )
+            cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0, 255, 0), thickness=1)
+        return image
 
         # if self.selected_index is not None:
         #     target = np.array(targets[self.selected_index])
@@ -612,15 +668,17 @@ class SpecificWorker(GenericWorker):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
             point = (x, y)
-            print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
-
+            # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
             # check if clicked point on yolo object. If so, set it as the new target object
-            for b in self.yolo_objects:
+            for b in self.total_objects:
                 if x >= b.left and x < b.right and y >= b.top and y < b.bot:
                     self.selected_object = b
-                    print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
+                    self.segmentatortrackingpub_proxy.setTrack(self.selected_object.id)
+                    # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
                     self.previous_yolo_id = None
                     break
+        if event == cv2.EVENT_RBUTTONDOWN:
+            self.segmentatortrackingpub_proxy.setTrack(-1)
 
     ########################################################################
     def startup_check(self):
@@ -678,3 +736,63 @@ class SpecificWorker(GenericWorker):
     #     for obj in local_objs:
     #         seg_objects.remove(obj)
     #     # add
+
+    ######################
+    # From the RoboCompCamera360RGB you can call this methods:
+    # self.camera360rgb_proxy.getROI(...)
+
+    ######################
+    # From the RoboCompMPC you can call this methods:
+    # self.mpc_proxy.newPath(...)
+
+    ######################
+    # From the RoboCompMPC you can use this types:
+    # RoboCompMPC.Point
+    # RoboCompMPC.Control
+
+    ######################
+    # From the RoboCompMaskElements you can call this methods:
+    # self.maskelements_proxy.getMasks(...)
+    # self.maskelements_proxy.getNamesofCategories(...)
+
+    ######################
+    # From the RoboCompMaskElements you can use this types:
+    # RoboCompMaskElements.TRoi
+    # RoboCompMaskElements.TMask
+
+    ######################
+    # From the RoboCompOmniRobot you can call this methods:
+    # self.omnirobot_proxy.correctOdometer(...)
+    # self.omnirobot_proxy.getBasePose(...)
+    # self.omnirobot_proxy.getBaseState(...)
+    # self.omnirobot_proxy.resetOdometer(...)
+    # self.omnirobot_proxy.setOdometer(...)
+    # self.omnirobot_proxy.setOdometerPose(...)
+    # self.omnirobot_proxy.setSpeedBase(...)
+    # self.omnirobot_proxy.stopBase(...)
+
+    ######################
+    # From the RoboCompOmniRobot you can use this types:
+    # RoboCompOmniRobot.TMechParams
+
+    ######################
+    # From the RoboCompVisualElements you can call this methods:
+    # self.visualelements_proxy.getVisualObjects(...)
+
+    ######################
+    # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TRoi
+    # RoboCompVisualElements.TObject
+
+    ######################
+    # From the RoboCompVisualElements you can call this methods:
+    # self.visualelements1_proxy.getVisualObjects(...)
+
+    ######################
+    # From the RoboCompVisualElements you can use this types:
+    # RoboCompVisualElements.TRoi
+    # RoboCompVisualElements.TObject
+
+    ######################
+    # From the RoboCompSegmentatorTrackingPub you can publish calling this methods:
+    # self.segmentatortrackingpub_proxy.setTrack(...)

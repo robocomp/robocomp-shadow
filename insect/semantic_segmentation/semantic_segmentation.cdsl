@@ -1,0 +1,15 @@
+import "Camera360RGB.idsl";
+import "MaskElements.idsl";
+import "VisualElements.idsl";
+import "ByteTrack.idsl";
+
+Component semantic_segmentation
+{
+    Communications
+    {
+        implements MaskElements, VisualElements;
+        requires Camera360RGB, ByteTrack;
+    };
+    language python;
+};
+
