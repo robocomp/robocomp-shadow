@@ -9,6 +9,8 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
 import RoboCompCameraRGBDSimple
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+import RoboCompLidar3D
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
@@ -68,6 +70,24 @@ class PointsType(list):
         super(PointsType, self).insert(index, item)
 
 setattr(RoboCompCameraRGBDSimple, "PointsType", PointsType)
+class TLidarData(list):
+    def __init__(self, iterable=list()):
+        super(TLidarData, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TLidarData", TLidarData)
 class TConnections(list):
     def __init__(self, iterable=list()):
         super(TConnections, self).__init__(iterable)
@@ -146,6 +166,8 @@ class Requires:
         self.mprx={}
 
         self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
+
+        self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
 
         self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
