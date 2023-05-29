@@ -19,6 +19,16 @@ class DWA_Optimizer():
         # discard all paths with less than 95% occupancy
         survivors = []
         for c in self.candidates:
+            survivor = {"mask": c["mask"], "polygon": c["polygon"],
+                        "params": c["params"], "loss": 0,
+                        "projected_polygon": c["projected_polygon"],
+                        "trajectory": c["trajectory"]}
+            survivors.append(survivor)
+        return survivors
+    def discard2(self, mask_img):
+        # discard all paths with less than 95% occupancy
+        survivors = []
+        for c in self.candidates:
             mask = c["mask"]
             result = cv2.bitwise_and(mask_img, mask)
             lane_size = np.count_nonzero(mask)
@@ -225,9 +235,7 @@ class DWA_Optimizer():
         return candidates
 
     def project_polygons(self, candidates):
-
         # get 3D points in robot CS, transform to camera CS and project with projection equations
-        # transform to camera CS
         frame_width, frame_height, _ = self.frame_shape
         for c in candidates:
             po = c["polygon"]
