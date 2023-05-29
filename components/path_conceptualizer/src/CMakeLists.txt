@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.6)
-PROJECT(  path_conceptualizer )
+PROJECT( controller )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 

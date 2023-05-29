@@ -42,6 +42,10 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
 
+        # params
+        self.display = False
+        self.lidar3D = False
+
         # ROI parameters. Must be filled up
         self.final_xsize = 0
         self.final_ysize = 0
@@ -105,7 +109,7 @@ class SpecificWorker(GenericWorker):
                     started_camera = True
                 except Ice.Exception as e:
                     traceback.print_exc()
-                    print(e, "Trying again...")
+                    print(e, "Error connecting to camera. Trying again...")
                     time.sleep(1)
 
             self.timer.timeout.connect(self.compute)
@@ -116,12 +120,16 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
+            print("Params: ", params)
             if params["depth_flag"] == "true" or params["depth_flag"] == "True":
                 self.tracker = BYTETrackerDepth(frame_rate=30)
             else:
                 self.tracker = BYTETracker(frame_rate=30)
             if params["display"] == "true" or params["display"] == "True":
                 self.display = True
+            if params["lidar3D"] == "true" or params["lidar3D"] == "True":
+                self.lidar3D = True
+
         except:
             traceback.print_exc()
             print("Error reading config params")
@@ -142,69 +150,8 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
     #########################################################################################################
-    def read_visual_objects(self, visual_objects):
-        data = {"scores": [], "boxes": [], "clases": [], "roi": []}
-        try:
-            for object in visual_objects:
-                data["scores"].append(object.score)
-                data["boxes"].append([object.left, object.top, object.right, object.bot])
-                data["clases"].append(object.type)
-                data["roi"].append(object.roi)
-
-            # get roi params from firs visual object since all are the same
-            # if visual_objects:
-            #     roi = visual_objects[0].roi
-            #     self.final_xsize = roi.finalxsize
-            #     self.final_ysize = roi.finalysize
-            #     self.roi_xcenter = roi.xcenter
-            #     self.roi_ycenter = roi.ycenter
-            #     self.roi_xsize = roi.xsize
-            #     self.roi_ysize = roi.ysize
-            #     self.x_roi_offset = self.roi_xcenter-self.roi_xsize/2
-            #     self.y_roi_offset = self.roi_ycenter-self.roi_ysize/2
-            #     self.x_factor = self.roi_xsize / self.final_xsize
-            #     self.y_factor = self.roi_ysize / self.final_ysize
-            #     print(self.final_xsize, self.final_ysize)
-            #     print(self.roi_xcenter, self.roi_ycenter)
-            #     print(self.roi_xsize, self.roi_ysize)
-            #     print(self.x_roi_offset, self.y_roi_offset)
-            #     print(self.x_factor, self.y_factor)
-
-            #Compute alpha start
-            width_start = self.roi_xcenter - (self.roi_xsize//2)
-            # width_final = self.roi_xcenter + (self.roi_xsize//2)
-            start_angle = (self.calculate_start_angle(1024, width_start) + 360)*900/360
-            # final_angle = self.calculate_end_angle(1024, width_final) + 900
-            # print(final_angle-start_angle)
-            print(start_angle)
-            self.lidar_in_image = self.lidar_points(int(start_angle), int(abs(start_angle)*2))
-
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error reading from Visual Objects interface")
-        return data
-
-    def to_visualelements_interface(self, tracks):
-        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        for track in tracks:
-            target = ifaces.RoboCompVisualElements.TObject()
-            target.roi = track.roi
-            target.id = int(track.track_id)
-            target.score = track.score
-            target.left = int(track.tlwh[0])
-            target.top = int(track.tlwh[1])
-            target.right = int((track.tlwh[0]+track.tlwh[2]))
-            target.bot = int((track.tlwh[1]+track.tlwh[3]))
-            target.type = track.clase
-
-            self.objects_write.append(target)
-
-        # swap
-        self.objects_write, self.objects_read = self.objects_read, self.objects_write
-        return self.objects_read
-
     def read_image(self):
-        #rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+        # rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
         rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
         rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
         return rgb_frame
@@ -263,28 +210,72 @@ class SpecificWorker(GenericWorker):
             self.cont = 0
         else:
             self.cont += 1
-    ##############################################################################################
 
-    def startup_check(self):
-        print(f"Testing RoboCompYoloObjects.TBox from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TBox()
-        print(f"Testing RoboCompYoloObjects.TKeyPoint from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TKeyPoint()
-        print(f"Testing RoboCompYoloObjects.TPerson from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TPerson()
-        print(f"Testing RoboCompYoloObjects.TConnection from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TConnection()
-        print(f"Testing RoboCompYoloObjects.TJointData from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TJointData()
-        print(f"Testing RoboCompYoloObjects.TData from ifaces.RoboCompYoloObjects")
-        test = ifaces.RoboCompYoloObjects.TData()
-        QTimer.singleShot(200, QApplication.instance().quit)
+    ################################################################################################
+    ### Methods related to external calls
+    ################################################################################################
 
-    ##############################################################################################
-    # IMPLEMENTATION of getVisualObjects method from VisualElements interface
-    ##############################################################################################
+    def process_visual_objects(self, visual_objects):
+        data = {"scores": [], "boxes": [], "clases": [], "roi": []}
+        try:
+            for object in visual_objects:
+                data["scores"].append(object.score)
+                data["boxes"].append([object.left, object.top, object.right, object.bot])
+                data["clases"].append(object.type)
+                data["roi"].append(object.roi)
 
-    def VisualElements_getVisualObjects(self):
+            # get roi params from firs visual object since all are the same
+            # if visual_objects:
+            #     roi = visual_objects[0].roi
+            #     self.final_xsize = roi.finalxsize
+            #     self.final_ysize = roi.finalysize
+            #     self.roi_xcenter = roi.xcenter
+            #     self.roi_ycenter = roi.ycenter
+            #     self.roi_xsize = roi.xsize
+            #     self.roi_ysize = roi.ysize
+            #     self.x_roi_offset = self.roi_xcenter-self.roi_xsize/2
+            #     self.y_roi_offset = self.roi_ycenter-self.roi_ysize/2
+            #     self.x_factor = self.roi_xsize / self.final_xsize
+            #     self.y_factor = self.roi_ysize / self.final_ysize
+            #     print(self.final_xsize, self.final_ysize)
+            #     print(self.roi_xcenter, self.roi_ycenter)
+            #     print(self.roi_xsize, self.roi_ysize)
+            #     print(self.x_roi_offset, self.y_roi_offset)
+            #     print(self.x_factor, self.y_factor)
+
+            #Compute alpha start
+            width_start = self.roi_xcenter - (self.roi_xsize//2)
+            # width_final = self.roi_xcenter + (self.roi_xsize//2)
+            start_angle = (self.calculate_start_angle(1024, width_start) + 360)*900/360
+            # final_angle = self.calculate_end_angle(1024, width_final) + 900
+            # print(final_angle-start_angle)
+            #print(start_angle)
+
+            if self.lidar3D:
+                self.lidar_in_image = self.lidar_points(int(start_angle), int(abs(start_angle)*2))
+
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error reading from Visual Objects interface")
+        return data
+
+    def to_visualelements_interface(self, tracks):
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
+        for track in tracks:
+            target = ifaces.RoboCompVisualElements.TObject()
+            target.roi = track.roi
+            target.id = int(track.track_id)
+            target.score = track.score
+            target.left = int(track.tlwh[0])
+            target.top = int(track.tlwh[1])
+            target.right = int((track.tlwh[0]+track.tlwh[2]))
+            target.bot = int((track.tlwh[1]+track.tlwh[3]))
+            target.type = track.clase
+
+            self.objects_write.append(target)
+
+        # swap
+        self.objects_write, self.objects_read = self.objects_read, self.objects_write
         return self.objects_read
 
     def calculate_start_angle(self, original_width, start_roi_angle):
@@ -351,23 +342,34 @@ class SpecificWorker(GenericWorker):
         return resultados, min_distancia
     ##############################################################################################
 
-    # def VisualElements_setVisualObjects(self, visualObjects, publisher):
-    #     target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
-    #     for object in visualObjects:
-    #         target_data_dict["scores"].append(object.score)
-    #         target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
-    #         target_data_dict["clases"].append(object.type)
-    #     self.process_queue.put(target_data_dict)
-    #     self.publisher = publisher
-    #     if publisher == 0:
-    #         self.image_height = 640
-    #         self.image_width = 640
-    #     elif publisher == 1:
-    #         self.image_height = 384
-    #         self.image_width = 384
-    #
+    ##############################################################################################
+
+    def startup_check(self):
+        print(f"Testing RoboCompYoloObjects.TBox from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TBox()
+        print(f"Testing RoboCompYoloObjects.TKeyPoint from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TKeyPoint()
+        print(f"Testing RoboCompYoloObjects.TPerson from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TPerson()
+        print(f"Testing RoboCompYoloObjects.TConnection from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TConnection()
+        print(f"Testing RoboCompYoloObjects.TJointData from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TJointData()
+        print(f"Testing RoboCompYoloObjects.TData from ifaces.RoboCompYoloObjects")
+        test = ifaces.RoboCompYoloObjects.TData()
+        QTimer.singleShot(200, QApplication.instance().quit)
+
+    ##############################################################################################
+    # IMPLEMENTATION of getVisualObjects method from VisualElements interface
+    ##############################################################################################
+
+    def VisualElements_getVisualObjects(self):
+        return self.objects_read
+
+    ##############################################################################################
     # IMPLEMENTATION of allTargets method from ByteTrack interface
-    #
+    ##############################################################################################
+
     def ByteTrack_allTargets(self):
         ret = ifaces.RoboCompByteTrack.OnlineTargets()
         #
@@ -379,7 +381,7 @@ class SpecificWorker(GenericWorker):
     #
     def ByteTrack_getTargets(self, objects):
         # Read visual elements from segmentator
-        data = self.read_visual_objects(objects)
+        data = self.process_visual_objects(objects)
         # Get tracks from Bytetrack and convert data to VisualElements interface
         return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
                                                                                        np.array(data["boxes"]),
@@ -403,7 +405,6 @@ class SpecificWorker(GenericWorker):
         # write your CODE here
         #
         pass
-
 
     # ===================================================================
     # ===================================================================
@@ -463,3 +464,18 @@ class SpecificWorker(GenericWorker):
     # RoboCompByteTrack.Targets
 
 
+# def VisualElements_setVisualObjects(self, visualObjects, publisher):
+    #     target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
+    #     for object in visualObjects:
+    #         target_data_dict["scores"].append(object.score)
+    #         target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
+    #         target_data_dict["clases"].append(object.type)
+    #     self.process_queue.put(target_data_dict)
+    #     self.publisher = publisher
+    #     if publisher == 0:
+    #         self.image_height = 640
+    #         self.image_width = 640
+    #     elif publisher == 1:
+    #         self.image_height = 384
+    #         self.image_width = 384
+    #
