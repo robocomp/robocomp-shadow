@@ -3,4 +3,4 @@ PROJECT(  semantic_segmentation )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior ByteTrack Camera360RGB CameraRGBDSimple CameraRGBDSimple MaskElements Person VisualElements VisualElements )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior ByteTrack Camera360RGB CameraRGBDSimple MaskElements Person VisualElements )

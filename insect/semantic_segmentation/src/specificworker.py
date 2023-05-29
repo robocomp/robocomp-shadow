@@ -66,7 +66,7 @@ class SpecificWorker(GenericWorker):
             self.objects_write = []
 
             # Hz
-            self.cont = 0
+            self.cont = 1
             self.last_time = time.time()
             self.fps = 0
 
@@ -346,8 +346,8 @@ class SpecificWorker(GenericWorker):
                     # Image ROI require parameters
                     self.final_xsize = 384
                     self.final_ysize = 384
-                    self.roi_xsize = rgb.width // 2
-                    self.roi_ysize = rgb.height
+                    self.roi_xsize = 384
+                    self.roi_ysize = 384
                     self.roi_xcenter = rgb.width // 2
                     self.roi_ycenter = rgb.height // 2
 
@@ -481,7 +481,11 @@ class SpecificWorker(GenericWorker):
                                                                 xsize=self.roi_xsize, ysize=self.roi_ysize,
                                                                 finalxsize=self.final_xsize, finalysize=self.final_ysize)
             self.objects_write.append(act_object)
-        self.objects_write = self.bytetrack_proxy.getTargets(self.objects_write)
+        try:
+            self.objects_write = self.bytetrack_proxy.getTargets(self.objects_write)
+        except Ice.Exception as e:
+            print(e, "Error communicating with ByteTracker")
+            traceback.print_exc()
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
