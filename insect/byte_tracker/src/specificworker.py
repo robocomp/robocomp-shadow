@@ -34,17 +34,12 @@ console = Console(highlight=False)
 sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/byte_tracker/ByteTrack')
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from yolox.tracker.byte_tracker import BYTETracker
-import json
 from dataclasses import dataclass
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
-
-        # params
-        self.display = False
-        self.lidar3D = False
 
         # ROI parameters. Must be filled up
         self.final_xsize = 0
@@ -53,15 +48,6 @@ class SpecificWorker(GenericWorker):
         self.roi_ycenter = 0
         self.roi_xsize = 0
         self.roi_ysize = 0
-        # self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
-        #                                         305.65)  # converts points in omnicamera (coppelia) to velodyne (coppelia)
-        # self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
-        #                                         108.51)
-        self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
-                                                108.51)
-        self.lidar_to_cam = np.linalg.inv(self.cam_to_lidar)
-        self.focal_x = 156
-        self.focal_y = 156
 
         # ROI offsets respect the original image
         self.x_roi_offset = 0
@@ -109,7 +95,7 @@ class SpecificWorker(GenericWorker):
                     started_camera = True
                 except Ice.Exception as e:
                     traceback.print_exc()
-                    print(e, "Error connecting to camera. Trying again...")
+                    print(e, "Trying again...")
                     time.sleep(1)
 
             self.timer.timeout.connect(self.compute)
@@ -120,16 +106,12 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
-            print("Params: ", params)
             if params["depth_flag"] == "true" or params["depth_flag"] == "True":
                 self.tracker = BYTETrackerDepth(frame_rate=30)
             else:
                 self.tracker = BYTETracker(frame_rate=30)
             if params["display"] == "true" or params["display"] == "True":
                 self.display = True
-            if params["lidar3D"] == "true" or params["lidar3D"] == "True":
-                self.lidar3D = True
-
         except:
             traceback.print_exc()
             print("Error reading config params")
@@ -150,72 +132,7 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
     #########################################################################################################
-    def read_image(self):
-        # rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
-        rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
-        return rgb_frame
-
-    def display_data(self, image, objects):
-        # for i in self.lidar_in_image:
-        #     # print(i)
-        #     try:
-        #         cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
-        #     except:
-        #         print("PUNTO NO VÁLIDO")
-        if len(objects) == 0:
-            return image
-        for element in objects:
-            final_xsize = element.roi.finalxsize
-            final_ysize = element.roi.finalysize
-            roi_xcenter = element.roi.xcenter
-            roi_ycenter = element.roi.ycenter
-            roi_xsize = element.roi.xsize
-            roi_ysize = element.roi.ysize
-            x_roi_offset = roi_xcenter-roi_xsize/2
-            y_roi_offset = roi_ycenter-roi_ysize/2
-            x_factor = roi_xsize / final_xsize
-            y_factor = roi_ysize / final_ysize
-
-            x0 = int(element.left*x_factor + x_roi_offset)
-            y0 = int(element.top*y_factor + y_roi_offset)
-            x1 = int(element.right*x_factor + x_roi_offset)
-            y1 = int(element.bot*y_factor + y_roi_offset)
-            cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
-            resultados, min_distance = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
-            for i in resultados:
-                cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
-            # text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
-            text = 'Class: {} - Score: {:.1f}% - ID: {} -Dist: {}'.format(element.type, element.score * 100, element.id,
-                                                                          min_distance / 1000)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
-            cv2.rectangle(
-                image,
-                (x0, y0 + 1),
-                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
-                (255, 0, 0),
-                -1
-            )
-            cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0,255,0), thickness=1)
-        return image
-
-    def show_fps(self):
-        if time.time() - self.last_time > 1:
-            self.last_time = time.time()
-            cur_period = int(1000./self.cont)
-            #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
-            print("Freq:", self.cont, "ms. Curr period:", cur_period)
-            #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
-            self.cont = 0
-        else:
-            self.cont += 1
-
-    ################################################################################################
-    ### Methods related to external calls
-    ################################################################################################
-
-    def process_visual_objects(self, visual_objects):
+    def read_visual_objects(self, visual_objects):
         data = {"scores": [], "boxes": [], "clases": [], "roi": []}
         try:
             for object in visual_objects:
@@ -243,17 +160,6 @@ class SpecificWorker(GenericWorker):
             #     print(self.x_roi_offset, self.y_roi_offset)
             #     print(self.x_factor, self.y_factor)
 
-            #Compute alpha start
-            width_start = self.roi_xcenter - (self.roi_xsize//2)
-            # width_final = self.roi_xcenter + (self.roi_xsize//2)
-            start_angle = (self.calculate_start_angle(1024, width_start) + 360)*900/360
-            # final_angle = self.calculate_end_angle(1024, width_final) + 900
-            # print(final_angle-start_angle)
-            #print(start_angle)
-
-            if self.lidar3D:
-                self.lidar_in_image = self.lidar_points(int(start_angle), int(abs(start_angle)*2))
-
         except Ice.Exception as e:
             traceback.print_exc()
             print(e, "Error reading from Visual Objects interface")
@@ -278,70 +184,55 @@ class SpecificWorker(GenericWorker):
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
         return self.objects_read
 
-    def calculate_start_angle(self, original_width, start_roi_angle):
-        # La imagen original cubre 360 grados
-        original_fov = 360
-        # original_fov = 900
+    def read_image(self):
+        #rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
+        rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+        return rgb_frame
 
-        # Calculamos la proporción de la posición de inicio con respecto al ancho original
-        start_ratio = start_roi_angle / original_width
+    def display_data(self, image, objects):
+        if len(objects) == +0:
+            return image
+        for element in objects:
+            final_xsize = element.roi.finalxsize
+            final_ysize = element.roi.finalysize
+            roi_xcenter = element.roi.xcenter
+            roi_ycenter = element.roi.ycenter
+            roi_xsize = element.roi.xsize
+            roi_ysize = element.roi.ysize
+            x_roi_offset = roi_xcenter-roi_xsize/2
+            y_roi_offset = roi_ycenter-roi_ysize/2
+            x_factor = roi_xsize / final_xsize
+            y_factor = roi_ysize / final_ysize
 
-        # Calculamos el ángulo de inicio
-        start_angle = original_fov * start_ratio - 180
-        # start_angle = original_fov * start_ratio - 450
+            x0 = int(element.left*x_factor + x_roi_offset)
+            y0 = int(element.top*y_factor + y_roi_offset)
+            x1 = int(element.right*x_factor + x_roi_offset)
+            y1 = int(element.bot*y_factor + y_roi_offset)
+            cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score*100, element.id)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(
+                image,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                (255, 0, 0),
+                -1
+            )
+            cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0,255,0), thickness=1)
+        return image
 
-        return start_angle
-
-    def calculate_end_angle(self, original_width, final_roi_angle):
-        # La imagen original cubre 360 grados
-        # original_fov = 360
-        original_fov = 900
-
-        # Calculamos la proporción de la posición de inicio con respecto al ancho original
-        start_ratio = final_roi_angle / original_width
-
-        # Calculamos el ángulo de inicio
-        #start_angle = original_fov * start_ratio - 180
-        start_angle = original_fov * start_ratio + 450
-
-        return start_angle
-    def lidar_points(self, alpha_roi, roi_width):
-        points = self.lidar3d_proxy.getLidarData(alpha_roi, roi_width)
-        lidar_points = np.array([[i.x*1000, i.y*1000, i.z*1000, 1] for i in points ])
-        lidar_points = np.dot(lidar_points, self.lidar_to_cam.T)[:, :3]  # Eliminar la última columna
-        lidar_in_image = np.column_stack([
-            (self.focal_x * lidar_points[:, 0] / lidar_points[:, 1]) + 512,
-            (-self.focal_y * lidar_points[:, 2] / lidar_points[:, 1]) + 256,
-            np.linalg.norm(lidar_points, axis=1)
-        ])
-        return lidar_in_image
-
-    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
-        a = roll
-        b = pitch
-        g = heading
-        mat = np.array([[np.cos(b) * np.cos(g),
-                         (np.sin(a) * np.sin(b) * np.cos(g) + np.cos(a) * np.sin(g)), (np.sin(a) * np.sin(g) -
-                                                                                       np.cos(a) * np.sin(b) * np.cos(
-                        g)), x0],
-                        [-np.cos(b) * np.sin(g), (np.cos(a) * np.cos(g) - np.sin(a) * np.sin(b) * np.sin(g)),
-                         (np.sin(a) * np.cos(g) + np.cos(a) * np.sin(b) * np.sin(g)), y0],
-                        [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
-                        [0, 0, 0, 1]])
-        return mat
-
-    def points_in_bbox(self, points, x1, y1, x2, y2):
-        resultados = []
-        min_distancia = float('inf')
-        for punto in points:
-            x, y, distancia = punto
-            if x1 <= x <= x2 and y1 <= y <= y2:
-                resultados.append(punto)
-                if distancia < min_distancia:
-                    min_distancia = distancia
-        return resultados, min_distancia
-    ##############################################################################################
-
+    def show_fps(self):
+        if time.time() - self.last_time > 1:
+            self.last_time = time.time()
+            cur_period = int(1000./self.cont)
+            #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
+            print("Freq:", self.cont, "ms. Curr period:", cur_period)
+            #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
+            self.cont = 0
+        else:
+            self.cont += 1
     ##############################################################################################
 
     def startup_check(self):
@@ -363,48 +254,17 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     ##############################################################################################
 
-    def VisualElements_getVisualObjects(self):
-        return self.objects_read
-
-    ##############################################################################################
-    # IMPLEMENTATION of allTargets method from ByteTrack interface
-    ##############################################################################################
-
-    def ByteTrack_allTargets(self):
-        ret = ifaces.RoboCompByteTrack.OnlineTargets()
-        #
-        # write your CODE here
-        #
-        return ret
-    #
-    # IMPLEMENTATION of getTargets method from ByteTrack interface
-    #
-    def ByteTrack_getTargets(self, objects):
+    def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
-        data = self.process_visual_objects(objects)
+        data = self.read_visual_objects(objects)
         # Get tracks from Bytetrack and convert data to VisualElements interface
         return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
                                                                                        np.array(data["boxes"]),
                                                                                        np.array(data["clases"]),
                                                                                        np.array(data["roi"])))
-    #
-    # IMPLEMENTATION of getTargetswithdepth method from ByteTrack interface
-    #
-    def ByteTrack_getTargetswithdepth(self, objects, depth):
-        ret = ifaces.RoboCompByteTrack.OnlineTargets()
-        #
-        # write your CODE here
-        #
-        return ret
-    #
-    # IMPLEMENTATION of setTargets method from ByteTrack interface
-    #
-    def ByteTrack_setTargets(self, objects, sender):
-    
-        #
-        # write your CODE here
-        #
-        pass
+
+    ##############################################################################################
+
 
     # ===================================================================
     # ===================================================================
@@ -464,18 +324,3 @@ class SpecificWorker(GenericWorker):
     # RoboCompByteTrack.Targets
 
 
-# def VisualElements_setVisualObjects(self, visualObjects, publisher):
-    #     target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
-    #     for object in visualObjects:
-    #         target_data_dict["scores"].append(object.score)
-    #         target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
-    #         target_data_dict["clases"].append(object.type)
-    #     self.process_queue.put(target_data_dict)
-    #     self.publisher = publisher
-    #     if publisher == 0:
-    #         self.image_height = 640
-    #         self.image_width = 640
-    #     elif publisher == 1:
-    #         self.image_height = 384
-    #         self.image_width = 384
-    #

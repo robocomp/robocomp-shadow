@@ -930,7 +930,8 @@ class SpecificWorker(GenericWorker):
             # TODO: check that requested ROI es within limits and roiwidth, roiheight also
             dst = image[cy - (sy // 2) : cy + (sy // 2), cx - (sx // 2) : cx + (sx // 2)]
             rdst = cv2.resize(dst, (roiwidth, roiheight), cv2.INTER_LINEAR)
-            res = RoboCompCameraRGBDSimple.TImage(cameraID=cam["id"],
+            roi = RoboCompCamera360RGB.TRoi( xcenter= cx, ycenter=cy, xsize=sx, ysize=sy, finalxsize=roiwidth , finalysize=roiheight)
+            res = RoboCompCamera360RGB.TImage(cameraID=cam["id"],
                                                   width=rdst.shape[1],
                                                   height=rdst.shape[0],
                                                   depth=3,
@@ -939,7 +940,8 @@ class SpecificWorker(GenericWorker):
                                                   alivetime=int(time.time() * 1000),
                                                   period=1000//self.tc.counter if self.tc.counter > 0 else 0,  # ms
                                                   image=rdst.tobytes(),
-                                                  compressed=False)
+                                                  compressed=False,
+                                                  roi=roi)
             return res
 
         else:

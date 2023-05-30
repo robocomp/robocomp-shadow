@@ -1,9 +1,9 @@
 # Endpoints for implements interfaces
-ByteTrack.Endpoints=tcp -p 10003
+VisualElements.Endpoints=tcp -p 11337
 
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 16582
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 11766
 
 
 
