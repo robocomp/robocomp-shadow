@@ -894,6 +894,7 @@ class SpecificWorker(GenericWorker):
             start += 1
             start = 0 if ((start % 900) == 0) else start
             a += 1
+        #print(len(lidar3D))
         # print("MIN HEIGHT ", height)
         # for a in range(ang):
         #     for l in range(level):
