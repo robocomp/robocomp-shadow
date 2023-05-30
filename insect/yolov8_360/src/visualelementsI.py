@@ -38,5 +38,5 @@ class VisualElementsI(VisualElements):
         self.worker = worker
 
 
-    def getVisualObjects(self, c):
-        return self.worker.VisualElements_getVisualObjects()
+    def getVisualObjects(self, objects, c):
+        return self.worker.VisualElements_getVisualObjects(objects)
