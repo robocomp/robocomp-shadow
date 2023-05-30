@@ -1,5 +1,5 @@
 # Endpoints for implements interfaces
-ByteTrack.Endpoints=tcp -p 14738
+VisualElements.Endpoints=tcp -p 14738
 
 
 # Proxies for required interfaces
@@ -7,7 +7,6 @@ Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 
 depth_flag = false
 display = false
-lidar3D = false
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

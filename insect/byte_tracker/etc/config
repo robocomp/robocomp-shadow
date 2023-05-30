@@ -1,11 +1,9 @@
 # Endpoints for implements interfaces
-ByteTrack.Endpoints=tcp -p 13099
+VisualElements.Endpoints=tcp -p 13099
 
 
 # Proxies for required interfaces
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10379
-VisualElementsProxy = visualelements:tcp -h localhost -p 13274
-Lidar3DProxy = lidar3d:tcp -h localhost -p 16773
 
 depth_flag = false
 
