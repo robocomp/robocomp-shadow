@@ -31,6 +31,8 @@ import cv2
 from threading import Thread, Event
 import traceback
 import queue
+
+
 from shapely.geometry import box
 from collections import defaultdict
 import itertools
@@ -156,24 +158,24 @@ class SpecificWorker(GenericWorker):
         started_camera = False
         while not started_camera:
             try:
-                self.rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                self.rgb_original = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
 
                 print("Camera specs:")
-                print(" width:", self.rgb.width)
-                print(" height:", self.rgb.height)
-                print(" depth", self.rgb.depth)
-                print(" focalx", self.rgb.focalx)
-                print(" focaly", self.rgb.focaly)
-                print(" period", self.rgb.period)
+                print(" width:", self.rgb_original.width)
+                print(" height:", self.rgb_original.height)
+                print(" depth", self.rgb_original.depth)
+                print(" focalx", self.rgb_original.focalx)
+                print(" focaly", self.rgb_original.focaly)
+                print(" period", self.rgb_original.period)
                 print(" ratio {:.2f}.format(image.width/image.height)")
 
                 # Image ROI require parameters
                 self.final_xsize = 640
                 self.final_ysize = 640
-                self.roi_xsize = self.rgb.width // 2
-                self.roi_ysize = self.rgb.height
-                self.roi_xcenter = self.rgb.width // 2
-                self.roi_ycenter = self.rgb.height // 2
+                self.roi_xsize = self.rgb_original.width // 2
+                self.roi_ysize = self.rgb_original.height
+                self.roi_xcenter = self.rgb_original.width // 2
+                self.roi_ycenter = self.rgb_original.height // 2
 
                 #Target ROI size
                 self.target_roi_xsize = self.roi_xsize
@@ -186,9 +188,6 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e, "Trying again...")
                 time.sleep(2)
-
-
-
 
         if startup_check:
             self.startup_check()
@@ -211,7 +210,15 @@ class SpecificWorker(GenericWorker):
             self.tracked_element = None
             self.tracked_id = None
 
+            # Last error between the actual and the required ROIs for derivative control
+            self.last_ROI_error = 0
+
+            # Control gains
+            self.k1 = 0.4
+            self.k2 = 0.15
+
             # camera read thread
+            self.rgb = None
             self.read_queue = queue.Queue(1)
             self.event = Event()
 
@@ -246,19 +253,18 @@ class SpecificWorker(GenericWorker):
         else:
             rgb, blob, alive_time, period = self.read_queue.get()
 
+        if self.tracked_id != None:
+            self.set_roi_dimensions(self.objects_read)
+
         dets = self.yolov8_objects(blob)
 
         if dets is not None:
             self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
-            if self.tracked_id != None:
-                self.set_roi_dimensions(self.objects_read)
-
             if self.display:
-                img = self.display_data(rgb, dets[:, :4], dets[:, 4], dets[:, 5],  np.zeros(len(dets[:, :4])),
+                img = self.display_data_tracks(rgb, self.objects_read,
                                         class_names=self.yolo_object_predictor.class_names)
                 cv2.imshow(self.window_name, img)
                 cv2.waitKey(1)
-
         # FPS
         try:
             self.show_fps(alive_time, period)
@@ -271,19 +277,18 @@ class SpecificWorker(GenericWorker):
         while not event.is_set():
             try:
                 # print("ACT ROI:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize, self.final_xsize, self.final_ysize)
-                # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize,
-                #       self.target_roi_ysize)
-                rgbd = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize, self.target_roi_ysize)
+                self.rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
                                                       self.roi_ysize, self.final_xsize, self.final_ysize)
-                color = np.frombuffer(rgbd.image, dtype=np.uint8).reshape(rgbd.height, rgbd.width, 3)
+                color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
                 blob = self.pre_process(color, (640, 640))
-                delta = int(1000 * time.time() - rgbd.alivetime)
+                delta = int(1000 * time.time() - self.rgb.alivetime)
                 if self.depth_flag:
                     # depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height,
                     #                                                                   rgbd.depth.width, 1)
-                    self.read_queue.put([color, rgbd.depth, blob, delta, rgbd.period])
+                    self.read_queue.put([color, self.rgb.depth, blob, delta, self.rgb.period])
                 else:
-                    self.read_queue.put([color, blob, delta, rgbd.period])
+                    self.read_queue.put([color, blob, delta, self.rgb.period])
                 if self.roi_xcenter != self.target_roi_xcenter or self.roi_ycenter != self.target_roi_ycenter or self.roi_xsize != self.target_roi_xsize or self.roi_ysize != self.target_roi_xsize:
                     self.from_act_roi_to_target()
 
@@ -293,45 +298,62 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
 
     def from_act_roi_to_target(self):
-        # if self.roi_xcenter < self.target_roi_xcenter:
-        #     self.roi_xcenter += 2
-        # elif self.roi_xcenter > self.target_roi_xcenter:
-        #     self.roi_xcenter -= 2
-        # if self.roi_ycenter < self.target_roi_ycenter:
-        #     self.roi_ycenter += 2
-        # elif self.roi_ycenter > self.target_roi_ycenter:
-        #     self.roi_ycenter -= 2
-        # if self.roi_xsize < self.target_roi_xsize:
-        #     self.roi_xsize += 2
-        # elif self.roi_xsize > self.target_roi_xsize:
-        #     self.roi_xsize -= 2
-        # if self.roi_ysize < self.target_roi_ysize:
-        #     self.roi_ysize += 2
-        # elif self.roi_ysize > self.target_roi_ysize:
-        #     self.roi_ysize -= 2
+
+        # self.target_roi_xcenter_list.put(x_diff_act)
+        # total = sum(self.target_roi_xcenter_list.queue)
+        # contador = self.target_roi_xcenter_list.qsize()
+        # x_diff = total / contador if contador > 0 else 0
+        # if self.target_roi_xcenter_list.full():
+        #     self.target_roi_xcenter_list.get()
+        # print(list(self.target_roi_xcenter_list.queue))
+        # print("LIST SIZE:", contador)
+        # print("LIST SIZE:", x_diff)
+
+        x_diff = abs(self.target_roi_xcenter - self.roi_xcenter)
+        y_diff = abs(self.target_roi_ycenter - self.roi_ycenter)
+        x_size_diff = abs(self.target_roi_xsize - self.roi_xsize)
+        y_size_diff = abs(self.target_roi_ysize - self.roi_ysize)
+
+        # aux_x_diff defined for setting pixel speed and calculate derivated component
+        aux_x_diff = x_diff if x_diff < self.rgb_original.width / 2 else self.rgb_original.width - x_diff
+        x_der_diff = int(self.k2 * abs(self.last_ROI_error - aux_x_diff))
+
+        print("")
+        print("x_diff", x_diff, "target_roi_xcenter", self.target_roi_xcenter, "roi_xcenter", self.roi_xcenter)
+        print("self.last_ROI_error", self.last_ROI_error, "x_der_diff", x_der_diff)
+
+
+        x_mod_speed = np.clip(int(self.k1 * aux_x_diff), 0, 22) + x_der_diff
+        y_mod_speed = np.clip(int(self.k1 * y_diff), 0, 20)
+
+        print("x_mod_speed", x_mod_speed)
+
+        x_size_mod_speed = np.clip(int(0.03 * x_size_diff), 0, 8)
+        y_size_mod_speed = np.clip(int(0.03 * y_size_diff), 0, 8)
 
         if self.roi_xcenter < self.target_roi_xcenter:
-            if abs(self.target_roi_xcenter - self.roi_xcenter) > self.rgb.width / 2:
-                self.roi_xcenter -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
-            else:
-                self.roi_xcenter += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            self.roi_xcenter -= x_mod_speed if x_diff > self.rgb_original.width / 2 else -x_mod_speed
         elif self.roi_xcenter > self.target_roi_xcenter:
-            if abs(self.target_roi_xcenter - self.roi_xcenter) > self.rgb.width / 2:
-                self.roi_xcenter += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
-            else:
-                self.roi_xcenter -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            self.roi_xcenter += x_mod_speed if x_diff > self.rgb_original.width / 2 else -x_mod_speed
+
+        self.roi_xcenter %= self.rgb_original.width
+
         if self.roi_ycenter < self.target_roi_ycenter:
-            self.roi_ycenter += int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+            self.roi_ycenter += y_mod_speed
         elif self.roi_ycenter > self.target_roi_ycenter:
-            self.roi_ycenter -= int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+            self.roi_ycenter -= y_mod_speed
+
         if self.roi_xsize < self.target_roi_xsize:
-            self.roi_xsize += int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            self.roi_xsize += x_size_mod_speed
         elif self.roi_xsize > self.target_roi_xsize:
-            self.roi_xsize -= int(0.1 * abs(self.target_roi_xcenter - self.roi_xcenter))
+            self.roi_xsize -= x_size_mod_speed
+
         if self.roi_ysize < self.target_roi_ysize:
-            self.roi_ysize += int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+            self.roi_ysize += y_size_mod_speed
         elif self.roi_ysize > self.target_roi_ysize:
-            self.roi_ysize -= int(0.1 * abs(self.target_roi_ycenter - self.roi_ycenter))
+            self.roi_ysize -= y_size_mod_speed
+
+        self.last_ROI_error = aux_x_diff
 
     def yolov8_objects(self, blob):
         data = self.yolo_object_predictor.infer(blob)
@@ -356,11 +378,11 @@ class SpecificWorker(GenericWorker):
             act_object.right = int(desired_boxes[index][2])
             act_object.bot = int(desired_boxes[index][3])
             act_object.score = desired_scores[index]
-            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.roi_xcenter, ycenter=self.roi_ycenter,
-                                                                xsize=self.roi_xsize, ysize=self.roi_ysize,
-                                                                finalxsize=self.final_xsize, finalysize=self.final_ysize)
+            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter, ycenter=self.rgb.roi.ycenter,
+                                                                xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
+                                                                finalxsize=self.rgb.roi.finalxsize, finalysize=self.rgb.roi.finalysize)
             self.objects_write.append(act_object)
-        self.objects_write = self.bytetrack_proxy.getTargets(self.objects_write)
+        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
@@ -373,27 +395,16 @@ class SpecificWorker(GenericWorker):
                 y_factor = object.roi.ysize / object.roi.finalysize
 
                 left = int(object.left * x_factor + x_roi_offset)
-                # if left < 0:
-                #     left = self.rgb.width - left % self.rgb.width
-                # else:
-                #     left %= self.rgb.width
-
                 right = (object.right * x_factor + x_roi_offset)
 
                 top = int(object.top * y_factor + y_roi_offset)
                 bot = int(object.bot * y_factor + y_roi_offset)
-                print("LEFT RIGHT:", left, right)
-                # print("target_roi_xsize:", int((object.right - object.left )*1.3))
-                # print("target_roi_ysize:", int((object.bot - object.top)*1.3))
-                # print("X Y DIFFERENCES ROI AND BB CENTER:", abs(self.target_roi_xcenter - self.roi_xcenter), abs(self.target_roi_ycenter - self.roi_ycenter))
-                # print("X Y SIZES:",  self.target_roi_xsize, self.target_roi_ysize)
-                self.target_roi_xcenter = (left + (right - left)/2) % self.rgb.width
-                print("X CENTER:", self.target_roi_xcenter)
+
+                self.target_roi_xcenter = (left + (right - left)/2) % self.rgb_original.width
                 self.target_roi_ycenter = (top + (bot - top)/2)
-                self.target_roi_ysize = int((bot - top)*1.3)
+                self.target_roi_ysize = np.clip(int((bot - top)*4), 0, self.rgb_original.height)
                 self.target_roi_xsize = self.target_roi_ysize
-
-
+                return
 
     ###############################################################
     def pre_process(self, image, input_size, swap=(2, 0, 1)):
@@ -505,6 +516,33 @@ class SpecificWorker(GenericWorker):
 
         return img
 
+    def display_data_tracks(self, img, elements, class_names=None):
+        #print(len(inds), len(boxes))
+        for i in elements:
+            # if inds[i] == -1:
+            #     continue
+            x0 = int(i.left)
+            y0 = int(i.top)
+            x1 = int(i.right)
+            y1 = int(i.bot)
+            color = (_COLORS[i.type] * 255).astype(np.uint8).tolist()
+            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(class_names[i.type], i.score*100, i.id)
+            txt_color = (0, 0, 0) if np.mean(_COLORS[i.type]) > 0.5 else (255, 255, 255)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+            txt_bk_color = (_COLORS[i.type] * 255 * 0.7).astype(np.uint8).tolist()
+            cv2.rectangle(
+                img,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                txt_bk_color,
+                -1
+            )
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+
+        return img
+
     ############################################################################################
     def startup_check(self):
         print(f"Testing RoboCompCameraRGBDSimple.TImage from ifaces.RoboCompCameraRGBDSimple")
@@ -529,7 +567,7 @@ class SpecificWorker(GenericWorker):
     #
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     #
-    def VisualElements_getVisualObjects(self):
+    def VisualElements_getVisualObjects(self, objects):
         return self.objects_read
     # ===================================================================
     # ===================================================================
@@ -544,14 +582,15 @@ class SpecificWorker(GenericWorker):
         if track == -1:
             self.tracked_element = None
             self.tracked_id = None
-            self.target_roi_xcenter = self.rgb.width // 2
-            self.target_roi_ycenter = self.rgb.height // 2
-            self.target_roi_xsize = self.rgb.width // 2
-            self.target_roi_ysize = self.rgb.height
+            self.target_roi_xcenter = self.rgb_original.width // 2
+            self.target_roi_ycenter = self.rgb_original.height // 2
+            self.target_roi_xsize = self.rgb_original.width // 2
+            self.target_roi_ysize = self.rgb_original.height
             return
 
         for track_obj in self.objects_read:
             if track_obj.id == track:
+                self.target_roi_xcenter_list = queue.Queue(10)
                 self.tracked_element = track_obj
                 self.tracked_id = track
                 return

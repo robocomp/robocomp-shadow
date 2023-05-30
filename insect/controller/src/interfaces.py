@@ -7,8 +7,6 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
-Ice.loadSlice("-I ./src/ --all ./src/CameraRGBDSimple.ice")
-import RoboCompCameraRGBDSimple
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/MPC.ice")
@@ -41,43 +39,7 @@ class ImgType(list):
         assert isinstance(item, byte)
         super(ImgType, self).insert(index, item)
 
-setattr(RoboCompCameraRGBDSimple, "ImgType", ImgType)
-class DepthType(list):
-    def __init__(self, iterable=list()):
-        super(DepthType, self).__init__(iterable)
-
-    def append(self, item):
-        assert isinstance(item, byte)
-        super(DepthType, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, byte)
-        super(DepthType, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, byte)
-        super(DepthType, self).insert(index, item)
-
-setattr(RoboCompCameraRGBDSimple, "DepthType", DepthType)
-class PointsType(list):
-    def __init__(self, iterable=list()):
-        super(PointsType, self).__init__(iterable)
-
-    def append(self, item):
-        assert isinstance(item, RoboCompCameraRGBDSimple.Point3D)
-        super(PointsType, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, RoboCompCameraRGBDSimple.Point3D)
-        super(PointsType, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, RoboCompCameraRGBDSimple.Point3D)
-        super(PointsType, self).insert(index, item)
-
-setattr(RoboCompCameraRGBDSimple, "PointsType", PointsType)
+setattr(RoboCompCamera360RGB, "ImgType", ImgType)
 class Path(list):
     def __init__(self, iterable=list()):
         super(Path, self).__init__(iterable)

@@ -1,13 +1,12 @@
 import "Camera360RGB.idsl";
 import "VisualElements.idsl";
-import "ByteTrack.idsl";
 import "SegmentatorTrackingPub.idsl";
 
 Component yolov8_360
 {
     Communications
     {
-        requires Camera360RGB, ByteTrack;
+        requires Camera360RGB, VisualElements;
         implements VisualElements;
         subscribesTo SegmentatorTrackingPub;
     };
