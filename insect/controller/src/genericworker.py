@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide2 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore
 
 ROBOCOMP = ''
 try:
@@ -52,14 +52,14 @@ class GenericWorker(QtWidgets.QWidget):
         self.maskelements_proxy = mprx["MaskElementsProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
         self.visualelements_proxy = mprx["VisualElementsProxy"]
-        self.visualelements1_proxy = mprx["VisualElementsProxy1"]
+        self.visualelements1_proxy = mprx["VisualElements1Proxy"]
         self.segmentatortrackingpub_proxy = mprx["SegmentatorTrackingPub"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
         self.show()
 
-        self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
+        self.mutex = QtCore.QMutex()
         self.Period = 30
         self.timer = QtCore.QTimer(self)
 
