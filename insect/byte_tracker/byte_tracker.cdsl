@@ -1,13 +1,12 @@
 import "VisualElements.idsl";
 import "Camera360RGB.idsl";
-import "ByteTrack.idsl";
 
 Component byte_tracker
 {
     Communications
     {
         requires Camera360RGB;
-        implements ByteTrack;
+        implements VisualElements;
    
     };
     language python;
