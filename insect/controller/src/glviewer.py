@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QVector3D
 from PySide6.Qt3DCore import Qt3DCore
 from PySide6.Qt3DRender import Qt3DRender
+import copy
+import numpy as np
 
 class GLViewer:
     def __init__(self, parent, points):
@@ -44,6 +46,13 @@ class GLViewer:
         self.view.show()
         self.container.show()
 
+        # Dict for inferenced elements models
+        self.elements_model = {}
+
+        self.meshes_dict = {
+            "0" : "meshes/man.stl"
+        }
+
     def create_grid_plane(self, size, resolution):
 
         # Create a grid geometry
@@ -69,13 +78,69 @@ class GLViewer:
     def load_stl_model(self):
         self.modelEntity = Qt3DCore.QEntity(self.grid_entity)
         self.modelMesh = Qt3DRender.QMesh()
-        self.modelMesh.setSource(QUrl.fromLocalFile('shadowV2.stl'))
+        self.modelMesh.setSource(QUrl.fromLocalFile('meshes/shadow20k.stl'))
 
         self.modelTransform = Qt3DCore.QTransform()
-        self.modelTransform.setScale(5)
+        self.modelTransform.setScale(1)
         self.modelTransform.setRotationX(-90)
+        self.modelTransform.setTranslation(QVector3D(0,0,0))
 
         self.modelEntity.addComponent(self.modelMesh)
         self.modelEntity.addComponent(self.modelTransform)
         self.modelEntity.addComponent(self.material)
 
+    def process_elements(self, elements):
+        new_elements = []
+        elements_dict_keys = list(self.elements_model.keys())
+        # print("element list size:", len(elements))
+        for element in elements:
+            # Update element
+            if element.id in elements_dict_keys:
+                element_center = ((element.right-element.left)/2)+element.left
+                if abs(element.right-element.left) > 1920/2:
+                    element_center = element.right/2 if element.right < element.left else element.left/2
+
+                element_angle = element_center * 359 / 1919
+                # print("ANGLE", element_angle)
+                # print(QPointF(3*np.cos(element_angle), 3*np.sin(element_angle)))
+                print(element.id, element.left, element.right, element_center)
+                globals()["modelTransform"+"_"+str(element.id)].setTranslation(QVector3D(-3*np.sin(np.deg2rad(element_angle)), 0, 3*np.cos(np.deg2rad(element_angle))))
+                elements_dict_keys.remove(element.id)
+            else:
+                new_elements.append(element)
+        # Insert new elements
+        self.insert_new_element(new_elements)
+        # print("elements_dict_keys", elements_dict_keys)
+        # print("KEYS To REMOVE:", elements_dict_keys)
+        # Remove lost elements
+        self.remove_element(elements_dict_keys)
+
+    def insert_new_element(self, elements):
+        for element in elements:
+            globals()["modelEntity"+"_"+str(element.id)] = Qt3DCore.QEntity(self.grid_entity)
+            globals()["modelMesh"+"_"+str(element.id)] = Qt3DRender.QMesh()
+            globals()["modelMesh"+"_"+str(element.id)].setSource(QUrl.fromLocalFile('meshes/man.stl'))
+
+            globals()["modelTransform"+"_"+str(element.id)] = Qt3DCore.QTransform()
+            globals()["modelTransform"+"_"+str(element.id)].setScale(1)
+            globals()["modelTransform"+"_"+str(element.id)].setRotationX(-90)
+            element_center = ((element.right - element.left) / 2) + element.left
+            if element_center > 1919:
+                element_center = 1920 - element_center
+            element_angle = element_center * 359 / 1919
+            globals()["modelTransform"+"_"+str(element.id)].setTranslation(QVector3D(-3*np.sin(np.deg2rad(element_angle)), 0, 3*np.cos(np.deg2rad(element_angle))))
+
+            globals()["modelEntity"+"_"+str(element.id)].addComponent(globals()["modelMesh"+"_"+str(element.id)])
+            globals()["modelEntity"+"_"+str(element.id)].addComponent(globals()["modelTransform"+"_"+str(element.id)])
+            globals()["modelEntity"+"_"+str(element.id)].addComponent(self.material)
+
+            # print("MODELENTITY", modelEntity)
+            self.elements_model[element.id] = globals()["modelEntity"+"_"+str(element.id)]
+
+        # print(globals())
+    def remove_element(self, elements):
+        for element in elements:
+            globals()["modelEntity"+"_"+str(element)].setEnabled(False)
+            # del globals()["modelMesh" + "_" + str(element)]
+            # # del globals()["modelTransform" + "_" + str(element)]
+            self.elements_model.pop(element)

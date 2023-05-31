@@ -297,18 +297,9 @@ class SpecificWorker(GenericWorker):
                 print("Error communicating with Camera360RGB")
                 traceback.print_exc()
 
+    # Modify actual ROI data to converge in the target ROI dimensions
     def from_act_roi_to_target(self):
-
-        # self.target_roi_xcenter_list.put(x_diff_act)
-        # total = sum(self.target_roi_xcenter_list.queue)
-        # contador = self.target_roi_xcenter_list.qsize()
-        # x_diff = total / contador if contador > 0 else 0
-        # if self.target_roi_xcenter_list.full():
-        #     self.target_roi_xcenter_list.get()
-        # print(list(self.target_roi_xcenter_list.queue))
-        # print("LIST SIZE:", contador)
-        # print("LIST SIZE:", x_diff)
-
+        # Get errors from ROI sizes and centers
         x_diff = abs(self.target_roi_xcenter - self.roi_xcenter)
         y_diff = abs(self.target_roi_ycenter - self.roi_ycenter)
         x_size_diff = abs(self.target_roi_xsize - self.roi_xsize)
@@ -321,7 +312,6 @@ class SpecificWorker(GenericWorker):
         print("")
         print("x_diff", x_diff, "target_roi_xcenter", self.target_roi_xcenter, "roi_xcenter", self.roi_xcenter)
         print("self.last_ROI_error", self.last_ROI_error, "x_der_diff", x_der_diff)
-
 
         x_mod_speed = np.clip(int(self.k1 * aux_x_diff), 0, 22) + x_der_diff
         y_mod_speed = np.clip(int(self.k1 * y_diff), 0, 20)
@@ -365,7 +355,7 @@ class SpecificWorker(GenericWorker):
 
     def create_interface_data(self, boxes, scores, cls_inds):
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        desired_inds = [i for i, cls in enumerate(cls_inds) if True]
+        desired_inds = [i for i, cls in enumerate(cls_inds) if cls in self.classes]
                         #cls in self.classes]  # index of elements that match desired classes
         desired_scores = scores[desired_inds]
         desired_boxes = boxes[desired_inds]
@@ -386,6 +376,7 @@ class SpecificWorker(GenericWorker):
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
+    # Calculate image ROI for element centering
     def set_roi_dimensions(self, objects):
         for object in objects:
             if object.id == self.tracked_id:

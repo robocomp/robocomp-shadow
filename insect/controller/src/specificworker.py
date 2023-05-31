@@ -213,6 +213,8 @@ class SpecificWorker(GenericWorker):
             minusbins = -np.geomspace(0.0001, 1, 10)
             self.bins = np.append(minusbins[::-1], plusbins)  # compose both gemspaces from -1 to 1 with high density close to 0
 
+            self.ui.frame_2d.mousePressEvent = self.set_target_with_mouse
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
     def __del__(self):
@@ -230,8 +232,8 @@ class SpecificWorker(GenericWorker):
         candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
-        #yolo_objects = self.read_yolo_objects()
-        yolo_objects = []
+        yolo_objects = self.read_yolo_objects()
+        # yolo_objects = []
         ss_objects = self.read_ss_objects()
         self.total_objects = self.transform_and_concatenate_objects(yolo_objects, ss_objects)
 
@@ -257,6 +259,22 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
     #########################################################################
+
+    def set_target_with_mouse(self, event):
+        x = int(event.pos().x()*(self.rgb.width / self.ui.frame_2d.width()))
+        y = int(event.pos().y()*(self.rgb.height / self.ui.frame_2d.height()))
+        self.selected_object = None
+        point = (x, y)
+        # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
+        # check if clicked point on yolo object. If so, set it as the new target object
+        for b in self.total_objects:
+            if x >= b.left and x < b.right and y >= b.top and y < b.bot:
+                self.selected_object = b
+                self.segmentatortrackingpub_proxy.setTrack(self.selected_object.id)
+                # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
+                self.previous_yolo_id = None
+                return
+        self.segmentatortrackingpub_proxy.setTrack(-1)
 
     def read_image(self):
         frame = None
@@ -289,7 +307,7 @@ class SpecificWorker(GenericWorker):
     def read_yolo_objects(self):
         yolo_objects = ifaces.RoboCompVisualElements.TObjects()
         try:
-            yolo_objects = self.visualelements_proxy.getVisualObjects()
+            yolo_objects = self.visualelements_proxy.getVisualObjects([])
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
@@ -324,7 +342,6 @@ class SpecificWorker(GenericWorker):
             element.right = int(element.right * x_factor + x_roi_offset) % self.rgb.width
             element.top = int(element.top*y_factor + y_roi_offset)
             element.bot = int(element.bot*y_factor + y_roi_offset)
-            print("PERSON ID:", element.id ,"WIDTH:", element.right - element.left)
         return total_objects
 
     def check_human_interface(self, candidates):
@@ -507,6 +524,8 @@ class SpecificWorker(GenericWorker):
 
         frame = self.draw_objects(frame, objects)
 
+        self.glviewer.process_elements(objects)
+
         # Convert the OpenCV image to a QImage. WATCH that the ratio is lost
         frame_r = cv2.resize(frame, (self.ui.frame_2d.width(), self.ui.frame_2d.height()), cv2.INTER_LINEAR)
         height, width, channel = frame_r.shape
@@ -611,11 +630,26 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e, "Error connecting to omnirobot")
 
+    def insert_element(self):
+        self.modelEntity = Qt3DCore.QEntity(self.glviewer.grid_entity)
+        self.modelMesh = Qt3DRender.QMesh()
+        self.modelMesh.setSource(QUrl.fromLocalFile('low_poly_person_by_Rochus.stl'))
+
+        self.modelTransform = Qt3DCore.QTransform()
+        self.modelTransform.setScale(0.25)
+        self.modelTransform.setRotationX(-90)
+        self.modelTransform.setTranslation(QVector3D(QPointF(3,3)))
+
+        self.modelEntity.addComponent(self.modelMesh)
+        self.modelEntity.addComponent(self.modelTransform)
+        self.modelEntity.addComponent(self.material)
+
     #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
             point = (x, y)
+            print(point)
             # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
             # check if clicked point on yolo object. If so, set it as the new target object
             for b in self.total_objects:
