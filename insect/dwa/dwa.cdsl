@@ -1,8 +1,10 @@
+import "Lidar3D.idsl";
 
 Component dwa
 {
     Communications
     {
+        requires Lidar3D;
     };
     language python;
 };

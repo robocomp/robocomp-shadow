@@ -5,7 +5,27 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+import RoboCompLidar3D
 
+class TLidarData(list):
+    def __init__(self, iterable=list()):
+        super(TLidarData, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TLidarData, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TLidarData", TLidarData)
 
 
 
@@ -45,6 +65,8 @@ class Requires:
     def __init__(self, ice_connector):
         self.ice_connector = ice_connector
         self.mprx={}
+
+        self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
 
     def get_proxies_map(self):
         return self.mprx
