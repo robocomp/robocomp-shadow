@@ -27,6 +27,7 @@ import interfaces as ifaces
 import numpy as np
 import cv2
 import time
+import traceback
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -66,7 +67,7 @@ class SpecificWorker(GenericWorker):
             #self.candidates = self.create_masks(frame_shape, self.candidates)
 
             self.timer.timeout.connect(self.compute)
-            self.timer.setSingleShot(True)
+            #self.timer.setSingleShot(True)
             self.timer.start(self.Period)
 
 
@@ -84,6 +85,12 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
 
+        try:
+            self.lidar3d_proxy.getLidarData(0, 900)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to Lidar3D")
+
         img = np.zeros((700, 700, 3), dtype=np.uint8)
         self.draw_candidates(self.candidates, img)
         cv2.imshow("Candidates", img)
@@ -94,7 +101,7 @@ class SpecificWorker(GenericWorker):
     def create_candidates(self):
         adv_max_accel = 600
         rot_max_accel = 0.4
-        time_ahead = 2
+        time_ahead = 1.5
         step_along_ang = 0.05
         advance_step = 100
         rotation_step = 0.2
@@ -107,7 +114,7 @@ class SpecificWorker(GenericWorker):
         params = []
         targets = []
         trajectories = []
-        for v in np.arange(400, max_reachable_adv_speed, advance_step):
+        for v in np.arange(100, max_reachable_adv_speed, advance_step):
             for w in np.arange(0, max_reachable_rot_speed, rotation_step):
                 new_advance = current_adv_speed + v
                 new_rotation = current_rot_speed + w
@@ -129,17 +136,11 @@ class SpecificWorker(GenericWorker):
                         yh = (r + robot_semi_width) * np.sin(t)
                         ipoints.append([xh, yh])
                     ipoints.reverse()
-                    # compute central line
-                    for t in np.arange(0, ang_length, step_along_ang):
-                        xl = r * np.cos(t) - r
-                        yl = r * np.sin(t)
-                        central.append([xl, yl])
                     # add to trajectories
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, -new_rotation, -r])
-                        targets.append(central)
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
                     points = []
@@ -154,17 +155,11 @@ class SpecificWorker(GenericWorker):
                         yh = (r + robot_semi_width) * np.sin(t)
                         ipoints.append([xh, yh])
                     ipoints.reverse()
-                    # compute central line
-                    for t in np.arange(0, ang_length, step_along_ang):
-                        xl = r - r * np.cos(t)
-                        yl = r * np.sin(t)
-                        central.append([xl, yl])
                     # add to trajectories
                     if len(points) > 2 and len(ipoints) > 2:
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, new_rotation, r])
-                        targets.append(central)
 
             else:  # avoid division by zero
                 points = []
@@ -175,32 +170,26 @@ class SpecificWorker(GenericWorker):
                 points.append([robot_semi_width, 0])
                 trajectories.append(points)
                 params.append([new_advance, 0.0, np.inf])
-                central.append([0, arc_length / 5])
-                central.append([0, 2 * arc_length / 5])
-                central.append([0, 3 * arc_length / 5])
-                central.append([0, 4 * arc_length / 5])
-                central.append([0, arc_length])
-                targets.append(central)
 
         params = np.array(params)
         params[:, 2] = 100 * np.reciprocal(params[:, 2])  # compute curvature from radius
         candidates = []
-        for pa, tg, tr in zip(params, targets, trajectories):
+        for pa, tr in zip(params, trajectories):
             candidate = {}
             candidate["polygon"] = tr
             candidate["params"] = pa
-            candidate["trajectory"] = tg
             candidates.append(candidate)
+        print("Created ", len(candidates), " candidates")
         return candidates
 
     def draw_candidates(self, candidates, img):
-        for c in candidates:
-            c = candidates[1]
-            pol = np.array(c["polygon"]).astype(np.int32)
-            pol = pol.reshape((-1, 1, 2))
-            print(pol)
-            cv2.fillPoly(img, pol, (255, 255, 255))
 
+        height = img.shape[1]
+        for c in candidates:
+            pol = (np.array(c["polygon"]) * 0.5).astype(int)
+            pol[:, 1] = height - pol[:, 1]
+            pol[:, 0] += 350
+            cv2.polylines(img, [pol], True, (255, 255, 255), 1, cv2.LINE_8)
 
     def discard(self, mask_img):
         # discard all paths with less than 95% occupancy
