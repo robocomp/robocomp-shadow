@@ -1,0 +1,9 @@
+
+Component dwa
+{
+    Communications
+    {
+    };
+    language python;
+};
+
