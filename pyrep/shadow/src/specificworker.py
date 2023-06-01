@@ -887,8 +887,8 @@ class SpecificWorker(GenericWorker):
         a = 0
         while a <= length-1:
             for l in range(level):
-                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0]/1000, y=self.points[l][start][1]/1000,
-                                                      z=height/1000, intensity=0))
+                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0], y=self.points[l][start][1],
+                                                      z=height, intensity=0))
                 height += self.consts.depth_lines_step
             height = self.consts.depth_lines_min_height
             start += 1
