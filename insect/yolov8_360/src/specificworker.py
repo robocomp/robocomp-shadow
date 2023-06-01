@@ -152,7 +152,7 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 1
         self.thread_period = 10
-        self.display = True
+        self.display = False
 
         # read test image to get sizes
         started_camera = False
@@ -247,25 +247,43 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Get image with depth
-        if self.depth_flag:
-            rgb, depth, blob, alive_time, period = self.read_queue.get()
-        else:
-            rgb, blob, alive_time, period = self.read_queue.get()
+        """
+        This method carries out the main object detection pipeline.
 
-        if self.tracked_id != None:
+        It retrieves the image and, if applicable, depth information from the read_queue.
+        It then sets the region of interest (ROI) dimensions if there is a tracked object.
+        Then, it makes predictions using YOLOv8 and stores this information in an interface format.
+        If the display option is enabled, it will display the tracking results on the image.
+        Finally, it shows the frames per second (FPS) of the pipeline.
+        """
+        # Get image with depth
+        t1 = time.time()
+        data = self.read_queue.get()
+        print("TIEMPO ", time.time() - t1)
+        if self.depth_flag:
+            rgb, depth, blob, alive_time, period = data
+        else:
+            rgb, blob, alive_time, period = data
+
+        # Set ROI dimensions if tracking an object
+        if self.tracked_id is not None:
             self.set_roi_dimensions(self.objects_read)
 
         dets = self.yolov8_objects(blob)
 
+        # If detections are found
         if dets is not None:
             self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
+
+            # If display is enabled, show the tracking results on the image
             if self.display:
                 img = self.display_data_tracks(rgb, self.objects_read,
-                                        class_names=self.yolo_object_predictor.class_names)
+                                               class_names=self.yolo_object_predictor.class_names)
                 cv2.imshow(self.window_name, img)
                 cv2.waitKey(1)
-        # FPS
+
+
+        # Show FPS and handle Keyboard Interruption
         try:
             self.show_fps(alive_time, period)
         except KeyboardInterrupt:
@@ -273,32 +291,91 @@ class SpecificWorker(GenericWorker):
 
     ######################################################################################################3
 
+
     def get_rgb_thread(self, camera_name: str, event: Event):
+        """
+            A method that continuously gets RGB data from a specific camera until an Event is set.
+
+            Args:
+                camera_name (str): The name of the camera to get RGB data from.
+                event (Event): The Event that stops the method from running when set.
+
+            """
         while not event.is_set():
             try:
-                # print("ACT ROI:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize, self.final_xsize, self.final_ysize)
-                # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize, self.target_roi_ysize)
-                self.rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
-                                                      self.roi_ysize, self.final_xsize, self.final_ysize)
+                # Get ROI from the camera.
+                self.rgb = self.camera360rgb_proxy.getROI(
+                    self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                    self.roi_ysize, self.final_xsize, self.final_ysize
+                )
+
+                # Convert image data to numpy array and reshape it.
                 color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
+
+                # Preprocess the image.
                 blob = self.pre_process(color, (640, 640))
+
+                # Calculate time difference.
                 delta = int(1000 * time.time() - self.rgb.alivetime)
+
+                # Prepare the data package to be put into the queue.
+                data_package = [color, blob, delta, self.rgb.period]
+
+                # If the depth flag is set, insert the depth information into the data package.
                 if self.depth_flag:
-                    # depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height,
-                    #                                                                   rgbd.depth.width, 1)
-                    self.read_queue.put([color, self.rgb.depth, blob, delta, self.rgb.period])
-                else:
-                    self.read_queue.put([color, blob, delta, self.rgb.period])
-                if self.roi_xcenter != self.target_roi_xcenter or self.roi_ycenter != self.target_roi_ycenter or self.roi_xsize != self.target_roi_xsize or self.roi_ysize != self.target_roi_xsize:
+                    data_package.insert(1, self.rgb.depth)
+
+                # Put the data package into the queue.
+                self.read_queue.put(data_package)
+
+                # If the current ROI is not the target ROI, call the method to move towards the target ROI.
+                if (
+                        self.roi_xcenter != self.target_roi_xcenter or
+                        self.roi_ycenter != self.target_roi_ycenter or
+                        self.roi_xsize != self.target_roi_xsize or
+                        self.roi_ysize != self.target_roi_xsize
+                ):
                     self.from_act_roi_to_target()
 
-                event.wait(self.thread_period/1000)
+                event.wait(self.thread_period / 1000)
+
             except:
                 print("Error communicating with Camera360RGB")
                 traceback.print_exc()
 
+    # def get_rgb_thread(self, camera_name: str, event: Event):
+    #     while not event.is_set():
+    #         try:
+    #             # print("ACT ROI:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize, self.final_xsize, self.final_ysize)
+    #             # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize, self.target_roi_ysize)
+    #             self.rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+    #                                                       self.roi_ysize, self.final_xsize, self.final_ysize)
+    #             color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
+    #             blob = self.pre_process(color, (640, 640))
+    #             delta = int(1000 * time.time() - self.rgb.alivetime)
+    #             if self.depth_flag:
+    #                 # depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height,
+    #                 #                                                                   rgbd.depth.width, 1)
+    #                 self.read_queue.put([color, self.rgb.depth, blob, delta, self.rgb.period])
+    #             else:
+    #                 self.read_queue.put([color, blob, delta, self.rgb.period])
+    #             if self.roi_xcenter != self.target_roi_xcenter or self.roi_ycenter != self.target_roi_ycenter or self.roi_xsize != self.target_roi_xsize or self.roi_ysize != self.target_roi_xsize:
+    #                 self.from_act_roi_to_target()
+    #
+    #             event.wait(self.thread_period / 1000)
+    #         except:
+    #             print("Error communicating with Camera360RGB")
+    #             traceback.print_exc()
+
     # Modify actual ROI data to converge in the target ROI dimensions
     def from_act_roi_to_target(self):
+        """
+            This method modifies the actual Region of Interest (ROI) to approach the target ROI. It calculates the differences
+            between the actual and target ROIs and then adjusts the actual ROI based on these differences. The adjustment is
+            performed in both the x and y dimensions, and both for size and center location.
+
+            The method also updates the last ROI error value to be used in future calculations.
+            """
         # Get errors from ROI sizes and centers
         x_diff = abs(self.target_roi_xcenter - self.roi_xcenter)
         y_diff = abs(self.target_roi_ycenter - self.roi_ycenter)
@@ -309,14 +386,14 @@ class SpecificWorker(GenericWorker):
         aux_x_diff = x_diff if x_diff < self.rgb_original.width / 2 else self.rgb_original.width - x_diff
         x_der_diff = int(self.k2 * abs(self.last_ROI_error - aux_x_diff))
 
-        print("")
-        print("x_diff", x_diff, "target_roi_xcenter", self.target_roi_xcenter, "roi_xcenter", self.roi_xcenter)
-        print("self.last_ROI_error", self.last_ROI_error, "x_der_diff", x_der_diff)
+        # print("")
+        # print("x_diff", x_diff, "target_roi_xcenter", self.target_roi_xcenter, "roi_xcenter", self.roi_xcenter)
+        # print("self.last_ROI_error", self.last_ROI_error, "x_der_diff", x_der_diff)
 
         x_mod_speed = np.clip(int(self.k1 * aux_x_diff), 0, 22) + x_der_diff
         y_mod_speed = np.clip(int(self.k1 * y_diff), 0, 20)
 
-        print("x_mod_speed", x_mod_speed)
+        # print("x_mod_speed", x_mod_speed)
 
         x_size_mod_speed = np.clip(int(0.03 * x_size_diff), 0, 8)
         y_size_mod_speed = np.clip(int(0.03 * y_size_diff), 0, 8)
@@ -346,38 +423,113 @@ class SpecificWorker(GenericWorker):
         self.last_ROI_error = aux_x_diff
 
     def yolov8_objects(self, blob):
+        """
+        This method infers objects in the given image blob using YOLO (You Only Look Once) version 8 object detection model.
+
+        Args:
+            blob (numpy array): A preprocessed image blob ready for object detection.
+
+        Returns:
+            dets (numpy array): An array with detected objects information. Each object is represented with a 1D array:
+                                [x1, y1, x2, y2, score, class_id]. The first four values denote the bounding box coordinates,
+                                the fifth value is the confidence score of the detection, and the last value is the detected
+                                object's class index.
+
+        The method begins by feeding the blob into the YOLOv8 model's inference engine. The model returns several outputs:
+        1) 'num': number of detected objects,
+        2) 'final_boxes': a 2D array where each row corresponds to a detected object and contains its bounding box
+           coordinates,
+        3) 'final_scores': a 1D array containing the confidence scores for each detected object,
+        4) 'final_cls_inds': a 1D array containing the class index for each detected object.
+
+        These outputs are then processed and concatenated into a single array 'dets' for convenience, and this array is returned.
+        """
         data = self.yolo_object_predictor.infer(blob)
         num, final_boxes, final_scores, final_cls_inds = data
         final_boxes = np.reshape(final_boxes, (-1, 4))
-        dets = np.concatenate([final_boxes[:num[0]], np.array(final_scores)[:num[0]].reshape(-1, 1),
-                               np.array(final_cls_inds)[:num[0]].reshape(-1, 1)], axis=-1)
+        dets = np.concatenate([final_boxes[:num[0]], final_scores[:num[0]].reshape(-1, 1),
+                               final_cls_inds[:num[0]].reshape(-1, 1)], axis=-1)
         return dets
 
-    def create_interface_data(self, boxes, scores, cls_inds):
+    # def create_interface_data(self, boxes, scores, cls_inds):
+    #     self.objects_write = ifaces.RoboCompVisualElements.TObjects()
+    #     desired_inds = [i for i, cls in enumerate(cls_inds) if cls in self.classes]
+    #     # cls in self.classes]  # index of elements that match desired classes
+    #     desired_scores = scores[desired_inds]
+    #     desired_boxes = boxes[desired_inds]
+    #     desired_clases = cls_inds[desired_inds]
+    #     for index in range(len(desired_scores)):
+    #         act_object = ifaces.RoboCompVisualElements.TObject()
+    #         act_object.type = int(desired_clases[index])
+    #         act_object.left = int(desired_boxes[index][0])
+    #         act_object.top = int(desired_boxes[index][1])
+    #         act_object.right = int(desired_boxes[index][2])
+    #         act_object.bot = int(desired_boxes[index][3])
+    #         act_object.score = desired_scores[index]
+    #         act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter,
+    #                                                             ycenter=self.rgb.roi.ycenter,
+    #                                                             xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
+    #                                                             finalxsize=self.rgb.roi.finalxsize,
+    #                                                             finalysize=self.rgb.roi.finalysize)
+    #         self.objects_write.append(act_object)
+    #     self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+    #     # swap
+    #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
+
+    def create_interface_data(self, boxes, scores, cls_inds): #Optimizado
+        """
+        This method generates interface data for visual objects detected in an image.
+
+        Args:
+            boxes (numpy array): Array of bounding boxes for detected objects, each box is an array [x1, y1, x2, y2].
+            scores (numpy array): Array of scores indicating the confidence of each detected object.
+            cls_inds (numpy array): Array of class indices corresponding to the type of each detected object.
+
+        The method filters out detected objects based on whether their class is in a pre-defined list of classes.
+        It then creates an object (act_object) for each of the remaining detections and populates it with information
+        including the bounding box, score, and type of the detected object.
+
+        The method also includes the region of interest (ROI) in the RGB image where the object was detected.
+        """
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        desired_inds = [i for i, cls in enumerate(cls_inds) if cls in self.classes]
-                        #cls in self.classes]  # index of elements that match desired classes
-        desired_scores = scores[desired_inds]
-        desired_boxes = boxes[desired_inds]
-        desired_clases = cls_inds[desired_inds]
-        for index in range(len(desired_scores)):
+
+        # Extracting desired indices, scores, boxes, and classes in one go
+        desired_data = [(i, score, box, cls) for i, (score, box, cls) in enumerate(zip(scores, boxes, cls_inds)) if
+                        cls in self.classes]
+
+        for i, score, box, cls in desired_data:
             act_object = ifaces.RoboCompVisualElements.TObject()
-            act_object.type = int(desired_clases[index])
-            act_object.left = int(desired_boxes[index][0])
-            act_object.top = int(desired_boxes[index][1])
-            act_object.right = int(desired_boxes[index][2])
-            act_object.bot = int(desired_boxes[index][3])
-            act_object.score = desired_scores[index]
-            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter, ycenter=self.rgb.roi.ycenter,
+            act_object.type = int(cls)
+            act_object.left = int(box[0])
+            act_object.top = int(box[1])
+            act_object.right = int(box[2])
+            act_object.bot = int(box[3])
+            act_object.score = score
+            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter,
+                                                                ycenter=self.rgb.roi.ycenter,
                                                                 xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
-                                                                finalxsize=self.rgb.roi.finalxsize, finalysize=self.rgb.roi.finalysize)
+                                                                finalxsize=self.rgb.roi.finalxsize,
+                                                                finalysize=self.rgb.roi.finalysize)
             self.objects_write.append(act_object)
+
         self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+        # print(self.objects_write)
+
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
     # Calculate image ROI for element centering
     def set_roi_dimensions(self, objects):
+        """
+            Set Region of Interest (ROI) based on objects.
+
+            Args:
+                objects (list): List of detected objects. Each object contains information about its position and size.
+
+            The method goes through the list of objects and when it finds the object that matches the tracked_id,
+            it calculates the desired ROI based on the object's position and size. The ROI is then stored in the class's attributes.
+            """
         for object in objects:
             if object.id == self.tracked_id:
                 x_roi_offset = object.roi.xcenter - object.roi.xsize / 2
@@ -399,52 +551,102 @@ class SpecificWorker(GenericWorker):
 
     ###############################################################
     def pre_process(self, image, input_size, swap=(2, 0, 1)):
+        """
+            Preprocesses an image for object detection.
+
+            The preprocessing steps include padding the image to a given size, reversing the color channels
+            from RGB to BGR, normalizing pixel values to [0,1], and rearranging the dimensions based on the 'swap' parameter.
+
+            Args:
+                image (numpy array): The original image to be preprocessed.
+                input_size (tuple): The desired image size after padding, in the format (height, width).
+                swap (tuple, optional): The order to which the image dimensions should be rearranged.
+
+            Returns:
+                padded_img (numpy array): The preprocessed image ready for object detection.
+            """
         padded_img = np.ones((input_size[0], input_size[1], 3))
         img = np.array(image).astype(np.float32)
         padded_img[: int(img.shape[0]), : int(img.shape[1])] = img
-        padded_img = padded_img[:, :, ::-1]
-        padded_img /= 255.0
-        padded_img = padded_img.transpose(swap)
+        padded_img = padded_img[:, :, ::-1] # Swap color channels from RGB to BGR
+        padded_img /= 255.0 # Normalize pixel values to [0,1]
+        padded_img = padded_img.transpose(swap) # Swap dimensions
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
         return padded_img
 
+    # def track(self, boxes, scores, cls_inds, depth_image):
+    #     final_boxes = []
+    #     final_scores = []
+    #     final_cls_ids = []
+    #     final_ids = []
+    #     tracked_boxes = []
+    #     tracked_scores = []
+    #     tracked_ids = []
+    #     tracked_clases = []
+    #
+    #     if self.depth_flag:
+    #         online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image, cls_inds)
+    #     else:
+    #         online_targets = self.bytetrack_proxy.getTargets(scores, boxes, cls_inds)
+    #     for t in online_targets:
+    #         tlwh = t.tlwh
+    #         tid = t.trackid
+    #         vertical = tlwh[2] / tlwh[3] > 1.6
+    #         if tlwh[2] * tlwh[3] > 10 and not vertical:
+    #             tracked_boxes.append(tlwh)
+    #             tracked_ids.append(tid)
+    #             tracked_scores.append(t.score)
+    #             tracked_clases.append(t.clase)
+    #     if tracked_boxes:
+    #         tracked_boxes = np.asarray(tracked_boxes)
+    #         tracked_boxes[:, 2] = tracked_boxes[:, 0] + tracked_boxes[:, 2]
+    #         tracked_boxes[:, 3] = tracked_boxes[:, 1] + tracked_boxes[:, 3]
+    #
+    #         # we replace the original person boxes by the tracked ones
+    #         # non_people_cls_inds = [i for i, cls in enumerate(cls_inds) if cls != 0]  # index of non-person elements
+    #         final_boxes = tracked_boxes  # non-person boxes + tracked people
+    #         final_scores = tracked_scores
+    #         final_ids =  tracked_ids
+    #         final_cls_ids = tracked_clases
+    #
+    #     return final_boxes, final_scores, final_cls_ids, final_ids
+
     def track(self, boxes, scores, cls_inds, depth_image):
-        final_boxes = []
-        final_scores = []
-        final_cls_ids = []
-        final_ids = []
-        tracked_boxes = []
-        tracked_scores = []
-        tracked_ids = []
-        tracked_clases = []
+        """
+        Function to track objects in the image. If depth information is available, it is used to enhance tracking accuracy.
 
-        if self.depth_flag:
-            online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image, cls_inds)
-        else:
-            online_targets = self.bytetrack_proxy.getTargets(scores, boxes, cls_inds)
-        for t in online_targets:
-            tlwh = t.tlwh
-            tid = t.trackid
-            vertical = tlwh[2] / tlwh[3] > 1.6
-            if tlwh[2] * tlwh[3] > 10 and not vertical:
-                tracked_boxes.append(tlwh)
-                tracked_ids.append(tid)
-                tracked_scores.append(t.score)
-                tracked_clases.append(t.clase)
-        if tracked_boxes:
-            tracked_boxes = np.asarray(tracked_boxes)
-            tracked_boxes[:, 2] = tracked_boxes[:, 0] + tracked_boxes[:, 2]
-            tracked_boxes[:, 3] = tracked_boxes[:, 1] + tracked_boxes[:, 3]
+        Args:
+            boxes (numpy array): Bounding box coordinates for detected objects.
+            scores (numpy array): Confidence scores for detected objects.
+            cls_inds (numpy array): Class indices for detected objects.
+            depth_image (numpy array): Depth image, if available.
 
-            # we replace the original person boxes by the tracked ones
-            # non_people_cls_inds = [i for i, cls in enumerate(cls_inds) if cls != 0]  # index of non-person elements
-            final_boxes = tracked_boxes  # non-person boxes + tracked people
-            final_scores = tracked_scores
-            final_ids =  tracked_ids
-            final_cls_ids = tracked_clases
+        Returns:
+            final_boxes (numpy array): Updated bounding boxes after tracking.
+            final_scores (numpy array): Updated confidence scores after tracking.
+            final_cls_ids (numpy array): Updated class indices after tracking.
+            final_ids (numpy array): Unique track IDs for tracked objects.
+        """
+        online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image,
+                                                                  cls_inds) if self.depth_flag else self.bytetrack_proxy.getTargets(
+            scores, boxes, cls_inds)
+
+        targets_data = [(t.tlwh, t.trackid, t.score, t.clase) for t in online_targets if
+                        t.tlwh[2] * t.tlwh[3] > 10 and t.tlwh[2] / t.tlwh[3] <= 1.6]
+
+        if targets_data:
+            tracked_boxes, tracked_ids, tracked_scores, tracked_clases = zip(*targets_data)
+            tracked_boxes = np.stack(tracked_boxes)
+            tracked_boxes[:, 2] += tracked_boxes[:, 0]
+            tracked_boxes[:, 3] += tracked_boxes[:, 1]
+
+            final_boxes = tracked_boxes
+            final_scores = list(tracked_scores)
+            final_ids = list(tracked_ids)
+            final_cls_ids = list(tracked_clases)
 
         return final_boxes, final_scores, final_cls_ids, final_ids
-        
+
     def post_process(self, final_boxes, final_scores, final_cls_inds, final_inds):
         data = ifaces.RoboCompYoloObjects.TData()
         data.objects = []
@@ -469,33 +671,71 @@ class SpecificWorker(GenericWorker):
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
             delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
-            print("Freq:", self.cont, "Hz. Alive_time:", alive_time, "ms. Img period:", int(period),
-                  "ms. Curr period:", cur_period, "ms. Inc:", delta, "Timer:", self.thread_period)
+            # print("Freq:", self.cont, "Hz. Alive_time:", alive_time, "ms. Img period:", int(period),
+            #       "ms. Curr period:", cur_period, "ms. Inc:", delta, "Timer:", self.thread_period)
             self.thread_period = np.clip(self.thread_period+delta, 0, 200)
             self.cont = 0
         else:
             self.cont += 1
 
-    def display_data(self, img, boxes, scores, cls_inds, inds, class_names=None):
-        #print(len(inds), len(boxes))
-        for i in range(len(boxes)):
-            # if inds[i] == -1:
-            #     continue
-            bb = boxes[i]
-            cls_ids = int(cls_inds[i])
-            ids = inds[i]
-            score = scores[i]
-            x0 = int(bb[0])
-            y0 = int(bb[1])
-            x1 = int(bb[2])
-            y1 = int(bb[3])
-            color = (_COLORS[cls_ids] * 255).astype(np.uint8).tolist()
-            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(class_names[cls_ids], score*100, ids)
-            txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ids]) > 0.5 else (255, 255, 255)
+    # def display_data(self, img, boxes, scores, cls_inds, inds, class_names=None):
+    #     #print(len(inds), len(boxes))
+    #     for i in range(len(boxes)):
+    #         # if inds[i] == -1:
+    #         #     continue
+    #         bb = boxes[i]
+    #         cls_ids = int(cls_inds[i])
+    #         ids = inds[i]
+    #         score = scores[i]
+    #         x0 = int(bb[0])
+    #         y0 = int(bb[1])
+    #         x1 = int(bb[2])
+    #         y1 = int(bb[3])
+    #         color = (_COLORS[cls_ids] * 255).astype(np.uint8).tolist()
+    #         text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(class_names[cls_ids], score*100, ids)
+    #         txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ids]) > 0.5 else (255, 255, 255)
+    #         font = cv2.FONT_HERSHEY_SIMPLEX
+    #         txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+    #         cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+    #         txt_bk_color = (_COLORS[cls_ids] * 255 * 0.7).astype(np.uint8).tolist()
+    #         cv2.rectangle(
+    #             img,
+    #             (x0, y0 + 1),
+    #             (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+    #             txt_bk_color,
+    #             -1
+    #         )
+    #         cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+    #
+    #     return img
+
+    def display_data(self, img, boxes, scores, cls_inds, inds, class_names=None): #Optimizado
+        """
+        This function overlays bounding boxes and object information on the image.
+
+        Args:
+            img (numpy array): The image to display object data on.
+            boxes (list): Bounding box coordinates for each object.
+            scores (list): Confidence scores for each object.
+            cls_inds (list): Class indices for each object.
+            inds (list): Unique track IDs for each object.
+            class_names (list, optional): Names of the classes.
+
+        Returns:
+            img (numpy array): The image with overlaid object data.
+        """
+        for box, score, cls_ind, ind in zip(boxes, scores, cls_inds, inds):
+            x0, y0, x1, y1 = map(int, box)
+            cls_ind = int(cls_ind)
+            color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
+
+            text = f'Class: {class_names[cls_ind]} - Score: {score * 100:.1f}% - ID: {ind}'
+            txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
-            txt_bk_color = (_COLORS[cls_ids] * 255 * 0.7).astype(np.uint8).tolist()
+            txt_bk_color = (_COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
             cv2.rectangle(
                 img,
                 (x0, y0 + 1),
@@ -507,22 +747,57 @@ class SpecificWorker(GenericWorker):
 
         return img
 
-    def display_data_tracks(self, img, elements, class_names=None):
-        #print(len(inds), len(boxes))
-        for i in elements:
-            # if inds[i] == -1:
-            #     continue
-            x0 = int(i.left)
-            y0 = int(i.top)
-            x1 = int(i.right)
-            y1 = int(i.bot)
-            color = (_COLORS[i.type] * 255).astype(np.uint8).tolist()
-            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(class_names[i.type], i.score*100, i.id)
-            txt_color = (0, 0, 0) if np.mean(_COLORS[i.type]) > 0.5 else (255, 255, 255)
+    # def display_data_tracks(self, img, elements, class_names=None):
+    #     #print(len(inds), len(boxes))
+    #     for i in elements:
+    #         # if inds[i] == -1:
+    #         #     continue
+    #         x0 = int(i.left)
+    #         y0 = int(i.top)
+    #         x1 = int(i.right)
+    #         y1 = int(i.bot)
+    #         color = (_COLORS[i.type] * 255).astype(np.uint8).tolist()
+    #         text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(class_names[i.type], i.score*100, i.id)
+    #         txt_color = (0, 0, 0) if np.mean(_COLORS[i.type]) > 0.5 else (255, 255, 255)
+    #         font = cv2.FONT_HERSHEY_SIMPLEX
+    #         txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+    #         cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+    #         txt_bk_color = (_COLORS[i.type] * 255 * 0.7).astype(np.uint8).tolist()
+    #         cv2.rectangle(
+    #             img,
+    #             (x0, y0 + 1),
+    #             (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+    #             txt_bk_color,
+    #             -1
+    #         )
+    #         cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+    #
+    #     return img
+
+    def display_data_tracks(self, img, elements, class_names=None): #Optimizado
+        """
+        This function overlays bounding boxes and object information on the image for tracked objects.
+
+        Args:
+            img (numpy array): The image to display object data on.
+            elements (list): Tracked objects with bounding box coordinates, scores, and class indices.
+            class_names (list, optional): Names of the classes.
+
+        Returns:
+            img (numpy array): The image with overlaid object data.
+        """
+        for element in elements:
+            x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
+            cls_ind = element.type
+            color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
+
+            text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
+            txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
-            txt_bk_color = (_COLORS[i.type] * 255 * 0.7).astype(np.uint8).tolist()
+            txt_bk_color = (_COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
             cv2.rectangle(
                 img,
                 (x0, y0 + 1),
