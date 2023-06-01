@@ -390,6 +390,58 @@ class SpecificWorker(GenericWorker):
     ### CAMERAS get and publish cameras data
     ###########################################
 
+    # def read_lidar3d(self):
+    #     inicio = time.time()
+    #     cam = self.cameras_write[self.omni_camera_depth_name]
+    #     frame = cam["handle"].capture_rgb()  # comes in the RGB channel
+    #     depth_frame = frame[:, :, 0]
+    #     print("PRIMERO", time.time() - inicio)
+    #     # depth_frame = cv2.flip(depth_frame, 1)
+    #
+    #     rows = int((
+    #                            self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
+    #     cols = self.consts.num_angular_bins
+    #     points = np.full((rows, cols, 2),
+    #                      fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+    #     semi_height = depth_frame.shape[0] // 2
+    #     ang_slope = 2 * np.pi / depth_frame.shape[1]
+    #     ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+    #     for u in range(0, depth_frame.shape[0], 5):
+    #         for v in range(0, depth_frame.shape[1], 5):
+    #             hor_ang = ang_slope * v - np.pi
+    #
+    #             fov = 128
+    #             y = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
+    #             x = -u * y / fov
+    #             z = (semi_height-u) * y / fov
+    #
+    #
+    #             # dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
+    #             # if dist > self.consts.max_camera_depth_range:
+    #             #     continue
+    #             # if dist < self.consts.min_camera_depth_range:
+    #             #     continue
+    #             # x = -dist * np.sin(hor_ang)
+    #             # y = dist * np.cos(hor_ang)
+    #             # fov = 128
+    #             # proy = dist * np.cos(np.arctan2((semi_height - u), fov))
+    #             # z = (semi_height - u) / fov * proy
+    #             # z += self.consts.omni_camera_height
+    #             # y += self.consts.omni_camera_y_offset
+    #             # if z < 0:
+    #             #     continue
+    #             for level, step in enumerate(
+    #                     range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+    #                           self.consts.depth_lines_step)):
+    #                 if z > step and z < step + self.consts.depth_lines_step and level < 32:
+    #                     ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
+    #                     new_point = np.array([x, y])
+    #                     if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
+    #                             and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
+    #                         points[level, ang_index] = new_point
+    #     return points
+    #     print("TERCERO", time.time() - inicio)
+
     def read_lidar3d(self):
         inicio = time.time()
         cam = self.cameras_write[self.omni_camera_depth_name]
@@ -880,6 +932,8 @@ class SpecificWorker(GenericWorker):
         bill_target.set_position([tx/1000.0, ty/1000.0, current_pos[2]])
 
     # ===================================================================
+
+
     def Lidar3D_getLidarData(self, start, length):
         lidar3D = []
         level, ang, _ = self.points.shape
@@ -887,8 +941,8 @@ class SpecificWorker(GenericWorker):
         a = 0
         while a <= length-1:
             for l in range(level):
-                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0]/1000, y=self.points[l][start][1]/1000,
-                                                      z=height/1000, intensity=0))
+                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0], y=self.points[l][start][1],
+                                                      z=height, intensity=0))
                 height += self.consts.depth_lines_step
             height = self.consts.depth_lines_min_height
             start += 1
