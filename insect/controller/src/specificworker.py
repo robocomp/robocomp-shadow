@@ -20,9 +20,9 @@
 #
 
 import sys
-from PySide2.QtCore import QTimer
-from PySide2.QtGui import QPixmap, QIcon
-from PySide2.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -36,6 +36,7 @@ from dwa_optimizer import DWA_Optimizer
 sys.path.append('/home/robocomp/robocomp/lib')
 console = Console(highlight=False)
 from dataclasses import dataclass
+from glviewer import GLViewer
 
 _COLORS = np.array(
     [
@@ -125,10 +126,13 @@ _COLORS = np.array(
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 50
+        self.Period = 100
         if startup_check:
             self.startup_check()
         else:
+            # 3D viewer
+            self.glviewer = GLViewer(self.ui.frame_3d, [])
+
             self.visual_objects = None
             self.segmented_img = None
             self.target_object = None
@@ -178,20 +182,20 @@ class SpecificWorker(GenericWorker):
             self.total_objects = []
 
             # semantic_segmentation
-            # try:
-            #     self.semantic_classes = self.maskelements_proxy.getNamesofCategories()
-            # except Ice.Exception as e:
-            #     traceback.print_exc()
-            #     print(e, "Cannot connect to MaskElements interface. Aborting")
-            #     sys.exit()
+            try:
+                self.semantic_classes = self.maskelements_proxy.getNamesofCategories()
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e, "Cannot connect to MaskElements interface. Aborting")
+                sys.exit()
 
             # optimizer
             #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (self.rgb.height, self.rgb.width, self.rgb.depth))
             self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (384, 384, 3))
 
-            self.winname = "Controller"
-            cv2.namedWindow(self.winname)
-            cv2.setMouseCallback(self.winname, self.mouse_click)
+            # self.winname = "Controller"
+            # cv2.namedWindow(self.winname)
+            # cv2.setMouseCallback(self.winname, self.mouse_click)
 
             # signals
             self.selected_index = None
@@ -208,6 +212,8 @@ class SpecificWorker(GenericWorker):
             plusbins = np.geomspace(0.001, 1, 10)
             minusbins = -np.geomspace(0.0001, 1, 10)
             self.bins = np.append(minusbins[::-1], plusbins)  # compose both gemspaces from -1 to 1 with high density close to 0
+
+            self.ui.frame_2d.mousePressEvent = self.set_target_with_mouse
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -226,13 +232,21 @@ class SpecificWorker(GenericWorker):
         candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
+<<<<<<< HEAD
         #yolo_objects = self.read_yolo_objects()
         yolo_objects = []
         sm_objects = self.read_ss_objects()
         self.total_objects = self.transform_and_concatenate_objects(yolo_objects, sm_objects)
+=======
+        yolo_objects = self.read_yolo_objects()
+        # yolo_objects = []
+        ss_objects = self.read_ss_objects()
+        self.total_objects = self.transform_and_concatenate_objects(yolo_objects, ss_objects)
+>>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
 
         # Draw image
-        self.draw_frame(self.winname, frame, candidates, self.total_objects)
+        #print("Objects: ", ss_objects)
+        self.draw_frame(frame, candidates, self.total_objects)
 
         # take control actions
         # active, control, selected = self.check_human_interface(candidates)
@@ -248,9 +262,26 @@ class SpecificWorker(GenericWorker):
 
         #self.control_2(control)
 
-
+        #self.glviewer.paintGL()
+        self.show_fps()
 
     #########################################################################
+
+    def set_target_with_mouse(self, event):
+        x = int(event.pos().x()*(self.rgb.width / self.ui.frame_2d.width()))
+        y = int(event.pos().y()*(self.rgb.height / self.ui.frame_2d.height()))
+        self.selected_object = None
+        point = (x, y)
+        # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
+        # check if clicked point on yolo object. If so, set it as the new target object
+        for b in self.total_objects:
+            if x >= b.left and x < b.right and y >= b.top and y < b.bot:
+                self.selected_object = b
+                self.segmentatortrackingpub_proxy.setTrack(self.selected_object.id)
+                # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
+                self.previous_yolo_id = None
+                return
+        self.segmentatortrackingpub_proxy.setTrack(-1)
 
     def read_image(self):
         frame = None
@@ -283,7 +314,7 @@ class SpecificWorker(GenericWorker):
     def read_yolo_objects(self):
         yolo_objects = ifaces.RoboCompVisualElements.TObjects()
         try:
-            yolo_objects = self.visualelements_proxy.getVisualObjects(yolo_objects)
+            yolo_objects = self.visualelements_proxy.getVisualObjects([])
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
@@ -292,7 +323,7 @@ class SpecificWorker(GenericWorker):
     def read_ss_objects(self):
         ss_objects = ifaces.RoboCompVisualElements.TObjects()
         try:
-            ss_objects = self.visualelements1_proxy.getVisualObjects(ss_objects)
+            ss_objects = self.visualelements1_proxy.getVisualObjects([])
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
@@ -318,7 +349,6 @@ class SpecificWorker(GenericWorker):
             element.right = int(element.right * x_factor + x_roi_offset) % self.rgb.width
             element.top = int(element.top*y_factor + y_roi_offset)
             element.bot = int(element.bot*y_factor + y_roi_offset)
-            # print("final_xsize", final_xsize, "final_ysize", final_ysize, "roi_xcenter", roi_xcenter, "roi_ycenter", roi_ycenter,"roi_xsize", roi_xsize , "roi_ysize", roi_ysize)
         return total_objects
 
     def check_human_interface(self, candidates):
@@ -471,29 +501,6 @@ class SpecificWorker(GenericWorker):
     #         print(e)
     #     return yolo_objects.objects
 
-    def thread_frame_capture(self, queue, segmentator):
-        while True:
-            try:
-                #image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
-                rgbd = self.camera360rgb_proxy.getAll("/Shadow/camera_top")  # TODO: cambiar a variable
-                depth_frame = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape((rgbd.depth.height, rgbd.depth.width, 1))
-                frame = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape((rgbd.image.height, rgbd.image.width, 3))
-                #frame = cv2.resize(frame, (384, 384))
-                seg_objects = self.semanticsegmentation_proxy.getInstances()
-                segmented_img = self.semanticsegmentation_proxy.getSegmentedImage()
-                segmented_img = np.frombuffer(segmented_img.image, dtype=np.uint8).reshape(segmented_img.height, segmented_img.width)
-                mask_img = self.semanticsegmentation_proxy.getMaskedImage("floor")
-                mask_img = np.frombuffer(mask_img.image, dtype=np.uint8).reshape(mask_img.height, mask_img.width)
-                #mask_img, segmented_img, seg_objects = segmentator.process(frame, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
-                #pythonyolo_objects = self.read_yolo_objects()
-                # if yolo_objects:
-                #     self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
-                queue.put([frame, mask_img, segmented_img, [], seg_objects])
-                time.sleep(0.050)
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e)
-
     def show_fps(self):
         if time.time() - self.last_time > 1:
             self.last_time = time.time()
@@ -505,6 +512,7 @@ class SpecificWorker(GenericWorker):
         else:
             self.cont += 1
 
+<<<<<<< HEAD
     def draw_frame(self, winname, frame, candidates, objects):
         # alpha = 0.95
         for s, c in enumerate(candidates):
@@ -518,9 +526,38 @@ class SpecificWorker(GenericWorker):
         #     alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
         #     frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
             cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')], False, (255, 255, 255))
+=======
+    def draw_frame(self, frame, candidates, objects):
+        alpha = 0.95
+        for s, c in enumerate(candidates):
+            # alt = c["mask"]
+            # alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+            # if frame.shape != alt_lane.shape:
+            #     print("Image and mask have different size. Returning")
+            #     return
+            # color = (0, 0, 255) if s == self.selected_index else (100, 100, 100)
+            # alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+            # # we have to combine with the ROI part of the image, not all
+            # roi_frame = frame[]
+            # roi_frame = cv2.addWeighted(roi_frame, alpha, alt_lane, 1 - alpha, 0)
+            # roi_frame.copyTo(frame[])
+            center_x = frame.shape[0]//2
+            cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')+[center_x, 0]], False, (255, 255, 255))
+
+>>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
         frame = self.draw_objects(frame, objects)
-        cv2.imshow(winname, frame)
-        cv2.waitKey(2)
+
+        self.glviewer.process_elements(objects)
+
+        # Convert the OpenCV image to a QImage. WATCH that the ratio is lost
+        frame_r = cv2.resize(frame, (self.ui.frame_2d.width(), self.ui.frame_2d.height()), cv2.INTER_LINEAR)
+        height, width, channel = frame_r.shape
+        q_image = QImage(frame_r.data, width, height, channel*width, QImage.Format_BGR888)
+        # Display the QImage in the QLabel
+        self.ui.frame_2d.setPixmap(QPixmap.fromImage(q_image))
+
+        # cv2.imshow(winname, frame)
+        # cv2.waitKey(2)
 
     def draw_objects(self, image, objects):
         if len(objects) == +0:
@@ -548,55 +585,6 @@ class SpecificWorker(GenericWorker):
             cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0, 255, 0), thickness=1)
         return image
 
-        # if self.selected_index is not None:
-        #     target = np.array(targets[self.selected_index])
-        #     points = self.dwa_optimizer.project_polygons([target])[0]
-        #     for p in points:
-        #         cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
-
-        # compute rois for doors
-        # inst = instance_img['segments_info']
-        # door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
-        # inst_img = instance_img['segmentation']
-        # for door_id in door_ids:
-        #     mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
-        #     mask[inst_img == door_id] = 255
-        #     mask_23 = cv2.boundingRect(mask)
-        #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
-
-        # cv2.imshow(winname, frame)
-        # cv2.waitKey(2)
-
-    # def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures, targets):
-    #     alpha = 0.8
-    #
-    #     for s, alt in enumerate(alternatives):
-    #         alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-    #         if s == self.selected_index:
-    #             color = (0, 0, 255)
-    #         else:
-    #             color = (100, 100, 100)
-    #         alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
-    #         frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
-    #
-    #     if self.selected_index is not None:
-    #         target = np.array(targets[self.selected_index])
-    #         points = self.dwa_optimizer.project_polygons([target])[0]
-    #         for p in points:
-    #             cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
-    #
-    #     # compute rois for doors
-    #     # inst = instance_img['segments_info']
-    #     # door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
-    #     # inst_img = instance_img['segmentation']
-    #     # for door_id in door_ids:
-    #     #     mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
-    #     #     mask[inst_img == door_id] = 255
-    #     #     mask_23 = cv2.boundingRect(mask)
-    #     #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
-    #
-    #     cv2.imshow(winname, frame)
-    #     cv2.waitKey(2)
 
     def draw_semantic_segmentation(self, winname, color_image, seg, yolo_rois, seg_rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
@@ -665,11 +653,26 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e, "Error connecting to omnirobot")
 
+    def insert_element(self):
+        self.modelEntity = Qt3DCore.QEntity(self.glviewer.grid_entity)
+        self.modelMesh = Qt3DRender.QMesh()
+        self.modelMesh.setSource(QUrl.fromLocalFile('low_poly_person_by_Rochus.stl'))
+
+        self.modelTransform = Qt3DCore.QTransform()
+        self.modelTransform.setScale(0.25)
+        self.modelTransform.setRotationX(-90)
+        self.modelTransform.setTranslation(QVector3D(QPointF(3,3)))
+
+        self.modelEntity.addComponent(self.modelMesh)
+        self.modelEntity.addComponent(self.modelTransform)
+        self.modelEntity.addComponent(self.material)
+
     #########################################################################################3
     def mouse_click(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
             point = (x, y)
+            print(point)
             # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
             # check if clicked point on yolo object. If so, set it as the new target object
             for b in self.total_objects:
@@ -798,3 +801,77 @@ class SpecificWorker(GenericWorker):
     ######################
     # From the RoboCompSegmentatorTrackingPub you can publish calling this methods:
     # self.segmentatortrackingpub_proxy.setTrack(...)
+
+    #def thread_frame_capture(self, queue, segmentator):
+    #     while True:
+    #         try:
+    #             #image = self.camerargbdsimple_proxy.getImage("/Shadow/camera_top")
+    #             rgbd = self.camerargbdsimple_proxy.getAll("/Shadow/camera_top")  # TODO: cambiar a variable
+    #             depth_frame = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape((rgbd.depth.height, rgbd.depth.width, 1))
+    #             frame = np.frombuffer(rgbd.image.image, dtype=np.uint8).reshape((rgbd.image.height, rgbd.image.width, 3))
+    #             #frame = cv2.resize(frame, (384, 384))
+    #             seg_objects = self.semanticsegmentation_proxy.getInstances()
+    #             segmented_img = self.semanticsegmentation_proxy.getSegmentedImage()
+    #             segmented_img = np.frombuffer(segmented_img.image, dtype=np.uint8).reshape(segmented_img.height, segmented_img.width)
+    #             mask_img = self.semanticsegmentation_proxy.getMaskedImage("floor")
+    #             mask_img = np.frombuffer(mask_img.image, dtype=np.uint8).reshape(mask_img.height, mask_img.width)
+    #             #mask_img, segmented_img, seg_objects = segmentator.process(frame, depth_frame, rgbd.depth.focalx, rgbd.depth.focaly)
+    #             #pythonyolo_objects = self.read_yolo_objects()
+    #             # if yolo_objects:
+    #             #     self.draw_yolo_boxes(frame, yolo_objects, self.yolo_object_names)
+    #             queue.put([frame, mask_img, segmented_img, [], seg_objects])
+    #             time.sleep(0.050)
+    #         except Ice.Exception as e:
+    #             traceback.print_exc()
+    #             print(e)
+
+
+# if self.selected_index is not None:
+#     target = np.array(targets[self.selected_index])
+#     points = self.dwa_optimizer.project_polygons([target])[0]
+#     for p in points:
+#         cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
+
+# compute rois for doors
+# inst = instance_img['segments_info']
+# door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
+# inst_img = instance_img['segmentation']
+# for door_id in door_ids:
+#     mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+#     mask[inst_img == door_id] = 255
+#     mask_23 = cv2.boundingRect(mask)
+#     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
+
+# cv2.imshow(winname, frame)
+# cv2.waitKey(2)
+
+# def draw_frame(self, winname, frame, alternatives, segmented_img, instance_img, labels, curvatures, targets):
+#     alpha = 0.8
+#
+#     for s, alt in enumerate(alternatives):
+#         alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+#         if s == self.selected_index:
+#             color = (0, 0, 255)
+#         else:
+#             color = (100, 100, 100)
+#         alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+#         frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
+#
+#     if self.selected_index is not None:
+#         target = np.array(targets[self.selected_index])
+#         points = self.dwa_optimizer.project_polygons([target])[0]
+#         for p in points:
+#             cv2.circle(frame, np.array(p).astype(int), 5, (0, 0, 255))
+#
+#     # compute rois for doors
+#     # inst = instance_img['segments_info']
+#     # door_ids = [v['id'] for v in inst if v['label_id'] == labels["door"] and v['score'] > 0.7]
+#     # inst_img = instance_img['segmentation']
+#     # for door_id in door_ids:
+#     #     mask = np.zeros((inst_img.shape[0], inst_img.shape[1], 1), dtype=np.uint8)
+#     #     mask[inst_img == door_id] = 255
+#     #     mask_23 = cv2.boundingRect(mask)
+#     #     cv2.rectangle(frame_new, mask_23, (0, 0, 255), 2)
+#
+#     cv2.imshow(winname, frame)
+#     cv2.waitKey(2)
