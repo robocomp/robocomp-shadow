@@ -41,10 +41,6 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
 
-        # params
-        self.display = False
-        self.lidar3D = False
-
         # ROI parameters. Must be filled up
         self.final_xsize = 0
         self.final_ysize = 0
@@ -119,7 +115,7 @@ class SpecificWorker(GenericWorker):
                     started_camera = True
                 except Ice.Exception as e:
                     traceback.print_exc()
-                    print(e, "Error connecting to camera. Trying again...")
+                    print(e, "Trying again...")
                     time.sleep(1)
 
             self.timer.timeout.connect(self.compute)
@@ -130,16 +126,12 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
-            print("Params: ", params)
             if params["depth_flag"] == "true" or params["depth_flag"] == "True":
                 self.tracker = BYTETrackerDepth(frame_rate=30)
             else:
                 self.tracker = BYTETracker(frame_rate=30)
             if params["display"] == "true" or params["display"] == "True":
                 self.display = True
-            if params["lidar3D"] == "true" or params["lidar3D"] == "True":
-                self.lidar3D = True
-
         except:
             traceback.print_exc()
             print("Error reading config params")
@@ -233,9 +225,6 @@ class SpecificWorker(GenericWorker):
         return self.objects_read
 
     def read_image(self):
-<<<<<<< HEAD
-        # rgb = self.camera360rgb_proxy.getROI(self.center_x, self.center_y, 512, 430, 640, 640)
-=======
         """
         Retrieves an image from a 360-degree RGB camera and reshapes it into the proper format.
 
@@ -252,7 +241,6 @@ class SpecificWorker(GenericWorker):
         """
 
         # Retrieve the image data from the 360-degree camera.
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
         rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
 
         # Reshape the 1D array of pixel data into a 3D array representing the RGB image.
@@ -385,138 +373,6 @@ class SpecificWorker(GenericWorker):
         else:
             self.cont += 1
 
-<<<<<<< HEAD
-    ################################################################################################
-    ### Methods related to external calls
-    ################################################################################################
-
-    def process_visual_objects(self, visual_objects):
-        data = {"scores": [], "boxes": [], "clases": [], "roi": []}
-        for object in visual_objects:
-           data["scores"].append(object.score)
-           data["boxes"].append([object.left, object.top, object.right, object.bot])
-           data["clases"].append(object.type)
-           data["roi"].append(object.roi)
-
-
-    def VisualElements_getVisualObjects(self, objects):
-            # get roi params from firs visual object since all are the same
-            # if visual_objects:
-            #     roi = visual_objects[0].roi
-            #     self.final_xsize = roi.finalxsize
-            #     self.final_ysize = roi.finalysize
-            #     self.roi_xcenter = roi.xcenter
-            #     self.roi_ycenter = roi.ycenter
-            #     self.roi_xsize = roi.xsize
-            #     self.roi_ysize = roi.ysize
-            #     self.x_roi_offset = self.roi_xcenter-self.roi_xsize/2
-            #     self.y_roi_offset = self.roi_ycenter-self.roi_ysize/2
-            #     self.x_factor = self.roi_xsize / self.final_xsize
-            #     self.y_factor = self.roi_ysize / self.final_ysize
-            #     print(self.final_xsize, self.final_ysize)
-            #     print(self.roi_xcenter, self.roi_ycenter)
-            #     print(self.roi_xsize, self.roi_ysize)
-            #     print(self.x_roi_offset, self.y_roi_offset)
-            #     print(self.x_factor, self.y_factor)
-
-            #Compute alpha start
-            width_start = self.roi_xcenter - (self.roi_xsize//2)
-            # width_final = self.roi_xcenter + (self.roi_xsize//2)
-            start_angle = (self.calculate_start_angle(1024, width_start) + 360)*900/360
-            # final_angle = self.calculate_end_angle(1024, width_final) + 900
-            # print(final_angle-start_angle)
-            #print(start_angle)
-
-            if self.lidar3D:
-                self.lidar_in_image = self.lidar_points(int(start_angle), int(abs(start_angle)*2))
-
-            return data
-
-    def to_visualelements_interface(self, tracks):
-        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        for track in tracks:
-            target = ifaces.RoboCompVisualElements.TObject()
-            target.roi = track.roi
-            target.id = int(track.track_id)
-            target.score = track.score
-            target.left = int(track.tlwh[0])
-            target.top = int(track.tlwh[1])
-            target.right = int((track.tlwh[0]+track.tlwh[2]))
-            target.bot = int((track.tlwh[1]+track.tlwh[3]))
-            target.type = track.clase
-
-            self.objects_write.append(target)
-
-        # swap
-        self.objects_write, self.objects_read = self.objects_read, self.objects_write
-        return self.objects_read
-
-    def calculate_start_angle(self, original_width, start_roi_angle):
-        # La imagen original cubre 360 grados
-        original_fov = 360
-        # original_fov = 900
-
-        # Calculamos la proporción de la posición de inicio con respecto al ancho original
-        start_ratio = start_roi_angle / original_width
-
-        # Calculamos el ángulo de inicio
-        start_angle = original_fov * start_ratio - 180
-        # start_angle = original_fov * start_ratio - 450
-
-        return start_angle
-
-    def calculate_end_angle(self, original_width, final_roi_angle):
-        # La imagen original cubre 360 grados
-        # original_fov = 360
-        original_fov = 900
-
-        # Calculamos la proporción de la posición de inicio con respecto al ancho original
-        start_ratio = final_roi_angle / original_width
-
-        # Calculamos el ángulo de inicio
-        #start_angle = original_fov * start_ratio - 180
-        start_angle = original_fov * start_ratio + 450
-
-        return start_angle
-    def lidar_points(self, alpha_roi, roi_width):
-        points = self.lidar3d_proxy.getLidarData(alpha_roi, roi_width)
-        lidar_points = np.array([[i.x*1000, i.y*1000, i.z*1000, 1] for i in points ])
-        lidar_points = np.dot(lidar_points, self.lidar_to_cam.T)[:, :3]  # Eliminar la última columna
-        lidar_in_image = np.column_stack([
-            (self.focal_x * lidar_points[:, 0] / lidar_points[:, 1]) + 512,
-            (-self.focal_y * lidar_points[:, 2] / lidar_points[:, 1]) + 256,
-            np.linalg.norm(lidar_points, axis=1)
-        ])
-        return lidar_in_image
-
-    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
-        a = roll
-        b = pitch
-        g = heading
-        mat = np.array([[np.cos(b) * np.cos(g),
-                         (np.sin(a) * np.sin(b) * np.cos(g) + np.cos(a) * np.sin(g)), (np.sin(a) * np.sin(g) -
-                                                                                       np.cos(a) * np.sin(b) * np.cos(
-                        g)), x0],
-                        [-np.cos(b) * np.sin(g), (np.cos(a) * np.cos(g) - np.sin(a) * np.sin(b) * np.sin(g)),
-                         (np.sin(a) * np.cos(g) + np.cos(a) * np.sin(b) * np.sin(g)), y0],
-                        [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
-                        [0, 0, 0, 1]])
-        return mat
-
-    def points_in_bbox(self, points, x1, y1, x2, y2):
-        resultados = []
-        min_distancia = float('inf')
-        for punto in points:
-            x, y, distancia = punto
-            if x1 <= x <= x2 and y1 <= y <= y2:
-                resultados.append(punto)
-                if distancia < min_distancia:
-                    min_distancia = distancia
-        return resultados, min_distancia
-    ##############################################################################################
-
-=======
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
     ##############################################################################################
 
     def lidar_points(self):
@@ -793,31 +649,11 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     ##############################################################################################
 
-    def VisualElements_getVisualObjects(self):
-        return self.objects_read
-
-    ##############################################################################################
-    # IMPLEMENTATION of allTargets method from ByteTrack interface
-    ##############################################################################################
-
-    def ByteTrack_allTargets(self):
-        ret = ifaces.RoboCompByteTrack.OnlineTargets()
-        #
-        # write your CODE here
-        #
-        return ret
-    #
-    # IMPLEMENTATION of getTargets method from ByteTrack interface
-    #
-    def ByteTrack_getTargets(self, objects):
+    def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
-<<<<<<< HEAD
-        data = self.process_visual_objects(objects)
-=======
 
         data = self.read_visual_objects(objects)
         self.objects = objects
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
         # Get tracks from Bytetrack and convert data to VisualElements interface
         return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
                                                                                        np.array(data["boxes"]),
@@ -825,6 +661,7 @@ class SpecificWorker(GenericWorker):
                                                                                        np.array(data["roi"])))
 
     ##############################################################################################
+
 
     # ===================================================================
     # ===================================================================
@@ -888,25 +725,4 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompByteTrack you can use this types:
-<<<<<<< HEAD
     # RoboCompByteTrack.Targets
-
-
-# def VisualElements_setVisualObjects(self, visualObjects, publisher):
-    #     target_data_dict = {"scores" : [], "boxes" : [], "clases" : []}
-    #     for object in visualObjects:
-    #         target_data_dict["scores"].append(object.score)
-    #         target_data_dict["boxes"].append([object.left, object.top, object.right, object.bot])
-    #         target_data_dict["clases"].append(object.type)
-    #     self.process_queue.put(target_data_dict)
-    #     self.publisher = publisher
-    #     if publisher == 0:
-    #         self.image_height = 640
-    #         self.image_width = 640
-    #     elif publisher == 1:
-    #         self.image_height = 384
-    #         self.image_width = 384
-    #
-=======
-    # RoboCompByteTrack.Targets
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
