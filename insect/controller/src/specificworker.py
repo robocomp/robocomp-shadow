@@ -232,8 +232,8 @@ class SpecificWorker(GenericWorker):
         candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
-        yolo_objects = self.read_yolo_objects()
-        # yolo_objects = []
+        #yolo_objects = self.read_yolo_objects()
+        yolo_objects = []
         ss_objects = self.read_ss_objects()
         self.total_objects = self.transform_and_concatenate_objects(yolo_objects, ss_objects)
 
