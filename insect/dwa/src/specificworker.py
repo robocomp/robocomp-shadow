@@ -19,8 +19,9 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import *
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QPolygonF
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -28,6 +29,7 @@ import numpy as np
 import cv2
 import time
 import traceback
+from shapely.geometry import Point, Polygon
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -47,8 +49,14 @@ class SpecificWorker(GenericWorker):
             self.startup_check()
         else:
 
+            self.window_name = "DWA"
+            cv2.namedWindow(self.window_name)
+            cv2.createTrackbar('Z threshold', self.window_name, 0, 3000, self.z_on_change)
+            self.z_lidar_height = 1250
+            self.z_threshold = self.z_lidar_height
+
             # Hz
-            self.cont = 0
+            self.cont = 1
             self.last_time = time.time()
             self.fps = 0
 
@@ -56,15 +64,6 @@ class SpecificWorker(GenericWorker):
             self.candidates = self.create_candidates()
 
 
-            # self.params = np.array(candidates["params"])
-            # self.camera_matrix = camera_matrix
-            # self.focalx = focalx
-            # self.focaly = focaly
-            # self.frame_shape = frame_shape
-            # project polygons on image
-
-            #self.candidates = self.project_polygons(self.candidates)
-            #self.candidates = self.create_masks(frame_shape, self.candidates)
 
             self.timer.timeout.connect(self.compute)
             #self.timer.setSingleShot(True)
@@ -85,15 +84,36 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
 
+        ldata = []
+        ldata_set = []
+        safe_lanes = []
         try:
-            self.lidar3d_proxy.getLidarData(0, 900)
+            ldata = self.lidar3d_proxy.getLidarData(787, 225)
+            # remove points 30cm from floor and above robot
+            ldata_set = [(l.x, l.y) for l in ldata if l.z > (400 - self.z_lidar_height) and
+                                                      l.z < 0 and
+                                                      np.linalg.norm((l.x, l.y)) > 400]
+            print(len(ldata), len(ldata_set))
         except Ice.Exception as e:
             traceback.print_exc()
             print(e, "Error connecting to Lidar3D")
 
-        img = np.zeros((700, 700, 3), dtype=np.uint8)
-        self.draw_candidates(self.candidates, img)
-        cv2.imshow("Candidates", img)
+        # discard_occupied_lanes
+        print("lanes", len(self.candidates))
+        safe_lanes = self.discard_occupied_lanes(ldata_set, self.candidates)
+        print("safe_lanes", len(safe_lanes))
+        width = 700
+        height = 700
+        img = np.zeros((width, height, 3), dtype=np.uint8)
+        self.draw_candidates(safe_lanes, img)
+
+        for l in ldata_set:
+            p = np.array([int(l[0]/10) + width//2, height-int(l[1]/10)])
+            if(p[0] > 0 and p[0] < width and p[1]> 0 and p[1] < height):
+                #cv2.circle(img, p.astype(int), 2, (0, 255, 0), -1)
+                cv2.rectangle(img, p-(2, 2), p+(2, 2), (0, 255, 0))
+
+        cv2.imshow(self.window_name, img)
         cv2.waitKey(2)
 
         self.show_fps()
@@ -182,13 +202,29 @@ class SpecificWorker(GenericWorker):
         print("Created ", len(candidates), " candidates")
         return candidates
 
+    def discard_occupied_lanes(self, ldata, lanes):
+        safe_lanes = []
+        qp_lanes = [QPolygonF([QPointF(p[0], p[1]) for p in l["polygon"]]) for l in lanes]
+        for qp, l in zip(qp_lanes, lanes):
+            if not any(qp.containsPoint(QPointF(point[0], point[1]), Qt.OddEvenFill) for point in ldata):
+                safe_lanes.append(l)
+        return safe_lanes
+
+    def discard_occupied_lanes2(self, ldata, lanes):
+        safe_lanes = []
+        polygons = [Polygon([Point(p[0], p[1]) for p in l["polygon"]]) for l in lanes]
+        for poly, l in zip(polygons, lanes):
+            if not any(poly.contains(Point(point[0], point[1])) for point in ldata):
+                safe_lanes.append(l)
+        return safe_lanes
+
     def draw_candidates(self, candidates, img):
 
-        height = img.shape[1]
+        width, height, _ = img.shape
         for c in candidates:
-            pol = (np.array(c["polygon"]) * 0.5).astype(int)
+            pol = (np.array(c["polygon"]) * 0.1).astype(int)
             pol[:, 1] = height - pol[:, 1]
-            pol[:, 0] += 350
+            pol[:, 0] += width//2
             cv2.polylines(img, [pol], True, (255, 255, 255), 1, cv2.LINE_8)
 
     def discard(self, mask_img):
@@ -281,14 +317,24 @@ class SpecificWorker(GenericWorker):
             #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
             print("Freq:", self.cont, "ms. Curr period:", cur_period)
             #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
-            self.cont = 0
+            self.cont = 1
         else:
             self.cont += 1
+
+    def z_on_change(self, val):
+        print(val)
+        self.z_threshold = val - self.z_lidar_height
+
     ################################################################
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
 
+# self.params = np.array(candidates["params"])
+# self.camera_matrix = camera_matrix
+# self.focalx = focalx
+# self.focaly = focaly
+# self.frame_shape = frame_shape
+# project polygons on image
 
-
-
-
+# self.candidates = self.project_polygons(self.candidates)
+# self.candidates = self.create_masks(frame_shape, self.candidates)

@@ -232,10 +232,10 @@ class SpecificWorker(GenericWorker):
         candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
-        #yolo_objects = self.read_yolo_objects()
-        yolo_objects = []
-        ss_objects = self.read_ss_objects()
-        self.total_objects = self.transform_and_concatenate_objects(yolo_objects, ss_objects)
+        yolo_objects = self.read_yolo_objects()
+        #yolo_objects = []
+        sm_objects = self.read_ss_objects()
+        self.total_objects = self.transform_and_concatenate_objects(yolo_objects, sm_objects)
 
         # Draw image
         #print("Objects: ", ss_objects)
@@ -322,7 +322,7 @@ class SpecificWorker(GenericWorker):
             print(e)
         return ss_objects
 
-    def transform_and_concatenate_objects(self, yolo_objects, ss_objects):
+    def transform_and_concatenate_objects(self, yolo_objects, ss_objects):    #TODO: replace by list of lists
         # Concatenate objects from YOLO and ss
         total_objects = list(itertools.chain(yolo_objects, ss_objects))
 

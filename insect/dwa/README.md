@@ -1,5 +1,4 @@
 # dwa
-Intro to component here
 
 
 ## Configuration parameters
