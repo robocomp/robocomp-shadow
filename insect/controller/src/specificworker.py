@@ -226,7 +226,10 @@ class SpecificWorker(GenericWorker):
         candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
-        self.total_objects = self.transform_and_concatenate_objects(self.read_yolo_objects(), self.read_ss_objects())
+        #yolo_objects = self.read_yolo_objects()
+        yolo_objects = []
+        sm_objects = self.read_ss_objects()
+        self.total_objects = self.transform_and_concatenate_objects(yolo_objects, sm_objects)
 
         # Draw image
         self.draw_frame(self.winname, frame, candidates, self.total_objects)
@@ -295,7 +298,7 @@ class SpecificWorker(GenericWorker):
             print(e)
         return ss_objects
 
-    def transform_and_concatenate_objects(self, yolo_objects, ss_objects):
+    def transform_and_concatenate_objects(self, yolo_objects, ss_objects):    #TODO: replace by list of lists
         # Concatenate objects from YOLO and ss
         total_objects = list(itertools.chain(yolo_objects, ss_objects))
 
@@ -503,17 +506,17 @@ class SpecificWorker(GenericWorker):
             self.cont += 1
 
     def draw_frame(self, winname, frame, candidates, objects):
-        alpha = 0.95
+        # alpha = 0.95
         for s, c in enumerate(candidates):
-            alt = c["mask"]
-            alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
-
-            if s == self.selected_index:
-                color = (0, 0, 255)
-            else:
-                color = (100, 100, 100)
-            alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
-            frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
+        #     alt = c["mask"]
+        #     alt_lane = cv2.cvtColor(alt, cv2.COLOR_GRAY2BGR)
+        #
+        #     if s == self.selected_index:
+        #         color = (0, 0, 255)
+        #     else:
+        #         color = (100, 100, 100)
+        #     alt_lane[np.all(alt_lane == (255, 255, 255), axis=-1)] = color
+        #     frame = cv2.addWeighted(frame, alpha, alt_lane, 1 - alpha, 0)
             cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')], False, (255, 255, 255))
         frame = self.draw_objects(frame, objects)
         cv2.imshow(winname, frame)
