@@ -62,7 +62,7 @@ import signal
 from rich.console import Console
 console = Console()
 
-from PySide2 import QtWidgets
+from PySide6 import QtWidgets
 import interfaces
 from specificworker import *
 
@@ -89,5 +89,5 @@ if __name__ == '__main__':
 
     interface_manager.set_default_hanlder(worker)
     signal.signal(signal.SIGINT, sigint_handler)
-    app.exec_()
+    app.exec()
     interface_manager.destroy()
