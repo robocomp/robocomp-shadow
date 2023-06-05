@@ -110,7 +110,7 @@ class SpecificWorker(GenericWorker):
                     print(" focalx", rgb.focalx)
                     print(" focaly", rgb.focaly)
                     print(" period", rgb.period)
-                    print(" ratio {:.2f}".format(image.width/image.height))
+                    print(" ratio {:.2f}".format(rgb.width/rgb.height))
 
                     started_camera = True
                 except Ice.Exception as e:
