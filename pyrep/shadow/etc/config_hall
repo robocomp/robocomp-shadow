@@ -10,7 +10,7 @@ JointMotorSimple.Endpoints=tcp -p 10086
 CameraSimple.Endpoints=tcp -p 10005
 BillCoppelia.Endpoints=tcp -p 11046
 Lidar3D.Endpoints=tcp -p 11987
-Camera360RGB.Endpoints=tcp -p 10097
+Camera360RGB.Endpoints=tcp -p 10098
 
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 13100
