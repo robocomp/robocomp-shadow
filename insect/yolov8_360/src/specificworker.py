@@ -148,54 +148,59 @@ _COLORS = np.array(
 ).astype(np.float32).reshape(-1, 3)
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
+    def __init__(self, proxy_map, params, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 1
-        self.thread_period = 10
-        self.display = False
-
-        # read test image to get sizes
-        started_camera = False
-        while not started_camera:
-            try:
-                self.rgb_original = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-
-                print("Camera specs:")
-                print(" width:", self.rgb_original.width)
-                print(" height:", self.rgb_original.height)
-                print(" depth", self.rgb_original.depth)
-                print(" focalx", self.rgb_original.focalx)
-                print(" focaly", self.rgb_original.focaly)
-                print(" period", self.rgb_original.period)
-                print(" ratio {:.2f}.format(image.width/image.height)")
-
-                # Image ROI require parameters
-                self.final_xsize = 640
-                self.final_ysize = 640
-                self.roi_xsize = self.rgb_original.width // 2
-                self.roi_ysize = self.rgb_original.height
-                self.roi_xcenter = self.rgb_original.width // 2
-                self.roi_ycenter = self.rgb_original.height // 2
-
-                #Target ROI size
-                self.target_roi_xsize = self.roi_xsize
-                self.target_roi_ysize = self.roi_ysize
-                self.target_roi_xcenter = self.roi_xcenter
-                self.target_roi_ycenter = self.roi_ycenter
-
-                started_camera = True
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Trying again...")
-                time.sleep(2)
-
         if startup_check:
             self.startup_check()
         else:
+            self.Period = 1
+            self.thread_period = 10
+            self.display = False
+            self.yolo_model = "yolov8s.trt"
+
+            # OJO, comentado en el main
+            self.setParams(params)
+
+            # read test image to get sizes
+            started_camera = False
+            while not started_camera:
+                try:
+                    self.rgb_original = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+
+                    print("Camera specs:")
+                    print(" width:", self.rgb_original.width)
+                    print(" height:", self.rgb_original.height)
+                    print(" depth", self.rgb_original.depth)
+                    print(" focalx", self.rgb_original.focalx)
+                    print(" focaly", self.rgb_original.focaly)
+                    print(" period", self.rgb_original.period)
+                    print(" ratio {:.2f}.format(image.width/image.height)")
+
+                    # Image ROI require parameters
+                    self.final_xsize = 640
+                    self.final_ysize = 640
+                    self.roi_xsize = self.rgb_original.width // 2
+                    self.roi_ysize = self.rgb_original.height
+                    self.roi_xcenter = self.rgb_original.width // 2
+                    self.roi_ycenter = self.rgb_original.height // 2
+
+                    # Target ROI size
+                    self.target_roi_xsize = self.roi_xsize
+                    self.target_roi_ysize = self.roi_ysize
+                    self.target_roi_xcenter = self.roi_xcenter
+                    self.target_roi_ycenter = self.roi_ycenter
+
+                    started_camera = True
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Trying again...")
+                    time.sleep(2)
+
             self.window_name = "Yolo Segmentator"
 
             # trt
-            self.yolo_object_predictor = BaseEngine(engine_path='yolov8.trt')
+            self.yolo_object_predictor = BaseEngine(engine_path=self.yolo_model)
+            print("Loaded YOLO model: ", self.yolo_model)
 
             # Hz
             self.cont = 0
@@ -221,6 +226,9 @@ class SpecificWorker(GenericWorker):
             self.rgb = None
             self.read_queue = queue.Queue(1)
             self.event = Event()
+            self.read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
+                                      name="read_queue", daemon=True)
+            self.read_thread.start()
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -230,12 +238,10 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
-            self.classes = []
+            self.classes = [0]
+            self.yolo_model = params["yolo_model"]
             self.display = params["display"] == "true" or params["display"] == "True"
             self.depth_flag = params["depth"] == "true" or params["depth"] == "True"
-            self.read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
-                                      name="read_queue", daemon=True)
-            self.read_thread.start()
             with open(params["classes-path-file"]) as f:
                 [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
             print("Params read. Starting...", params)
@@ -259,7 +265,7 @@ class SpecificWorker(GenericWorker):
         # Get image with depth
         t1 = time.time()
         data = self.read_queue.get()
-        print("TIEMPO ", time.time() - t1)
+        #print("TIEMPO ", time.time() - t1)
         if self.depth_flag:
             rgb, depth, blob, alive_time, period = data
         else:
@@ -290,7 +296,6 @@ class SpecificWorker(GenericWorker):
             self.event.set()
 
     ######################################################################################################3
-
 
     def get_rgb_thread(self, camera_name: str, event: Event):
         """
@@ -338,34 +343,9 @@ class SpecificWorker(GenericWorker):
                     self.from_act_roi_to_target()
 
                 event.wait(self.thread_period / 1000)
-
-            except:
-                print("Error communicating with Camera360RGB")
+            except Ice.Exception as e:
                 traceback.print_exc()
-
-    # def get_rgb_thread(self, camera_name: str, event: Event):
-    #     while not event.is_set():
-    #         try:
-    #             # print("ACT ROI:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize, self.final_xsize, self.final_ysize)
-    #             # print("TARGET DATA:", self.tracked_id, self.target_roi_xcenter, self.target_roi_ycenter, self.target_roi_xsize, self.target_roi_ysize)
-    #             self.rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
-    #                                                       self.roi_ysize, self.final_xsize, self.final_ysize)
-    #             color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
-    #             blob = self.pre_process(color, (640, 640))
-    #             delta = int(1000 * time.time() - self.rgb.alivetime)
-    #             if self.depth_flag:
-    #                 # depth = np.frombuffer(rgbd.depth.depth, dtype=np.float32).reshape(rgbd.depth.height,
-    #                 #                                                                   rgbd.depth.width, 1)
-    #                 self.read_queue.put([color, self.rgb.depth, blob, delta, self.rgb.period])
-    #             else:
-    #                 self.read_queue.put([color, blob, delta, self.rgb.period])
-    #             if self.roi_xcenter != self.target_roi_xcenter or self.roi_ycenter != self.target_roi_ycenter or self.roi_xsize != self.target_roi_xsize or self.roi_ysize != self.target_roi_xsize:
-    #                 self.from_act_roi_to_target()
-    #
-    #             event.wait(self.thread_period / 1000)
-    #         except:
-    #             print("Error communicating with Camera360RGB")
-    #             traceback.print_exc()
+                print(e, "Error communicating with Camera360RGB")
 
     # Modify actual ROI data to converge in the target ROI dimensions
     def from_act_roi_to_target(self):
@@ -451,32 +431,6 @@ class SpecificWorker(GenericWorker):
                                final_cls_inds[:num[0]].reshape(-1, 1)], axis=-1)
         return dets
 
-    # def create_interface_data(self, boxes, scores, cls_inds):
-    #     self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-    #     desired_inds = [i for i, cls in enumerate(cls_inds) if cls in self.classes]
-    #     # cls in self.classes]  # index of elements that match desired classes
-    #     desired_scores = scores[desired_inds]
-    #     desired_boxes = boxes[desired_inds]
-    #     desired_clases = cls_inds[desired_inds]
-    #     for index in range(len(desired_scores)):
-    #         act_object = ifaces.RoboCompVisualElements.TObject()
-    #         act_object.type = int(desired_clases[index])
-    #         act_object.left = int(desired_boxes[index][0])
-    #         act_object.top = int(desired_boxes[index][1])
-    #         act_object.right = int(desired_boxes[index][2])
-    #         act_object.bot = int(desired_boxes[index][3])
-    #         act_object.score = desired_scores[index]
-    #         act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter,
-    #                                                             ycenter=self.rgb.roi.ycenter,
-    #                                                             xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
-    #                                                             finalxsize=self.rgb.roi.finalxsize,
-    #                                                             finalysize=self.rgb.roi.finalysize)
-    #         self.objects_write.append(act_object)
-    #     self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
-    #     # swap
-    #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
-
-
     def create_interface_data(self, boxes, scores, cls_inds): #Optimizado
         """
         This method generates interface data for visual objects detected in an image.
@@ -497,7 +451,6 @@ class SpecificWorker(GenericWorker):
         # Extracting desired indices, scores, boxes, and classes in one go
         desired_data = [(i, score, box, cls) for i, (score, box, cls) in enumerate(zip(scores, boxes, cls_inds)) if
                         cls in self.classes]
-
         for i, score, box, cls in desired_data:
             act_object = ifaces.RoboCompVisualElements.TObject()
             act_object.type = int(cls)
@@ -513,8 +466,12 @@ class SpecificWorker(GenericWorker):
                                                                 finalysize=self.rgb.roi.finalysize)
             self.objects_write.append(act_object)
 
-        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
-        # print(self.objects_write)
+        try:
+            self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+            #print("Objects write:", self.objects_write)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error communicating with ByteTracker::VisualElements")
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
@@ -671,8 +628,8 @@ class SpecificWorker(GenericWorker):
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
             delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
-            # print("Freq:", self.cont, "Hz. Alive_time:", alive_time, "ms. Img period:", int(period),
-            #       "ms. Curr period:", cur_period, "ms. Inc:", delta, "Timer:", self.thread_period)
+            print("Freq:", self.cont, "Hz. Alive_time:", alive_time, "ms. Img period:", int(period),
+                  "ms. Curr period:", cur_period, "ms. Inc:", delta, "Timer:", self.thread_period)
             self.thread_period = np.clip(self.thread_period+delta, 0, 200)
             self.cont = 0
         else:
@@ -845,7 +802,7 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
-        if track == -1:
+        if track.id == -1:
             self.tracked_element = None
             self.tracked_id = None
             self.target_roi_xcenter = self.rgb_original.width // 2
@@ -855,10 +812,10 @@ class SpecificWorker(GenericWorker):
             return
 
         for track_obj in self.objects_read:
-            if track_obj.id == track:
+            if track_obj.id == track.id:
                 self.target_roi_xcenter_list = queue.Queue(10)
                 self.tracked_element = track_obj
-                self.tracked_id = track
+                self.tracked_id = track.id
                 return
 
     ######################

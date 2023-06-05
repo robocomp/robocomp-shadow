@@ -1,6 +1,9 @@
 # yolov8_360
 Intro to component here
 
+Goto  https://github.com/Linaom1214/TensorRT-For-YOLO-Series and follow instructions.
+You can download yolov8.pt from https://github.com/ultralytics/ultralytics 
+Transform the models into yolov8.trt. Note that you have to do it for each differente GPU
 
 ## Configuration parameters
 As any other component, *yolov8_360* needs a configuration file to start. In
