@@ -1,78 +1,12 @@
 from PySide6.Qt3DExtras import *
 from PySide6.QtGui import *
 from PySide6.QtCore import *
-<<<<<<< HEAD
-
-# class InfiniteGridEntity(Qt3DCore.QEntity):
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#
-#         self.geometry = Qt3DRender.QGeometry(self)
-#         self.vertexBuffer = Qt3DRender.QBuffer(self.geometry)
-#         self.indexBuffer = Qt3DRender.QBuffer(self.geometry)
-#
-#         self.buildGeometry()
-#
-#         self.geometryRenderer = Qt3DRender.QGeometryRenderer(self.geometry)
-#         self.geometryRenderer.setPrimitiveType(Qt3DRender.QGeometryRenderer.Lines)
-#         self.geometryRenderer.setVertexCount(0)
-#         self.geometryRenderer.setIndexOffset(0)
-#
-#         self.geometryRenderer.geometry().addAttribute(self.vertexBuffer)
-#         self.geometryRenderer.geometry().addAttribute(self.indexBuffer)
-#
-#         self.addComponent(self.geometryRenderer)
-#
-#     def buildGeometry(self):
-#         vertices = []
-#         indices = []
-#
-#         size = 10  # Grid size
-#         step = 1  # Grid spacing
-#
-#         for i in range(-size, size + 1):
-#             vertices.append(QVector3D(i * step, 0, -size * step))
-#             vertices.append(QVector3D(i * step, 0, size * step))
-#
-#             vertices.append(QVector3D(-size * step, 0, i * step))
-#             vertices.append(QVector3D(size * step, 0, i * step))
-#
-#             indices.append(2 * i)
-#             indices.append(2 * i + 1)
-#
-#             indices.append(2 * (i + size + 1))
-#             indices.append(2 * (i + size + 1) + 1)
-#
-#         verticesData = QByteArray()
-#         verticesData.resize(len(vertices) * 3 * 4)
-#         verticesDataPointer = QDataStream(verticesData, QIODevice.WriteOnly)
-#         verticesDataPointer.setVersion(QDataStream.Qt_5_15)
-#
-#         for vertex in vertices:
-#             verticesDataPointer << vertex.x()
-#             verticesDataPointer << vertex.y()
-#             verticesDataPointer << vertex.z()
-#
-#         indicesData = QByteArray()
-#         indicesData.resize(len(indices) * 4)
-#         indicesDataPointer = QDataStream(indicesData, QIODevice.WriteOnly)
-#         indicesDataPointer.setVersion(QDataStream.Qt_5_15)
-#
-#         for index in indices:
-#             indicesDataPointer << index
-#
-#         self.vertexBuffer.setData(verticesData)
-#         self.indexBuffer.setData(indicesData)
-#         self.geometryRenderer.setVertexCount(len(vertices))
-#
-=======
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QVector3D
 from PySide6.Qt3DCore import Qt3DCore
 from PySide6.Qt3DRender import Qt3DRender
 import copy
 import numpy as np
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
 
 class GLViewer:
     def __init__(self, parent, points):
@@ -106,13 +40,8 @@ class GLViewer:
         # Create a grid plane
         self.grid_plane = self.create_grid_plane(20, 20)
 
-<<<<<<< HEAD
-        # Infinite plane
-        #self.gridEntity = InfiniteGridEntity(self.root)
-=======
         # load mesh
         self.load_stl_model()
->>>>>>> 4415da9637839d3c674406fcb566756c0b59eb19
 
         self.view.show()
         self.container.show()
