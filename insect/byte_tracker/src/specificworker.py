@@ -88,7 +88,7 @@ class SpecificWorker(GenericWorker):
 
             self.objects_read = []
             self.objects_write = []
-            self.display = True
+            self.display = False
 
             # Hz
             self.cont = 1
@@ -110,7 +110,7 @@ class SpecificWorker(GenericWorker):
                     print(" focalx", rgb.focalx)
                     print(" focaly", rgb.focaly)
                     print(" period", rgb.period)
-                    print(" ratio {:.2f}.format(image.width/image.height)")
+                    print(" ratio {:.2f}".format(image.width/image.height))
 
                     started_camera = True
                 except Ice.Exception as e:
