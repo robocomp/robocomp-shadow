@@ -610,7 +610,6 @@ class SpecificWorker(GenericWorker):
 
     def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
-
         data = self.process_visual_objects(objects)
         self.objects = objects
         # Get tracks from Bytetrack and convert data to VisualElements interface

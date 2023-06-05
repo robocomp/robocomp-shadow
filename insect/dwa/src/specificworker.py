@@ -52,13 +52,15 @@ class SpecificWorker(GenericWorker):
 
             self.window_name = "DWA"
             cv2.namedWindow(self.window_name)
-            cv2.createTrackbar('Z threshold', self.window_name, 0, 3000, self.z_on_change)
+            #cv2.createTrackbar('Z threshold', self.window_name, 0, 3000, self.z_on_change)
             self.z_lidar_height = 1250
             self.z_threshold = self.z_lidar_height
 
             #image size
             self.width = 700
-            self.height = 700
+            self.height = 500
+            self.gfactor_x = 0.2
+            self.gfactor_y = 0.2
 
             # Hz
             self.cont = 1
@@ -110,15 +112,20 @@ class SpecificWorker(GenericWorker):
         safe_lanes = self.discard_occupied_lanes(ldata_set, self.candidates)
         #print("t2", time.time() - now)
 
-        # draw candidates
-        img = np.zeros((self.width, self.height, 3), dtype=np.uint8)
-        self.draw_candidates(safe_lanes, img)
+        # base imagd
+        img = np.zeros((self.height, self.width, 3), dtype=np.uint8)  # filas, columnas
 
         # draw lidar points
         self.draw_lidar_points(ldata_set, img)
 
+        # draw target
+        self.draw_target(img)
+
         # select optimal lane
         optimal = self.select_optimal_lane(safe_lanes, self.target)
+
+        # draw candidates
+        self.draw_candidates(safe_lanes, img, optimal)
 
         cv2.imshow(self.window_name, img)
         cv2.waitKey(2)
@@ -133,7 +140,7 @@ class SpecificWorker(GenericWorker):
         robot_semi_width = 200
 
         params = []
-        tip = []
+        tips = []
         trajectories = []
         for v in np.arange(100, max_reachable_adv_speed, self.dyn.advance_step):
             for w in np.arange(0, max_reachable_rot_speed, self.dyn.rotation_step):
@@ -146,7 +153,6 @@ class SpecificWorker(GenericWorker):
 
                     # compute LEFT arcs corresponding to r - 100 and r + 100
                     points = []
-                    central = []
                     for t in np.arange(0, ang_length, self.dyn.step_along_ang):
                         xl = (r - robot_semi_width) * np.cos(t) - r
                         yl = (r - robot_semi_width) * np.sin(t)
@@ -162,11 +168,10 @@ class SpecificWorker(GenericWorker):
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, -new_rotation, -r])
-                        tip =[r*np.cos(ang_length)-r, r*np.sin(ang_length)]
+                        tips.append([r * np.cos(ang_length) - r, r * np.sin(ang_length)])
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
                     points = []
-                    central = []
                     for t in np.arange(0, ang_length, self.dyn.step_along_ang):
                         xl = r - (r - robot_semi_width) * np.cos(t)
                         yl = (r - robot_semi_width) * np.sin(t)
@@ -182,29 +187,31 @@ class SpecificWorker(GenericWorker):
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, new_rotation, r])
-                        tip = [r - r*np.cos(ang_length), r*np.sin(ang_length)]
+                        tips.append([r - r*np.cos(ang_length), r*np.sin(ang_length)])
 
-            else:  # avoid division by zero
-                points = []
-                central = []
-                points.append([-robot_semi_width, 0])
-                points.append([-robot_semi_width, arc_length])
-                points.append([robot_semi_width, arc_length])
-                points.append([robot_semi_width, 0])
-                trajectories.append(points)
-                params.append([new_advance, 0.0, np.inf])
-                tip = [0, arc_length]
+                else:  # avoid division by zero for straight lanes
+                    points = []
+                    points.append([-robot_semi_width, 0])
+                    points.append([-robot_semi_width, arc_length])
+                    points.append([robot_semi_width, arc_length])
+                    points.append([robot_semi_width, 0])
+                    trajectories.append(points)
+                    params.append([new_advance, 0.0, np.inf])
+                    tips.append([0, arc_length])
 
         params = np.array(params)
         params[:, 2] = 100 * np.reciprocal(params[:, 2])  # compute curvature from radius
         candidates = []
-        for pa, tr in zip(params, trajectories):
+        kid = 0
+        for pa, tr, tip in zip(params, trajectories, tips):
             candidate = {}
             candidate["polygon"] = tr
             candidate["params"] = pa
-            candidate["tip"] = np.array(tip)
+            candidate["tip"] = tip
+            candidate["id"] = kid
             candidates.append(candidate)
-        print("Created ", len(candidates), " candidates")
+            kid += 1
+        #print("Created ", len(candidates), " candidates")
         return candidates
 
     def read_lidar_data(self):
@@ -239,20 +246,36 @@ class SpecificWorker(GenericWorker):
                 safe_lanes.append(l)
         return safe_lanes
 
-    def draw_candidates(self, candidates, img):
+    def draw_candidates(self, candidates, img, optimal):
 
-        width, height, _ = img.shape
         for c in candidates:
-            pol = (np.array(c["polygon"]) * 0.1).astype(int)
-            pol[:, 1] = height - pol[:, 1]
-            pol[:, 0] += width//2
-            cv2.polylines(img, [pol], True, (255, 255, 255), 1, cv2.LINE_8)
+            pol = (np.array(c["polygon"]) * np.array([self.gfactor_x, self.gfactor_y])).astype(int)
+            pol[:, 1] = self.height - pol[:, 1]
+            pol[:, 0] += self.width//2
+            if optimal is not None and c["id"] == optimal[1]["id"]:
+                color = (0, 0, 255)
+                thick = 4
+            else:
+                color = (255, 255, 255)
+                thick = 1
+            cv2.polylines(img, [pol], True, color, 1, cv2.LINE_8)
+            #print(c["tip"])
+            tip = np.array(c["tip"]) * np.array([self.gfactor_x, self.gfactor_y])
+            cv2.circle(img, np.array([tip[0] + self.width//2, self.height - tip[1]]).astype(int), 5, color, thick)
 
     def draw_lidar_points(self, ldata_set, img):
         for l in ldata_set:
-            p = np.array([int(l[0]/10) + self.width//2, self.height-int(l[1]/10)])
+            p = np.array([int(l[0]*self.gfactor_x) + self.width//2, self.height-int(l[1]*self.gfactor_y)])
             if(p[0] > 0 and p[0] < self.width and p[1]> 0 and p[1] < self.height):
                 cv2.rectangle(img, p-(2, 2), p+(2, 2), (0, 255, 0))
+
+    def draw_target(self, img):
+        if self.target is not None:
+            size = np.array((10, 10))
+            p = np.array((int(self.target.x*self.gfactor_x)+self.width//2, self.height-int(self.target.y*self.gfactor_y)))
+            cv2.rectangle(img, p-size, p+size, (255, 0, 0), 3)
+            #print(self.target.x, self.target.y, (int(self.target.x*self.gfactor+img.shape[0]//2),
+            #                                     self.int(+img.shape[1]-self.target.y*self.gfactor)))
 
     def select_optimal_lane(self, lanes, target):
         '''
@@ -271,13 +294,16 @@ class SpecificWorker(GenericWorker):
         for l in lanes:
             # distance to target
             d_tar = np.linalg.norm(l["tip"] - np.array((self.target.x, self.target.y)))
-            # distance to obstacle. Compute closest distance from tip to lidar points
+            # distance to obstacle. Compute the closest distance from tip to lidar points
+            #print(k, l["tip"], np.array((self.target.x, self.target.y)), d_tar)
             d_obs = 0
             # distance to previous choice
             d_prev = 0
-            cum.append(A*d_tar + B*d_obs + C*d_prev)
+            cum.append([A*d_tar + B*d_obs + C*d_prev, l])
 
-        return np.min(cum)
+        cum = np.array(cum)
+        c = cum[cum[:, 0].argsort()]
+        return c[0]
 
     def loss_function(self, mask_img, mask_path, distance_to_target_object=0):
         result = cv2.bitwise_and(mask_img, mask_path)
@@ -344,8 +370,11 @@ class SpecificWorker(GenericWorker):
     #########################################################################
 
     def SegmentatorTrackingPub_setTrack(self, target):
-        print("In callback: ", target)
-        self.target = target
+        #print("In callback: ", target)
+        if target.id == -1:
+            self.target = None
+        else:
+            self.target = target
 
 # self.params = np.array(candidates["params"])
 # self.camera_matrix = camera_matrix

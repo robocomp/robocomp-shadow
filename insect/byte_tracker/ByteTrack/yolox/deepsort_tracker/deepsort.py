@@ -165,10 +165,8 @@ class DeepSort(object):
         self.tracker = Tracker(
             metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
-    def update(self, output_results, img_info, img_size, img_file_name):
-        img_file_name = os.path.join(get_yolox_datadir(), 'mot', 'train', img_file_name)
-        ori_img = cv2.imread(img_file_name)
-        self.height, self.width = ori_img.shape[:2]
+    def update(self, output_results, img_info, img_size, img):
+        self.height, self.width = img.shape[:2]
         # post process detections
         output_results = output_results.cpu().numpy()
         confidences = output_results[:, 4] * output_results[:, 5]
@@ -184,7 +182,7 @@ class DeepSort(object):
         confidences = confidences[remain_inds]
 
         # generate detections
-        features = self._get_features(bbox_tlwh, ori_img)
+        features = self._get_features(bbox_tlwh, img)
         detections = [Detection(bbox_tlwh[i], conf, features[i]) for i, conf in enumerate(
             confidences) if conf > self.min_confidence]
         classes = np.zeros((len(detections), ))
@@ -284,9 +282,11 @@ class DeepSort(object):
 
     def _get_features(self, bbox_xywh, ori_img):
         im_crops = []
-        for box in bbox_xywh:
+        for i, box in enumerate(bbox_xywh):
             x1, y1, x2, y2 = self._tlwh_to_xyxy(box)
             im = ori_img[y1:y2, x1:x2]
+            cv2.imshow("ROI "+str(i), im)
+            cv2.waitKey(1)
             im_crops.append(im)
         if im_crops:
             features = self.extractor(im_crops)

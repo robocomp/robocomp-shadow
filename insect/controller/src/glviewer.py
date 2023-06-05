@@ -11,7 +11,6 @@ import numpy as np
 class GLViewer:
     def __init__(self, parent, points):
         #super().__init__()
-        self.points = points
         self.view = Qt3DExtras.Qt3DWindow()
         self.container = parent.createWindowContainer(self.view)
         self.container.setParent(parent)
@@ -26,6 +25,16 @@ class GLViewer:
 
         # Material
         self.material = Qt3DExtras.QPhongMaterial(self.root)
+
+        # Create a light
+        self.light_entity = Qt3DCore.QEntity(self.root)
+        self.light = Qt3DRender.QDirectionalLight(self.light_entity)
+        self.light.setColor(Qt.white)
+        self.light.setIntensity(0.3)
+        self.light_transform = Qt3DCore.QTransform()
+        self.light_transform.setTranslation(QVector3D(0, 0, 50))
+        self.light_entity.addComponent(self.light)
+        self.light_entity.addComponent(self.light_transform)
 
         # Create a grid geometry
         self.grid_geometry = Qt3DExtras.QPlaneMesh()
@@ -63,7 +72,7 @@ class GLViewer:
 
         # Create a grid material
         self.grid_material = Qt3DExtras.QPhongMaterial()
-        self.grid_material.setAmbient(QColor(Qt.darkGray))
+        self.grid_material.setAmbient(QColor(Qt.lightGray))
 
         self.planeTransform = Qt3DCore.QTransform()
         self.planeTransform.setScale(2.0)
@@ -83,7 +92,7 @@ class GLViewer:
         self.modelTransform = Qt3DCore.QTransform()
         self.modelTransform.setScale(1)
         self.modelTransform.setRotationX(-90)
-        self.modelTransform.setTranslation(QVector3D(0,0,0))
+        self.modelTransform.setTranslation(QVector3D(0, 0, 0))
 
         self.modelEntity.addComponent(self.modelMesh)
         self.modelEntity.addComponent(self.modelTransform)
@@ -103,7 +112,7 @@ class GLViewer:
                 element_angle = element_center * 359 / 1919
                 # print("ANGLE", element_angle)
                 # print(QPointF(3*np.cos(element_angle), 3*np.sin(element_angle)))
-                print(element.id, element.left, element.right, element_center)
+                #print(element.id, element.left, element.right, element_center)
                 globals()["modelTransform"+"_"+str(element.id)].setTranslation(QVector3D(-3*np.sin(np.deg2rad(element_angle)), 0, 3*np.cos(np.deg2rad(element_angle))))
                 elements_dict_keys.remove(element.id)
             else:
