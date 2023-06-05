@@ -176,7 +176,7 @@ class SpecificWorker(GenericWorker):
                     print(" focalx", self.rgb_original.focalx)
                     print(" focaly", self.rgb_original.focaly)
                     print(" period", self.rgb_original.period)
-                    print(" ratio {:.2f}.format(image.width/image.height)")
+                    print(" ratio {:.2f}".format(self.rgb_original.width/self.rgb_original.height))
 
                     # Image ROI require parameters
                     self.final_xsize = 640
@@ -202,8 +202,9 @@ class SpecificWorker(GenericWorker):
 
             # trt
             self.yolo_object_predictor = BaseEngine(engine_path=self.yolo_model)
-            self.yolo_pose_predictor = BaseEngine(engine_path=self.yolo_pose_model)
-            self.model = YOLO('yolov8n-pose.pt')
+            #self.yolo_pose_predictor = BaseEngine(engine_path=self.yolo_pose_model)
+            #self.model = YOLO('yolov8n-pose.pt')
+            self.model = YOLO(self.yolo_model)
             print("Loaded YOLO model: ", self.yolo_model)
 
             # Hz
