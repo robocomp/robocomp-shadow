@@ -1,4 +1,10 @@
+# Endpoints for subscriptions interfaces
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 15431
+
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
