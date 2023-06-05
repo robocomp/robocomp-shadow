@@ -249,10 +249,17 @@ class SpecificWorker(GenericWorker):
             sm_objects = []
         self.total_objects = self.transform_and_concatenate_objects(yolo_objects, sm_objects)
 
-        # Draw image
-        #print("Objects: ", ss_objects)
-        self.draw_frame(frame, [], self.total_objects)
+        # check if selected_object is in self.total_objects
+        if self.selected_object is not None and len(self.total_objects) > 0:
+            found, self.selected_object = self.check_selected_in_new_objects(self.total_objects, self.selected_object)
+            if not found:
+                print("Warning: target LOST")
 
+        # publish target
+        self.publish_target(self.selected_object)
+
+        # Draw image
+        self.draw_frame(frame, [], self.total_objects)
         self.show_fps()
 
     #########################################################################
@@ -260,18 +267,33 @@ class SpecificWorker(GenericWorker):
     def set_target_with_mouse(self, event):
         x = int(event.pos().x()*(self.rgb.width / self.ui.frame_2d.width()))
         y = int(event.pos().y()*(self.rgb.height / self.ui.frame_2d.height()))
-        self.selected_object = None
         point = (x, y)
+        self.selected_object = None
         # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
         # check if clicked point on yolo object. If so, set it as the new target object
         for b in self.total_objects:
             if x >= b.left and x < b.right and y >= b.top and y < b.bot:
                 self.selected_object = b
-                self.segmentatortrackingpub_proxy.setTrack(self.selected_object)
-                # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
-                self.previous_yolo_id = None
+                print("Selected target id = ", self.selected_object.id)
                 return
-        self.segmentatortrackingpub_proxy.setTrack(RoboCompVisualElements.TObject(id=-1))
+
+    def check_selected_in_new_objects(self, elems, target):
+        for e in elems:
+            #print(len(elems), e.id, target.id)
+            if e.id == target.id:
+                target = e
+                return True, target
+        return False, None
+
+    def publish_target(self, target):
+        if target is not None:
+            try:
+                self.segmentatortrackingpub_proxy.setTrack(self.selected_object)
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e)
+        else:
+            self.segmentatortrackingpub_proxy.setTrack(ifaces.RoboCompVisualElements.TObject(id=-1))
 
     def read_image(self):
         frame = None
@@ -541,11 +563,16 @@ class SpecificWorker(GenericWorker):
             y0 = int(element.top)
             x1 = int(element.right)
             y1 = int(element.bot)
+            color = (0, 255, 0)
+            line = 2
+            if self.selected_object and element.id == self.selected_object.id:
+                color = (0, 0, 255)
+                line = 4
             if x1 - x0 < 0:
-                cv2.rectangle(image, (x0, y0), (self.rgb.width, y1), (0, 255, 0), 2)
-                cv2.rectangle(image, (0, y0), (x1, y1), (0, 255, 0), 2)
+                cv2.rectangle(image, (x0, y0), (self.rgb.width, y1), color, line)
+                cv2.rectangle(image, (0, y0), (x1, y1), color, line)
             else:
-                cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+                cv2.rectangle(image, (x0, y0), (x1, y1), color, line)
             text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score * 100, element.id)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
@@ -640,24 +667,6 @@ class SpecificWorker(GenericWorker):
         self.modelEntity.addComponent(self.modelMesh)
         self.modelEntity.addComponent(self.modelTransform)
         self.modelEntity.addComponent(self.material)
-
-    #########################################################################################3
-    def mouse_click(self, event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            self.selected_object = None
-            point = (x, y)
-            print(point)
-            # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
-            # check if clicked point on yolo object. If so, set it as the new target object
-            for b in self.total_objects:
-                if x >= b.left and x < b.right and y >= b.top and y < b.bot:
-                    self.selected_object = b
-                    self.segmentatortrackingpub_proxy.setTrack(self.selected_object.id)
-                    # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
-                    self.previous_yolo_id = None
-                    break
-        if event == cv2.EVENT_RBUTTONDOWN:
-            self.segmentatortrackingpub_proxy.setTrack(-1)
 
     ########################################################################
     def startup_check(self):
