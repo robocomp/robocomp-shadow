@@ -41,51 +41,42 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
 
-        # ROI parameters. Must be filled up
-        self.final_xsize = 0
-        self.final_ysize = 0
-        self.roi_xcenter = 512
-        self.roi_ycenter = 256
-        self.roi_xsize = 512
-        self.roi_ysize = 256
-        self.original_fov = 360
-        self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
-                                                108.51)
-        self.lidar_to_cam = np.linalg.inv(self.cam_to_lidar)
-        self.lidar_to_cams = {"cam_front": self.make_matrix_rt(0, 0, 0, 0, 0, -108.51),
-                              "cam_right": self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51),
-                              "cam_back_1": self.make_matrix_rt( 0, 0,  np.pi, 0, 0, -108.51),
-                              "cam_back_2": self.make_matrix_rt( 0, 0,  np.pi, 0, 0, -108.51),
-                              "cam_left": self.make_matrix_rt( 0, 0, -np.pi / 2, 0, 0, -108.51)}
-        self.focal_x = 128
-        self.focal_y = 128
-        self.width_img = 1024
-        self.height_img = 512
-        self.conditions = [
-            ((-np.pi / 4, np.pi / 4), "cam_front"),
-            ((np.pi / 4, (np.pi * 3) / 4), "cam_right"),
-            ((-(np.pi * 3) / 4, -np.pi / 4), "cam_left"),
-            ((-np.pi, -(np.pi * 3) / 4), "cam_back_2"),
-            (((np.pi * 3) / 4, np.pi), "cam_back_1"),
-        ]
-
-        # ROI offsets respect the original image
-        self.x_roi_offset = 0
-        self.y_roi_offset = 0
-
         if startup_check:
             self.startup_check()
         else:
-            # @dataclass
-            # class TRoi:
-            #     final_xsize: int = 0
-            #     final_ysize: int = 0
-            #     xcenter: int = 0
-            #     ycenter: int = 0
-            #     xsize: int = 0
-            #     ysize: int = 0
-            # self.roi = TRoi()
+            self.lidar_in_image = None
 
+            # ROI parameters. Must be filled up
+            self.final_xsize = 0
+            self.final_ysize = 0
+            self.roi_xcenter = 512
+            self.roi_ycenter = 256
+            self.roi_xsize = 512
+            self.roi_ysize = 256
+            self.original_fov = 360
+            self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
+                                                    108.51)
+            self.lidar_to_cam = np.linalg.inv(self.cam_to_lidar)
+            self.lidar_to_cams = {"cam_front": self.make_matrix_rt(0, 0, 0, 0, 0, -108.51),
+                                  "cam_right": self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51),
+                                  "cam_back_1": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
+                                  "cam_back_2": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
+                                  "cam_left": self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51)}
+            self.focal_x = 128
+            self.focal_y = 128
+            self.width_img = 1024
+            self.height_img = 512
+            self.conditions = [
+                ((-np.pi / 4, np.pi / 4), "cam_front"),
+                ((np.pi / 4, (np.pi * 3) / 4), "cam_right"),
+                ((-(np.pi * 3) / 4, -np.pi / 4), "cam_left"),
+                ((-np.pi, -(np.pi * 3) / 4), "cam_back_2"),
+                (((np.pi * 3) / 4, np.pi), "cam_back_1"),
+            ]
+
+            # ROI offsets respect the original image
+            self.x_roi_offset = 0
+            self.y_roi_offset = 0
             self.objects_read = []
             self.objects_write = []
             self.display = False
@@ -153,7 +144,225 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
 
-    def read_visual_objects(self, visual_objects):
+    ###########################################################################################3
+    def lidar_points(self):
+        """
+        Extracts LIDAR points that lie within a specific region of interest (ROI)
+        and projects them onto the image plane. Points are transformed according to
+        their corresponding camera view, and those falling within image bounds are returned.
+
+        Returns:
+        lidar_in_image : numpy array
+            An array of projected LIDAR points that fall within image bounds. Each point is
+            represented as a 3D point [x, y, distance].
+
+        """
+        # Calculate angles for the region of interest.
+        start_angle, len_angle = self.calculate_roi_angles()
+        # Fetch LIDAR points that fall within the specified angle range.
+
+        try:
+            points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to Lidar3D")
+
+        # Initialize list to hold LIDAR points projected onto the image plane.
+        lidar_in_image = []
+
+        # Define camera x and y offsets for each camera view.
+        half_width = self.width_img / 2
+        quarter_width = half_width / 2
+        half_height = self.height_img / 2
+        quarter_height = half_height / 4
+        cx_offsets = {
+            "cam_front": half_width,
+            "cam_right": half_width + quarter_width,
+            "cam_left": half_width - quarter_width,
+            "cam_back_1": self.width_img,
+            "cam_back_2": 0
+        }
+        cy_offsets = {
+            "cam_front": half_height,
+            "cam_right": half_height + quarter_height,
+            "cam_left": half_height + quarter_height,
+            "cam_back_1": half_height,
+            "cam_back_2": half_height
+        }
+
+        # cx_offsets = {"cam_front": self.width_img / 2,
+        #               "cam_right": self.width_img / 2 + ((self.width_img / 2) / 2),
+        #               "cam_left": self.width_img / 2 - ((self.width_img / 2) / 2),
+        #               "cam_back_1": self.width_img, "cam_back_2": 0}
+        # cy_offsets = {"cam_front": self.height_img / 2,
+        #               "cam_right": self.height_img / 2 + ((self.height_img / 2) / 4),
+        #               "cam_left": self.height_img / 2 + ((self.height_img / 2) / 4),
+        #               "cam_back_1": self.height_img / 2,
+        #               "cam_back_2": self.height_img / 2}
+
+        # Define a small value to avoid division by zero.
+        epsilon = 1e-7
+
+        # Convert points into a numpy array and scale from millimeters to meters.
+        points_array = np.array([[p.x, p.y, p.z] for p in points])
+
+        # Add a fourth dimension to the points array for homogenous coordinates.
+        points_array = np.append(points_array, np.ones((points_array.shape[0], 1)), axis=1)
+
+        # Calculate the angle for each point.
+        angles = np.arctan2(points_array[:, 0], points_array[:, 1])
+
+        for condition, cam in self.conditions:
+            # Identify points that fall within the current camera view based on angle.
+            indices = np.where((condition[0] < angles) & (angles <= condition[1]))[0]
+
+            if len(indices) > 0:
+                transformation_matrix = self.lidar_to_cams[cam].T
+                cx = cx_offsets[cam]
+                cy = cy_offsets[cam]
+
+                # Apply transformation matrix to points.
+                transformed_points = np.dot(points_array[indices], transformation_matrix)
+                transformed_points[:, 1] += epsilon  # Add epsilon to y coordinate to avoid division by zero.
+
+                # Project points onto the image plane.
+                x = (self.focal_x * transformed_points[:, 0] / transformed_points[:, 1]) + cx
+                y = (-self.focal_y * transformed_points[:, 2] / transformed_points[:, 1]) + cy
+
+                # Identify points that fall within the image bounds.
+                valid_indices = np.where((0 <= x) & (x < 1024) & (0 <= y) & (y < 512))[0]
+
+                # Add valid points to the lidar_in_image list.
+                if len(valid_indices) > 0:
+                    lidar_in_image.extend(np.column_stack([x[valid_indices],
+                                                           y[valid_indices],
+                                                           np.linalg.norm(transformed_points[valid_indices, :3], axis=1),
+                                                           transformed_points[valid_indices, 0],
+                                                           transformed_points[valid_indices, 1],
+                                                           transformed_points[valid_indices, 2]]).tolist())
+
+        return np.array(lidar_in_image)
+
+    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
+        """
+           Constructs a rotation-translation matrix given the roll, pitch, and heading angles,
+           along with the x, y, and z coordinates of a translation vector.
+
+           This method generates a 4x4 matrix representing the transformation. It does this by
+           first computing the individual rotation matrices for the roll, pitch, and heading angles,
+           and then combines these with the translation vector to form a single homogeneous transformation matrix.
+
+           Parameters:
+           roll : float
+               The roll angle in radians. This represents a rotation around the x-axis.
+           pitch : float
+               The pitch angle in radians. This represents a rotation around the y-axis.
+           heading : float
+               The heading angle in radians. This represents a rotation around the z-axis.
+           x0, y0, z0 : float
+               The x, y, and z coordinates of the translation vector.
+
+           Returns:
+           mat : ndarray
+               A 4x4 numpy array representing the rotation-translation matrix.
+
+           """
+        sa, ca = np.sin(roll), np.cos(roll)
+        sb, cb = np.sin(pitch), np.cos(pitch)
+        sg, cg = np.sin(heading), np.cos(heading)
+
+        mat = np.array([
+            [cb * cg, sa * sb * cg + ca * sg, sa * sg - ca * sb * cg, x0],
+            [-cb * sg, ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, y0],
+            [sb, -sa * cb, ca * cb, z0],
+            [0, 0, 0, 1]
+        ])
+        return mat
+
+    def calculate_roi_angles(self):
+        """
+        Este método calcula los ángulos de inicio y longitud de un ROI (Región de Interés)
+        en una imagen panorámica que cubre 360 grados.
+
+        La imagen se representa como una línea horizontal, y la ROI es una subsección
+        de esa línea definida por un centro (self.roi_xcenter) y un tamaño (self.roi_xsize).
+
+        Los ángulos calculados se mapean a un rango de 0 a 900 grados,
+        donde 0 corresponde a 0 grados, 450 a 180 grados, y 900 a -180 grados.
+
+        Returns:
+            tuple: un par de ángulos (start_angle, len_angle) representando el ángulo
+                   de inicio y la longitud del ángulo de la ROI en la imagen, respectivamente.
+        """
+        # La imagen original cubre 360 grados
+        original_fov = 360
+
+        # Calcula las proporciones de inicio y fin de la ROI con respecto al ancho de la imagen.
+        # Estas proporciones representan la fracción del ancho de la imagen que cubre la ROI.
+        start_ratio = (self.roi_xcenter - self.roi_xsize // 2) / self.width_img
+        end_ratio = (self.roi_xcenter + self.roi_xsize // 2) / self.width_img
+
+        # Calcula los ángulos de inicio y fin de la ROI.
+        # Primero, multiplica las proporciones de inicio y fin por el campo de visión original (original_fov)
+        # para obtener los ángulos en el rango de la imagen completa.
+        # Luego, resta 180 para convertirlos al rango [-180, 180].
+        # Finalmente, llama a remap_angle para convertir estos ángulos al rango [0, 900] como se describió anteriormente.
+        start_angle = self.remap_angle(original_fov * start_ratio - 180)
+        end_angle = self.remap_angle(original_fov * end_ratio - 180)
+
+        # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
+        # los ángulos de inicio y fin.
+        len_angle = abs(end_angle - start_angle)
+
+        # Devuelve los ángulos de inicio y longitud.
+        return start_angle, len_angle
+
+    def remap_angle(self, angle):
+        if angle >= 0:
+            return 2.5 * angle
+        else:
+            return 900 + 2.5 * angle
+
+
+
+    def read_image(self):
+        """
+        Retrieves an image from a 360-degree RGB camera and reshapes it into the proper format.
+
+        The method uses the camera360rgb_proxy object to call its getROI method, which gets a Region of
+        Interest (ROI) from the 360-degree camera. In this case, the whole image is retrieved as ROI
+        dimensions are set to -1. The image is then reshaped from a 1D array into a 3D array representing
+        height, width, and color channels of the image. The image dimensions are also stored in the
+        instance variables width_img and height_img.
+
+        Returns:
+        rgb_frame : numpy array
+            The image data in a 3D numpy array with shape (height, width, 3). Each element of the array
+            represents a pixel in the image and its corresponding RGB color values.
+        """
+
+        # Retrieve the image data from the 360-degree camera.
+        try:
+            rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to Camera360")
+
+        # Reshape the 1D array of pixel data into a 3D array representing the RGB image.
+        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+
+        # Store the image dimensions for later use.
+        self.width_img = rgb.width
+        self.height_img = rgb.height
+
+        return rgb_frame
+
+    ####################################################################################################
+    ####################################################################################################
+    ### Methods called from Ice interface
+    ####################################################################################################
+
+    def process_visual_objects(self, visual_objects):
         """
            Extracts and organizes information about visual objects detected in an image.
 
@@ -210,48 +419,21 @@ class SpecificWorker(GenericWorker):
 
     def to_visualelements_interface(self, tracks):
         targets = [
-            ifaces.RoboCompVisualElements.TObject(
+                ifaces.RoboCompVisualElements.TObject(
                 roi=track.roi, id=int(track.track_id), score=track.score,
                 left=int(track.tlwh[0]), top=int(track.tlwh[1]),
                 right=int(track.tlwh[0] + track.tlwh[2]),
-                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase
+                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase,
             )
             for track in tracks
         ]
-        self.objects_write = ifaces.RoboCompVisualElements.TObjects(self.distance_to_object(targets))
+        objects = self.distance_to_object(targets)
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects(objects)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
         return self.objects_read
 
-    def read_image(self):
-        """
-        Retrieves an image from a 360-degree RGB camera and reshapes it into the proper format.
-
-        The method uses the camera360rgb_proxy object to call its getROI method, which gets a Region of
-        Interest (ROI) from the 360-degree camera. In this case, the whole image is retrieved as ROI
-        dimensions are set to -1. The image is then reshaped from a 1D array into a 3D array representing
-        height, width, and color channels of the image. The image dimensions are also stored in the
-        instance variables width_img and height_img.
-
-        Returns:
-        rgb_frame : numpy array
-            The image data in a 3D numpy array with shape (height, width, 3). Each element of the array
-            represents a pixel in the image and its corresponding RGB color values.
-        """
-
-        # Retrieve the image data from the 360-degree camera.
-        rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-
-        # Reshape the 1D array of pixel data into a 3D array representing the RGB image.
-        rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
-
-        # Store the image dimensions for later use.
-        self.width_img = rgb.width
-        self.height_img = rgb.height
-
-
-        return rgb_frame
 
     def distance_to_object(self, objects):
 
@@ -270,10 +452,42 @@ class SpecificWorker(GenericWorker):
             y0 = int(element.top * y_factor + y_offset)
             x1 = int(element.right * x_factor + x_offset)
             y1 = int(element.bot * y_factor + y_offset)
-            _ , element.depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+            if self.lidar_in_image is not None:
+                centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+                element.depth = depth
+                element.x = centroid[0]
+                element.y = depth
+                element.z = centroid[1]
+            else:
+                print("Warning, no lidar data yet")
+
         return objects
 
+    def points_in_bbox(self, points, x1, y1, x2, y2):
+        """
+        Searches within a list of points for those located within a bounding box and finds the minimum
+        distance among these points.
 
+        Parameters:
+        points : list
+            A list of tuples, where each tuple represents a point and consists of (x, y, distance, xw, yw, zw).
+        x1, y1, x2, y2 : float
+            The coordinates defining the bounding box. (x1, y1) represents the lower-left corner and
+            (x2, y2) the upper-right corner.
+
+        Returns:
+        centroid : point
+            x, y coordinates of the centroid of the in_box_points
+        min_distance : float
+            The minimum distance among the points within the bounding box. If there are no points
+            within the box, returns infinity.
+        """
+        in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
+        min_distance = min((p[2] for p in in_box_points), default=float('inf'))
+        x = [p[3] for p in in_box_points]  # X  get middle 3D point en X,Z plane
+        z = [p[5] for p in in_box_points]  # Z
+        centroid = (sum(x) / len(in_box_points), sum(z) / len(in_box_points))
+        return centroid, min_distance
     def display_data(self, image):
         """
         Displays data on an image, including objects of interest and corresponding LIDAR points.
@@ -375,257 +589,6 @@ class SpecificWorker(GenericWorker):
 
     ##############################################################################################
 
-    def lidar_points(self):
-        """
-        Extracts LIDAR points that lie within a specific region of interest (ROI)
-        and projects them onto the image plane. Points are transformed according to
-        their corresponding camera view, and those falling within image bounds are returned.
-
-        Returns:
-        lidar_in_image : numpy array
-            An array of projected LIDAR points that fall within image bounds. Each point is
-            represented as a 3D point [x, y, distance].
-
-        """
-
-        # Calculate angles for the region of interest.
-        start_angle, len_angle = self.calculate_roi_angles()
-        # Fetch LIDAR points that fall within the specified angle range.
-
-        points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
-
-
-
-
-
-        # Initialize list to hold LIDAR points projected onto the image plane.
-        lidar_in_image = []
-
-        # Define camera x and y offsets for each camera view.
-        half_width = self.width_img / 2
-        quarter_width = half_width / 2
-        half_height = self.height_img / 2
-        quarter_height = half_height / 4
-        cx_offsets = {
-            "cam_front": half_width,
-            "cam_right": half_width + quarter_width,
-            "cam_left": half_width - quarter_width,
-            "cam_back_1": self.width_img,
-            "cam_back_2": 0
-        }
-        cy_offsets = {
-            "cam_front": half_height,
-            "cam_right": half_height + quarter_height,
-            "cam_left": half_height + quarter_height,
-            "cam_back_1": half_height,
-            "cam_back_2": half_height
-        }
-
-        # cx_offsets = {"cam_front": self.width_img / 2,
-        #               "cam_right": self.width_img / 2 + ((self.width_img / 2) / 2),
-        #               "cam_left": self.width_img / 2 - ((self.width_img / 2) / 2),
-        #               "cam_back_1": self.width_img, "cam_back_2": 0}
-        # cy_offsets = {"cam_front": self.height_img / 2,
-        #               "cam_right": self.height_img / 2 + ((self.height_img / 2) / 4),
-        #               "cam_left": self.height_img / 2 + ((self.height_img / 2) / 4),
-        #               "cam_back_1": self.height_img / 2,
-        #               "cam_back_2": self.height_img / 2}
-
-        # Define a small value to avoid division by zero.
-        epsilon = 1e-7
-
-        # Convert points into a numpy array and scale from millimeters to meters.
-        points_array = np.array([[p.x, p.y, p.z] for p in points])
-
-        # Add a fourth dimension to the points array for homogenous coordinates.
-        points_array = np.append(points_array, np.ones((points_array.shape[0], 1)), axis=1)
-
-        # Calculate the angle for each point.
-        angles = np.arctan2(points_array[:, 0], points_array[:, 1])
-
-        for condition, cam in self.conditions:
-            # Identify points that fall within the current camera view based on angle.
-            indices = np.where((condition[0] < angles) & (angles <= condition[1]))[0]
-
-            if len(indices) > 0:
-                transformation_matrix = self.lidar_to_cams[cam].T
-                cx = cx_offsets[cam]
-                cy = cy_offsets[cam]
-
-                # Apply transformation matrix to points.
-                transformed_points = np.dot(points_array[indices], transformation_matrix)
-                transformed_points[:, 1] += epsilon  # Add epsilon to y coordinate to avoid division by zero.
-
-                # Project points onto the image plane.
-                x = (self.focal_x * transformed_points[:, 0] / transformed_points[:, 1]) + cx
-                y = (-self.focal_y * transformed_points[:, 2] / transformed_points[:, 1]) + cy
-
-                # Identify points that fall within the image bounds.
-                valid_indices = np.where((0 <= x) & (x < 1024) & (0 <= y) & (y < 512))[0]
-
-                # Add valid points to the lidar_in_image list.
-                if len(valid_indices) > 0:
-                    lidar_in_image.extend(np.column_stack([x[valid_indices], y[valid_indices],
-                                                           np.linalg.norm(transformed_points[valid_indices, :3],
-                                                                          axis=1)]).tolist())
-
-        return np.array(lidar_in_image)
-
-    def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
-        """
-           Constructs a rotation-translation matrix given the roll, pitch, and heading angles,
-           along with the x, y, and z coordinates of a translation vector.
-
-           This method generates a 4x4 matrix representing the transformation. It does this by
-           first computing the individual rotation matrices for the roll, pitch, and heading angles,
-           and then combines these with the translation vector to form a single homogeneous transformation matrix.
-
-           Parameters:
-           roll : float
-               The roll angle in radians. This represents a rotation around the x-axis.
-           pitch : float
-               The pitch angle in radians. This represents a rotation around the y-axis.
-           heading : float
-               The heading angle in radians. This represents a rotation around the z-axis.
-           x0, y0, z0 : float
-               The x, y, and z coordinates of the translation vector.
-
-           Returns:
-           mat : ndarray
-               A 4x4 numpy array representing the rotation-translation matrix.
-
-           """
-        sa, ca = np.sin(roll), np.cos(roll)
-        sb, cb = np.sin(pitch), np.cos(pitch)
-        sg, cg = np.sin(heading), np.cos(heading)
-
-        mat = np.array([
-            [cb * cg, sa * sb * cg + ca * sg, sa * sg - ca * sb * cg, x0],
-            [-cb * sg, ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, y0],
-            [sb, -sa * cb, ca * cb, z0],
-            [0, 0, 0, 1]
-        ])
-        return mat
-
-    # def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
-    #     a = roll
-    #     b = pitch
-    #     g = heading
-    #     mat = np.array([[np.cos(b) * np.cos(g),
-    #                      (np.sin(a) * np.sin(b) * np.cos(g) + np.cos(a) * np.sin(g)), (np.sin(a) * np.sin(g) -
-    #                                                                                    np.cos(a) * np.sin(b) * np.cos(
-    #                     g)), x0],
-    #                     [-np.cos(b) * np.sin(g), (np.cos(a) * np.cos(g) - np.sin(a) * np.sin(b) * np.sin(g)),
-    #                      (np.sin(a) * np.cos(g) + np.cos(a) * np.sin(b) * np.sin(g)), y0],
-    #                     [np.sin(b), -np.sin(a) * np.cos(b), np.cos(a) * np.cos(b), z0],
-    #                     [0, 0, 0, 1]])
-    #     return mat
-
-    def points_in_bbox(self, points, x1, y1, x2, y2):
-        """
-        Searches within a list of points for those located within a bounding box and finds the minimum
-        distance among these points.
-
-        Parameters:
-        points : list
-            A list of tuples, where each tuple represents a point and consists of (x, y, distance).
-        x1, y1, x2, y2 : float
-            The coordinates defining the bounding box. (x1, y1) represents the lower-left corner and
-            (x2, y2) the upper-right corner.
-
-        Returns:
-        in_box_points : list
-            A list of tuples, each tuple representing a point within the bounding box.
-        min_distance : float
-            The minimum distance among the points within the bounding box. If there are no points
-            within the box, returns infinity.
-        """
-        in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
-        min_distance = min((p[2] for p in in_box_points), default=float('inf'))
-        return in_box_points, min_distance
-
-    # def calculate_roi_angles(self):
-    #     """
-    #     This function calculates the start angle and the width in degrees of a region of interest (ROI) in an image.
-    #     The image represents a 360-degree field of view (FOV).
-    #
-    #     The FOV is then transformed to a [0, 900] range, where 0 corresponds to a 180 degree angle in the original image,
-    #     and 900 corresponds to a -180 degree angle.
-    #
-    #     The function assumes that the ROI is specified by its center (`self.roi_xcenter`) and its width (`self.roi_xsize`),
-    #     and that the full width of the original image is stored in `self.width_img`.
-    #
-    #     Returns:
-    #         start_angle: The starting angle of the ROI, transformed to the [0, 900] range.
-    #         len_angle: The width of the ROI in degrees, in the transformed [0, 900] range.
-    #     """
-    #     # Original Field of View
-    #     original_fov = 360
-    #     # original_fov = 900
-    #
-    #     # Calculamos la proporción de la posición de inicio con respecto al ancho original
-    #     start_ratio = self.width_img / 1024
-    #
-    #     # Calculamos el ángulo de inicio
-    #     start_angle = original_fov * start_ratio - 180
-    #     print(start_angle)
-    #     # Compute the ratio and angles directly in one step
-    #     start_angle = ((original_fov * (
-    #                 self.roi_xcenter - self.roi_xsize // 2) / self.width_img - 180 - 180) / -360) * 900
-    #     end_angle = ((original_fov * (
-    #                 self.roi_xcenter + self.roi_xsize // 2) / self.width_img - 180 - 180) / -360) * 900
-    #
-    #     # Compute image width in degrees
-    #     len_angle = abs(end_angle - start_angle)
-    #
-    #     print(start_angle, len_angle)
-    #
-    #     return start_angle, len_angle
-
-    def calculate_roi_angles(self):
-        """
-        Este método calcula los ángulos de inicio y longitud de un ROI (Región de Interés)
-        en una imagen panorámica que cubre 360 grados.
-
-        La imagen se representa como una línea horizontal, y la ROI es una subsección
-        de esa línea definida por un centro (self.roi_xcenter) y un tamaño (self.roi_xsize).
-
-        Los ángulos calculados se mapean a un rango de 0 a 900 grados,
-        donde 0 corresponde a 0 grados, 450 a 180 grados, y 900 a -180 grados.
-
-        Returns:
-            tuple: un par de ángulos (start_angle, len_angle) representando el ángulo
-                   de inicio y la longitud del ángulo de la ROI en la imagen, respectivamente.
-        """
-        # La imagen original cubre 360 grados
-        original_fov = 360
-
-        # Calcula las proporciones de inicio y fin de la ROI con respecto al ancho de la imagen.
-        # Estas proporciones representan la fracción del ancho de la imagen que cubre la ROI.
-        start_ratio = (self.roi_xcenter - self.roi_xsize // 2) / self.width_img
-        end_ratio = (self.roi_xcenter + self.roi_xsize // 2) / self.width_img
-
-        # Calcula los ángulos de inicio y fin de la ROI.
-        # Primero, multiplica las proporciones de inicio y fin por el campo de visión original (original_fov)
-        # para obtener los ángulos en el rango de la imagen completa.
-        # Luego, resta 180 para convertirlos al rango [-180, 180].
-        # Finalmente, llama a remap_angle para convertir estos ángulos al rango [0, 900] como se describió anteriormente.
-        start_angle = self.remap_angle(original_fov * start_ratio - 180)
-        end_angle = self.remap_angle(original_fov * end_ratio - 180)
-
-        # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
-        # los ángulos de inicio y fin.
-        len_angle = abs(end_angle - start_angle)
-
-        # Devuelve los ángulos de inicio y longitud.
-        return start_angle, len_angle
-
-    def remap_angle(self, angle):
-        if angle >= 0:
-            return 2.5 * angle
-        else:
-            return 900 + 2.5 * angle
-
     def startup_check(self):
         print(f"Testing RoboCompYoloObjects.TBox from ifaces.RoboCompYoloObjects")
         test = ifaces.RoboCompYoloObjects.TBox()
@@ -641,10 +604,6 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompYoloObjects.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-
-
-
-
     ##############################################################################################
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     ##############################################################################################
@@ -652,14 +611,14 @@ class SpecificWorker(GenericWorker):
     def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
 
-        data = self.read_visual_objects(objects)
+        data = self.process_visual_objects(objects)
         self.objects = objects
         # Get tracks from Bytetrack and convert data to VisualElements interface
-        return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
-                                                                                       np.array(data["boxes"]),
-                                                                                       np.array(data["clases"]),
-                                                                                       np.array(data["roi"])))
-
+        tracks = self.tracker.update_original(np.array(data["scores"]),
+                                                       np.array(data["boxes"]),
+                                                       np.array(data["clases"]),
+                                                       np.array(data["roi"]))
+        return self.to_visualelements_interface(tracks)
     ##############################################################################################
 
 
