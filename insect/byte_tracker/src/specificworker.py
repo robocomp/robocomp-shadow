@@ -651,10 +651,8 @@ class SpecificWorker(GenericWorker):
 
     def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
-
         data = self.read_visual_objects(objects)
         self.objects = objects
-        # Get tracks from Bytetrack and convert data to VisualElements interface
         return self.to_visualelements_interface(self.tracker.update_original(np.array(data["scores"]),
                                                                                        np.array(data["boxes"]),
                                                                                        np.array(data["clases"]),
