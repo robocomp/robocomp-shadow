@@ -138,6 +138,9 @@ class SpecificWorker(GenericWorker):
             self.target_object = None
             self.selected_object = None
 
+            self.yolo = True
+            self.semantic = True
+
             # ROI parameters
             @dataclass
             class TRoi:
@@ -165,7 +168,7 @@ class SpecificWorker(GenericWorker):
                 print(" focalx", self.rgb.focalx)
                 print(" focaly", self.rgb.focaly)
                 print(" period", self.rgb.period)
-                print(" ratio {:.2f}.format(image.width/image.height)")
+                print(" ratio {:.2f}".format(self.rgb.width/self.rgb.height))
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Cannot connect to camera. Aborting")
@@ -181,21 +184,9 @@ class SpecificWorker(GenericWorker):
             self.visual_objects_queue = queue.Queue(1)
             self.total_objects = []
 
-            # semantic_segmentation
-            try:
-                self.semantic_classes = self.maskelements_proxy.getNamesofCategories()
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Cannot connect to MaskElements interface. Aborting")
-                sys.exit()
-
             # optimizer
             #self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (self.rgb.height, self.rgb.width, self.rgb.depth))
             self.dwa_optimizer = DWA_Optimizer(robot_to_cam, self.rgb.focalx, self.rgb.focaly, (384, 384, 3))
-
-            # self.winname = "Controller"
-            # cv2.namedWindow(self.winname)
-            # cv2.setMouseCallback(self.winname, self.mouse_click)
 
             # signals
             self.selected_index = None
@@ -221,6 +212,22 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
+        try:
+            self.yolo = (params["yolo"] == "True") or (params["yolo"] == "true")
+            self.semantic = (params["semantic"] == "True") or (params["semantic"] == "true")
+            print("Params:", params)
+
+            # semantic_segmentation
+            if self.semantic:
+                try:
+                    self.semantic_classes = self.maskelements_proxy.getNamesofCategories()
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Cannot connect to MaskElements interface. Aborting")
+                    sys.exit()
+        except:
+            traceback.print_exc()
+            print("Error reading config params")
         return True
 
     @QtCore.Slot()
@@ -228,34 +235,24 @@ class SpecificWorker(GenericWorker):
         # Get camera frame
         frame = self.read_image()
 
-        # Get masks from mask2former
-        candidates = self.compute_candidates(["floor"])
+        # Get masks from mask2former. Moved to DWA components
+        #candidates = self.compute_candidates(["floor"])
 
         # Get objects from yolo and mask2former, and transform them
-        yolo_objects = self.read_yolo_objects()
-        #yolo_objects = []
-        sm_objects = self.read_ss_objects()
+        if self.yolo:
+            yolo_objects = self.read_yolo_objects()
+        else:
+            yolo_objects = []
+        if self.semantic:
+            sm_objects = self.read_ss_objects()
+        else:
+            sm_objects = []
         self.total_objects = self.transform_and_concatenate_objects(yolo_objects, sm_objects)
 
         # Draw image
         #print("Objects: ", ss_objects)
-        self.draw_frame(frame, candidates, self.total_objects)
+        self.draw_frame(frame, [], self.total_objects)
 
-        # take control actions
-        # active, control, selected = self.check_human_interface(candidates)
-        # if not active:
-        #     active, control, selected = self.check_visual_target(candidates)
-        #     if not active:
-        #         self.draw_frame(self.winname, frame, candidates)
-        #         cv2.imshow(self.winname, frame)
-        #         cv2.waitKey(2)
-        #         return
-        #     else:
-        #         print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
-
-        #self.control_2(control)
-
-        #self.glviewer.paintGL()
         self.show_fps()
 
     #########################################################################
@@ -270,11 +267,11 @@ class SpecificWorker(GenericWorker):
         for b in self.total_objects:
             if x >= b.left and x < b.right and y >= b.top and y < b.bot:
                 self.selected_object = b
-                self.segmentatortrackingpub_proxy.setTrack(self.selected_object.id)
+                self.segmentatortrackingpub_proxy.setTrack(self.selected_object)
                 # print("Selected yolo object", self.yolo_object_names[self.selected_object.type], self.selected_object==True)
                 self.previous_yolo_id = None
                 return
-        self.segmentatortrackingpub_proxy.setTrack(-1)
+        self.segmentatortrackingpub_proxy.setTrack(RoboCompVisualElements.TObject(id=-1))
 
     def read_image(self):
         frame = None
@@ -852,3 +849,18 @@ class SpecificWorker(GenericWorker):
 #
 #     cv2.imshow(winname, frame)
 #     cv2.waitKey(2)
+
+
+  # take control actions
+        # active, control, selected = self.check_human_interface(candidates)
+        # if not active:
+        #     active, control, selected = self.check_visual_target(candidates)
+        #     if not active:
+        #         self.draw_frame(self.winname, frame, candidates)
+        #         cv2.imshow(self.winname, frame)
+        #         cv2.waitKey(2)
+        #         return
+        #     else:
+        #         print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
+
+        #self.control_2(control)

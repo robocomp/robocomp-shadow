@@ -1,6 +1,12 @@
 # controller
 Intro to component here
 
+If regenerated you need to check that ui_mainUI.py has been generated with uic-qt6 (check in the header lines) 
+
+Also in genericworker.py:
+ - self.visualelements1_proxy = mprx["VisualElements1Proxy"]
+ - from PySide6 import QtWidgets, QtCore
+
 
 ## Configuration parameters
 As any other component, *controller* needs a configuration file to start. In
