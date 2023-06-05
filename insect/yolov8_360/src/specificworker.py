@@ -26,6 +26,7 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 import numpy as np
+from ultralytics import YOLO
 import time
 import cv2
 from threading import Thread, Event
@@ -157,6 +158,7 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 10
             self.display = False
             self.yolo_model = "yolov8s.trt"
+            self.yolo_pose_model = "yolov8n-pose.trt"
 
             # OJO, comentado en el main
             self.setParams(params)
@@ -200,6 +202,8 @@ class SpecificWorker(GenericWorker):
 
             # trt
             self.yolo_object_predictor = BaseEngine(engine_path=self.yolo_model)
+            self.yolo_pose_predictor = BaseEngine(engine_path=self.yolo_pose_model)
+            self.model = YOLO('yolov8n-pose.pt')
             print("Loaded YOLO model: ", self.yolo_model)
 
             # Hz
@@ -271,22 +275,37 @@ class SpecificWorker(GenericWorker):
         else:
             rgb, blob, alive_time, period = data
 
+        # results = self.model(rgb)
+        #
+        # annotated_frame = results[0].plot()
+        # cv2.imshow("ann", annotated_frame)
+        # cv2.waitKey(1)
+        # for result in results:
+        #     keypoints = result.keypoints  # Masks object for segmentation masks outputs
+        #     print(keypoints.cpu()[0])
+        #     print(result.names)
+
         # Set ROI dimensions if tracking an object
         if self.tracked_id is not None:
             self.set_roi_dimensions(self.objects_read)
 
         dets = self.yolov8_objects(blob)
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
 
         # If detections are found
         if dets is not None:
             self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
+        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
 
-            # If display is enabled, show the tracking results on the image
-            if self.display:
-                img = self.display_data_tracks(rgb, self.objects_read,
-                                               class_names=self.yolo_object_predictor.class_names)
-                cv2.imshow(self.window_name, img)
-                cv2.waitKey(1)
+        # swap
+        self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
+        # If display is enabled, show the tracking results on the image
+        if self.display:
+            img = self.display_data_tracks(rgb, self.objects_read,
+                                           class_names=self.yolo_object_predictor.class_names)
+            cv2.imshow(self.window_name, img)
+            cv2.waitKey(1)
 
 
         # Show FPS and handle Keyboard Interruption
@@ -425,6 +444,8 @@ class SpecificWorker(GenericWorker):
         These outputs are then processed and concatenated into a single array 'dets' for convenience, and this array is returned.
         """
         data = self.yolo_object_predictor.infer(blob)
+        # skeleton = self.yolo_pose_predictor.infer(blob)
+        # print(skeleton)
         num, final_boxes, final_scores, final_cls_inds = data
         final_boxes = np.reshape(final_boxes, (-1, 4))
         dets = np.concatenate([final_boxes[:num[0]], final_scores[:num[0]].reshape(-1, 1),
@@ -465,16 +486,7 @@ class SpecificWorker(GenericWorker):
                                                                 finalxsize=self.rgb.roi.finalxsize,
                                                                 finalysize=self.rgb.roi.finalysize)
             self.objects_write.append(act_object)
-
-        try:
-            self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
-            #print("Objects write:", self.objects_write)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error communicating with ByteTracker::VisualElements")
-
-        # swap
-        self.objects_write, self.objects_read = self.objects_read, self.objects_write
+        return self.objects_write
 
     # Calculate image ROI for element centering
     def set_roi_dimensions(self, objects):
@@ -505,6 +517,13 @@ class SpecificWorker(GenericWorker):
                 self.target_roi_ysize = np.clip(int((bot - top)*4), 0, self.rgb_original.height)
                 self.target_roi_xsize = self.target_roi_ysize
                 return
+
+        self.tracked_element = None
+        self.tracked_id = None
+        self.target_roi_xcenter = self.rgb_original.width // 2
+        self.target_roi_ycenter = self.rgb_original.height // 2
+        self.target_roi_xsize = self.rgb_original.width // 2
+        self.target_roi_ysize = self.rgb_original.height
 
     ###############################################################
     def pre_process(self, image, input_size, swap=(2, 0, 1)):

@@ -11,9 +11,9 @@ TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 12168
 
-display = false
+display = true
 depth = false
-yolo_model = yolov8m.trt
+yolo_model = yolov8.trt
 
 # the common directory is /home/robocomp, even if you have a robolab user
 classes-path-file = /home/robocomp/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt
