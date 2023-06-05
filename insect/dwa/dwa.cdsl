@@ -1,10 +1,12 @@
 import "Lidar3D.idsl";
+import "SegmentatorTrackingPub.idsl";
 
 Component dwa
 {
     Communications
     {
         requires Lidar3D;
+        subscribesTo SegmentatorTrackingPub;
     };
     language python;
 };

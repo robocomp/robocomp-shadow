@@ -7,6 +7,10 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
 import RoboCompLidar3D
+Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
+import RoboCompSegmentatorTrackingPub
+Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
+import RoboCompVisualElements
 
 class TLidarData(list):
     def __init__(self, iterable=list()):
@@ -26,7 +30,26 @@ class TLidarData(list):
         super(TLidarData, self).insert(index, item)
 
 setattr(RoboCompLidar3D, "TLidarData", TLidarData)
+class TObjects(list):
+    def __init__(self, iterable=list()):
+        super(TObjects, self).__init__(iterable)
 
+    def append(self, item):
+        assert isinstance(item, RoboCompVisualElements.TObject)
+        super(TObjects, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompVisualElements.TObject)
+        super(TObjects, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompVisualElements.TObject)
+        super(TObjects, self).insert(index, item)
+
+setattr(RoboCompVisualElements, "TObjects", TObjects)
+
+import segmentatortrackingpubI
 
 
 
@@ -95,6 +118,8 @@ class Subscribes:
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
 
+        self.SegmentatorTrackingPub = self.create_adapter("SegmentatorTrackingPubTopic", segmentatortrackingpubI.SegmentatorTrackingPubI(default_handler))
+
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
         handler = interface_handler
@@ -135,7 +160,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0
