@@ -948,15 +948,6 @@ class SpecificWorker(GenericWorker):
             start += 1
             start = 0 if ((start % 900) == 0) else start
             a += 1
-        #print(len(lidar3D))
-        # print("MIN HEIGHT ", height)
-        # for a in range(ang):
-        #     for l in range(level):
-        #         lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][a][0]/1000, y=self.points[l][a][1]/1000, z=height/1000, intensity=0))
-        #         height += self.consts.depth_lines_step
-        #     height = self.consts.depth_lines_min_height
-                # print("HEIGHT ", height)
-        #print(lidar3D)
         return lidar3D
 
     # =====================================================================
