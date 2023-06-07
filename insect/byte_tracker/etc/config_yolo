@@ -4,12 +4,13 @@ VisualElements.Endpoints=tcp -p 14737
 
 # Proxies for required interfaces
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
 
 
 depth_flag = false
-display = false
+display = true
 lidar3D = false
+simulator = false
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

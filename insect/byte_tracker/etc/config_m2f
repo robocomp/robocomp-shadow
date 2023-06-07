@@ -8,6 +8,7 @@ Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
 depth_flag = false
 display = false
 lidar3D = false
+simulator = true
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
