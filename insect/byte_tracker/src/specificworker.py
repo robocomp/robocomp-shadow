@@ -144,10 +144,7 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         try:
-            if params["depth_flag"] == "true" or params["depth_flag"] == "True":
-                self.tracker = BYTETrackerDepth(frame_rate=30)
-            else:
-                self.tracker = BYTETracker(frame_rate=30)
+            self.tracker = BYTETracker(frame_rate=30)
             if params["display"] == "true" or params["display"] == "True":
                 self.display = True
             if params["simulator"] == "true" or params["coppelia"] == "True":
@@ -170,8 +167,6 @@ class SpecificWorker(GenericWorker):
                 cv2.imshow("Image", img)
                 cv2.waitKey(1)
         self.show_fps()
-
-
 
     def lidar_points(self):
         """
@@ -207,7 +202,6 @@ class SpecificWorker(GenericWorker):
         # Fetch LIDAR points that fall within the specified angle range.
 
         try:
-
             #points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
             points = self.lidar3d_proxy.getLidarData(270, 360)
             # print(points)
@@ -215,11 +209,8 @@ class SpecificWorker(GenericWorker):
             traceback.print_exc()
             print(e, "Error connecting to Lidar3D")
 
-
-
         # Convert points into a numpy array and scale from millimeters to meters.
         points_array = np.array([[p.x, p.y, p.z] for p in points])
-
         return np.array(self.lidar_coppelia(points_array)) if self.simulator else np.array(self.lidar_real(points_array))
 
     def lidar_coppelia(self, points_array):
@@ -490,9 +481,9 @@ class SpecificWorker(GenericWorker):
 
         # Calcula las proporciones de inicio y fin de la ROI con respecto al ancho de la imagen.
         # Estas proporciones representan la fracción del ancho de la imagen que cubre la ROI.
-        print("roixsize: ", self.roi_xsize)
-        print("roixcenter: ", self.roi_xcenter)
-        print("WIDHT IMAGE ", self.width_img)
+        # print("roixsize: ", self.roi_xsize)
+        # print("roixcenter: ", self.roi_xcenter)
+        # print("WIDHT IMAGE ", self.width_img)
         if self.roi_xcenter - self.roi_xsize // 2 < 0:
             print("MENOR 0")
             start_ratio = ((self.roi_xcenter - self.roi_xsize // 2)+self.width_img) / self.width_img

@@ -2,6 +2,8 @@
 Intro to component here
 
 
+
+
 ## Configuration parameters
 As any other component, *byte_tracker* needs a configuration file to start. In
 ```
