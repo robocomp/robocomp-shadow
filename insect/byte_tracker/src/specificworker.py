@@ -64,27 +64,29 @@ class SpecificWorker(GenericWorker):
                                   "cam_back_2": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
                                   "cam_left": self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51)}
             #REAL LIDAR
-            self.overlap = 260
-            self.rvec = np.array([np.deg2rad(90), np.deg2rad(1), np.deg2rad(-0.5)])
-            self.tvec = np.array([0., 220., 0.])
-            self.rvec_back = np.array([np.deg2rad(-90), np.deg2rad(3), np.deg2rad(5)])
-            self.tvec_back = np.array([0, -220, 0.0])
+            # self.overlap = 260
+            self.overlap = 0
+            self.rvec = np.array( [np.deg2rad(90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec = np.array([0., 220., 30.])
+            self.rvec_back = np.array([np.deg2rad(-90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec_back = np.array([0., -220., 0.])
             self.distance_threshold = 7000
-            self.calibration_size = (1024, 1024)
+
             self.aperture = np.deg2rad(180)
 
-            self.K = np.array([[1240, 0.0, 1824], [0.0, 1240, 1824],
+
+
+            self.K = np.array([[1080, 0.0, 1824], [0.0, 1080, 1824],
                                [0.0, 0.0, 1.0]])
 
-            self.D = np.array(
-                [[0.2948720224831864], [-0.3963793518453425], [0.19925216832157427], [-0.03725173372715627]])
+            self.D = np.array([[0.32508720224831864], [-0.396793518453425], [0.20325216832157427], [-0.03725173372715627]])
             # self.D = np.array([[0.0], [0.0], [0.0], [0.0]])
             self.fisheye_calibration_size = (3648, 3648)
 
 
             self.focal_x = 128
             self.focal_y = 128
-            self.width_img = 1024
+            self.width_img = 1920
             self.height_img = 512
             self.conditions = [
                 ((-np.pi / 4, np.pi / 4), "cam_front"),
@@ -104,7 +106,7 @@ class SpecificWorker(GenericWorker):
             self.objects_read = []
             self.objects_write = []
             self.display = False
-            self.coppelia = False
+            self.simulator = False
 
             # Hz
             self.cont = 1
@@ -205,8 +207,9 @@ class SpecificWorker(GenericWorker):
         # Fetch LIDAR points that fall within the specified angle range.
 
         try:
-            points = self.lidar3d_proxy.getLidarData(int(start_angle-180), int(len_angle))
-            #points = self.lidar3d_proxy.getLidarData(270, 180)
+
+            #points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
+            points = self.lidar3d_proxy.getLidarData(270, 360)
             # print(points)
         except Ice.Exception as e:
             traceback.print_exc()
@@ -337,9 +340,6 @@ class SpecificWorker(GenericWorker):
             points (numpy array): A numpy array containing the real-world LIDAR points to be projected.
         """
 
-        # Adjust the y coordinates of the points by the overlap value.
-        points[:, :, 1] += self.overlap
-
         # Project the points onto the image plane using the fisheye lens model with the given rotation and translation vectors, camera matrix, and distortion coefficients.
         # The alpha parameter is set to 0 for no scaling.
         front_points_2d, _ = cv2.fisheye.projectPoints(points, self.rvec, self.tvec, self.K, self.D, alpha=0)
@@ -361,9 +361,6 @@ class SpecificWorker(GenericWorker):
         Args:
             points (numpy array): A numpy array containing the real-world LIDAR points to be projected.
         """
-
-        # Adjust the y coordinates of the points by subtracting the overlap value.
-        points[:, :, 1] -= self.overlap
         # Invert the y coordinates.
         points[:, :, 1] = -points[:, :, 1]
 
@@ -400,9 +397,6 @@ class SpecificWorker(GenericWorker):
             pointsEquirect (numpy array): Points in the equirectangular plane, in the format [[x,y],...].
         """
 
-        # Aperture of the fisheye lens in radians.
-        aperture = np.deg2rad(180)
-
         # Dimensions of the fisheye image.
         width = size_in[0]
         height = size_in[1]
@@ -425,7 +419,7 @@ class SpecificWorker(GenericWorker):
         # Convert to 3D fisheye points.
         p_x = src_x_norm
         p_z = src_y_norm
-        p_y = np.where(r != 0, r / np.tan(r * aperture / 2), 0)
+        p_y = np.where(r != 0, r / np.tan(r * self.aperture / 2), 0)
 
         # Convert 3D fisheye points to 3D lat/lon.
         latitude = np.arctan2(p_z, np.sqrt(p_x ** 2 + p_y ** 2))
@@ -496,10 +490,20 @@ class SpecificWorker(GenericWorker):
 
         # Calcula las proporciones de inicio y fin de la ROI con respecto al ancho de la imagen.
         # Estas proporciones representan la fracción del ancho de la imagen que cubre la ROI.
+        print("roixsize: ", self.roi_xsize)
+        print("roixcenter: ", self.roi_xcenter)
+        print("WIDHT IMAGE ", self.width_img)
+        if self.roi_xcenter - self.roi_xsize // 2 < 0:
+            print("MENOR 0")
+            start_ratio = ((self.roi_xcenter - self.roi_xsize // 2)+self.width_img) / self.width_img
+        else:
+            start_ratio = (self.roi_xcenter - self.roi_xsize // 2) / self.width_img
 
-        start_ratio = (self.roi_xcenter - self.roi_xsize // 2) / self.width_img
-        print("START RATIO", self.roi_xcenter)
-        end_ratio = (self.roi_xcenter + self.roi_xsize // 2) / self.width_img
+        if (self.roi_xcenter + self.roi_xsize // 2) > self.width_img:
+            print("MAYOR 0")
+            end_ratio = (self.roi_xcenter + self.roi_xsize // 2- self.width_img) / self.width_img
+        else:
+            end_ratio = (self.roi_xcenter + self.roi_xsize // 2) / self.width_img
 
         # Calcula los ángulos de inicio y fin de la ROI.
         # Primero, multiplica las proporciones de inicio y fin por el campo de visión original (original_fov)
@@ -507,7 +511,10 @@ class SpecificWorker(GenericWorker):
         start_angle = original_fov * start_ratio
         end_angle = original_fov * end_ratio
 
-
+        # if start_angle < 0:
+        #     start_angle += 360
+        # if end_angle < 0:
+        #     end_angle += 360
         # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
         # los ángulos de inicio y fin.
         len_angle = abs(end_angle - start_angle)
@@ -652,10 +659,11 @@ class SpecificWorker(GenericWorker):
             y1 = int(element.bot * y_factor + y_offset)
             if self.lidar_in_image is not None:
                 _,centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
-                element.depth = depth
-                element.x = centroid[0]
-                element.y = depth
-                element.z = centroid[1]
+                if depth != None:
+                    element.depth = depth
+                    element.x = centroid[0]
+                    element.y = depth
+                    element.z = centroid[1]
             else:
                 print("Warning, no lidar data yet")
 
@@ -681,12 +689,31 @@ class SpecificWorker(GenericWorker):
             The minimum distance among the points within the bounding box. If there are no points
             within the box, returns infinity.
         """
-        in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
+
+        # if x2 > self.width_img:
+        #     x2 -= self.width_img
+        # if x2 < 0:
+        #     x2 += self.width_img
+        if x1 < 0:
+            x1 += self.width_img
+        if x2 < 0:
+            x2 = -x2
+
+
+        # Usual case
+        if x1 < x2:
+            in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
+        else:
+            in_box_points = [p for p in points if ((x1 <= p[0] < self.width_img) or (0 < p[0] <= x2)) and y1 <= p[1] <= y2]
         min_distance = min((p[2] for p in in_box_points), default=float('inf'))
-        x = [p[3] for p in in_box_points]  # X  get middle 3D point en X,Z plane
-        z = [p[5] for p in in_box_points]  # Z
-        centroid = (sum(x) / len(in_box_points), sum(z) / len(in_box_points))
-        return in_box_points, centroid, min_distance
+
+        if len(in_box_points) > 0:
+            x = [p[3] for p in in_box_points]  # X  get middle 3D point en X,Z plane
+            z = [p[5] for p in in_box_points]  # Z
+            centroid = (sum(x) / len(in_box_points), sum(z) / len(in_box_points))
+            return in_box_points, centroid, min_distance
+        else:
+            return in_box_points, (), None
     def display_data(self, image):
         """
         Displays data on an image, including objects of interest and corresponding LIDAR points.
@@ -730,6 +757,7 @@ class SpecificWorker(GenericWorker):
 
             # Draw the bounding rectangle on the image.
             cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+
 
             # Identify the LIDAR points within the bounding rectangle and draw them on the image.
             results, centroid, min_distance = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
