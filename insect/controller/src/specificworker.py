@@ -542,7 +542,6 @@ class SpecificWorker(GenericWorker):
             cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')+[center_x, 0]], False, (255, 255, 255))
 
         frame = self.draw_objects(frame, objects)
-
         self.glviewer.process_elements(objects)
 
         # Convert the OpenCV image to a QImage. WATCH that the ratio is lost
@@ -551,9 +550,6 @@ class SpecificWorker(GenericWorker):
         q_image = QImage(frame_r.data, width, height, channel*width, QImage.Format_BGR888)
         # Display the QImage in the QLabel
         self.ui.frame_2d.setPixmap(QPixmap.fromImage(q_image))
-
-        # cv2.imshow(winname, frame)
-        # cv2.waitKey(2)
 
     def draw_objects(self, image, objects):
         if len(objects) == +0:
@@ -573,7 +569,7 @@ class SpecificWorker(GenericWorker):
                 cv2.rectangle(image, (0, y0), (x1, y1), color, line)
             else:
                 cv2.rectangle(image, (x0, y0), (x1, y1), color, line)
-            text = 'Class: {} - Score: {:.1f}% - ID: {}'.format(element.type, element.score * 100, element.id)
+            text = 'Cls: {} - Score: {:.1f}% - ID: {} - Depth: {:.1f}mm'.format(element.type, element.score * 100, element.id, element.depth)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
             cv2.rectangle(
@@ -585,7 +581,6 @@ class SpecificWorker(GenericWorker):
             )
             cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0, 255, 0), thickness=1)
         return image
-
 
     def draw_semantic_segmentation(self, winname, color_image, seg, yolo_rois, seg_rois):
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
