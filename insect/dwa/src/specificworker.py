@@ -35,13 +35,6 @@ from dataclasses import dataclass
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
-
-# If RoboComp was compiled with Python bindings you can use InnerModel in Python
-# import librobocomp_qmat
-# import librobocomp_osgviewer
-# import librobocomp_innermodel
-
-
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -59,8 +52,10 @@ class SpecificWorker(GenericWorker):
             #image size
             self.width = 700
             self.height = 500
-            self.gfactor_x = 0.2
-            self.gfactor_y = 0.2
+            self.world_width = 5000 #mm
+            self.world_height = 3000  # mm
+            self.gfactor_x = self.width / self.world_width
+            self.gfactor_y = self.height / self.world_height
 
             # Hz
             self.cont = 1
@@ -89,7 +84,6 @@ class SpecificWorker(GenericWorker):
             #self.timer.setSingleShot(True)
             self.timer.start(self.Period)
 
-
     def __del__(self):
         """Destructor"""
 
@@ -103,7 +97,6 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-
         now = time.time()
         ldata_set = self.read_lidar_data()
         #print("t1", time.time() - now)
@@ -112,17 +105,23 @@ class SpecificWorker(GenericWorker):
         safe_lanes = self.discard_occupied_lanes(ldata_set, self.candidates)
         #print("t2", time.time() - now)
 
-        # base imagd
+        # base image
         img = np.zeros((self.height, self.width, 3), dtype=np.uint8)  # filas, columnas
 
         # draw lidar points
         self.draw_lidar_points(ldata_set, img)
 
         # draw target
+        print(self.target.depth)
         self.draw_target(img)
 
         # select optimal lane
         optimal = self.select_optimal_lane(safe_lanes, self.target)
+        #print(optimal[1]['params'])
+        
+        # control
+        if optimal is not None:
+            self.control(optimal[1]['tip'])
 
         # draw candidates
         self.draw_candidates(safe_lanes, img, optimal)
@@ -130,7 +129,6 @@ class SpecificWorker(GenericWorker):
         cv2.imshow(self.window_name, img)
         cv2.waitKey(2)
         self.show_fps()
-
 
     def create_candidates_differential(self):
         current_adv_speed = 0
@@ -168,7 +166,7 @@ class SpecificWorker(GenericWorker):
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, -new_rotation, -r])
-                        tips.append([r * np.cos(ang_length) - r, r * np.sin(ang_length)])
+                        tips.append([r * np.cos(ang_length-self.dyn.step_along_ang) - r, r * np.sin(ang_length-self.dyn.step_along_ang)])
 
                     # now compute RIGHT arcs corresponding to r - 100 and r + 100
                     points = []
@@ -187,7 +185,7 @@ class SpecificWorker(GenericWorker):
                         points.extend(ipoints)
                         trajectories.append(points)
                         params.append([new_advance, new_rotation, r])
-                        tips.append([r - r*np.cos(ang_length), r*np.sin(ang_length)])
+                        tips.append([r - r*np.cos(ang_length-self.dyn.step_along_ang), r*np.sin(ang_length-self.dyn.step_along_ang)])
 
                 else:  # avoid division by zero for straight lanes
                     points = []
@@ -220,7 +218,8 @@ class SpecificWorker(GenericWorker):
         try:
             ldata = self.lidar3d_proxy.getLidarData(787, 225)
             # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y) for l in ldata if l.z > (400 - self.z_lidar_height)
+            ldata_set = [(l.x, l.y) for l in ldata
+                         if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
                          and np.linalg.norm((l.x, l.y)) > 400       # robot's body
                          and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
@@ -274,8 +273,8 @@ class SpecificWorker(GenericWorker):
             size = np.array((10, 10))
             p = np.array((int(self.target.x*self.gfactor_x)+self.width//2, self.height-int(self.target.y*self.gfactor_y)))
             cv2.rectangle(img, p-size, p+size, (255, 0, 0), 3)
-            #print(self.target.x, self.target.y, (int(self.target.x*self.gfactor+img.shape[0]//2),
-            #                                     self.int(+img.shape[1]-self.target.y*self.gfactor)))
+            #print(self.target.x, self.target.y, (int(self.target.x*self.gfactor_x+self.width//2),
+            #                                     self.height-int(self.target.y*self.gfactor_y)))
 
     def select_optimal_lane(self, lanes, target):
         '''
@@ -295,7 +294,7 @@ class SpecificWorker(GenericWorker):
             # distance to target
             d_tar = np.linalg.norm(l["tip"] - np.array((self.target.x, self.target.y)))
             # distance to obstacle. Compute the closest distance from tip to lidar points
-            #print(k, l["tip"], np.array((self.target.x, self.target.y)), d_tar)
+            #print(l["tip"], np.array((self.target.x, self.target.y)), d_tar)
             d_obs = 0
             # distance to previous choice
             d_prev = 0
@@ -303,7 +302,47 @@ class SpecificWorker(GenericWorker):
 
         cum = np.array(cum)
         c = cum[cum[:, 0].argsort()]
+        #print(c[0])
         return c[0]
+
+    def control(self, local_target):
+        MAX_ADV_SPEED = 700
+        if self.target is not None:
+            if self.target.depth < 900:
+                self.stop_robot()
+                self.target = None
+                print("Control: Target achieved")
+            else:
+                dist = np.linalg.norm(local_target)
+                rot = np.arctan2(local_target[0], local_target[1])
+                adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
+                side = MAX_ADV_SPEED * self.sigmoid(local_target[0])
+                print("dist: ", self.target.depth, "local dist:", dist, "Beta:", rot,
+                      "Side:", side, "Adv:", adv, "Rot:", rot)
+                try:
+#                    self.omnirobot_proxy.setSpeedBase(side, adv*2, rot)
+                    self.omnirobot_proxy.setSpeedBase(0, 0, rot)
+
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Error connecting to omnirobot")
+        else:
+            self.stop_robot()
+            print("Control: stopping")
+            return
+
+    def sigmoid(self, x):   # top = 1, front = 2
+        x = x/1000  #  to m
+        x0, k = [1.05425285, 3.72219712]
+        return 1 / (1 + np.exp(-k * (x - x0)))
+
+    def stop_robot(self):
+        try:
+            print("STOPPING THE ROBOT")
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to omnirobot")
 
     def loss_function(self, mask_img, mask_path, distance_to_target_object=0):
         result = cv2.bitwise_and(mask_img, mask_path)
@@ -371,10 +410,16 @@ class SpecificWorker(GenericWorker):
 
     def SegmentatorTrackingPub_setTrack(self, target):
         #print("In callback: ", target)
+        # if target.depth == 0:
+        #     #print("Warning: target at depth 0")
+        #     pass
         if target.id == -1:
             self.target = None
         else:
+            target.x = -(target.x + 800)
+            target.y /= 1.7
             self.target = target
+            #print(self.target.depth)
 
 # self.params = np.array(candidates["params"])
 # self.camera_matrix = camera_matrix
