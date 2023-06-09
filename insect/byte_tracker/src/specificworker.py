@@ -86,7 +86,7 @@ class SpecificWorker(GenericWorker):
 
             self.focal_x = 128
             self.focal_y = 128
-            self.width_img = 1920
+            self.width_img = 1024
             self.height_img = 512
             self.conditions = [
                 ((-np.pi / 4, np.pi / 4), "cam_front"),
@@ -197,14 +197,15 @@ class SpecificWorker(GenericWorker):
         """
 
         # Calculate angles for the region of interest.
-        start_angle, len_angle = self.calculate_roi_angles()
+        start_angle, len_angle = self.calculate_roi_angles_coppelia() if self.simulator else self.calculate_roi_angles_real()
 
         # Fetch LIDAR points that fall within the specified angle range.
 
         try:
-            #points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
-            points = self.lidar3d_proxy.getLidarData(270, 160)
-            #print(len(points))
+            points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
+
+            #points = self.lidar3d_proxy.getLidarData(270, 900)
+            # print(points)
         except Ice.Exception as e:
             traceback.print_exc()
             print(e, "Error connecting to Lidar3D")
@@ -266,7 +267,7 @@ class SpecificWorker(GenericWorker):
                 # Project points onto the image plane.
                 x = (self.focal_x * transformed_points[:, 0] / transformed_points[:, 1]) + cx
                 y = (-self.focal_y * transformed_points[:, 2] / transformed_points[:, 1]) + cy
-
+                transformed_points = np.dot(transformed_points, np.linalg.inv(transformation_matrix))
                 # Identify points that fall within the image bounds.
                 valid_indices = np.where((0 <= x) & (x < self.width_img) & (0 <= y) & (y < self.height_img))[0]
                 # Add valid points to the lidar_in_image list.
@@ -464,7 +465,7 @@ class SpecificWorker(GenericWorker):
         return mat
 
 
-    def calculate_roi_angles(self):
+    def calculate_roi_angles_real(self):
         """
         Este método calcula los ángulos de inicio y longitud de un ROI (Región de Interés)
         en una imagen panorámica que cubre 360 grados.
@@ -506,6 +507,46 @@ class SpecificWorker(GenericWorker):
         #     start_angle += 360
         # if end_angle < 0:
         #     end_angle += 360
+        # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
+        # los ángulos de inicio y fin.
+        len_angle = abs(end_angle - start_angle)
+
+        # Devuelve los ángulos de inicio y longitud.
+        return start_angle, len_angle
+
+    def calculate_roi_angles_coppelia(self):
+        """
+        Este método calcula los ángulos de inicio y longitud de un ROI (Región de Interés)
+        en una imagen panorámica que cubre 360 grados.
+
+        La imagen se representa como una línea horizontal, y la ROI es una subsección
+        de esa línea definida por un centro (self.roi_xcenter) y un tamaño (self.roi_xsize).
+
+        Los ángulos calculados se mapean a un rango de 0 a 900 grados,
+        donde 0 corresponde a 0 grados, 450 a 180 grados, y 900 a -180 grados.
+
+        Returns:
+            tuple: un par de ángulos (start_angle, len_angle) representando el ángulo
+                   de inicio y la longitud del ángulo de la ROI en la imagen, respectivamente.
+        """
+        # La imagen original cubre 360 grados
+        original_fov = 360
+
+        # Calcula las proporciones de inicio y fin de la ROI con respecto al ancho de la imagen.
+        # Estas proporciones representan la fracción del ancho de la imagen que cubre la ROI.
+        start_ratio = (self.roi_xcenter - self.roi_xsize // 2) / self.width_img
+        end_ratio = (self.roi_xcenter + self.roi_xsize // 2) / self.width_img
+
+        # Calcula los ángulos de inicio y fin de la ROI.
+        # Primero, multiplica las proporciones de inicio y fin por el campo de visión original (original_fov)
+        # para obtener los ángulos en el rango de la imagen completa.
+        # Luego, resta 180 para convertirlos al rango [-180, 180].
+        # Finalmente, llama a remap_angle para convertir estos ángulos al rango [0, 900] como se describió anteriormente.
+        start_angle = self.remap_angle(original_fov * start_ratio - 180)
+
+        end_angle = self.remap_angle(original_fov * end_ratio - 180)
+
+
         # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
         # los ángulos de inicio y fin.
         len_angle = abs(end_angle - start_angle)
@@ -649,12 +690,12 @@ class SpecificWorker(GenericWorker):
             x1 = int(element.right * x_factor + x_offset)
             y1 = int(element.bot * y_factor + y_offset)
             if self.lidar_in_image is not None:
-                _, centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+                _,centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
                 if depth != None:
                     element.depth = depth
                     element.x = centroid[0]
-                    element.y = depth
-                    element.z = centroid[1]
+                    element.y = centroid[1]
+                    element.z = centroid[2]
             else:
                 print("Warning, no lidar data yet")
 
@@ -696,17 +737,17 @@ class SpecificWorker(GenericWorker):
             in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
         else:
             in_box_points = [p for p in points if ((x1 <= p[0] < self.width_img) or (0 < p[0] <= x2)) and y1 <= p[1] <= y2]
-
         min_distance = min((p[2] for p in in_box_points), default=float('inf'))
 
         if len(in_box_points) > 0:
             x = [p[3] for p in in_box_points]  # X  get middle 3D point en X,Z plane
             z = [p[5] for p in in_box_points]  # Z
-            centroid = (sum(x) / len(in_box_points), sum(z) / len(in_box_points))
+            y = min((p[4] for p in in_box_points), default=float('inf')) #MIN Y
+            #centroid = (sum(x) / len(in_box_points), -sum(z) / len(in_box_points))
+            centroid = (sum(x) / len(in_box_points), y, sum(z) / len(in_box_points) )
             return in_box_points, centroid, min_distance
         else:
             return in_box_points, (), None
-
     def display_data(self, image):
         """
         Displays data on an image, including objects of interest and corresponding LIDAR points.
@@ -722,8 +763,8 @@ class SpecificWorker(GenericWorker):
         image : numpy array
             The original image, modified to include visualizations of the object and LIDAR data.
         """
-        # for i in self.lidar_in_image:
-        #     cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
+        for i in self.lidar_in_image:
+            cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
         # Check if there are any objects to display.
         if len(self.objects) == 0:
             return image
