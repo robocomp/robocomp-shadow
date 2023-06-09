@@ -1,11 +1,12 @@
 import "Lidar3D.idsl";
 import "SegmentatorTrackingPub.idsl";
+import "OmniRobot.idsl";
 
 Component dwa
 {
     Communications
     {
-        requires Lidar3D;
+        requires Lidar3D, OmniRobot;
         subscribesTo SegmentatorTrackingPub;
     };
     language python;

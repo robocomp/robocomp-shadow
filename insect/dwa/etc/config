@@ -1,7 +1,10 @@
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 15431
 
+# Proxies
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
+
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

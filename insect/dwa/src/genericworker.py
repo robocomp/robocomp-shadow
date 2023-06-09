@@ -42,6 +42,7 @@ class GenericWorker(QtCore.QObject):
         super(GenericWorker, self).__init__()
 
         self.lidar3d_proxy = mprx["Lidar3DProxy"]
+        self.omnirobot_proxy = mprx["OmniRobotProxy"]
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 30

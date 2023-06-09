@@ -5,8 +5,12 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
+import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
 import RoboCompLidar3D
+Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
+import RoboCompOmniRobot
 Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
 import RoboCompSegmentatorTrackingPub
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
@@ -90,6 +94,8 @@ class Requires:
         self.mprx={}
 
         self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
+
+        self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 
     def get_proxies_map(self):
         return self.mprx
