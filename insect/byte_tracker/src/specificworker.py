@@ -39,7 +39,7 @@ from dataclasses import dataclass
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 50
 
         if startup_check:
             self.startup_check()
@@ -203,8 +203,8 @@ class SpecificWorker(GenericWorker):
 
         try:
             #points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
-            points = self.lidar3d_proxy.getLidarData(270, 360)
-            # print(points)
+            points = self.lidar3d_proxy.getLidarData(270, 160)
+            #print(len(points))
         except Ice.Exception as e:
             traceback.print_exc()
             print(e, "Error connecting to Lidar3D")
@@ -649,7 +649,7 @@ class SpecificWorker(GenericWorker):
             x1 = int(element.right * x_factor + x_offset)
             y1 = int(element.bot * y_factor + y_offset)
             if self.lidar_in_image is not None:
-                _,centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+                _, centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
                 if depth != None:
                     element.depth = depth
                     element.x = centroid[0]
@@ -696,6 +696,7 @@ class SpecificWorker(GenericWorker):
             in_box_points = [p for p in points if x1 <= p[0] <= x2 and y1 <= p[1] <= y2]
         else:
             in_box_points = [p for p in points if ((x1 <= p[0] < self.width_img) or (0 < p[0] <= x2)) and y1 <= p[1] <= y2]
+
         min_distance = min((p[2] for p in in_box_points), default=float('inf'))
 
         if len(in_box_points) > 0:
@@ -705,6 +706,7 @@ class SpecificWorker(GenericWorker):
             return in_box_points, centroid, min_distance
         else:
             return in_box_points, (), None
+
     def display_data(self, image):
         """
         Displays data on an image, including objects of interest and corresponding LIDAR points.
