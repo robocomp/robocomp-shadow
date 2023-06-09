@@ -38,7 +38,7 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 50
         if startup_check:
             self.startup_check()
         else:
@@ -112,7 +112,8 @@ class SpecificWorker(GenericWorker):
         self.draw_lidar_points(ldata_set, img)
 
         # draw target
-        print(self.target.depth)
+        # if self.target:
+        #     print(self.target.depth)
         self.draw_target(img)
 
         # select optimal lane
@@ -306,7 +307,7 @@ class SpecificWorker(GenericWorker):
         return c[0]
 
     def control(self, local_target):
-        MAX_ADV_SPEED = 700
+        MAX_ADV_SPEED = 1000
         if self.target is not None:
             if self.target.depth < 900:
                 self.stop_robot()
@@ -317,12 +318,9 @@ class SpecificWorker(GenericWorker):
                 rot = np.arctan2(local_target[0], local_target[1])
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
                 side = MAX_ADV_SPEED * self.sigmoid(local_target[0])
-                print("dist: ", self.target.depth, "local dist:", dist, "Beta:", rot,
-                      "Side:", side, "Adv:", adv, "Rot:", rot)
+                print("dist: {:.2f} l_dist: {:.2f} beta: {:.2f} side: {:.2f} adv: {:.2f} rot: {:.2f}".format(self.target.depth, dist, rot, side, adv, rot))
                 try:
-#                    self.omnirobot_proxy.setSpeedBase(side, adv*2, rot)
-                    self.omnirobot_proxy.setSpeedBase(0, 0, rot)
-
+                    self.omnirobot_proxy.setSpeedBase(side*2, adv*1.2, rot*1.2)
                 except Ice.Exception as e:
                     traceback.print_exc()
                     print(e, "Error connecting to omnirobot")
@@ -339,6 +337,7 @@ class SpecificWorker(GenericWorker):
     def stop_robot(self):
         try:
             print("STOPPING THE ROBOT")
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
             self.omnirobot_proxy.setSpeedBase(0, 0, 0)
         except Ice.Exception as e:
             traceback.print_exc()
