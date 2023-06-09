@@ -90,6 +90,7 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map):
         super(SpecificWorker, self).__init__(proxy_map)
         # Accessing the constants
+        self.ready_to_go = False
         self.consts = Consts()
         self.points = []
 
