@@ -267,7 +267,6 @@ class SpecificWorker(GenericWorker):
     def set_target_with_mouse(self, event):
         x = int(event.pos().x()*(self.rgb.width / self.ui.frame_2d.width()))
         y = int(event.pos().y()*(self.rgb.height / self.ui.frame_2d.height()))
-        point = (x, y)
         self.selected_object = None
         # print(list(self.mask2former.labels.keys())[list(self.mask2former.labels.values()).index(self.segmented_img[y, x].item())])
         # check if clicked point on yolo object. If so, set it as the new target object
@@ -501,17 +500,6 @@ class SpecificWorker(GenericWorker):
             return 1, dist
         else:
             return (1/1500.0) * dist, dist
-
-    # def read_yolo_objects(self):
-    #     yolo_objects = self.yoloobjects_proxy.getYoloObjects()
-    #     try:
-    #         yolo_objects = self.yoloobjects_proxy.getYoloObjects()
-    #         # for obj in yolo_objects.objects:
-    #         #     print(self.yolo_object_names[obj.type])
-    #     except Ice.Exception as e:
-    #         traceback.print_exc()
-    #         print(e)
-    #     return yolo_objects.objects
 
     def show_fps(self):
         if time.time() - self.last_time > 1:
