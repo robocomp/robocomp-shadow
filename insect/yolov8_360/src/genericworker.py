@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide6 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
 ROBOCOMP = ''
 try:
@@ -44,7 +44,7 @@ class GenericWorker(QtCore.QObject):
         self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
         self.visualelements_proxy = mprx["VisualElementsProxy"]
 
-        self.mutex = QtCore.QMutex(QtCore.QMutex)
+        self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 30
         self.timer = QtCore.QTimer(self)
 
