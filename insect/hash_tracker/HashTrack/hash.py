@@ -145,11 +145,14 @@ class HashTracker(object):
 
         ''' Step 2: First association, with high score detection boxes'''
         strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
-        if len(detections) > 0:
+        print("LEN DETECTIONS", len(detections))
+        print("LEN strack_pool", len(strack_pool))
+        if len(detections) > 0 and len(strack_pool) > 0:
             # # Predict the current location with KF
             dists = matching.hash_distance_following(strack_pool, detections)
             pos_match = matching.get_max_similarity_detection(dists)
             # dists = matching.fuse_score(dists, detections)
+            print("pos_match", pos_match)
             # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
             track = strack_pool[0]
             det = detections[pos_match]
@@ -162,7 +165,7 @@ class HashTracker(object):
         else:
             for it in strack_pool:
                 if not it.state == TrackState.Lost:
-                    track.mark_lost()
+                    it.mark_lost()
                     lost_stracks.append(track)
 
         # ''' Step 3: Second association, with low score detection boxes'''
