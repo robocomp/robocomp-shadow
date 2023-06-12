@@ -54,9 +54,9 @@ class SpecificWorker(GenericWorker):
 
             self.window_name = "DWA"
             cv2.namedWindow(self.window_name)
-            cv2.createTrackbar('A: dist to target', self.window_name, self.A, 10, self.dist_to_target_on_change)
-            cv2.createTrackbar('B: dist to obs', self.window_name, self.B, 10, self.dist_to_obs_on_change)
-            cv2.createTrackbar('C: dist to prev', self.window_name, self.C, 10, self.dist_to_prev_on_change)
+            cv2.createTrackbar('A: dist to target', self.window_name, self.A, 1000, self.dist_to_target_on_change)
+            cv2.createTrackbar('B: dist to obs', self.window_name, self.B, 1000, self.dist_to_obs_on_change)
+            cv2.createTrackbar('C: dist to prev', self.window_name, self.C, 1000, self.dist_to_prev_on_change)
 
             self.z_lidar_height = 1250
             self.z_threshold = self.z_lidar_height
@@ -372,7 +372,8 @@ class SpecificWorker(GenericWorker):
                 pass
             else:
                 dist = np.linalg.norm(local_target)
-                rot = np.arctan2(local_target[0], local_target[1])
+                rot = np.arctan2(local_target[0], local_target[1])/np.pi
+
                 # PID
                 # rot_error = self.target.roi.xcenter - 500    # full image half size
                 # rot_error_der = rot_error - self.prev_fovea_error
@@ -476,14 +477,13 @@ class SpecificWorker(GenericWorker):
 
     ##
     def dist_to_target_on_change(self, value):
-        self.A  = value
+        self.A  = value/100
 
     def dist_to_prev_on_change(self, value):
-        self.C = value
+        self.C = value/100
 
     def dist_to_obs_on_change(self, value):
-        self.B = value
-
+        self.B = value/100
     ################################################################
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
