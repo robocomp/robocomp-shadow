@@ -64,8 +64,35 @@ def hashes(ahashs, bhashs):
         np.ascontiguousarray(ahashs),
         np.ascontiguousarray(bhashs)
     )
+    print("HASHES MATRIX", hashes)
     return hashes / 44
 
+def hash_distance_following(followed_track, btracks):
+    """
+    Compute cost based on IoU
+    :type atracks: list[STrack]
+    :type btracks: list[STrack]
+
+    :rtype cost_matrix np.ndarray
+    """
+
+    if (len(followed_track)>0 and isinstance(followed_track[0], np.ndarray)) or (len(btracks) > 0 and isinstance(btracks[0], np.ndarray)):
+        ahashs = followed_track
+        bhashs = btracks
+    else:
+        ahashs = [track.hash_memory for track in followed_track]
+        bhashs = [track.hash for track in btracks]
+    # print("ahashs", ahashs)
+    # print("bhashs", bhashs)
+    _hashes = hashes(ahashs, bhashs)
+    # cost_matrix = 1 - _hashes
+    # print("COST MATRIX:", cost_matrix)
+    cost_matrix = check_for_classes(followed_track, btracks, _hashes)
+    return cost_matrix
+
+def get_max_similarity_detection(distances_matrix):
+    promedio_filas = np.mean(distances_matrix, axis=1)
+    return np.argmin(promedio_filas)
 
 def hash_distance(atracks, btracks):
     """

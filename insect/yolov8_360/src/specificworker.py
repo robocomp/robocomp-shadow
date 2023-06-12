@@ -20,8 +20,8 @@
 #
 import copy
 
-from PySide2.QtCore import QTimer
-from PySide2.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -154,10 +154,10 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 50
+            self.Period = 1
             self.thread_period = 10
             self.display = False
-            self.yolo_model = "yolov8s.trt"
+            self.yolo_model = "yolov8.trt"
             self.yolo_pose_model = "yolov8n-pose.trt"
 
             # OJO, comentado en el main
@@ -295,15 +295,8 @@ class SpecificWorker(GenericWorker):
 
         # If detections are found
         if dets is not None:
-            self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
-
-        # Compute distance to ROIs
-        try:
-            self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error connecting to omnirobot")
-        #print("TIEMPO 2", time.time() - t1)
+            self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5], rgb)
+        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
@@ -314,6 +307,7 @@ class SpecificWorker(GenericWorker):
                                            class_names=self.yolo_object_predictor.class_names)
             cv2.imshow(self.window_name, img)
             cv2.waitKey(1)
+
 
         # Show FPS and handle Keyboard Interruption
         try:
@@ -459,7 +453,7 @@ class SpecificWorker(GenericWorker):
                                final_cls_inds[:num[0]].reshape(-1, 1)], axis=-1)
         return dets
 
-    def create_interface_data(self, boxes, scores, cls_inds): #Optimizado
+    def create_interface_data(self, boxes, scores, cls_inds, rgb): #Optimizado
         """
         This method generates interface data for visual objects detected in an image.
 
@@ -487,13 +481,23 @@ class SpecificWorker(GenericWorker):
             act_object.right = int(box[2])
             act_object.bot = int(box[3])
             act_object.score = score
-            act_object.roi = ifaces.RoboCompVisualElements.TRoi(xcenter=self.rgb.roi.xcenter,
+            act_object.image = self.get_bbox_image_data(rgb, box)
+            self.objects_write.append(act_object)
+        return self.objects_write
+
+    def get_bbox_image_data(self, image, element_box):
+        bbox_image = ifaces.RoboCompCamera360RGB.TImage()
+        cropped_image = image[int(element_box[1]):int(element_box[3]), int(element_box[0]):int(element_box[2])]
+        cv2.imshow("", cropped_image)
+        cv2.waitKey(1)
+        bbox_image.image = cropped_image.tobytes()
+        bbox_image.height, bbox_image.width, _ = cropped_image.shape
+        bbox_image.roi = ifaces.RoboCompCamera360RGB.TRoi(xcenter=self.rgb.roi.xcenter,
                                                                 ycenter=self.rgb.roi.ycenter,
                                                                 xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
                                                                 finalxsize=self.rgb.roi.finalxsize,
                                                                 finalysize=self.rgb.roi.finalysize)
-            self.objects_write.append(act_object)
-        return self.objects_write
+        return bbox_image
 
     # Calculate image ROI for element centering
     def set_roi_dimensions(self, objects):
@@ -508,10 +512,11 @@ class SpecificWorker(GenericWorker):
             """
         for object in objects:
             if object.id == self.tracked_id:
-                x_roi_offset = object.roi.xcenter - object.roi.xsize / 2
-                y_roi_offset = object.roi.ycenter - object.roi.ysize / 2
-                x_factor = object.roi.xsize / object.roi.finalxsize
-                y_factor = object.roi.ysize / object.roi.finalysize
+                roi = object.image.roi
+                x_roi_offset = roi.xcenter - roi.xsize / 2
+                y_roi_offset = roi.ycenter - roi.ysize / 2
+                x_factor = roi.xsize / roi.finalxsize
+                y_factor = roi.ysize / roi.finalysize
 
                 left = int(object.left * x_factor + x_roi_offset)
                 right = (object.right * x_factor + x_roi_offset)

@@ -345,12 +345,13 @@ class SpecificWorker(GenericWorker):
 
         # Transform objects to main image size
         for element in total_objects:
-            final_xsize = element.roi.finalxsize
-            final_ysize = element.roi.finalysize
-            roi_xcenter = element.roi.xcenter
-            roi_ycenter = element.roi.ycenter
-            roi_xsize = element.roi.xsize
-            roi_ysize = element.roi.ysize
+            roi = element.image.roi
+            final_xsize = roi.finalxsize
+            final_ysize = roi.finalysize
+            roi_xcenter = roi.xcenter
+            roi_ycenter = roi.ycenter
+            roi_xsize = roi.xsize
+            roi_ysize = roi.ysize
             x_roi_offset = roi_xcenter-roi_xsize/2
             y_roi_offset = roi_ycenter-roi_ysize/2
             x_factor = roi_xsize / final_xsize
@@ -446,7 +447,7 @@ class SpecificWorker(GenericWorker):
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
             #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
-            print("Freq:", self.cont, "Hz. Curr period:", cur_period)
+            print("Freq:", self.cont, "ms. Curr period:", cur_period)
             #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
             self.cont = 0
         else:

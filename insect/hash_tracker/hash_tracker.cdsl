@@ -1,6 +1,7 @@
 import "VisualElements.idsl";
 import "Camera360RGB.idsl";
 import "Lidar3D.idsl";
+import "SegmentatorTrackingPub.idsl";
 
 Component hash_tracker
 {
@@ -8,7 +9,7 @@ Component hash_tracker
     {
         requires Camera360RGB, Lidar3D;
         implements VisualElements;
-   
+        subscribesTo SegmentatorTrackingPub;
     };
     language python;
 
