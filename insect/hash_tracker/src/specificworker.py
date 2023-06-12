@@ -41,7 +41,7 @@ from dataclasses import dataclass
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 50
+        self.Period = 100
 
         if startup_check:
             self.startup_check()
