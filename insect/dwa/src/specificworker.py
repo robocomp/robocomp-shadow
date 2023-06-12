@@ -359,7 +359,7 @@ class SpecificWorker(GenericWorker):
         return value / max
 
     def control(self, local_target):    # get local_target from DWA as next place to go
-        MAX_ADV_SPEED = 1000/3
+        MAX_ADV_SPEED = 1000
         MAX_ROT_SPEED = 2
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
