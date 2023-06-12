@@ -1,10 +1,10 @@
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 16296
-MPCProxy = mpc:tcp -h localhost -p 18347
-MaskElementsProxy = maskelements:tcp -h localhost -p 17190
-OmniRobotProxy = omnirobot:tcp -h localhost -p 15729
-VisualElementsProxy = visualelements:tcp -h localhost -p 11968
-VisualElements1Proxy = visualelements:tcp -h localhost -p 15778
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 12698
+MPCProxy = mpc:tcp -h localhost -p 11511
+MaskElementsProxy = maskelements:tcp -h localhost -p 18152
+OmniRobotProxy = omnirobot:tcp -h localhost -p 11077
+VisualElementsProxy = visualelements:tcp -h localhost -p 12834
+VisualElements1Proxy = visualelements:tcp -h localhost -p 16921
 
 
 
