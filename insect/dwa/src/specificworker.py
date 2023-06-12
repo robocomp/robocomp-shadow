@@ -47,9 +47,17 @@ class SpecificWorker(GenericWorker):
             self.startup_check()
         else:
 
+            # DWA
+            self.A = 5
+            self.B = 1
+            self.C = 1
+
             self.window_name = "DWA"
             cv2.namedWindow(self.window_name)
-            #cv2.createTrackbar('Z threshold', self.window_name, 0, 3000, self.z_on_change)
+            cv2.createTrackbar('A: dist to target', self.window_name, self.A, 10, self.dist_to_target_on_change)
+            cv2.createTrackbar('B: dist to obs', self.window_name, self.B, 10, self.dist_to_obs_on_change)
+            cv2.createTrackbar('C: dist to prev', self.window_name, self.C, 10, self.dist_to_prev_on_change)
+
             self.z_lidar_height = 1250
             self.z_threshold = self.z_lidar_height
 
@@ -227,11 +235,11 @@ class SpecificWorker(GenericWorker):
         try:
             ldata = self.lidar3d_proxy.getLidarData(787, 225)
             # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y) for l in ldata
+            ldata_set = [(l.x, l.y + 300) for l in ldata
                          if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
-                         and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
-                         and np.linalg.norm((l.x, l.y)) < 3000]
+                         and np.linalg.norm((l.x, l.y+300)) > 400       # robot's body]
+                         and np.linalg.norm((l.x, l.y+300)) < 3000]
                          #and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
             #print(len(ldata), len(ldata_set))
         except Ice.Exception as e:
@@ -301,7 +309,8 @@ class SpecificWorker(GenericWorker):
             cv2.rectangle(img, p-size, p+size, (255, 0, 128), 3)
 
             if optimal:
-                dist = str(int(optimal[0])) + " " + str(int(self.target.depth)) + " " + str(int(optimal[1]))
+                dist = str(int(optimal[0])) + " " + str(int(optimal[1])) + " " + \
+                       "{:.2f}".format(np.arctan2(optimal[0], optimal[1])) + " " + str(int(self.target.depth))
             else:
                 dist = str(int(self.target.depth))
             cv2.putText(img, dist, p + (20, 0), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 128), thickness=1)
@@ -312,9 +321,9 @@ class SpecificWorker(GenericWorker):
         if not target:
             return
 
-        A = 5   # dist to target
-        B = 1   # dist to previous action
-        C = 0.1   # dist to obstacles
+        # A = 5   # dist to target
+        # B = 1   # dist to previous action
+        # C = 0.1   # dist to obstacles
         points = np.array(points)
         target = np.array((target.x, target.y))
 
@@ -339,7 +348,7 @@ class SpecificWorker(GenericWorker):
                 dists = np.clip(dists, 0, dist_threshold)
                 l_obs[i] = (np.min(dists) * (-1/dist_threshold)) + 1
 
-        suma = (A*l_tar) + (B*l_prev) + (C*l_obs)
+        suma = (self.A*l_tar) + (self.B*l_prev) + (self.C*l_obs)
 
         min_index = suma.argsort()[0]
         #c = cum[cum[:, 0].argsort()]
@@ -360,29 +369,30 @@ class SpecificWorker(GenericWorker):
                 pass
             else:
                 dist = np.linalg.norm(local_target)
-                #rot = np.arctan2(local_target[0], local_target[1])
-                rot_error = self.target.roi.xcenter - 500    # full image half size
-                rot_error_der = rot_error - self.prev_fovea_error
-                self.queue_fovea_error.append(rot_error)
-                sum = 0
-                for i in range(len(self.queue_fovea_error)):
-                    sum += self.queue_fovea_error[i]
+                rot = np.arctan2(local_target[0], local_target[1])
+
                 # PID
-                #rot_control = rot_error * (MAX_ROT_SPEED/400) + self.prev_fovea_error * (MAX_ROT_SPEED/450) -sum * (MAX_ROT_SPEED/5000)
-                rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
+                # rot_error = self.target.roi.xcenter - 500    # full image half size
+                # rot_error_der = rot_error - self.prev_fovea_error
+                # self.queue_fovea_error.append(rot_error)
+                # sum = 0
+                # for i in range(len(self.queue_fovea_error)):
+                #     sum += self.queue_fovea_error[i]
+                # #rot_control = rot_error * (MAX_ROT_SPEED/400) + self.prev_fovea_error * (MAX_ROT_SPEED/450) -sum * (MAX_ROT_SPEED/5000)
+                # rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
 
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
                 side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0]) * 1.5
                 #print("kkk", local_target[0], side)
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
-                       "rot: {:.2f} rerror: {:.2f} rerror_der: {:.2f}".format(self.target.depth, dist, side, adv, rot_control, rot_error, rot_error_der))
-                self.prev_fovea_error = rot_error
+                       "rot: {:.2f}".format(self.target.depth, dist, side, adv, rot))
+                #self.prev_fovea_error = rot_error
 
-                try:
-                    self.omnirobot_proxy.setSpeedBase(side, adv, 0) #rot_control)
-                except Ice.Exception as e:
-                    traceback.print_exc()
-                    print(e, "Error connecting to omnirobot")
+                # try:
+                #     self.omnirobot_proxy.setSpeedBase(side, adv, 0) #rot_control)
+                # except Ice.Exception as e:
+                #     traceback.print_exc()
+                #     print(e, "Error connecting to omnirobot")
         else:
             self.stop_robot()
             print("Control: stopping")
@@ -462,9 +472,15 @@ class SpecificWorker(GenericWorker):
         else:
             self.cont += 1
 
-    def z_on_change(self, val):
-        print(val)
-        self.z_threshold = val - self.z_lidar_height
+    ##
+    def dist_to_target_on_change(self, value):
+        self.A  = value
+
+    def dist_to_prev_on_change(self, value):
+        self.C = value
+
+    def dist_to_obs_on_change(self, value):
+        self.B = value
 
     ################################################################
     def startup_check(self):
