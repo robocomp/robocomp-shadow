@@ -2,9 +2,15 @@
 VisualElements.Endpoints=tcp -p 14737
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 #Lidar3DProxy = lidar3d:tcp -h 192.168.50.114 -p 11988
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+
+# Endpoints for subscriptions interfaces
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 13640
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
 
 depth_flag = false
 display = false

@@ -41,7 +41,7 @@ from dataclasses import dataclass
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 50
 
         if startup_check:
             self.startup_check()
@@ -91,25 +91,25 @@ class SpecificWorker(GenericWorker):
             # read test image to get sizes
             started_camera = False
             init_time = time.time()
-            while not started_camera and (time.time() - init_time) < 10:
-                try:
-                    rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-                    # self.center_x = rgb.width // 2
-                    # self.center_y = rgb.height // 2
-                    print("Camera specs:")
-                    print(" width:", rgb.width)
-                    print(" height:", rgb.height)
-                    print(" depth", rgb.depth)
-                    print(" focalx", rgb.focalx)
-                    print(" focaly", rgb.focaly)
-                    print(" period", rgb.period)
-                    print(" ratio {:.2f}".format(rgb.width/rgb.height))
-
-                    started_camera = True
-                except Ice.Exception as e:
-                    traceback.print_exc()
-                    print(e, "Trying again...")
-                    time.sleep(1)
+            # while not started_camera and (time.time() - init_time) < 10:
+            #     try:
+            #         rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+            #         # self.center_x = rgb.width // 2
+            #         # self.center_y = rgb.height // 2
+            #         print("Camera specs:")
+            #         print(" width:", rgb.width)
+            #         print(" height:", rgb.height)
+            #         print(" depth", rgb.depth)
+            #         print(" focalx", rgb.focalx)
+            #         print(" focaly", rgb.focaly)
+            #         print(" period", rgb.period)
+            #         print(" ratio {:.2f}".format(rgb.width/rgb.height))
+            #
+            #         started_camera = True
+            #     except Ice.Exception as e:
+            #         traceback.print_exc()
+            #         print(e, "Trying again...")
+            #         time.sleep(1)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -860,7 +860,7 @@ class SpecificWorker(GenericWorker):
             cur_period = int(1000. / self.cont)  # Calculate the frame period in milliseconds.
 
             # Print the FPS (i.e., the frame count) and the frame period.
-            print("Freq:", self.cont, "ms. Curr period:", cur_period)
+            print("Freq:", self.cont, "Hz1 Curr period:", cur_period, "ms")
 
             self.cont = 0  # Reset the frame count.
 
