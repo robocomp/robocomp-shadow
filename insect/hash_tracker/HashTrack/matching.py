@@ -64,7 +64,7 @@ def hashes(ahashs, bhashs):
         np.ascontiguousarray(ahashs),
         np.ascontiguousarray(bhashs)
     )
-    print("HASHES MATRIX", hashes)
+    #print("HASHES MATRIX", hashes)
     return hashes / 44
 
 def hash_distance_following(followed_track, btracks):
