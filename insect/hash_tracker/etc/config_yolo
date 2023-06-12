@@ -3,8 +3,8 @@ VisualElements.Endpoints=tcp -p 14737
 
 # Proxies for required interfaces
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
-#Lidar3DProxy = lidar3d:tcp -h 192.168.50.114 -p 11988
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+#Lidar3DProxy = lidar3d:tcp -h 192.168.50.114 -p 11988   
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11988 # proxy
 
 depth_flag = false
 display = false
