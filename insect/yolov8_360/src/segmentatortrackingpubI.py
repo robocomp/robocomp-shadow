@@ -38,5 +38,5 @@ class SegmentatorTrackingPubI(SegmentatorTrackingPub):
         self.worker = worker
 
 
-    def setTrack(self, track, c):
-        return self.worker.SegmentatorTrackingPub_setTrack(track)
+    def setTrack(self, target, c):
+        return self.worker.SegmentatorTrackingPub_setTrack(target)

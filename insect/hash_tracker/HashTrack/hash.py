@@ -1,17 +1,21 @@
 import numpy as np
 import matching
 from basetrack import BaseTrack, TrackState
+from collections import deque
+import time
 
 class STrack(BaseTrack):
-    def __init__(self, tlwh, score, clase, roi, hash):
+    def __init__(self, tlwh, score, clase, image, hash):
 
         # wait activate
         self.tlwh = np.asarray(tlwh, dtype=np.float)
         self.is_activated = False
         self.clase = clase
-        self.roi = roi
+        self.image = image
         self.hash = hash
-        self.hash_memory = []
+        self.hash_memory = deque(maxlen=10)
+        self.last_hash_stored = time.time()
+        self.store_period = 1.5
         self.score = score
         self.tracklet_len = 0
 
@@ -35,7 +39,7 @@ class STrack(BaseTrack):
         if new_id:
             self.track_id = self.next_id()
         self.score = new_track.score
-        self.roi = new_track.roi
+        self.image = new_track.image
 
     def update(self, new_track, frame_id):
         """
@@ -51,8 +55,14 @@ class STrack(BaseTrack):
         self.tlwh = new_track.tlwh
         self.state = TrackState.Tracked
         self.is_activated = True
-        self.roi = new_track.roi
+        self.image = new_track.image
         self.hash = new_track.hash
+        if time.time() - self.last_hash_stored > self.store_period:
+            self.hash_memory.append(new_track.hash)
+            print("NEW ARRAY")
+            for element in self.hash_memory:
+                print(element)
+            self.last_hash_stored = time.time()
         self.score = new_track.score
 
     @staticmethod
@@ -81,7 +91,155 @@ class HashTracker(object):
         self.buffer_size = int(frame_rate / 30.0 * self.track_buffer)
         self.max_time_lost = self.buffer_size
 
-    def update_original(self, scores, bboxes, clases, rois, hash):
+        # For specific element mode
+        self.tracked_element = None
+        self.chosen_track = -1
+
+    def update(self, scores, bboxes, clases, images, hash):
+        # Cleaning not followed tracks
+        if self.chosen_track != -1:
+            for track in self.tracked_stracks:
+                if track.track_id != self.chosen_track:
+                    self.tracked_stracks.remove(track)
+            for track in self.lost_stracks:
+                if track.track_id != self.chosen_track:
+                    self.lost_stracks.remove(track)
+            return self.update_element_following(scores, bboxes, clases, images, hash)
+        else:
+            # print("tracked_stracks", self.tracked_stracks)
+            # print("lost_stracks", self.lost_stracks)
+            return self.update_original(scores, bboxes, clases, images, hash)
+
+    def update_element_following(self, scores, bboxes, clases, images, hash):
+        print("UPDATE FOLLOWING")
+        # print("tracked_stracks", self.tracked_stracks)
+        self.frame_id += 1
+        activated_starcks = []
+        refind_stracks = []
+        lost_stracks = []
+        removed_stracks = []
+
+        remain_inds = scores > self.track_thresh
+
+        dets = bboxes[remain_inds]
+        scores_keep = scores[remain_inds]
+        clases_keep = clases[remain_inds]
+        images_keep = images[remain_inds]
+        hash_keep = hash[remain_inds]
+
+        if len(dets) > 0:
+            '''Detections'''
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, images, hash) for
+                          (tlbr, s, clases, images, hash) in zip(dets, scores_keep, clases_keep, images_keep, hash_keep)]
+        else:
+            detections = []
+
+        ''' Add newly detected tracklets to tracked_stracks'''
+        unconfirmed = []
+        tracked_stracks = []  # type: list[STrack]
+        for track in self.tracked_stracks:
+            if not track.is_activated:
+                unconfirmed.append(track)
+            else:
+                tracked_stracks.append(track)
+
+        ''' Step 2: First association, with high score detection boxes'''
+        strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
+        print("LEN DETECTIONS", len(detections))
+        print("LEN strack_pool", len(strack_pool))
+        if len(detections) > 0 and len(strack_pool) > 0:
+            # # Predict the current location with KF
+            dists = matching.hash_distance_following(strack_pool, detections)
+            pos_match = matching.get_max_similarity_detection(dists)
+            # dists = matching.fuse_score(dists, detections)
+            print("pos_match", pos_match)
+            # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
+            track = strack_pool[0]
+            det = detections[pos_match]
+            if track.state == TrackState.Tracked:
+                track.update(detections[pos_match], self.frame_id)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+        else:
+            for it in strack_pool:
+                if not it.state == TrackState.Lost:
+                    it.mark_lost()
+                    lost_stracks.append(track)
+
+        # ''' Step 3: Second association, with low score detection boxes'''
+        # # association the untrack to the low score detections
+        # if len(dets_second) > 0:
+        #     '''Detections'''
+        #     detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clase, roi, hash) for
+        #                   (tlbr, s, clase, roi, hash) in zip(dets_second, scores_second, clases_second, images_second, hash_second)]
+        # else:
+        #     detections_second = []
+        # r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        # dists = matching.hash_distance(r_tracked_stracks, detections_second)
+        # matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
+        # for itracked, idet in matches:
+        #     track = r_tracked_stracks[itracked]
+        #     det = detections_second[idet]
+        #     if track.state == TrackState.Tracked:
+        #         track.update(det, self.frame_id)
+        #         activated_starcks.append(track)
+        #     else:
+        #         track.re_activate(det, self.frame_id, new_id=False)
+        #         refind_stracks.append(track)
+        #
+        # for it in u_track:
+        #     track = r_tracked_stracks[it]
+        #     if not track.state == TrackState.Lost:
+        #         track.mark_lost()
+        #         lost_stracks.append(track)
+
+        # '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+        # detections = [detections[i] for i in u_detection]
+        # dists = matching.hash_distance(unconfirmed, detections)
+        # dists = matching.fuse_score(dists, detections)
+        # matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+        # for itracked, idet in matches:
+        #     unconfirmed[itracked].update(detections[idet], self.frame_id)
+        #     activated_starcks.append(unconfirmed[itracked])
+        # for it in u_unconfirmed:
+        #     track = unconfirmed[it]
+        #     track.mark_removed()
+        #     removed_stracks.append(track)
+
+        # """ Step 4: Init new stracks"""
+        # for inew in u_detection:
+        #     track = detections[inew]
+        #     if track.score < self.det_thresh:
+        #         continue
+        #     track.activate(self.frame_id)
+        #     activated_starcks.append(track)
+        # """ Step 5: Update state"""
+        for track in self.lost_stracks:
+            if self.frame_id - track.end_frame > self.max_time_lost:
+                track.mark_removed()
+                removed_stracks.append(track)
+
+        # print('Ramained match {} s'.format(t4-t3))
+
+
+        self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
+        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
+        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
+        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.lost_stracks.extend(lost_stracks)
+        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
+        self.removed_stracks.extend(removed_stracks)
+        self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        # # get scores of lost tracks
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        output_stracks.extend(self.lost_stracks)
+        print("lost_stracks", self.lost_stracks)
+        print("tracked_stracks", self.tracked_stracks)
+        return output_stracks
+
+    def update_original(self, scores, bboxes, clases, images, hash):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -99,15 +257,15 @@ class HashTracker(object):
         scores_second = scores[inds_second]
         clases_keep = clases[remain_inds]
         clases_second = clases[inds_second]
-        rois_keep = rois[remain_inds]
-        rois_second = rois[inds_second]
+        images_keep = images[remain_inds]
+        images_second = images[inds_second]
         hash_keep = hash[remain_inds]
         hash_second = hash[inds_second]
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, rois, hash) for
-                          (tlbr, s, clases, rois, hash) in zip(dets, scores_keep, clases_keep, rois_keep, hash_keep)]
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, image, hash) for
+                          (tlbr, s, clases, image, hash) in zip(dets, scores_keep, clases_keep, images_keep, hash_keep)]
         else:
             detections = []
 
@@ -143,8 +301,8 @@ class HashTracker(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clase, roi, hash) for
-                          (tlbr, s, clase, roi, hash) in zip(dets_second, scores_second, clases_second, rois_second, hash_second)]
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clase, image, hash) for
+                          (tlbr, s, clase, image, hash) in zip(dets_second, scores_second, clases_second, images_second, hash_second)]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
