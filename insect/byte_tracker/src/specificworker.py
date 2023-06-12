@@ -559,9 +559,6 @@ class SpecificWorker(GenericWorker):
             return 2.5 * angle
         else:
             return 900 + 2.5 * angle
-
-
-
     def read_image(self):
         """
         Retrieves an image from a 360-degree RGB camera and reshapes it into the proper format.
@@ -598,7 +595,6 @@ class SpecificWorker(GenericWorker):
     ####################################################################################################
     ### Methods called from Ice interface
     ####################################################################################################
-
     def process_visual_objects(self, visual_objects):
         """
            Extracts and organizes information about visual objects detected in an image.
@@ -690,7 +686,7 @@ class SpecificWorker(GenericWorker):
             x1 = int(element.right * x_factor + x_offset)
             y1 = int(element.bot * y_factor + y_offset)
             if self.lidar_in_image is not None:
-                _,centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+                _, centroid, depth = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
                 if depth != None:
                     element.depth = depth
                     element.x = centroid[0]

@@ -6,7 +6,7 @@ Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
 
 
-display = false
+display = true
 lidar3D = false
 simulator = true
 

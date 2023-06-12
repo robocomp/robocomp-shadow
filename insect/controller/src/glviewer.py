@@ -114,6 +114,7 @@ class GLViewer:
                 # print(QPointF(3*np.cos(element_angle), 3*np.sin(element_angle)))
                 #print(element.id, element.left, element.right, element_center)
                 globals()["modelTransform"+"_"+str(element.id)].setTranslation(QVector3D(-3*np.sin(np.deg2rad(element_angle)), 0, 3*np.cos(np.deg2rad(element_angle))))
+                #globals()["modelTransform" + "_" + str(element.id)].setTranslation(QVector3D(element.x, 0, element.y))
                 elements_dict_keys.remove(element.id)
             else:
                 new_elements.append(element)
