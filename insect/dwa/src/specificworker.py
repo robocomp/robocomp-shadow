@@ -43,6 +43,9 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 50
+        self.A = 0
+        self.B = 0
+        self.C = 0
         if startup_check:
             self.startup_check()
         else:
@@ -321,9 +324,6 @@ class SpecificWorker(GenericWorker):
         if not target:
             return
 
-        # A = 5   # dist to target
-        # B = 1   # dist to previous action
-        # C = 0.1   # dist to obstacles
         points = np.array(points)
         target = np.array((target.x, target.y))
 
@@ -361,11 +361,14 @@ class SpecificWorker(GenericWorker):
     def control(self, local_target):    # get local_target from DWA as next place to go
         MAX_ADV_SPEED = 1000
         MAX_ROT_SPEED = 2
+        rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
             if self.target.depth < 800:
+
                 self.stop_robot()
                 self.target = None
                 print("Control: Target achieved")
+                # self.omnirobot_proxy.setSpeedBase(0, 0, rot)
                 pass
             else:
                 dist = np.linalg.norm(local_target)
@@ -384,15 +387,17 @@ class SpecificWorker(GenericWorker):
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
                 side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0]) * 1.5
                 #print("kkk", local_target[0], side)
+
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
                        "rot: {:.2f}".format(self.target.depth, dist, side, adv, rot))
                 #self.prev_fovea_error = rot_error
 
-                # try:
-                #     self.omnirobot_proxy.setSpeedBase(side, adv, 0) #rot_control)
-                # except Ice.Exception as e:
-                #     traceback.print_exc()
-                #     print(e, "Error connecting to omnirobot")
+                try:
+                    self.omnirobot_proxy.setSpeedBase(0, adv, rot) #rot_control)
+                    # self.omnirobot_proxy.setSpeedBase(0, 0, 0) #rot_control)
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Error connecting to omnirobot")
         else:
             self.stop_robot()
             print("Control: stopping")
@@ -481,7 +486,6 @@ class SpecificWorker(GenericWorker):
 
     def dist_to_obs_on_change(self, value):
         self.B = value
-
     ################################################################
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)

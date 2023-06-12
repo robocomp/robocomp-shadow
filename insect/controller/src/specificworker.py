@@ -446,7 +446,7 @@ class SpecificWorker(GenericWorker):
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
             #delta = (-1 if (period - cur_period) < -1 else (1 if (period - cur_period) > 1 else 0))
-            print("Freq:", self.cont, "ms. Curr period:", cur_period)
+            print("Freq:", self.cont, "Hz. Curr period:", cur_period)
             #self.thread_period = np.clip(self.thread_period+delta, 0, 200)
             self.cont = 0
         else:
