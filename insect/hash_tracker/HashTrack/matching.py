@@ -64,7 +64,6 @@ def hashes(ahashs, bhashs):
         np.ascontiguousarray(ahashs),
         np.ascontiguousarray(bhashs)
     )
-    print(hashes)
     return hashes / 44
 
 
