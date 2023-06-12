@@ -79,15 +79,18 @@ class SpecificWorker(GenericWorker):
             class TDynamic:
                 adv_max_accel: float = 600
                 rot_max_accel: float = 0.8
+                side_max_accel: float = 600
                 time_ahead: float = 1.5
                 step_along_ang: float = 0.05
-                advance_step: float = 100
+                advance_step: float = 200
+                side_step: float = 200
                 rotation_step: float = 0.2
                 max_distance_ahead: float = adv_max_accel * time_ahead * 1.5    # excess factor
             self.dyn = TDynamic()
 
             # Initial values
             self.candidates = self.create_candidates_differential()
+            self.candidates = self.create_candidates_omni()
 
             # target
             self.target = None
@@ -147,6 +150,44 @@ class SpecificWorker(GenericWorker):
         cv2.imshow(self.window_name, img)
         cv2.waitKey(2)
         self.show_fps()
+
+    def create_candidates_omni(self):
+        current_adv_speed = 0
+        current_side_speed = 0
+        max_reachable_adv_speed = self.dyn.adv_max_accel * self.dyn.time_ahead
+        max_reachable_side_speed = self.dyn.side_max_accel * self.dyn.time_ahead
+        robot_semi_width = 200
+
+        params = []
+        tips = []
+        trajectories = []
+
+        for v in np.arange(100, max_reachable_adv_speed, self.dyn.advance_step):
+            for w in np.arange(-max_reachable_side_speed, max_reachable_side_speed, self.dyn.side_step):
+                new_advance = current_adv_speed + v
+                new_side = current_side_speed + w
+
+                points = []
+                points.append([-robot_semi_width, 0])
+                points.append([w -robot_semi_width , v])
+                points.append([w + robot_semi_width, v])
+                points.append([robot_semi_width, 0])
+                trajectories.append(points)
+                params.append([new_advance, new_side, np.inf])
+                tips.append([w, v])
+
+        candidates = []
+        kid = 0
+        for pa, tr, tip in zip(params, trajectories, tips):
+            candidate = {}
+            candidate["polygon"] = tr
+            candidate["params"] = pa
+            candidate["tip"] = tip
+            candidate["id"] = kid
+            candidates.append(candidate)
+            kid += 1
+        # print("Created ", len(candidates), " candidates")
+        return candidates
 
     def create_candidates_differential(self):
         current_adv_speed = 0
@@ -235,7 +276,7 @@ class SpecificWorker(GenericWorker):
         try:
             ldata = self.lidar3d_proxy.getLidarData(787, 225)
             # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y+300) for l in ldata
+            ldata_set = [(l.x, l.y-200) for l in ldata
                          if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
                          and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
@@ -266,16 +307,16 @@ class SpecificWorker(GenericWorker):
     def draw_candidates(self, candidates, img, optimal):
 
         for c in candidates:
-            pol = (np.array(c["polygon"]) * np.array([self.gfactor_x, self.gfactor_y])).astype(int)
-            pol[:, 1] = self.height - pol[:, 1]
-            pol[:, 0] += self.width//2
+            # pol = (np.array(c["polygon"]) * np.array([self.gfactor_x, self.gfactor_y])).astype(int)
+            # pol[:, 1] = self.height - pol[:, 1]
+            # pol[:, 0] += self.width//2
             if optimal is not None and c["id"] == optimal[1]["id"]:
                 color = (0, 0, 255)
                 thick = 4
             else:
                 color = (255, 255, 255)
                 thick = 1
-            cv2.polylines(img, [pol], True, color, 1, cv2.LINE_8)
+            # cv2.polylines(img, [pol], True, color, 1, cv2.LINE_8)
             #print(c["tip"])
             tip = np.array(c["tip"]) * np.array([self.gfactor_x, self.gfactor_y])
             cv2.circle(img, np.array([tip[0] + self.width//2, self.height - tip[1]]).astype(int), 5, color, thick)
@@ -345,10 +386,14 @@ class SpecificWorker(GenericWorker):
                 dists = np.clip(dists, 0, dist_threshold)
                 l_obs[i] = (np.min(dists) * (-1/dist_threshold)) + 1
 
-        suma = (self.A*l_tar) + (self.B*l_prev) + (self.C*l_obs)
+        # lane length. Could be computed once in initialization
+        l_length = np.linalg.norm(tips)
+        l_length = l_length / np.max(l_length)
+
+        D = 1
+        suma = (self.A*l_tar) + (self.B*l_prev) + (self.C*l_obs) + ((D*l_length))
 
         min_index = suma.argsort()[0]
-        #c = cum[cum[:, 0].argsort()]
         self.previous_choice = np.array(lanes[min_index]["tip"])
         return suma[min_index], lanes[min_index]
 
@@ -393,7 +438,7 @@ class SpecificWorker(GenericWorker):
                 #self.prev_fovea_error = rot_error
 
                 try:
-                    self.omnirobot_proxy.setSpeedBase(side, adv*1.5, 0)
+                    self.omnirobot_proxy.setSpeedBase(side*1.5, adv*1.5, rot * 0.5)
                 except Ice.Exception as e:
                     print(e, "Error connecting to omnirobot")
         else:
@@ -477,7 +522,9 @@ class SpecificWorker(GenericWorker):
 
     ##
     def dist_to_target_on_change(self, value):
-        self.A  = value/100
+        print("self A", self.A)
+        self.A = value/100
+        print("self A", self.A)
 
     def dist_to_prev_on_change(self, value):
         self.C = value/100
