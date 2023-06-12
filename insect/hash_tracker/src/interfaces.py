@@ -11,6 +11,8 @@ Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
 import RoboCompLidar3D
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
+Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
+import RoboCompSegmentatorTrackingPub
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
@@ -88,6 +90,7 @@ class TObjects(list):
 setattr(RoboCompVisualElements, "TObjects", TObjects)
 
 import visualelementsI
+import segmentatortrackingpubI
 
 
 
@@ -158,6 +161,8 @@ class Subscribes:
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
 
+        self.SegmentatorTrackingPub = self.create_adapter("SegmentatorTrackingPubTopic", segmentatortrackingpubI.SegmentatorTrackingPubI(default_handler))
+
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
         handler = interface_handler
@@ -199,7 +204,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0
