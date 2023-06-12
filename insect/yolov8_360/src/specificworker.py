@@ -154,7 +154,7 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 1
+            self.Period = 50
             self.thread_period = 10
             self.display = False
             self.yolo_model = "yolov8s.trt"
@@ -296,7 +296,14 @@ class SpecificWorker(GenericWorker):
         # If detections are found
         if dets is not None:
             self.create_interface_data(dets[:, :4], dets[:, 4], dets[:, 5])
-        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+
+        # Compute distance to ROIs
+        try:
+            self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e, "Error connecting to omnirobot")
+        #print("TIEMPO 2", time.time() - t1)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
@@ -307,7 +314,6 @@ class SpecificWorker(GenericWorker):
                                            class_names=self.yolo_object_predictor.class_names)
             cv2.imshow(self.window_name, img)
             cv2.waitKey(1)
-
 
         # Show FPS and handle Keyboard Interruption
         try:
