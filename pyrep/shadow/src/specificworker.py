@@ -58,6 +58,7 @@ class TimeControl:
         self.start = time.time()  # it doesn't exist yet, so initialize it
         self.start_print = time.time()  # it doesn't exist yet, so initialize it
         self.period = period_
+        self.current_period = period_
 
     def wait(self):
         elapsed = time.time() - self.start
@@ -67,6 +68,7 @@ class TimeControl:
         self.counter += 1
         if time.time() - self.start_print > 1:
             print("Shadow PyRep - Freq -> ", self.counter, "Hz")
+            self.current_period = 1000/self.counter
             self.counter = 0
             self.start_print = time.time()
 
@@ -212,8 +214,6 @@ class SpecificWorker(GenericWorker):
             elif Dummy.exists(name):
                 self.people[name] = Dummy(name)
 
-
-        
         # PoseEstimation
         self.robot_full_pose_write = RoboCompFullPoseEstimation.FullPoseEuler()
         self.robot_full_pose_read = RoboCompFullPoseEstimation.FullPoseEuler()
@@ -234,8 +234,9 @@ class SpecificWorker(GenericWorker):
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
 
-    def compute(self):
         self.tc = TimeControl(0.05)
+
+    def compute(self):
         while True:
             try:
                 inicio = time.time()
@@ -984,7 +985,7 @@ class SpecificWorker(GenericWorker):
                                                   focalx=cam["focalx"],
                                                   focaly=cam["focaly"],
                                                   alivetime=int(time.time() * 1000),
-                                                  period=1000//self.tc.counter if self.tc.counter > 0 else 0,  # ms
+                                                  period=self.tc.current_period,  # ms
                                                   image=rdst.tobytes(),
                                                   compressed=False,
                                                   roi=roi)

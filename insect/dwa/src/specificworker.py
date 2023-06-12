@@ -31,6 +31,10 @@ import time
 import traceback
 from shapely.geometry import Point, Polygon
 from dataclasses import dataclass
+from collections import deque
+from typing import List, Dict
+from numpy.typing import NDArray
+from typing import Any
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -51,9 +55,9 @@ class SpecificWorker(GenericWorker):
 
             #image size
             self.width = 700
-            self.height = 500
+            self.height = 700
             self.world_width = 5000 #mm
-            self.world_height = 3000  # mm
+            self.world_height = 4000  # mm
             self.gfactor_x = self.width / self.world_width
             self.gfactor_y = self.height / self.world_height
 
@@ -79,6 +83,11 @@ class SpecificWorker(GenericWorker):
 
             # target
             self.target = None
+            self.prev_fovea_error = 0
+            self.queue_fovea_error = deque(maxlen=5)
+
+            # optimal
+            self.previous_choice = np.zeros(2)
 
             self.timer.timeout.connect(self.compute)
             #self.timer.setSingleShot(True)
@@ -114,15 +123,15 @@ class SpecificWorker(GenericWorker):
         # draw target
         # if self.target:
         #     print(self.target.depth)
-        self.draw_target(img)
 
         # select optimal lane
-        optimal = self.select_optimal_lane(safe_lanes, self.target)
+        optimal = self.select_optimal_lane(safe_lanes, self.target, ldata_set)
         #print(optimal[1]['params'])
         
-        # control
+        # control.
         if optimal is not None:
             self.control(optimal[1]['tip'])
+            self.draw_target(img, optimal[1]['tip'])
 
         # draw candidates
         self.draw_candidates(safe_lanes, img, optimal)
@@ -213,8 +222,7 @@ class SpecificWorker(GenericWorker):
         #print("Created ", len(candidates), " candidates")
         return candidates
 
-    def read_lidar_data(self):
-        ldata = []
+    def read_lidar_data(self) -> NDArray[[float, float]]:
         ldata_set = []
         try:
             ldata = self.lidar3d_proxy.getLidarData(787, 225)
@@ -222,8 +230,9 @@ class SpecificWorker(GenericWorker):
             ldata_set = [(l.x, l.y) for l in ldata
                          if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
-                         and np.linalg.norm((l.x, l.y)) > 400       # robot's body
-                         and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
+                         and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
+                         and np.linalg.norm((l.x, l.y)) < 3000]
+                         #and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
             #print(len(ldata), len(ldata_set))
         except Ice.Exception as e:
             traceback.print_exc()
@@ -264,63 +273,113 @@ class SpecificWorker(GenericWorker):
             cv2.circle(img, np.array([tip[0] + self.width//2, self.height - tip[1]]).astype(int), 5, color, thick)
 
     def draw_lidar_points(self, ldata_set, img):
+        img_points = []
+        points = []
         for l in ldata_set:
             p = np.array([int(l[0]*self.gfactor_x) + self.width//2, self.height-int(l[1]*self.gfactor_y)])
             if(p[0] > 0 and p[0] < self.width and p[1]> 0 and p[1] < self.height):
+                #img_points.append(p)
+                #points.append([l[0], l[1]])
                 cv2.rectangle(img, p-(2, 2), p+(2, 2), (0, 255, 0))
+        # if img_points and points:
+        #     x, y, w, h = cv2.boundingRect(np.array(img_points))
+        #     cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0))
+        #     if self.target:
+        #         # points = np.array(points)
+        #         # self.target.x = sum(points[:, 0] / len(points))
+        #         # self.target.y = sum(points[:, 1] / len(points))
+        #         # self.target.depth = np.linalg.norm([self.target.x, self.target.y])
+        #         dist = str(int(self.target.depth)) + " mm"
+        #         cv2.putText(img, dist, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), thickness=1)
 
-    def draw_target(self, img):
+    def draw_target(self, img, optimal):
         if self.target is not None:
             size = np.array((10, 10))
-            p = np.array((int(self.target.x*self.gfactor_x)+self.width//2, self.height-int(self.target.y*self.gfactor_y)))
-            cv2.rectangle(img, p-size, p+size, (255, 0, 0), 3)
+            cx = int(self.target.x*self.gfactor_x)+self.width//2
+            cy = self.height-int(self.target.y*self.gfactor_y)
+            p = np.array((cx, cy))
+            cv2.rectangle(img, p-size, p+size, (255, 0, 128), 3)
+
+            if optimal:
+                dist = str(int(optimal[0])) + " " + str(int(self.target.depth)) + " " + str(int(optimal[1]))
+            else:
+                dist = str(int(self.target.depth))
+            cv2.putText(img, dist, p + (20, 0), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 128), thickness=1)
             #print(self.target.x, self.target.y, (int(self.target.x*self.gfactor_x+self.width//2),
             #                                     self.height-int(self.target.y*self.gfactor_y)))
 
-    def select_optimal_lane(self, lanes, target):
-        '''
-        Compute the cost function for all safe-lanes and return the best one
-        :param lanes: list of safe lanes
-        :param target: ID of current visual target
-        :return: optimal lane to be followed
-        '''
-        if target is None:
+    def select_optimal_lane(self, lanes: List[Any], target, points):
+        if not target:
             return
 
-        A = 5
-        B = 1
-        C = 1
-        cum = []
-        for l in lanes:
-            # distance to target
-            d_tar = np.linalg.norm(l["tip"] - np.array((self.target.x, self.target.y)))
-            # distance to obstacle. Compute the closest distance from tip to lidar points
-            #print(l["tip"], np.array((self.target.x, self.target.y)), d_tar)
-            d_obs = 0
-            # distance to previous choice
-            d_prev = 0
-            cum.append([A*d_tar + B*d_obs + C*d_prev, l])
+        A = 5   # dist to target
+        B = 1   # dist to previous action
+        C = 0.1   # dist to obstacles
+        points = np.array(points)
+        target = np.array((target.x, target.y))
 
-        cum = np.array(cum)
-        c = cum[cum[:, 0].argsort()]
-        #print(c[0])
-        return c[0]
+        tips = np.zeros(shape=(len(lanes), 2))
+        for i, l in enumerate(lanes):
+            tips[i] = np.array(l["tip"])
 
-    def control(self, local_target):
+        # distance to target
+        l_tar = np.linalg.norm(tips - target, axis=1)
+        l_tar = l_tar / np.max(l_tar)
+
+        # distance to previous choice
+        l_prev = np.linalg.norm(tips - self.previous_choice, axis=1)
+        l_prev = l_prev / np.max(l_prev)
+
+        # distance to obstacles
+        l_obs = np.zeros(shape=(len(lanes)))
+        if points.size > 0:
+            dist_threshold = 1000   # max evaluated distance between obstacles and tips
+            for i in range(len(lanes)):
+                dists = np.linalg.norm(points - tips[i], axis=1)
+                dists = np.clip(dists, 0, dist_threshold)
+                l_obs[i] = (np.min(dists) * (-1/dist_threshold)) + 1
+
+        suma = (A*l_tar) + (B*l_prev) + (C*l_obs)
+
+        min_index = suma.argsort()[0]
+        #c = cum[cum[:, 0].argsort()]
+        self.previous_choice = np.array(lanes[min_index]["tip"])
+        return suma[min_index], lanes[min_index]
+
+    def normalize(self, value, max):
+        return value / max
+
+    def control(self, local_target):    # get local_target from DWA as next place to go
         MAX_ADV_SPEED = 1000
+        MAX_ROT_SPEED = 2
         if self.target is not None:
-            if self.target.depth < 900:
+            if self.target.depth < 800:
                 self.stop_robot()
                 self.target = None
                 print("Control: Target achieved")
+                pass
             else:
                 dist = np.linalg.norm(local_target)
-                rot = np.arctan2(local_target[0], local_target[1])
+                #rot = np.arctan2(local_target[0], local_target[1])
+                rot_error = self.target.roi.xcenter - 500    # full image half size
+                rot_error_der = rot_error - self.prev_fovea_error
+                self.queue_fovea_error.append(rot_error)
+                sum = 0
+                for i in range(len(self.queue_fovea_error)):
+                    sum += self.queue_fovea_error[i]
+                # PID
+                #rot_control = rot_error * (MAX_ROT_SPEED/400) + self.prev_fovea_error * (MAX_ROT_SPEED/450) -sum * (MAX_ROT_SPEED/5000)
+                rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
+
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
-                side = MAX_ADV_SPEED * self.sigmoid(local_target[0])
-                print("dist: {:.2f} l_dist: {:.2f} beta: {:.2f} side: {:.2f} adv: {:.2f} rot: {:.2f}".format(self.target.depth, dist, rot, side, adv, rot))
+                side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0]) * 1.5
+                #print("kkk", local_target[0], side)
+                print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
+                       "rot: {:.2f} rerror: {:.2f} rerror_der: {:.2f}".format(self.target.depth, dist, side, adv, rot_control, rot_error, rot_error_der))
+                self.prev_fovea_error = rot_error
+
                 try:
-                    self.omnirobot_proxy.setSpeedBase(side*2, adv*1.2, rot*1.2)
+                    self.omnirobot_proxy.setSpeedBase(side, adv, 0) #rot_control)
                 except Ice.Exception as e:
                     traceback.print_exc()
                     print(e, "Error connecting to omnirobot")
@@ -332,7 +391,15 @@ class SpecificWorker(GenericWorker):
     def sigmoid(self, x):   # top = 1, front = 2
         x = x/1000  #  to m
         x0, k = [1.05425285, 3.72219712]
+        #x0, k = [1.93401352, 1.9522765]
         return 1 / (1 + np.exp(-k * (x - x0)))
+
+    def sigmoid_side(self, x):  # top = 1, front = 2
+        x = x / 1000  # to m
+        x0, k = [0.03549303, 1.62201825]
+        r = (2 / (1 + np.exp(-k * (x - x0)))) - 1
+        print(r)
+        return r
 
     def stop_robot(self):
         try:
@@ -415,8 +482,8 @@ class SpecificWorker(GenericWorker):
         if target.id == -1:
             self.target = None
         else:
-            target.x = -(target.x + 800)
-            target.y /= 1.7
+            #target.x = -(target.x + 800)
+            #target.y /= 1.7
             self.target = target
             #print(self.target.depth)
 

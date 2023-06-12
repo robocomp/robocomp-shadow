@@ -263,7 +263,6 @@ class SpecificWorker(GenericWorker):
         self.show_fps()
 
     #########################################################################
-
     def set_target_with_mouse(self, event):
         x = int(event.pos().x()*(self.rgb.width / self.ui.frame_2d.width()))
         y = int(event.pos().y()*(self.rgb.height / self.ui.frame_2d.height()))
@@ -427,65 +426,6 @@ class SpecificWorker(GenericWorker):
         self.previous_yolo_id = self.selected_object.id
         return True, control, [selected[0]]
 
-    def control_2(self, control):
-        MAX_ADV_SPEED = 500
-        if control is not None:
-            adv, rot = control  # TODO: move limit to sampler
-            if adv > MAX_ADV_SPEED:
-                adv = MAX_ADV_SPEED
-            side = 0
-            d_coeff, dist = self.distance_to_target()
-            if dist < 900:
-                self.stop_robot()
-                self.selected_object = None
-                self.previous_yolo_id = None
-                print("Control_2: Target achieved")
-            else:
-                try:
-                    adv = MAX_ADV_SPEED * self.sigmoid(rot) * d_coeff
-                    print("Control_2 Proxy:", side, adv, rot, "Dist to target:", dist)
-                    self.omnirobot_proxy.setSpeedBase(side, adv, rot)
-                except Ice.Exception as e:
-                    traceback.print_exc()
-                    print(e, "Error connecting to omnirobot")
-        else:
-            self.stop_robot()
-            print("Control_2: stopping")
-            return
-
-    def control(self, curvatures, targets, controls):
-        # we need to assign curvatures to buttons
-        self.selected_index = None
-        digitized = np.digitize(curvatures, self.bins)//4  # (10+10)/5
-        for i, b in enumerate(self.buttons):
-            b.setEnabled(i in digitized)
-            if b.isDown():
-                self.selected_index = int(np.where(digitized == i)[0][0])
-        if self.selected_index is not None:
-            current_target = targets[self.selected_index]
-            control = controls[self.selected_index]
-            print(control, curvatures[self.selected_index], "dist:", np.linalg.norm(targets[self.selected_index][-1]))
-        elif self.selected_object is not None:
-            # select closest direction to target
-            center_object = np.array([self.selected_object.x, self.selected_object.y])
-            object_index = np.argmin(np.linalg.norm(targets[-1] - center_object))
-            control = controls[object_index]
-        else:
-            self.stop_robot()
-            return
-
-        # omnirobot
-        adv, rot = control  #TODO: move limit to sampler
-        if adv > 1000:
-            adv = 1000
-        side = 0
-
-        try:
-            print(side, adv, rot*2)
-            self.omnirobot_proxy.setSpeedBase(side, adv, rot*2)
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error connecting to omnirobot")
 
     def sigmoid(self, rot):
         xset = 0.4
@@ -856,3 +796,38 @@ class SpecificWorker(GenericWorker):
         #         print("Compute: num candidates:", len(candidates), "selected:", selected is not None, self.yolo_object_names[self.selected_object.type])
 
         #self.control_2(control)
+
+        # def control(self, curvatures, targets, controls):
+        #     # we need to assign curvatures to buttons
+        #     self.selected_index = None
+        #     digitized = np.digitize(curvatures, self.bins) // 4  # (10+10)/5
+        #     for i, b in enumerate(self.buttons):
+        #         b.setEnabled(i in digitized)
+        #         if b.isDown():
+        #             self.selected_index = int(np.where(digitized == i)[0][0])
+        #     if self.selected_index is not None:
+        #         current_target = targets[self.selected_index]
+        #         control = controls[self.selected_index]
+        #         print(control, curvatures[self.selected_index], "dist:",
+        #               np.linalg.norm(targets[self.selected_index][-1]))
+        #     elif self.selected_object is not None:
+        #         # select closest direction to target
+        #         center_object = np.array([self.selected_object.x, self.selected_object.y])
+        #         object_index = np.argmin(np.linalg.norm(targets[-1] - center_object))
+        #         control = controls[object_index]
+        #     else:
+        #         self.stop_robot()
+        #         return
+        #
+        #     # omnirobot
+        #     adv, rot = control  # TODO: move limit to sampler
+        #     if adv > 1000:
+        #         adv = 1000
+        #     side = 0
+        #
+        #     try:
+        #         print(side, adv, rot * 2)
+        #         self.omnirobot_proxy.setSpeedBase(side, adv, rot * 2)
+        #     except Ice.Exception as e:
+        #         traceback.print_exc()
+        #         print(e, "Error connecting to omnirobot")
