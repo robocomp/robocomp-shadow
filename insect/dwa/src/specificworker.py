@@ -43,16 +43,13 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 50
-        self.A = 0
-        self.B = 0
-        self.C = 0
         if startup_check:
             self.startup_check()
         else:
 
             # DWA
-            self.A = 5
-            self.B = 1
+            self.A = 4
+            self.B = 2
             self.C = 1
 
             self.window_name = "DWA"
@@ -238,11 +235,11 @@ class SpecificWorker(GenericWorker):
         try:
             ldata = self.lidar3d_proxy.getLidarData(787, 225)
             # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y + 300) for l in ldata
+            ldata_set = [(l.x, l.y+300) for l in ldata
                          if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
-                         and np.linalg.norm((l.x, l.y+300)) > 400       # robot's body]
-                         and np.linalg.norm((l.x, l.y+300)) < 3000]
+                         and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
+                         and np.linalg.norm((l.x, l.y)) < 3000]
                          #and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
             #print(len(ldata), len(ldata_set))
         except Ice.Exception as e:
@@ -364,8 +361,11 @@ class SpecificWorker(GenericWorker):
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
             if self.target.depth < 800:
-
-                self.stop_robot()
+                #self.stop_robot()
+                try:
+                    self.omnirobot_proxy.setSpeedBase(0, 0, rot*0.3)
+                except Ice.Exception as e:
+                    print(e, "Error connecting to omnirobot")
                 self.target = None
                 print("Control: Target achieved")
                 # self.omnirobot_proxy.setSpeedBase(0, 0, rot)
@@ -373,7 +373,6 @@ class SpecificWorker(GenericWorker):
             else:
                 dist = np.linalg.norm(local_target)
                 rot = np.arctan2(local_target[0], local_target[1])
-
                 # PID
                 # rot_error = self.target.roi.xcenter - 500    # full image half size
                 # rot_error_der = rot_error - self.prev_fovea_error
@@ -385,7 +384,7 @@ class SpecificWorker(GenericWorker):
                 # rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
 
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
-                side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0]) * 1.5
+                side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0])
                 #print("kkk", local_target[0], side)
 
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
@@ -393,10 +392,8 @@ class SpecificWorker(GenericWorker):
                 #self.prev_fovea_error = rot_error
 
                 try:
-                    self.omnirobot_proxy.setSpeedBase(0, adv, rot) #rot_control)
-                    # self.omnirobot_proxy.setSpeedBase(0, 0, 0) #rot_control)
+                    self.omnirobot_proxy.setSpeedBase(side, adv*1.5, 0)
                 except Ice.Exception as e:
-                    traceback.print_exc()
                     print(e, "Error connecting to omnirobot")
         else:
             self.stop_robot()
@@ -486,6 +483,7 @@ class SpecificWorker(GenericWorker):
 
     def dist_to_obs_on_change(self, value):
         self.B = value
+
     ################################################################
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
