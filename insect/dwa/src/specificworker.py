@@ -48,15 +48,16 @@ class SpecificWorker(GenericWorker):
         else:
 
             # DWA
-            self.A = 4
+            self.A = 400
             self.B = 2
-            self.C = 1
+            self.C = 300
 
             self.window_name = "DWA"
             cv2.namedWindow(self.window_name)
             cv2.createTrackbar('A: dist to target', self.window_name, self.A, 1000, self.dist_to_target_on_change)
-            cv2.createTrackbar('B: dist to obs', self.window_name, self.B, 1000, self.dist_to_obs_on_change)
-            cv2.createTrackbar('C: dist to prev', self.window_name, self.C, 1000, self.dist_to_prev_on_change)
+            cv2.createTrackbar('B: dist to prev', self.window_name, self.B, 1000, self.dist_to_obs_on_change)
+            cv2.createTrackbar('C: dist to obs', self.window_name, self.C, 1000, self.dist_to_prev_on_change)
+            print("ABC: ", self.A, "", self.B, "", self.C)
 
             self.z_lidar_height = 1250
             self.z_threshold = self.z_lidar_height
@@ -143,6 +144,9 @@ class SpecificWorker(GenericWorker):
         if optimal is not None:
             self.control(optimal[1]['tip'])
             self.draw_target(img, optimal[1]['tip'])
+
+        if self.target == None:
+            self.stop_robot()
 
         # draw candidates
         self.draw_candidates(safe_lanes, img, optimal)
@@ -274,7 +278,7 @@ class SpecificWorker(GenericWorker):
     def read_lidar_data(self) -> NDArray[[float, float]]:
         ldata_set = []
         try:
-            ldata = self.lidar3d_proxy.getLidarData(787, 225)
+            ldata = self.lidar3d_proxy.getLidarData(787, 900)
             # remove points 30cm from floor and above robot
             ldata_set = [(l.x, l.y-200) for l in ldata
                          if l.z > (400 - self.z_lidar_height)
@@ -402,10 +406,11 @@ class SpecificWorker(GenericWorker):
 
     def control(self, local_target):    # get local_target from DWA as next place to go
         MAX_ADV_SPEED = 1000
+        MAX_SIDE_SPEED = 200
         MAX_ROT_SPEED = 2
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
-            if self.target.depth < 800:
+            if self.target.depth < 600:
                 #self.stop_robot()
                 try:
                     self.omnirobot_proxy.setSpeedBase(0, 0, rot*0.3)
@@ -417,7 +422,7 @@ class SpecificWorker(GenericWorker):
                 pass
             else:
                 dist = np.linalg.norm(local_target)
-                rot = np.arctan2(local_target[0], local_target[1])/np.pi
+                rot = np.arctan2(local_target[0], local_target[1])
 
                 # PID
                 # rot_error = self.target.roi.xcenter - 500    # full image half size
@@ -430,7 +435,7 @@ class SpecificWorker(GenericWorker):
                 # rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
 
                 adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
-                side = MAX_ADV_SPEED * self.sigmoid_side(local_target[0])
+                side = MAX_SIDE_SPEED * self.sigmoid_side(local_target[0])
                 #print("kkk", local_target[0], side)
 
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
@@ -438,7 +443,7 @@ class SpecificWorker(GenericWorker):
                 #self.prev_fovea_error = rot_error
 
                 try:
-                    self.omnirobot_proxy.setSpeedBase(side*1.5, adv*1.5, rot * 0.5)
+                    self.omnirobot_proxy.setSpeedBase(side, adv*5.5, rot*0.8 )
                 except Ice.Exception as e:
                     print(e, "Error connecting to omnirobot")
         else:
