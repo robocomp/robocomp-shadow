@@ -59,9 +59,6 @@ class STrack(BaseTrack):
         self.hash = new_track.hash
         if time.time() - self.last_hash_stored > self.store_period:
             self.hash_memory.append(new_track.hash)
-            print("NEW ARRAY")
-            for element in self.hash_memory:
-                print(element)
             self.last_hash_stored = time.time()
         self.score = new_track.score
 
@@ -85,7 +82,7 @@ class HashTracker(object):
         self.frame_id = 0
         # self.args = args
         #self.det_thresh = args.track_thresh
-        self.track_thresh = 0.4
+        self.track_thresh = 0.2
         self.det_thresh = self.track_thresh + 0.1
         self.track_buffer = buffer_
         self.buffer_size = int(frame_rate / 30.0 * self.track_buffer)
@@ -96,14 +93,13 @@ class HashTracker(object):
         self.chosen_track = -1
 
     def update(self, scores, bboxes, clases, images, hash):
+        if not self.tracked_stracks and not self.lost_stracks:
+            self.chosen_track = -1
+
         # Cleaning not followed tracks
         if self.chosen_track != -1:
-            for track in self.tracked_stracks:
-                if track.track_id != self.chosen_track:
-                    self.tracked_stracks.remove(track)
-            for track in self.lost_stracks:
-                if track.track_id != self.chosen_track:
-                    self.lost_stracks.remove(track)
+            self.tracked_stracks = [track for track in self.tracked_stracks if track.track_id == self.chosen_track]
+            self.lost_stracks = [track for track in self.lost_stracks if track.track_id == self.chosen_track]
             return self.update_element_following(scores, bboxes, clases, images, hash)
         else:
             # print("tracked_stracks", self.tracked_stracks)
@@ -111,8 +107,6 @@ class HashTracker(object):
             return self.update_original(scores, bboxes, clases, images, hash)
 
     def update_element_following(self, scores, bboxes, clases, images, hash):
-        print("UPDATE FOLLOWING")
-        # print("tracked_stracks", self.tracked_stracks)
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -145,14 +139,11 @@ class HashTracker(object):
 
         ''' Step 2: First association, with high score detection boxes'''
         strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
-        print("LEN DETECTIONS", len(detections))
-        print("LEN strack_pool", len(strack_pool))
         if len(detections) > 0 and len(strack_pool) > 0:
             # # Predict the current location with KF
             dists = matching.hash_distance_following(strack_pool, detections)
             pos_match = matching.get_max_similarity_detection(dists)
             # dists = matching.fuse_score(dists, detections)
-            print("pos_match", pos_match)
             # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
             track = strack_pool[0]
             det = detections[pos_match]
@@ -166,7 +157,7 @@ class HashTracker(object):
             for it in strack_pool:
                 if not it.state == TrackState.Lost:
                     it.mark_lost()
-                    lost_stracks.append(track)
+                    lost_stracks.append(it)
 
         # ''' Step 3: Second association, with low score detection boxes'''
         # # association the untrack to the low score detections
@@ -235,8 +226,6 @@ class HashTracker(object):
         # # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks.extend(self.lost_stracks)
-        print("lost_stracks", self.lost_stracks)
-        print("tracked_stracks", self.tracked_stracks)
         return output_stracks
 
     def update_original(self, scores, bboxes, clases, images, hash):
