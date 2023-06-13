@@ -1,0 +1,16 @@
+import "Lidar3D.idsl";
+import "GridPlanner.idsl";
+import "SegmentatorTrackingPub.idsl";
+
+Component grid_planner
+{
+    Communications
+    {
+        implements GridPlanner;
+        requires Lidar3D;
+        subscribesTo SegmentatorTrackingPub;
+    };
+    language Cpp11;
+    gui Qt(QWidget);
+};
+
