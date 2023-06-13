@@ -37,6 +37,7 @@ sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/hash_
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from hash import HashTracker
 from dataclasses import dataclass
+import cupy as cp
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -59,11 +60,17 @@ class SpecificWorker(GenericWorker):
             self.cam_to_lidar = self.make_matrix_rt(0, 0, 0, 0, 0,
                                                     108.51)
             self.lidar_to_cam = np.linalg.inv(self.cam_to_lidar)
-            self.lidar_to_cams = {"cam_front": self.make_matrix_rt(0, 0, 0, 0, 0, -108.51),
-                                  "cam_right": self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51),
-                                  "cam_back_1": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
-                                  "cam_back_2": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
-                                  "cam_left": self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51)}
+            # self.lidar_to_cams = {"cam_front": self.make_matrix_rt(0, 0, 0, 0, 0, -108.51),
+            #                       "cam_right": self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51),
+            #                       "cam_back_1": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
+            #                       "cam_back_2": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
+            #                       "cam_left": self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51)}
+            self.lidar_to_cams = {"cam_front": cp.asarray(self.make_matrix_rt(0, 0, 0, 0, 0, -108.51)),
+                                  "cam_right": cp.asarray(self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51)),
+                                  "cam_back_1": cp.asarray(self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51)),
+                                  "cam_back_2": cp.asarray(self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51)),
+                                  "cam_left": cp.asarray(self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51))}
+
             self.focal_x = 128
             self.focal_y = 128
             self.width_img = 1024
@@ -188,7 +195,7 @@ class SpecificWorker(GenericWorker):
             #print("Points", len(points))
             # Convert points into a numpy array and scale from millimeters to meters.
             points_array = np.array([[p.x, p.y, p.z] for p in points])
-            return np.array(self.lidar_coppelia(points_array))
+            return np.array(self.lidar_coppelia_cp(points_array))
             # if self.simulator else np.array(self.lidar_real(points_array))
 
         except Ice.Exception as e:
@@ -264,6 +271,79 @@ class SpecificWorker(GenericWorker):
                                                            transformed_points[valid_indices, 2]]).tolist())
         return lidar_in_image
 
+    import cupy as cp
+
+    def lidar_coppelia_cp(self, points_array):
+        """
+        Method for projecting LIDAR points onto the image plane considering multiple camera views
+        in a simulation environment like CoppeliaSim.
+
+        Args:
+            points_array (numpy array): A numpy array containing the LIDAR points to be projected.
+        """
+
+        # Move numpy array to GPU memory.
+        points_array = cp.asarray(points_array)
+
+        # Initialize list to hold LIDAR points projected onto the image plane.
+        lidar_in_image = []
+        # Define camera x and y offsets for each camera view.
+        half_width = self.width_img / 2
+        quarter_width = half_width / 2
+        half_height = self.height_img / 2
+        quarter_height = half_height / 4
+        cx_offsets = {
+            "cam_front": half_width,
+            "cam_right": half_width + quarter_width,
+            "cam_left": half_width - quarter_width,
+            "cam_back_1": self.width_img,
+            "cam_back_2": 0
+        }
+        cy_offsets = {
+            "cam_front": half_height,
+            "cam_right": half_height + quarter_height,
+            "cam_left": half_height + quarter_height,
+            "cam_back_1": half_height,
+            "cam_back_2": half_height
+        }
+
+        points_array = cp.concatenate((points_array, cp.ones((points_array.shape[0], 1))), axis=1)
+
+        # Calculate the angle for each point.
+        angles = cp.arctan2(points_array[:, 0], points_array[:, 1])
+        # Define a small value to avoid division by zero.
+        epsilon = 1e-7
+        for condition, cam in self.conditions:
+            # Identify points that fall within the current camera view based on angle.
+            indices = cp.where((condition[0] < angles) & (angles <= condition[1]))[0]
+
+            if len(indices) > 0:
+                transformation_matrix = cp.asarray(self.lidar_to_cams[cam].T)
+                cx = cx_offsets[cam]
+                cy = cy_offsets[cam]
+
+                # Apply transformation matrix to points.
+                transformed_points = cp.dot(points_array[indices], transformation_matrix)
+                transformed_points[:, 1] += epsilon  # Add epsilon to y coordinate to avoid division by zero.
+
+                # Project points onto the image plane.
+                x = (self.focal_x * transformed_points[:, 0] / transformed_points[:, 1]) + cx
+                y = (-self.focal_y * transformed_points[:, 2] / transformed_points[:, 1]) + cy
+                transformed_points = cp.dot(transformed_points, cp.linalg.inv(transformation_matrix))
+                # Identify points that fall within the image bounds.
+                valid_indices = cp.where((0 <= x) & (x < self.width_img) & (0 <= y) & (y < self.height_img))[0]
+                # Add valid points to the lidar_in_image list.
+                if len(valid_indices) > 0:
+                    lidar_in_image.extend(cp.column_stack([x[valid_indices],
+                                                           y[valid_indices],
+                                                           cp.linalg.norm(transformed_points[valid_indices, :3],
+                                                                          axis=1),
+                                                           transformed_points[valid_indices, 0],
+                                                           transformed_points[valid_indices, 1],
+                                                           transformed_points[valid_indices, 2]]).tolist())
+        lidar_in_image = np.array(lidar_in_image)
+        return lidar_in_image
+
     def make_matrix_rt(self, roll, pitch, heading, x0, y0, z0):
         """
            Constructs a rotation-translation matrix given the roll, pitch, and heading angles,
@@ -293,6 +373,41 @@ class SpecificWorker(GenericWorker):
         sg, cg = np.sin(heading), np.cos(heading)
 
         mat = np.array([
+            [cb * cg, sa * sb * cg + ca * sg, sa * sg - ca * sb * cg, x0],
+            [-cb * sg, ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, y0],
+            [sb, -sa * cb, ca * cb, z0],
+            [0, 0, 0, 1]
+        ])
+        return mat
+
+    def make_matrix_rt_cp(self, roll, pitch, heading, x0, y0, z0):
+        """
+        Constructs a rotation-translation matrix given the roll, pitch, and heading angles,
+        along with the x, y, and z coordinates of a translation vector.
+
+        This method generates a 4x4 matrix representing the transformation. It does this by
+        first computing the individual rotation matrices for the roll, pitch, and heading angles,
+        and then combines these with the translation vector to form a single homogeneous transformation matrix.
+
+        Parameters:
+        roll : float
+            The roll angle in radians. This represents a rotation around the x-axis.
+        pitch : float
+            The pitch angle in radians. This represents a rotation around the y-axis.
+        heading : float
+            The heading angle in radians. This represents a rotation around the z-axis.
+        x0, y0, z0 : float
+            The x, y, and z coordinates of the translation vector.
+
+        Returns:
+        mat : ndarray
+            A 4x4 cupy array representing the rotation-translation matrix.
+        """
+        sa, ca = cp.sin(roll), cp.cos(roll)
+        sb, cb = cp.sin(pitch), cp.cos(pitch)
+        sg, cg = cp.sin(heading), cp.cos(heading)
+
+        mat = cp.array([
             [cb * cg, sa * sb * cg + ca * sg, sa * sg - ca * sb * cg, x0],
             [-cb * sg, ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, y0],
             [sb, -sa * cb, ca * cb, z0],
