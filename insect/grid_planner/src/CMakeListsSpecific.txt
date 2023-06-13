@@ -1,0 +1,20 @@
+# Sources set
+SET ( SOURCES
+  specificworker.cpp
+  specificmonitor.cpp
+  grid.cpp
+  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp
+)
+
+# Headers set
+SET ( HEADERS
+  specificworker.h
+  specificmonitor.h
+  grid.h
+  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
+)
+
+
+SET (LIBS ${LIBS}  )
+
+
