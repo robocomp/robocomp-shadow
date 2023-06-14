@@ -48,9 +48,9 @@ class SpecificWorker(GenericWorker):
         else:
 
             # DWA
-            self.A = 400
-            self.B = 2
-            self.C = 300
+            self.A = 425
+            self.B = 51
+            self.C = 352
 
             self.window_name = "DWA"
             cv2.namedWindow(self.window_name)
@@ -81,7 +81,7 @@ class SpecificWorker(GenericWorker):
                 adv_max_accel: float = 600
                 rot_max_accel: float = 0.8
                 side_max_accel: float = 600
-                time_ahead: float = 1.5
+                time_ahead: float = 1.5#1.5
                 step_along_ang: float = 0.05
                 advance_step: float = 200
                 side_step: float = 200
@@ -130,7 +130,7 @@ class SpecificWorker(GenericWorker):
         img = np.zeros((self.height, self.width, 3), dtype=np.uint8)  # filas, columnas
 
         # draw lidar points
-        self.draw_lidar_points(ldata_set, img)
+        #self.draw_lidar_points(ldata_set, img)
 
         # draw target
         # if self.target:
@@ -278,9 +278,9 @@ class SpecificWorker(GenericWorker):
     def read_lidar_data(self) -> NDArray[[float, float]]:
         ldata_set = []
         try:
-            ldata = self.lidar3d_proxy.getLidarData(787, 900)
+            ldata = self.lidar3d_proxy.getLidarData(655, 450 )
             # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y-200) for l in ldata
+            ldata_set = [(l.x, l.y-200) for i, l in enumerate(ldata) if i % 3 == 0
                          if l.z > (400 - self.z_lidar_height)
                          and l.z < 300                              # robot's height
                          and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
@@ -353,6 +353,7 @@ class SpecificWorker(GenericWorker):
             p = np.array((cx, cy))
             cv2.rectangle(img, p-size, p+size, (255, 0, 128), 3)
 
+
             if optimal:
                 dist = str(int(optimal[0])) + " " + str(int(optimal[1])) + " " + \
                        "{:.2f}".format(np.arctan2(optimal[0], optimal[1])) + " " + str(int(self.target.depth))
@@ -406,23 +407,23 @@ class SpecificWorker(GenericWorker):
 
     def control(self, local_target):    # get local_target from DWA as next place to go
         MAX_ADV_SPEED = 1000
-        MAX_SIDE_SPEED = 200
+        MAX_SIDE_SPEED = 400
         MAX_ROT_SPEED = 2
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
-            if self.target.depth < 600:
+            if self.target.depth < 900:
                 #self.stop_robot()
                 try:
-                    self.omnirobot_proxy.setSpeedBase(0, 0, rot*0.3)
+                    self.omnirobot_proxy.setSpeedBase(0, 0, rot)
                 except Ice.Exception as e:
                     print(e, "Error connecting to omnirobot")
-                self.target = None
+                #self.target = None
                 print("Control: Target achieved")
                 # self.omnirobot_proxy.setSpeedBase(0, 0, rot)
                 pass
             else:
                 dist = np.linalg.norm(local_target)
-                rot = np.arctan2(local_target[0], local_target[1])
+                #rot = np.arctan2(local_target[0], local_target[1])
 
                 # PID
                 # rot_error = self.target.roi.xcenter - 500    # full image half size
@@ -439,7 +440,7 @@ class SpecificWorker(GenericWorker):
                 #print("kkk", local_target[0], side)
 
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
-                       "rot: {:.2f}".format(self.target.depth, dist, side, adv, rot))
+                       "rot: {:.2f} TARGETX: {:.2f}".format(self.target.depth, dist, side, adv, rot, self.target.x))
                 #self.prev_fovea_error = rot_error
 
                 try:
