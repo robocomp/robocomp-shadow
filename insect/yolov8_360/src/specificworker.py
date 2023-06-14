@@ -488,8 +488,8 @@ class SpecificWorker(GenericWorker):
     def get_bbox_image_data(self, image, element_box):
         bbox_image = ifaces.RoboCompCamera360RGB.TImage()
         cropped_image = image[int(element_box[1]):int(element_box[3]), int(element_box[0]):int(element_box[2])]
-        cv2.imshow("", cropped_image)
-        cv2.waitKey(1)
+        # cv2.imshow("", cropped_image)
+        # cv2.waitKey(1)
         bbox_image.image = cropped_image.tobytes()
         bbox_image.height, bbox_image.width, _ = cropped_image.shape
         bbox_image.roi = ifaces.RoboCompCamera360RGB.TRoi(xcenter=self.rgb.roi.xcenter,
