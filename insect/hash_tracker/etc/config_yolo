@@ -3,7 +3,7 @@ VisualElements.Endpoints=tcp -p 14737
 
 # Proxies for required interfaces
 #Lidar3DProxy = lidar3d:tcp -h 192.168.50.114 -p 11988
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11987
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
 
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 13640

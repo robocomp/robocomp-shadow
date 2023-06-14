@@ -651,11 +651,16 @@ class SpecificWorker(GenericWorker):
         min_distance = min((p[2] for p in in_box_points), default=float('inf'))
 
         if len(in_box_points) > 0:
-            x = [p[3] for p in in_box_points]  # X  get middle 3D point en X,Z plane
-            z = [p[5] for p in in_box_points]  # Z
-            y = min((p[4] for p in in_box_points), default=float('inf'))  # MIN Y
+            x = [p[3] for p in in_box_points if not np.isnan(p[3]) and p[3] <= 15000]  # X  get middle 3D point en X,Z plane
+            z = [p[5] for p in in_box_points if not np.isnan(p[5]) and p[5] <= 15000]  # Z
+            y = min((p[4] for p in in_box_points if not np.isnan(p[4]) and p[4] <= 15000), default=float('inf'))  # MIN Y
             # centroid = (sum(x) / len(in_box_points), -sum(z) / len(in_box_points))
-            centroid = (sum(x) / len(in_box_points), y, sum(z) / len(in_box_points))
+            centroid = [sum(x) / len(in_box_points), y, sum(z) / len(in_box_points)]
+            if centroid[0] > 9000 or centroid[2] > 9000:
+                if x and z:
+                    centroid[0] = min(x)
+                    centroid[2] = min(z)
+
             return in_box_points, centroid, min_distance
         else:
             return in_box_points, (), None
