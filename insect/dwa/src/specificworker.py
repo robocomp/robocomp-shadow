@@ -278,7 +278,7 @@ class SpecificWorker(GenericWorker):
     def read_lidar_data(self) -> NDArray[[float, float]]:
         ldata_set = []
         try:
-            ldata = self.lidar3d_proxy.getLidarData(655, 450 )
+            ldata = self.lidar3d_proxy.getLidarData(270, 180, 3 )
             # remove points 30cm from floor and above robot
             ldata_set = [(l.x, l.y-200) for i, l in enumerate(ldata) if i % 3 == 0
                          if l.z > (400 - self.z_lidar_height)
