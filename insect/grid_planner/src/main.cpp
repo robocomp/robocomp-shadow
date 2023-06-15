@@ -81,7 +81,6 @@
 #include "specificmonitor.h"
 #include "commonbehaviorI.h"
 
-#include <gridplannerI.h>
 #include <segmentatortrackingpubI.h>
 
 
@@ -131,10 +130,27 @@ int ::grid_planner::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
 	string proxy, tmp;
 	initialize();
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "GridPlannerProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridPlannerProxy\n";
+		}
+		gridplanner_proxy = Ice::uncheckedCast<RoboCompGridPlanner::GridPlannerPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy GridPlanner: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("GridPlannerProxy initialized Ok!");
+
 
 	try
 	{
@@ -169,7 +185,7 @@ int ::grid_planner::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(lidar3d_proxy);
+	tprx = std::make_tuple(gridplanner_proxy,lidar3d_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
@@ -206,24 +222,6 @@ int ::grid_planner::run(int argc, char* argv[])
 
 		}
 
-
-
-		try
-		{
-			// Server adapter creation and publication
-			if (not GenericMonitor::configGetString(communicator(), prefix, "GridPlanner.Endpoints", tmp, ""))
-			{
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridPlanner";
-			}
-			Ice::ObjectAdapterPtr adapterGridPlanner = communicator()->createObjectAdapterWithEndpoints("GridPlanner", tmp);
-			auto gridplanner = std::make_shared<GridPlannerI>(worker);
-			adapterGridPlanner->add(gridplanner, Ice::stringToIdentity("gridplanner"));
-			adapterGridPlanner->activate();
-			cout << "[" << PROGRAM_NAME << "]: GridPlanner adapter created in port " << tmp << endl;
-		}
-		catch (const IceStorm::TopicExists&){
-			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for GridPlanner\n";
-		}
 
 
 		// Server adapter creation and publication

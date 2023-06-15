@@ -6,8 +6,7 @@ Component grid_planner
 {
     Communications
     {
-        implements GridPlanner;
-        requires Lidar3D;
+        requires Lidar3D, GridPlanner;
         subscribesTo SegmentatorTrackingPub;
     };
     language Cpp11;

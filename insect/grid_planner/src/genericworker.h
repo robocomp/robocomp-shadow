@@ -40,7 +40,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr>;
+using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -56,9 +56,9 @@ public:
 	QMutex *mutex;
 
 
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
-	virtual RoboCompGridPlanner::TPlan GridPlanner_getPlan() = 0;
 	virtual void SegmentatorTrackingPub_setTrack (int track) = 0;
 
 protected:
