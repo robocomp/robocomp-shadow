@@ -1,12 +1,12 @@
 import "VisualElements.idsl";
 import "Lidar3D.idsl";
 import "SegmentatorTrackingPub.idsl";
-
+import "Camera360RGB.idsl";
 Component hash_tracker
 {
     Communications
     {
-        requires Lidar3D;
+        requires Lidar3D, Camera360RGB;
         implements VisualElements;
         subscribesTo SegmentatorTrackingPub;
     };
