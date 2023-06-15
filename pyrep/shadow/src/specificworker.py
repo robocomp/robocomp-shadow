@@ -37,6 +37,9 @@ import pprint
 import traceback
 from sys import getsizeof
 from dataclasses import dataclass
+import cupy as cp
+
+from concurrent.futures import ThreadPoolExecutor
 
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
@@ -444,19 +447,62 @@ class SpecificWorker(GenericWorker):
     #     return points
     #     print("TERCERO", time.time() - inicio)
 
+    # def read_lidar3d(self):
+    #     inicio = time.time()
+    #     cam = self.cameras_write[self.omni_camera_depth_name]
+    #     frame = cam["handle"].capture_rgb()  # comes in the RGB channel
+    #     depth_frame = frame[:, :, 0]
+    #
+    #     rows = self.consts.num_rows
+    #     cols = self.consts.num_angular_bins
+    #     points = np.full((rows, cols, 2),
+    #                      fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+    #     semi_height = depth_frame.shape[0] // 2
+    #     ang_slope = 2 * np.pi / depth_frame.shape[1]
+    #     ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+    #
+    #     u, v = np.mgrid[0:depth_frame.shape[0]:6, 0:depth_frame.shape[1]:3]
+    #     hor_ang = ang_slope * v - np.pi
+    #     dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
+    #     mask = (dist <= self.consts.max_camera_depth_range) & (dist >= self.consts.min_camera_depth_range)
+    #     u, v, hor_ang, dist = u[mask], v[mask], hor_ang[mask], dist[mask]
+    #
+    #     x = -dist * np.sin(hor_ang)
+    #     y = dist * np.cos(hor_ang)
+    #     fov = 128
+    #     proy = dist * np.cos(np.arctan2((semi_height - u), fov))
+    #     z = (semi_height - u) / fov * proy
+    #     y += self.consts.omni_camera_y_offset
+    #     mask = z >= self.consts.depth_lines_min_height
+    #     x, y, z = x[mask], y[mask], z[mask]
+    #
+    #     for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+    #                                        self.consts.depth_lines_step)):
+    #         if level >= 32:
+    #             continue
+    #         mask = (z > step) & (z < step + self.consts.depth_lines_step)
+    #         x_level, y_level, z_level = x[mask], y[mask], z[mask]
+    #         ang_index = (np.pi + np.arctan2(x_level, y_level) / ang_bin).astype(int)
+    #         new_points = np.stack([x_level, y_level], axis=-1)
+    #         norms = np.linalg.norm(new_points, axis=-1)
+    #         mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
+    #         points[level, ang_index[mask]] = new_points[mask]
+    #
+    #
+    #
+    #     return points
+
+    #Reorganizando puntos
     def read_lidar3d(self):
-        inicio = time.time()
         cam = self.cameras_write[self.omni_camera_depth_name]
-        frame = cam["handle"].capture_rgb()  # comes in the RGB channel
+        frame = cam["handle"].capture_rgb()
         depth_frame = frame[:, :, 0]
 
-        rows = self.consts.num_rows
-        cols = self.consts.num_angular_bins
-        points = np.full((rows, cols, 2),
-                         fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
         semi_height = depth_frame.shape[0] // 2
         ang_slope = 2 * np.pi / depth_frame.shape[1]
         ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+        depth_lines_range = np.arange(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+                                      self.consts.depth_lines_step)
 
         u, v = np.mgrid[0:depth_frame.shape[0]:6, 0:depth_frame.shape[1]:3]
         hor_ang = ang_slope * v - np.pi
@@ -473,19 +519,43 @@ class SpecificWorker(GenericWorker):
         mask = z >= self.consts.depth_lines_min_height
         x, y, z = x[mask], y[mask], z[mask]
 
-        for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
-                                           self.consts.depth_lines_step)):
-            if level >= 32:
-                continue
+        rows = self.consts.num_rows
+        cols = self.consts.num_angular_bins
+        points = np.full((rows, cols, 2),
+                         fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+
+        for level, step in enumerate(depth_lines_range[:32]):  # Ensure 32 levels
             mask = (z > step) & (z < step + self.consts.depth_lines_step)
-            x_level, y_level, z_level = x[mask], y[mask], z[mask]
+            x_level, y_level = x[mask], y[mask]
             ang_index = (np.pi + np.arctan2(x_level, y_level) / ang_bin).astype(int)
             new_points = np.stack([x_level, y_level], axis=-1)
             norms = np.linalg.norm(new_points, axis=-1)
             mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
             points[level, ang_index[mask]] = new_points[mask]
 
-        return points
+        # Antes de entrar en este bloque, asegúrate de que 'points' tiene la forma correcta
+        if points.shape != (32, cols, 2):
+            points = points.reshape(32, cols, 2)
+
+        num_angles = 900
+        indices = np.arange(num_angles) % cols  # Crear un array de índices con operación de módulo
+        new_points_arr = points[:, indices,
+                         :]  # Indexar directamente en el segundo eje de 'points' utilizando 'indices'
+
+        # Ahora, new_points_arr es un array con forma (32, num_angles, 2)
+        # Pero queremos que tenga forma (num_angles, 32, 2), así que intercambiamos los dos primeros ejes
+        new_points_arr = np.swapaxes(new_points_arr, 0, 1)
+        points = new_points_arr.reshape(-1, new_points_arr.shape[-1])
+        z_values = np.tile(
+            np.linspace(
+                self.consts.depth_lines_min_height,
+                self.consts.depth_lines_min_height + self.consts.depth_lines_step * 31,
+                32),
+            int(np.ceil(len(points) / 32)))
+        z_values = z_values[:len(points)]
+        new_points_arr = np.c_[new_points_arr.reshape(-1, new_points_arr.shape[-1]), z_values]
+        return new_points_arr
+
 
     ###########################################
     ### JOYSITCK read and move the robot
@@ -935,22 +1005,61 @@ class SpecificWorker(GenericWorker):
 
     # ===================================================================
 
+    #Sin reorganizar puntos
+    # def Lidar3D_getLidarData(self, start, length):
+    #     lidar3D = []
+    #     level, ang, _ = self.points.shape
+    #     print("LEVEL ", level, " ANG ", ang)
+    #     height = self.consts.depth_lines_min_height
+    #     a = 0
+    #     while a <= length-1:
+    #         for l in range(level):
+    #             lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0], y=self.points[l][start][1],
+    #                                                   z=height, intensity=0))
+    #             height += self.consts.depth_lines_step
+    #         height = self.consts.depth_lines_min_height
+    #         start += 1
+    #         start = 0 if ((start % 900) == 0) else start
+    #         a += 1
+    #     return lidar3D
 
-    def Lidar3D_getLidarData(self, start, length):
-        lidar3D = []
-        level, ang, _ = self.points.shape
-        height = self.consts.depth_lines_min_height
-        a = 0
-        while a <= length-1:
-            for l in range(level):
-                lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0], y=self.points[l][start][1],
-                                                      z=height, intensity=0))
-                height += self.consts.depth_lines_step
-            height = self.consts.depth_lines_min_height
-            start += 1
-            start = 0 if ((start % 900) == 0) else start
-            a += 1
-        return lidar3D
+
+    # def Lidar3D_getLidarData(self, start, length, decimation):
+    #     FACTOR = 80  # pre-calculate this: (1 / 0.4) * 32
+    #     start_angle = start
+    #     eje_start = start_angle * FACTOR
+    #     eje_leng = length * FACTOR
+    #
+    #     # Compute the indices of the points we want
+    #     indices = np.arange(eje_start, eje_start + eje_leng) % 28800
+    #
+    #     # Select the points at these indices
+    #     selected_points = self.points[indices]
+    #
+    #     # Compute z_values
+    #     z_values = np.tile(
+    #         np.linspace(
+    #             self.consts.depth_lines_min_height,
+    #             self.consts.depth_lines_min_height + self.consts.depth_lines_step * 31,
+    #             32),
+    #         int(np.ceil(eje_leng / 32)))
+    #     z_values = z_values[:eje_leng]
+    #
+    #     # Convert to TPoints
+    #     lidar3D = [RoboCompLidar3D.TPoint(x=point[0], y=point[1] , z=float(z_value), intensity=0)
+    #                for point, z_value in zip(selected_points, z_values)]
+    #
+    #
+    #     return lidar3D
+
+    def Lidar3D_getLidarData(self, start, length, decimation):
+        points = self.points
+        return [RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=point[2], intensity=0)
+                   for point in points]
+
+
+
+
 
     # =====================================================================
 
@@ -1000,81 +1109,4 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
-# laser
-        # self.lasers = {}
-        # self.hokuyo_front_left_name = "Hokuyo_sensor2"
-        # cam = VisionSensor(self.hokuyo_front_left_name)
-        # self.lasers[self.hokuyo_front_left_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                              "semiwidth": cam.get_resolution()[0] / 2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                   np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": -np.pi/3.0
-        #                                              }
-        # self.hokuyo_front_right_name = "Hokuyo_sensor1"
-        # cam = VisionSensor(self.hokuyo_front_right_name)
-        # self.lasers[self.hokuyo_front_right_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                               "semiwidth": cam.get_resolution()[0]/2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                 np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": np.pi / 3.0
-        #                                             }
-        # self.ldata_write = []
-        # self.ldata_read = []
 
-        # def read_lidar3d(self):
-        #     inicio = time.time()
-        #     cam = self.cameras_write[self.omni_camera_depth_name]
-        #     frame = cam["handle"].capture_rgb()  # comes in the RGB channel
-        #     depth_frame = frame[:, :, 0]
-        #     print("PRIMERO", time.time() - inicio)
-        #     # depth_frame = cv2.flip(depth_frame, 1)
-        #
-        #     rows = int((
-        #                            self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
-        #     cols = self.consts.num_angular_bins
-        #     points = np.full((rows, cols, 2),
-        #                      fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
-        #     semi_height = depth_frame.shape[0] // 2
-        #     ang_slope = 2 * np.pi / depth_frame.shape[1]
-        #     ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
-        #     print("SEGUNDO ", time.time() - inicio)
-        #     for u in range(0, depth_frame.shape[0], 5):
-        #         for v in range(0, depth_frame.shape[1], 5):
-        #             hor_ang = ang_slope * v - np.pi
-        #             dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
-        #             if dist > self.consts.max_camera_depth_range:
-        #                 continue
-        #             if dist < self.consts.min_camera_depth_range:
-        #                 continue
-        #             x = -dist * np.sin(hor_ang)
-        #             y = dist * np.cos(hor_ang)
-        #             fov = 128
-        #             proy = dist * np.cos(np.arctan2((semi_height - u), fov))
-        #             z = (semi_height - u) / fov * proy
-        #             z += self.consts.omni_camera_height
-        #             y += self.consts.omni_camera_y_offset
-        #             if z < 0:
-        #                 continue
-        #             for level, step in enumerate(
-        #                     range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
-        #                           self.consts.depth_lines_step)):
-        #                 if z > step and z < step + self.consts.depth_lines_step:
-        #                     ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
-        #                     new_point = np.array([x, y])
-        #                     if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
-        #                             and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
-        #                         points[level, ang_index] = new_point
-        #     return points
-        #     print("TERCERO", time.time() - inicio)
