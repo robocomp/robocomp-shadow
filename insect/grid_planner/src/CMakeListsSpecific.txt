@@ -14,7 +14,8 @@ SET ( HEADERS
   /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
 )
 
+add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
-SET (LIBS ${LIBS}  )
+SET (LIBS ${LIBS}  QGLViewer-qt6 Qt6OpenGLWidgets)
 
 

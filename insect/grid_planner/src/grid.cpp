@@ -110,7 +110,7 @@ inline std::tuple<bool, Grid::T&> Grid::getCell(const Key &k)
       }
       catch(const std::exception &e)
       {
-          qWarning() << __FUNCTION__ << " No key found in grid: (" << k.x << k.z << ")";
+//          qWarning() << __FUNCTION__ << " No key found in grid: (" << k.x << k.z << ")";
           return std::forward_as_tuple(false, T());
       }
 }
@@ -242,7 +242,7 @@ void Grid::setFree(const Key &k)
     {
         v.free = true;
         if(v.tile != nullptr)
-            v.tile->setBrush(QBrush(QColor("white")));
+            v.tile->setBrush(QBrush(QColor(params.free_color)));
     }
 }
 void Grid::set_free(int cx, int cy)
@@ -296,44 +296,58 @@ void Grid::setOccupied(const QPointF &p)
 {
     setOccupied((long int)p.x(), (long int)p.y());
 }
+
 void Grid::add_miss(const Eigen::Vector2f &p)
 {
     auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
     if(success)
     {
-        v.misses++;
-        if((float)v.hits/(v.hits+v.misses) < params.occupancy_threshold)
-        //if((float)v.hits/(v.hits+v.misses) < params.prob_free)
-        {
-            if(not v.free)
-                this->flipped++;
-            v.free = true;
-            v.tile->setBrush(QBrush(QColor(params.free_color)));
-        }
-        v.misses = std::clamp(v.misses, 0.f, 20.f);
-        this->updated++;
+        v.free = true;
+        v.tile->setBrush(QBrush(QColor(params.free_color)));
     }
 //    else
 //        qWarning() << __FUNCTION__ << "Cell not found" << "[" << p.x() << p.y() << "]";
 }
-void Grid::add_hit(const Eigen::Vector2f &p)
-{
-    auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
-    if(success)
-    {
-        v.hits++;
-        if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold)
-        //if((float)v.hits/(v.hits+v.misses) >= params.prob_occ)
-            {
-            if(v.free)
-                this->flipped++;
-            v.free = false;
-            v.tile->setBrush(QBrush(QColor(params.occupied_color)));
-        }
-        v.hits = std::clamp(v.hits, 0.f, 20.f);
-        this->updated++;
-    }
-}
+
+
+//void Grid::add_miss(const Eigen::Vector2f &p)
+//{
+//    auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
+//    if(success)
+//    {
+//        v.misses++;
+//        if((float)v.hits/(v.hits+v.misses) < params.occupancy_threshold)
+//        //if((float)v.hits/(v.hits+v.misses) < params.prob_free)
+//        {
+//            if(not v.free)
+//                this->flipped++;
+//            v.free = true;
+//            v.tile->setBrush(QBrush(QColor(params.free_color)));
+//        }
+//        v.misses = std::clamp(v.misses, 0.f, 20.f);
+//        this->updated++;
+//    }
+////    else
+////        qWarning() << __FUNCTION__ << "Cell not found" << "[" << p.x() << p.y() << "]";
+//}
+//void Grid::add_hit(const Eigen::Vector2f &p)
+//{
+//    auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
+//    if(success)
+//    {
+//        v.hits++;
+//        if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold)
+//        //if((float)v.hits/(v.hits+v.misses) >= params.prob_occ)
+//            {
+//            if(v.free)
+//                this->flipped++;
+//            v.free = false;
+//            v.tile->setBrush(QBrush(QColor(params.occupied_color)));
+//        }
+//        v.hits = std::clamp(v.hits, 0.f, 20.f);
+//        this->updated++;
+//    }
+//}
 void Grid::log_update(const Eigen::Vector2f &p, float prob)
 {
     static double TRESHOLD_P_FREE = log_odds(0.3);
@@ -474,7 +488,7 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
     //qInfo() << __FUNCTION__  << " from nose pos: " << source_ << " to " << target_ ;
     Key source = pointToKey(source_.x(), source_.y());
     Key target = pointToKey(target_.x(), target_.y());
-    std::cout<<"KEY= "<<target<<std::endl;
+//    std::cout<<"KEY= "<<target<<std::endl;
 
     // Admission rules
     if (not dim.contains(target_))
@@ -665,55 +679,55 @@ void Grid::update_costs(bool wide)
     static QBrush yellow_brush(QColor("Yellow"));
     static QBrush gray_brush(QColor("LightGray"));
 
-    for(auto &&[k,v] : iter::filter([](auto v){ return std::get<1>(v).cost > 1;}, fmap))
-    {
-        v.tile->setBrush(free_brush);
-        v.cost = 1.f;
-    }
+//    for(auto &&[k,v] : iter::filter([](auto v){ return std::get<1>(v).cost > 1;}, fmap))
+//    {
+//        v.tile->setBrush(free_brush);
+//        v.cost = 1.f;
+//    }
 
     //update grid values
     if(wide)
     {
-        for (auto &&[k, v]: iter::filterfalse([](auto v) { return std::get<1>(v).free; }, fmap))
-        {
-            v.cost = 100;
-            v.tile->setBrush(occ_brush);
-            // for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
-            // {
-            //     fmap.at(kk).cost = 100;
-            //     fmap.at(kk).tile->setBrush(occ_brush);
-            // }
-        }
+//        for (auto &&[k, v]: iter::filterfalse([](auto v) { return std::get<1>(v).free; }, fmap))
+//        {
+//            v.cost = 100;
+//            v.tile->setBrush(occ_brush);
+//            // for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
+//            // {
+//            //     fmap.at(kk).cost = 100;
+//            //     fmap.at(kk).tile->setBrush(occ_brush);
+//            // }
+//        }
         for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 100; }, fmap))
-            
-            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
+            for (auto neighs = neighboors_16(k); auto &&[kk, vv]: neighs)
             {
                 if (vv.cost < 100)
                 {
-                    fmap.at(kk).cost = 50;
+                    fmap.at(kk).cost = 99;
+                    fmap.at(kk).free = false;
                     fmap.at(kk).tile->setBrush(orange_brush);
                 }
             }
-        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 50; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
-            {
-                if (vv.cost < 50)
-                {
-                    // vv.free = true;
-                    fmap.at(kk).cost = 25;
-                    fmap.at(kk).tile->setBrush(yellow_brush);
-                }
-            }
-        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 25; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &[kk, vv]: neighs)
-            {
-                if (vv.cost < 25)
-                {
-                    // vv.free = true;
-                    fmap.at(kk).cost = 15;
-                    fmap.at(kk).tile->setBrush(gray_brush);
-                }
-            }
+//        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 50; }, fmap))
+//            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
+//            {
+//                if (vv.cost < 50)
+//                {
+//                    // vv.free = true;
+//                    fmap.at(kk).cost = 25;
+//                    fmap.at(kk).tile->setBrush(yellow_brush);
+//                }
+//            }
+//        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 25; }, fmap))
+//            for (auto neighs = neighboors_8(k); auto &[kk, vv]: neighs)
+//            {
+//                if (vv.cost < 25)
+//                {
+//                    // vv.free = true;
+//                    fmap.at(kk).cost = 15;
+//                    fmap.at(kk).tile->setBrush(gray_brush);
+//                }
+//            }
     }
     else
     {
@@ -726,32 +740,17 @@ void Grid::update_costs(bool wide)
         }
     }
 }
-void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range)
-{
-    for(const auto &point : points)
-    {
-        auto point2d = point.head(2);
 
-        float length = (point2d-robot_in_grid).norm();
-        int num_steps = ceil(length/(TILE_SIZE));
-        Eigen::Vector2f p;
-        for(const auto &&step : iter::range(0.0, 1.0-(1.0/num_steps), 1.0/num_steps))
+void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range) {
+    for (const auto &point: points)
+        if(auto &&[success, v] = getCell(point.head(2)); success )
         {
-            p = robot_in_grid * (1-step) + point2d*step;
-            add_miss(p);
-//            qInfo()<< "MISS";
+            v.free = false;
+            v.cost = 100;
+            v.tile->setBrush(QBrush(QColor(params.occupied_color)));
         }
-        if(length <= max_laser_range)
-        {
-            add_hit(point2d);
-//            qInfo()<< "HIT";
-        }
-        if((p-point2d).norm() < TILE_SIZE)  // in case last miss overlaps tip
-
-            add_hit(point2d);
-
-    }
 }
+
 bool Grid::is_path_blocked(const std::vector<Eigen::Vector2f> &path) // grid coordinates
 {
     for(const auto &p: path)
@@ -803,10 +802,21 @@ void Grid::draw()
 }
 void Grid::clear()
 {
-    for (const auto &[key, value]: fmap)
-        scene->removeItem(value.tile);
-    fmap.clear();
+    for (auto &[key, value]: fmap)
+    {
+        value.tile->setBrush(QBrush(QColor(params.free_color)));
+        value.free = true;
+        value.cost = 1;
+    }
 }
+
+
+//void Grid::clear()
+//{
+//    for (const auto &[key, value]: fmap)
+//        scene->removeItem(value.tile);
+//    fmap.clear();
+//}
 
 ////////////////////////////// NEIGHS /////////////////////////////////////////////////////////
 std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, std::function<bool(std::pair<Grid::Key, Grid::T>)> pred)

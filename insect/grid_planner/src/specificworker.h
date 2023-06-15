@@ -32,7 +32,7 @@
 #include "doublebuffer/DoubleBuffer.h"
 #include <Eigen/Eigen>
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
-#include <cppitertools/enumerate.hpp>
+#include <fps/fps.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -42,7 +42,6 @@ class SpecificWorker : public GenericWorker
         ~SpecificWorker();
         bool setParams(RoboCompCommonBehavior::ParameterList params);
 
-        RoboCompGridPlanner::TPlan GridPlanner_getPlan();
         void SegmentatorTrackingPub_setTrack(int track);
 
     public slots:
@@ -59,9 +58,34 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector3f> get_lidar_data();
 
         //GRID
-
+        int z_lidar_height = 1250;
         Grid grid;
 
+        // FPS
+        FPSCounter fps;
+
+        // Target
+        struct Target
+        {
+            bool active = false;
+            Eigen::Vector2f point;
+            QPointF qpoint;
+            void set(QPointF p)
+            {
+                point = Eigen::Vector2f(p.x(), p.y());
+                qpoint = p;
+                active = true;
+            }
+            void unset() { active = false; }
+        };
+        Target target;
+
+        // Path
+        void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
+
+    RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
+                                          float threshold_dist, float threshold_angle);
+    void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
 
 };
 
