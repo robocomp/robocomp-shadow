@@ -66,10 +66,12 @@ class SpecificWorker(GenericWorker):
             #                       "cam_back_2": self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51),
             #                       "cam_left": self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51)}
             self.lidar_to_cams = {"cam_front": cp.asarray(self.make_matrix_rt(0, 0, 0, 0, 0, -108.51)),
-                                  "cam_right": cp.asarray(self.make_matrix_rt(0, 0, np.pi / 2, 0, 0, -108.51)),
+                                  "cam_right": cp.asarray(self.make_matrix_rt(np.pi, np.pi, np.pi / 2, 0, 0, -108.51)),
                                   "cam_back_1": cp.asarray(self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51)),
                                   "cam_back_2": cp.asarray(self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51)),
-                                  "cam_left": cp.asarray(self.make_matrix_rt(0, 0, -np.pi / 2, 0, 0, -108.51))}
+                                  "cam_left": cp.asarray(self.make_matrix_rt(np.pi, np.pi, -np.pi / 2, 0, 0, -108.51))}
+
+
 
             self.focal_x = 128
             self.focal_y = 128
@@ -190,7 +192,7 @@ class SpecificWorker(GenericWorker):
         # Fetch LIDAR points that fall within the specified angle range.
         try:
 
-            points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle))
+            points = self.lidar3d_proxy.getLidarData(int(start_angle), int(len_angle), 1)
             #points = self.lidar3d_proxy.getLidarData(0, 900)
             #print("Points", len(points))
             # Convert points into a numpy array and scale from millimeters to meters.
@@ -219,7 +221,7 @@ class SpecificWorker(GenericWorker):
         half_width = self.width_img / 2
         quarter_width = half_width / 2
         half_height = self.height_img / 2
-        quarter_height = half_height / 4
+        quarter_height = half_height / 2
         cx_offsets = {
             "cam_front": half_width,
             "cam_right": half_width + quarter_width,
@@ -235,6 +237,7 @@ class SpecificWorker(GenericWorker):
             "cam_back_2": half_height
         }
 
+
         points_array = np.append(points_array, np.ones((points_array.shape[0], 1)), axis=1)
 
         # Calculate the angle for each point.
@@ -249,7 +252,7 @@ class SpecificWorker(GenericWorker):
                 transformation_matrix = self.lidar_to_cams[cam].T
                 cx = cx_offsets[cam]
                 cy = cy_offsets[cam]
-
+                print("OFFSET", cy)
                 # Apply transformation matrix to points.
                 transformed_points = np.dot(points_array[indices], transformation_matrix)
                 transformed_points[:, 1] += epsilon  # Add epsilon to y coordinate to avoid division by zero.
@@ -301,8 +304,8 @@ class SpecificWorker(GenericWorker):
         }
         cy_offsets = {
             "cam_front": half_height,
-            "cam_right": half_height + quarter_height,
-            "cam_left": half_height + quarter_height,
+            "cam_right": half_height,
+            "cam_left": half_height,
             "cam_back_1": half_height,
             "cam_back_2": half_height
         }
@@ -443,9 +446,9 @@ class SpecificWorker(GenericWorker):
         # para obtener los ángulos en el rango de la imagen completa.
         # Luego, resta 180 para convertirlos al rango [-180, 180].
         # Finalmente, llama a remap_angle para convertir estos ángulos al rango [0, 900] como se describió anteriormente.
-        start_angle = self.remap_angle(original_fov * start_ratio - 180)
+        start_angle = self.remap_angle_real(original_fov * start_ratio - 180)
 
-        end_angle = self.remap_angle(original_fov * end_ratio - 180)
+        end_angle = self.remap_angle_real(original_fov * end_ratio - 180)
 
         # Calcula la longitud del ángulo de la ROI, que es la diferencia absoluta entre
         # los ángulos de inicio y fin.
@@ -459,6 +462,9 @@ class SpecificWorker(GenericWorker):
             return 2.5 * angle
         else:
             return 900 + 2.5 * angle
+
+    def remap_angle_real(self, angle):
+            return ((angle)) % 360
 
     def read_image(self):
         """
@@ -683,52 +689,52 @@ class SpecificWorker(GenericWorker):
         for i in self.lidar_in_image:
             cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
         # Check if there are any objects to display.
-        if len(self.objects) == 0:
-            return image
-
-        # Set the font for displaying text on the image.
-        font = cv2.FONT_HERSHEY_SIMPLEX
-
-        # Iterate over all objects.
-        for element in self.objects:
-            # Define the ROI (region of interest) for each object.
-            roi = element.roi
-
-            # Calculate scaling factors and offsets based on the ROI dimensions.
-            x_factor = roi.xsize / roi.finalxsize
-            y_factor = roi.ysize / roi.finalysize
-            x_offset = roi.xcenter - roi.xsize / 2
-            y_offset = roi.ycenter - roi.ysize / 2
-
-            # Calculate the coordinates of the bounding rectangle for each object.
-            x0 = int(element.left * x_factor + x_offset)
-            y0 = int(element.top * y_factor + y_offset)
-            x1 = int(element.right * x_factor + x_offset)
-            y1 = int(element.bot * y_factor + y_offset)
-
-            # Draw the bounding rectangle on the image.
-            cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
-
-            # Identify the LIDAR points within the bounding rectangle and draw them on the image.
-            results, centroid, min_distance = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
-            for i in results:
-                cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
-
-            # Prepare the text for each object.
-            if min_distance:
-                text = 'Class: {} - Score: {:.1f}% - ID: {} -Dist: {}'.format(element.type, element.score * 100, element.id,
-                                                                              min_distance / 1000)
-                # Calculate the size of the text.
-                txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
-
-                # Draw a filled rectangle as the background of the text.
-                cv2.rectangle(
-                    image,
-                    (x0, y0 + 1),
-                    (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
-                    (255, 0, 0), -1  )
-                # # Put the text on the image.
-                cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0, 255, 0), thickness=1)
+        # if len(self.objects) == 0:
+        #     return image
+        #
+        # # Set the font for displaying text on the image.
+        # font = cv2.FONT_HERSHEY_SIMPLEX
+        #
+        # # Iterate over all objects.
+        # for element in self.objects:
+        #     # Define the ROI (region of interest) for each object.
+        #     roi = element.roi
+        #
+        #     # Calculate scaling factors and offsets based on the ROI dimensions.
+        #     x_factor = roi.xsize / roi.finalxsize
+        #     y_factor = roi.ysize / roi.finalysize
+        #     x_offset = roi.xcenter - roi.xsize / 2
+        #     y_offset = roi.ycenter - roi.ysize / 2
+        #
+        #     # Calculate the coordinates of the bounding rectangle for each object.
+        #     x0 = int(element.left * x_factor + x_offset)
+        #     y0 = int(element.top * y_factor + y_offset)
+        #     x1 = int(element.right * x_factor + x_offset)
+        #     y1 = int(element.bot * y_factor + y_offset)
+        #
+        #     # Draw the bounding rectangle on the image.
+        #     cv2.rectangle(image, (x0, y0), (x1, y1), (0, 255, 0), 2)
+        #
+        #     # Identify the LIDAR points within the bounding rectangle and draw them on the image.
+        #     results, centroid, min_distance = self.points_in_bbox(self.lidar_in_image, x0, y0, x1, y1)
+        #     for i in results:
+        #         cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
+        #
+        #     # Prepare the text for each object.
+        #     if min_distance:
+        #         text = 'Class: {} - Score: {:.1f}% - ID: {} -Dist: {}'.format(element.type, element.score * 100, element.id,
+        #                                                                       min_distance / 1000)
+        #         # Calculate the size of the text.
+        #         txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+        #
+        #         # Draw a filled rectangle as the background of the text.
+        #         cv2.rectangle(
+        #             image,
+        #             (x0, y0 + 1),
+        #             (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+        #             (255, 0, 0), -1  )
+        #         # # Put the text on the image.
+        #         cv2.putText(image, text, (x0, y0 + txt_size[1]), font, 0.4, (0, 255, 0), thickness=1)
 
         # Return the image with the drawn objects and LIDAR points.
         return image

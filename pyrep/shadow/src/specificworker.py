@@ -18,26 +18,19 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-import sys
-
 from genericworker import *
 import time
 from pyrep import PyRep
-from pyrep.const import JointMode
 from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.dummy import Dummy
 from pyrep.objects.shape import Shape
-from pyrep.objects.joint import Joint
 from pyrep.robots.mobiles.shadow import Shadow
 import numpy as np
 import numpy_indexed as npi
 import cv2
 import itertools as it
 import pprint
-import traceback
-from sys import getsizeof
 from dataclasses import dataclass
-
 
 _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
                  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
@@ -130,30 +123,6 @@ class SpecificWorker(GenericWorker):
         self.lidars_write = {}
         self.lidars_read = {}
 
-        self.top_camera_name = "/Shadow/camera_top"
-        # try:
-        #     cam = VisionSensor(self.top_camera_name)
-        # except:
-        #     traceback.print_exc()
-        #
-        # self.cameras_write[self.top_camera_name] = {"handle": cam,
-        #                                              "id": 0,
-        #                                              "angle": np.radians(cam.get_perspective_angle()),
-        #                                              "width": cam.get_resolution()[0],
-        #                                              "height": cam.get_resolution()[1],
-        #                                              "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-        #                                                 np.radians(cam.get_perspective_angle() / 2.0))),
-        #                                              "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-        #                                                  np.radians(cam.get_perspective_angle() / 2))),
-        #                                              "rgb": np.array(0),
-        #                                              "depth": np.ndarray(0),
-        #                                              "is_ready": False,
-        #                                              "is_rgbd": True,
-        #                                              "rotated": True,
-        #                                              "has_depth": True,
-        #                                              "has_points": False
-        #                                             }
-
         self.omni_camera_rgb_name = "/omnicamera/sensorRGB"
         try:
             cam = VisionSensor(self.omni_camera_rgb_name)
@@ -183,43 +152,21 @@ class SpecificWorker(GenericWorker):
         try:
             cam = VisionSensor(self.lidar_helios_name)
             self.lidars_write[self.lidar_helios_name] = {"handle": cam,
-                                                               "id": 0,
-                                                               "angle": np.radians(cam.get_perspective_angle()),
-                                                               "width": cam.get_resolution()[0],
-                                                               "height": cam.get_resolution()[1],
-                                                               "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2.0))),
-                                                               "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2))),
-                                                               "rgb": np.array(0),
-                                                               "depth": np.ndarray(0),
-                                                               "is_ready": False,
-                                                               "is_rgbd": False,
-                                                               "rotated": False,
-                                                               "has_depth": False
-                                                               }
+                                                           "id": 0,
+                                                           "points": [],
+                                                           "is_ready": False,
+                                                        }
         except:
             print("Camera OMNI sensorDEPTH not found in Coppelia")
 
         self.lidar_bpearl_name = "/lidar3d_bpearl/sensorDepth"
         try:
             cam = VisionSensor(self.lidar3d_bpearl_name)
-            self.lidars_write[self.lidar3d_bpearl_name] =   {"handle": cam,
+            self.lidars_write[self.lidar3d_bpearl_name] = {"handle": cam,
                                                                "id": 0,
-                                                               "angle": np.radians(cam.get_perspective_angle()),
-                                                               "width": cam.get_resolution()[0],
-                                                               "height": cam.get_resolution()[1],
-                                                               "focalx": int((cam.get_resolution()[0] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2.0))),
-                                                               "focaly": int((cam.get_resolution()[1] / 2) / np.tan(
-                                                                   np.radians(cam.get_perspective_angle() / 2))),
-                                                               "rgb": np.array(0),
-                                                               "depth": np.ndarray(0),
+                                                               "points": [],
                                                                "is_ready": False,
-                                                               "is_rgbd": False,
-                                                               "rotated": False,
-                                                               "has_depth": True
-                                                               }
+                                                          }
         except:
             print("Camera BPEARL sensorDEPTH not found in Coppelia")
 
@@ -349,38 +296,6 @@ class SpecificWorker(GenericWorker):
     ### CAMERAS get and publish cameras data
     ###########################################
     def read_cameras(self, camera_names):
-         if self.top_camera_name in camera_names:  # RGBD rotated
-            cam = self.cameras_write[self.top_camera_name]
-            image_float = cam["handle"].capture_rgb()
-            image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
-                                  dtype=cv2.CV_8U)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            depth = cam["handle"].capture_depth(True)  # meters
-            depth = np.frombuffer(depth, dtype=np.float32).reshape((cam["height"], cam["width"]))
-            depth = cv2.rotate(depth, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            # we change width and height here to follow the rotation operation
-            cam["depth"] = RoboCompCameraRGBDSimple.TDepth( cameraID=cam["id"],
-                                                            width=cam["height"],  # cambiados
-                                                            height=cam["width"],
-                                                            focalx=cam["focaly"],
-                                                            focaly=cam["focalx"],
-                                                            alivetime=int(time.time()*1000),
-                                                            period=50, # ms
-                                                            depthFactor=1.0,
-                                                            depth=depth.tobytes())
-            cam["rgb"] = RoboCompCameraRGBDSimple.TImage( cameraID=cam["id"],
-                                                          width=cam["height"],          #cambiados
-                                                          height=cam["width"],
-                                                          depth=3,
-                                                          focalx=cam["focaly"],
-                                                          focaly=cam["focalx"],
-                                                          alivetime=int(time.time()*1000),
-                                                          period=50,  # ms
-                                                          image=image.tobytes(),
-                                                          compressed=False)
-            cam["is_ready"] = True
-
          if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
              cam = self.cameras_write[self.omni_camera_rgb_name]
              image_float = cam["handle"].capture_rgb()
@@ -449,6 +364,7 @@ class SpecificWorker(GenericWorker):
     #     return points
     #     print("TERCERO", time.time() - inicio)
 
+
     def read_lidar3d(self, lidar_names):
         for name in lidar_names:
             lidar = self.lidars_write[name]
@@ -463,7 +379,6 @@ class SpecificWorker(GenericWorker):
             semi_height = depth_frame.shape[0] // 2
             ang_slope = 2 * np.pi / depth_frame.shape[1]
             ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
-
             u, v = np.mgrid[0:depth_frame.shape[0]:6, 0:depth_frame.shape[1]:3]
             hor_ang = ang_slope * v - np.pi
             dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
@@ -491,11 +406,48 @@ class SpecificWorker(GenericWorker):
                 norms = np.linalg.norm(new_points, axis=-1)
                 mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
                 points[level, ang_index[mask]] = new_points[mask]
-                lidar_points.append([RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=step, intensity=0)
+                lidar_points.extend([RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=step, intensity=0)
                          for point in new_points[mask]])
             lidar["points"] = lidar_points
 
         self.lidars_write, self.lidars_read = self.lidars_read, self.lidars_write
+
+        # rows = self.consts.num_rows
+        # cols = self.consts.num_angular_bins
+        # points = np.full((rows, cols, 2),
+        #                  fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
+        #
+        # for level, step in enumerate(depth_lines_range[:32]):  # Ensure 32 levels
+        #     mask = (z > step) & (z < step + self.consts.depth_lines_step)
+        #     x_level, y_level = x[mask], y[mask]
+        #     ang_index = (np.pi + np.arctan2(x_level, y_level) / ang_bin).astype(int)
+        #     new_points = np.stack([x_level, y_level], axis=-1)
+        #     norms = np.linalg.norm(new_points, axis=-1)
+        #     mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
+        #     points[level, ang_index[mask]] = new_points[mask]
+        #
+        # # Antes de entrar en este bloque, asegúrate de que 'points' tiene la forma correcta
+        # if points.shape != (32, cols, 2):
+        #     points = points.reshape(32, cols, 2)
+        #
+        # num_angles = 900
+        # indices = np.arange(num_angles) % cols  # Crear un array de índices con operación de módulo
+        # new_points_arr = points[:, indices,
+        #                  :]  # Indexar directamente en el segundo eje de 'points' utilizando 'indices'
+        #
+        # # Ahora, new_points_arr es un array con forma (32, num_angles, 2)
+        # # Pero queremos que tenga forma (num_angles, 32, 2), así que intercambiamos los dos primeros ejes
+        # new_points_arr = np.swapaxes(new_points_arr, 0, 1)
+        # points = new_points_arr.reshape(-1, new_points_arr.shape[-1])
+        # z_values = np.tile(
+        #     np.linspace(
+        #         self.consts.depth_lines_min_height,
+        #         self.consts.depth_lines_min_height + self.consts.depth_lines_step * 31,
+        #         32),
+        #     int(np.ceil(len(points) / 32)))
+        # z_values = z_values[:len(points)]
+        # new_points_arr = np.c_[new_points_arr.reshape(-1, new_points_arr.shape[-1]), z_values]
+        # return new_points_arr
 
     ###########################################
     ### JOYSITCK read and move the robot
@@ -945,8 +897,54 @@ class SpecificWorker(GenericWorker):
 
     # ===================================================================
 
+    #Sin reorganizar puntos
+    # def Lidar3D_getLidarData(self, start, length):
+    #     lidar3D = []
+    #     level, ang, _ = self.points.shape
+    #     print("LEVEL ", level, " ANG ", ang)
+    #     height = self.consts.depth_lines_min_height
+    #     a = 0
+    #     while a <= length-1:
+    #         for l in range(level):
+    #             lidar3D.append(RoboCompLidar3D.TPoint(x=self.points[l][start][0], y=self.points[l][start][1],
+    #                                                   z=height, intensity=0))
+    #             height += self.consts.depth_lines_step
+    #         height = self.consts.depth_lines_min_height
+    #         start += 1
+    #         start = 0 if ((start % 900) == 0) else start
+    #         a += 1
+    #     return lidar3D
 
-    def Lidar3D_getLidarData(self, start, length):
+
+    # def Lidar3D_getLidarData(self, start, length, decimation):
+    #     FACTOR = 80  # pre-calculate this: (1 / 0.4) * 32
+    #     start_angle = start
+    #     eje_start = start_angle * FACTOR
+    #     eje_leng = length * FACTOR
+    #
+    #     # Compute the indices of the points we want
+    #     indices = np.arange(eje_start, eje_start + eje_leng) % 28800
+    #
+    #     # Select the points at these indices
+    #     selected_points = self.points[indices]
+    #
+    #     # Compute z_values
+    #     z_values = np.tile(
+    #         np.linspace(
+    #             self.consts.depth_lines_min_height,
+    #             self.consts.depth_lines_min_height + self.consts.depth_lines_step * 31,
+    #             32),
+    #         int(np.ceil(eje_leng / 32)))
+    #     z_values = z_values[:eje_leng]
+    #
+    #     # Convert to TPoints
+    #     lidar3D = [RoboCompLidar3D.TPoint(x=point[0], y=point[1] , z=float(z_value), intensity=0)
+    #                for point, z_value in zip(selected_points, z_values)]
+    #
+    #
+    #     return lidar3D
+
+    def Lidar3D_getLidarData(self, start, length, decimation):
         # lidar3D = []
         # level, ang, _ = self.points.shape
         # height = self.consts.depth_lines_min_height
@@ -962,6 +960,7 @@ class SpecificWorker(GenericWorker):
         #     a += 1
         # return lidar3D
         return self.lidars_read[self.lidar_helios_name]["points"]
+
 
     # =====================================================================
 
@@ -1011,81 +1010,4 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
-# laser
-        # self.lasers = {}
-        # self.hokuyo_front_left_name = "Hokuyo_sensor2"
-        # cam = VisionSensor(self.hokuyo_front_left_name)
-        # self.lasers[self.hokuyo_front_left_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                              "semiwidth": cam.get_resolution()[0] / 2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                   np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": -np.pi/3.0
-        #                                              }
-        # self.hokuyo_front_right_name = "Hokuyo_sensor1"
-        # cam = VisionSensor(self.hokuyo_front_right_name)
-        # self.lasers[self.hokuyo_front_right_name] = { "handle": cam,
-        #                                               "id": 0,
-        #                                               "angle": np.radians(cam.get_perspective_angle()),
-        #                                               "width": cam.get_resolution()[0],
-        #                                               "semiwidth": cam.get_resolution()[0]/2.0,
-        #                                               "height": cam.get_resolution()[1],
-        #                                               "focal": (cam.get_resolution()[0] / 2) / np.tan(
-        #                                                 np.radians(cam.get_perspective_angle() / 2)),
-        #                                               "rgb": np.array(0),
-        #                                               "depth": np.ndarray(0),
-        #                                               "offset_angle": np.pi / 3.0
-        #                                             }
-        # self.ldata_write = []
-        # self.ldata_read = []
 
-        # def read_lidar3d(self):
-        #     inicio = time.time()
-        #     cam = self.cameras_write[self.omni_camera_depth_name]
-        #     frame = cam["handle"].capture_rgb()  # comes in the RGB channel
-        #     depth_frame = frame[:, :, 0]
-        #     print("PRIMERO", time.time() - inicio)
-        #     # depth_frame = cv2.flip(depth_frame, 1)
-        #
-        #     rows = int((
-        #                            self.consts.depth_lines_max_height - self.consts.depth_lines_min_height) / self.consts.depth_lines_step)
-        #     cols = self.consts.num_angular_bins
-        #     points = np.full((rows, cols, 2),
-        #                      fill_value=[self.consts.max_camera_depth_range, self.consts.max_camera_depth_range])
-        #     semi_height = depth_frame.shape[0] // 2
-        #     ang_slope = 2 * np.pi / depth_frame.shape[1]
-        #     ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
-        #     print("SEGUNDO ", time.time() - inicio)
-        #     for u in range(0, depth_frame.shape[0], 5):
-        #         for v in range(0, depth_frame.shape[1], 5):
-        #             hor_ang = ang_slope * v - np.pi
-        #             dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
-        #             if dist > self.consts.max_camera_depth_range:
-        #                 continue
-        #             if dist < self.consts.min_camera_depth_range:
-        #                 continue
-        #             x = -dist * np.sin(hor_ang)
-        #             y = dist * np.cos(hor_ang)
-        #             fov = 128
-        #             proy = dist * np.cos(np.arctan2((semi_height - u), fov))
-        #             z = (semi_height - u) / fov * proy
-        #             z += self.consts.omni_camera_height
-        #             y += self.consts.omni_camera_y_offset
-        #             if z < 0:
-        #                 continue
-        #             for level, step in enumerate(
-        #                     range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
-        #                           self.consts.depth_lines_step)):
-        #                 if z > step and z < step + self.consts.depth_lines_step:
-        #                     ang_index = int(np.pi + np.arctan2(x, y) / ang_bin)
-        #                     new_point = np.array([x, y])
-        #                     if np.linalg.norm(new_point) < np.linalg.norm(points[level, ang_index]) \
-        #                             and np.linalg.norm(new_point) > self.consts.min_dist_from_robot_center:
-        #                         points[level, ang_index] = new_point
-        #     return points
-        #     print("TERCERO", time.time() - inicio)
