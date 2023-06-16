@@ -34,6 +34,7 @@
 #include <GridPlanner.h>
 #include <Lidar3D.h>
 #include <SegmentatorTrackingPub.h>
+#include <VisualElements.h>
 
 
 #define CHECK_PERIOD 5000
@@ -59,7 +60,7 @@ public:
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
-	virtual void SegmentatorTrackingPub_setTrack (int track) = 0;
+	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target) = 0;
 
 protected:
 

@@ -106,8 +106,9 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
 {
     std::vector <Eigen::Vector3f> points;
     try {
-        auto ldata = lidar3d_proxy->getLidarData(0, 900);
-        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p) {
+        auto ldata = lidar3d_proxy->getLidarData(0, 900, 1);
+        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
+        {
             float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
             return p.z < 300
                    and p.z > -900
@@ -202,12 +203,10 @@ int SpecificWorker::startup_check()
 
 
 //SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
-void SpecificWorker::SegmentatorTrackingPub_setTrack(int track)
+void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
 {
-    target_buffer.put(Eigen::Vector2f{100.0, 100.0});
+    target_buffer.put(Eigen::Vector2f{target.x, target.y});
 }
-
-
 
 /**************************************/
 // From the RoboCompGridPlanner you can call this methods:

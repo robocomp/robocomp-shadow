@@ -29,8 +29,8 @@ SegmentatorTrackingPubI::~SegmentatorTrackingPubI()
 }
 
 
-void SegmentatorTrackingPubI::setTrack(int track, const Ice::Current&)
+void SegmentatorTrackingPubI::setTrack(RoboCompVisualElements::TObject target, const Ice::Current&)
 {
-	worker->SegmentatorTrackingPub_setTrack(track);
+	worker->SegmentatorTrackingPub_setTrack(target);
 }
 

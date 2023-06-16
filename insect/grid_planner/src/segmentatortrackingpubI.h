@@ -33,7 +33,7 @@ public:
 	SegmentatorTrackingPubI(GenericWorker *_worker);
 	~SegmentatorTrackingPubI();
 
-	void setTrack(int track, const Ice::Current&);
+	void setTrack(RoboCompVisualElements::TObject target, const Ice::Current&);
 
 private:
 
