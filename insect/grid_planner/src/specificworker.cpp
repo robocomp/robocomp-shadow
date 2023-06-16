@@ -85,7 +85,7 @@ void SpecificWorker::compute()
         auto path = grid.compute_path(QPointF(0, 0), target.qpoint);
         if(not path.empty())
         {
-            auto subtarget = send_path(path, 1200, M_PI_4 / 2);
+            auto subtarget = send_path(path, 1200, M_PI_4 / 4);
             qInfo() << subtarget.x << subtarget.y;
 
             draw_path(path, &viewer->scene);
@@ -148,9 +148,8 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
         float d0d2 = (p[2]-p[0]).norm();
         len += d0d1;
         qInfo()<< len << (d0d2 - (d1d2 + d0d1)) << (d0d1 * h) << (((d1d2 + d0d1) - d0d2) > (d0d1 * h));
-        if (len > threshold_dist or (((d1d2 + d0d1) - d0d2) > (d0d1 * h)))
+        if (len > threshold_dist or (abs((d1d2 + d0d1) - d0d2) > (d0d1 * h)))
         {
-
             subtarget.x = p[1].x();
             subtarget.y = p[1].y();
             break;
