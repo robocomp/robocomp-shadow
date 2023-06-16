@@ -83,6 +83,7 @@
 
 #include <segmentatortrackingpubI.h>
 
+#include <VisualElements.h>
 
 
 

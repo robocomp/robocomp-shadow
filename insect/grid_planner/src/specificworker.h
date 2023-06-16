@@ -41,8 +41,7 @@ class SpecificWorker : public GenericWorker
         SpecificWorker(TuplePrx tprx, bool startup_check);
         ~SpecificWorker();
         bool setParams(RoboCompCommonBehavior::ParameterList params);
-
-        void SegmentatorTrackingPub_setTrack(int track);
+        void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target);
 
     public slots:
         void compute();
