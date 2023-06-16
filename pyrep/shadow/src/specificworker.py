@@ -379,6 +379,8 @@ class SpecificWorker(GenericWorker):
             semi_height = depth_frame.shape[0] // 2
             ang_slope = 2 * np.pi / depth_frame.shape[1]
             ang_bin = 2.0 * np.pi / self.consts.num_angular_bins
+            depth_lines_range = np.arange(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
+                                          self.consts.depth_lines_step)
             u, v = np.mgrid[0:depth_frame.shape[0]:6, 0:depth_frame.shape[1]:3]
             hor_ang = ang_slope * v - np.pi
             dist = depth_frame[u, v] * 1000 * self.consts.coppelia_depth_scaling_factor
@@ -395,20 +397,38 @@ class SpecificWorker(GenericWorker):
             x, y, z = x[mask], y[mask], z[mask]
 
             lidar_points = []
-            for level, step in enumerate(range(self.consts.depth_lines_min_height, self.consts.depth_lines_max_height,
-                                               self.consts.depth_lines_step)):
-                if level >= 32:
-                    continue
+            for level, step in enumerate(depth_lines_range[:32]):  # Ensure 32 levels
                 mask = (z > step) & (z < step + self.consts.depth_lines_step)
-                x_level, y_level, z_level = x[mask], y[mask], z[mask]
+                x_level, y_level = x[mask], y[mask]
                 ang_index = (np.pi + np.arctan2(x_level, y_level) / ang_bin).astype(int)
                 new_points = np.stack([x_level, y_level], axis=-1)
                 norms = np.linalg.norm(new_points, axis=-1)
-                mask = (norms < np.linalg.norm(points[level, ang_index])) & (norms > self.consts.min_dist_from_robot_center)
+                mask = (norms < np.linalg.norm(points[level, ang_index])) & (
+                            norms > self.consts.min_dist_from_robot_center)
                 points[level, ang_index[mask]] = new_points[mask]
-                lidar_points.extend([RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=step, intensity=0)
-                         for point in new_points[mask]])
-            lidar["points"] = lidar_points
+
+            if points.shape != (32, cols, 2):
+                points = points.reshape(32, cols, 2)
+
+            num_angles = 900
+            indices = np.arange(num_angles) % cols  # Crear un array de índices con operación de módulo
+            new_points_arr = points[:, indices,
+                             :]  # Indexar directamente en el segundo eje de 'points' utilizando 'indices'
+
+            # Ahora, new_points_arr es un array con forma (32, num_angles, 2)
+            # Pero queremos que tenga forma (num_angles, 32, 2), así que intercambiamos los dos primeros ejes
+            new_points_arr = np.swapaxes(new_points_arr, 0, 1)
+            points = new_points_arr.reshape(-1, new_points_arr.shape[-1])
+            z_values = np.tile(
+                np.linspace(
+                    self.consts.depth_lines_min_height,
+                    self.consts.depth_lines_min_height + self.consts.depth_lines_step * 31,
+                    32),
+                int(np.ceil(len(points) / 32)))
+            z_values = z_values[:len(points)]
+            new_points_arr = np.c_[new_points_arr.reshape(-1, new_points_arr.shape[-1]), z_values]
+            lidar["points"] = [RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=point[2], intensity=0)
+                   for point in new_points_arr]
 
         self.lidars_write, self.lidars_read = self.lidars_read, self.lidars_write
 
