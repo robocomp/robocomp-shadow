@@ -4,6 +4,7 @@ import IceStorm
 from rich.console import Console, Text
 console = Console()
 
+
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
@@ -91,6 +92,8 @@ setattr(RoboCompVisualElements, "TObjects", TObjects)
 import visualelementsI
 import segmentatortrackingpubI
 
+
+
 class Publishes:
     def __init__(self, ice_connector, topic_manager):
         self.ice_connector = ice_connector
@@ -126,6 +129,8 @@ class Requires:
     def __init__(self, ice_connector):
         self.ice_connector = ice_connector
         self.mprx={}
+
+        self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
 
         self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
 
