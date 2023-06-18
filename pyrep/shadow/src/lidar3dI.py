@@ -23,8 +23,8 @@ ROBOCOMP = ''
 try:
     ROBOCOMP = os.environ['ROBOCOMP']
 except:
-    print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
-    ROBOCOMP = '/opt/robocomp'
+    print('$ROBOCOMP environment variable not set, using the default value /home/robocomp/robocomp')
+    ROBOCOMP = '/home/robocomp/robocomp'
 if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
@@ -32,7 +32,7 @@ if len(ROBOCOMP)<1:
 additionalPathStr = ''
 icePaths = []
 try:
-    icePaths.append('/opt/robocomp/interfaces')
+    icePaths.append('/home/robocomp/robocomp/interfaces')
     SLICE_PATH = os.environ['SLICE_PATH'].split(':')
     for p in SLICE_PATH:
         icePaths.append(p)
@@ -50,5 +50,5 @@ class Lidar3DI(Lidar3D):
     def __init__(self, worker):
         self.worker = worker
 
-    def getLidarData(self, start, length, decimationfilter, c):
-        return self.worker.Lidar3D_getLidarData(start, length, decimationfilter)
+    def getLidarData(self, name, start, length, decimationfilter, c):
+        return self.worker.Lidar3D_getLidarData(name, start, length, decimationfilter)
