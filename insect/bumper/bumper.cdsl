@@ -1,0 +1,16 @@
+import "Lidar3D.idsl";
+import "OmniRobot.idsl";
+import "SegmentatorTrackingPub.idsl";
+
+Component bumper
+{
+    Communications
+    {
+	implements OmniRobot;
+        requires Lidar3D;
+        subscribesTo SegmentatorTrackingPub;
+    };
+    language Cpp11;
+    gui Qt(QWidget);
+};
+
