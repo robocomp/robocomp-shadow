@@ -21,6 +21,7 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/sliding_window.hpp>
 
+
 /**
 * \brief Default constructor
 */
@@ -59,7 +60,8 @@ void SpecificWorker::initialize(int period)
     } else {
         viewer = new AbstractGraphicViewer(this->frame, QRectF(-6000, -4000, 12000, 12000));
 
-        QRectF dim{-3000, -1000, 6000, 6000};
+//        QRectF dim{-5000, -5000, 10000, 10000};
+        QRectF dim{-3000, -2500, 6000, 7500};
         viewer->draw_contour();
         viewer->add_robot(500, 500, 0, 0, QColor("Blue"));
         grid.initialize(dim, 100, &viewer->scene, false);
@@ -67,38 +69,84 @@ void SpecificWorker::initialize(int period)
         // mouse
         // connect(viewer, SIGNAL(new_mouse_coordinates(QPointF)), this, SLOT());
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p){ qInfo() << "Target:" << p; target.set(p);});
-
+        t.tick();
         timer.start(Period);
     }
 }
 
 void SpecificWorker::compute()
 {
-
-//    if (auto target = target_buffer.try_get(); target.has_value())
-    if(target.active)
+    clock.tick();
+    if (auto target = target_buffer.try_get(); target.has_value())
     {
+//        if(target.active)
+//        {
         grid.clear();
         auto points = get_lidar_data();
         grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, 3500);
         grid.update_costs(true);
-        auto path = grid.compute_path(QPointF(0, 0), target.qpoint);
-        if(not path.empty())
+        QPointF Qtarget(target->x(),target->y());
+        qInfo()<< "Duration" << clock.duration();
+        if (los_path(Qtarget))
         {
-            auto subtarget = send_path(path, 1200, M_PI_4 / 4);
-            qInfo() << subtarget.x << subtarget.y;
+            cout << "PATH BLOCKED" << endl;
+            auto path = grid.compute_path(QPointF(0, 0), Qtarget);
+            cout << "PATH " << path.size() << endl;
+            if(not path.empty() and path.size() > 0)
+            {
+                auto subtarget = send_path(path, 1300, M_PI_4 / 4);
 
-            draw_path(path, &viewer->scene);
-            draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
+
+                draw_path(path, &viewer->scene);
+                draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
+
+                qInfo()<< "Duration 2" << clock.duration();
+
+                //Tplan (path, timestamps, Tpoint subtarget,bool valid)
+                RoboCompGridPlanner::TPlan returning_plan;
+                returning_plan.subtarget = subtarget;
+                returning_plan.valid = true;
+                try
+                {
+                    gridplanner_proxy->setPlan(returning_plan);
+                }
+                catch (const Ice::Exception &e) { std::cout << "Error setting valid plan" << e << std::endl; }
+                qInfo()<< "Duration3" << clock.duration();
+            }
+            else
+            {
+                RoboCompGridPlanner::TPlan returning_plan;
+                returning_plan.valid = false;
+                try
+                {
+                    gridplanner_proxy->setPlan(returning_plan);
+                }
+                catch (const Ice::Exception &e) { std::cout << "Error setting valid plan" << e << std::endl; }
+            }
         }
+        else
+        {
+            cout << "FREE PATH " << endl;
+            RoboCompGridPlanner::TPlan returning_plan;
+            returning_plan.valid = false;
+            try
+            {
+                gridplanner_proxy->setPlan(returning_plan);
+            }
+            catch (const Ice::Exception &e) { std::cout << "Error setting empty plan" << e << std::endl; }
+        }
+
         viewer->update();
 
-        fps.print("FPS:");
+
+//        }
     }
-//    else //NO TARGET
-//    {
-//
-//    }
+    else //NO TARGET
+    {
+
+    }
+    fps.print("FPS:");
+    qInfo()<< "Duration_end" << clock.duration();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -106,18 +154,30 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
 {
     std::vector <Eigen::Vector3f> points;
     try {
-        auto ldata = lidar3d_proxy->getLidarData(0, 900, 1);
+    	string lidar_name = "bpearl";
+        auto ldata = lidar3d_proxy->getLidarData(lidar_name, 0, 360, 1);
+        //HELIOS
+//        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
+//        {
+//            float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+//            return p.z < 300
+//                   and p.z > -900
+//                   and dist < 5000
+//                   and dist > 550;
+//        }, ldata) | iter::enumerate)
+//            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+
+        // BPEARL
+
         for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
-        {
-            float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-            return p.z < 300
-                   and p.z > -900
-                   and dist < 5000
-                   and dist > 550;
-        }, ldata) | iter::enumerate)
+                                         {
+                                             float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+                                             return p.z < 300
+                                                    and p.z > -200
+                                                    and dist < 5000
+                                                    and dist > 250;
+                                         }, ldata) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-
-
         return points;
     }
     catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
@@ -126,7 +186,9 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
 
 RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::Vector2f> &path, float threshold_dist, float threshold_angle)
 {
-   RoboCompGridPlanner::TPoint subtarget;
+    RoboCompGridPlanner::TPoint subtarget;
+    static RoboCompGridPlanner::TPoint last_subtarget;
+
     static float h = sin(M_PI_2 + (M_PI - threshold_angle)/ 2.0);
     float len = 0.0;
 
@@ -158,7 +220,14 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
         subtarget.x = p[2].x();
         subtarget.y = p[2].y();
     }
-    return subtarget;
+
+    if((Eigen::Vector2f{last_subtarget.x,last_subtarget.y}-Eigen::Vector2f{subtarget.x,subtarget.y}).norm()< 500 or t.duration() > 300)
+    {
+        return subtarget;
+        t.tick();
+    }
+    else
+        return last_subtarget;
 }
 
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene)
@@ -176,6 +245,8 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
         points.push_back(ptr);
     }
 }
+
+
 
 void SpecificWorker::draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene)
 {
@@ -206,6 +277,28 @@ int SpecificWorker::startup_check()
 void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
 {
     target_buffer.put(Eigen::Vector2f{target.x, target.y});
+}
+
+bool SpecificWorker::los_path(QPointF f) {
+    int tile_size = 200;
+    std::vector<Eigen::Vector2f> path;
+//    cout << "f X" << f.x() << endl;
+//    cout << "f y" << f.y() << endl;
+    Eigen::Vector2f target(f.x(),f.y());
+    Eigen::Vector2f origin(0.0,0.0);
+    float steps = (target - origin).norm() / tile_size;
+    Eigen::Vector2f step((target-origin)/steps);
+
+//    cout << "STEPS " << steps << endl;
+//    cout << "STEP X" << step.x() << endl;
+//    cout << "STEP y" << step.y() << endl;
+
+    for ( int i = 0 ; i <= steps-3; ++i)
+    {
+        path.push_back(origin + i*step);
+    }
+    draw_path(path, &viewer->scene);
+    return  grid.is_path_blocked(path);
 }
 
 /**************************************/

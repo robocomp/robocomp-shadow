@@ -33,6 +33,7 @@
 #include <Eigen/Eigen>
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <fps/fps.h>
+#include <timer/timer.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -57,11 +58,15 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector3f> get_lidar_data();
 
         //GRID
-        int z_lidar_height = 1250;
+        int z_lidar_height = 700;
         Grid grid;
 
         // FPS
         FPSCounter fps;
+
+        // Timer
+        rc::Timer<> clock;
+        rc::Timer<> t;
 
         // Target
         struct Target
@@ -86,6 +91,7 @@ class SpecificWorker : public GenericWorker
                                           float threshold_dist, float threshold_angle);
     void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
 
+    bool los_path(QPointF f);
 };
 
 #endif
