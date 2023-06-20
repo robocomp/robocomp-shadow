@@ -1,3 +1,7 @@
+# Endpoints for implements interfaces
+GridPlanner.Endpoints=tcp -p 16804
+
+
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 15431
 

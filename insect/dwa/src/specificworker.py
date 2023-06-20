@@ -97,6 +97,7 @@ class SpecificWorker(GenericWorker):
             self.target = None
             self.prev_fovea_error = 0
             self.queue_fovea_error = deque(maxlen=5)
+            self.grid_target = None
 
             # optimal
             self.previous_choice = np.zeros(2)
@@ -139,11 +140,17 @@ class SpecificWorker(GenericWorker):
         # select optimal lane
         optimal = self.select_optimal_lane(safe_lanes, self.target, ldata_set)
         #print(optimal[1]['params'])
-        
+
         # control.
-        if optimal is not None:
-            self.control(optimal[1]['tip'])
-            self.draw_target(img, optimal[1]['tip'])
+        if self.grid_target is not None:
+            print("********************GRIIIIIIIIIIIID******************")
+            self.control(self.grid_target)
+            self.draw_target(img, self.grid_target)
+        else:
+            if optimal is not None:
+                print("********************DWAAAAAAAAAAAAAAAAA******************")
+                self.control(optimal[1]['tip'])
+                self.draw_target(img, optimal[1]['tip'])
 
         if self.target == None:
             self.stop_robot()
@@ -278,7 +285,7 @@ class SpecificWorker(GenericWorker):
     def read_lidar_data(self) -> NDArray[[float, float]]:
         ldata_set = []
         try:
-            ldata = self.lidar3d_proxy.getLidarData(270, 180, 3 )
+            ldata = self.lidar3d_proxy.getLidarData("helios", 0, 360, 4 )
             # remove points 30cm from floor and above robot
             ldata_set = [(l.x, l.y-200) for i, l in enumerate(ldata) if i % 3 == 0
                          if l.z > (400 - self.z_lidar_height)
@@ -406,12 +413,12 @@ class SpecificWorker(GenericWorker):
         return value / max
 
     def control(self, local_target):    # get local_target from DWA as next place to go
-        MAX_ADV_SPEED = 1000
+        MAX_ADV_SPEED = 3250
         MAX_SIDE_SPEED = 400
-        MAX_ROT_SPEED = 2
+        MAX_ROT_SPEED = 1
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
-            if self.target.depth < 900:
+            if self.target.depth < 1500:
                 #self.stop_robot()
                 try:
                     self.omnirobot_proxy.setSpeedBase(0, 0, rot)
@@ -435,8 +442,10 @@ class SpecificWorker(GenericWorker):
                 # #rot_control = rot_error * (MAX_ROT_SPEED/400) + self.prev_fovea_error * (MAX_ROT_SPEED/450) -sum * (MAX_ROT_SPEED/5000)
                 # rot_control = rot_error * (MAX_ROT_SPEED / 600) + self.prev_fovea_error * (MAX_ROT_SPEED / 650)
 
-                adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
+                # adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
+                adv = MAX_ADV_SPEED * np.clip(local_target[1] * (1 / 2500), 0, 1)
                 side = MAX_SIDE_SPEED * self.sigmoid_side(local_target[0])
+                rot *= 0.8
                 #print("kkk", local_target[0], side)
 
                 print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
@@ -444,7 +453,7 @@ class SpecificWorker(GenericWorker):
                 #self.prev_fovea_error = rot_error
 
                 try:
-                    self.omnirobot_proxy.setSpeedBase(side, adv*5.5, rot*0.8 )
+                    self.omnirobot_proxy.setSpeedBase(side, adv, rot )
                 except Ice.Exception as e:
                     print(e, "Error connecting to omnirobot")
         else:
@@ -557,6 +566,7 @@ class SpecificWorker(GenericWorker):
             #target.y /= 1.7
             self.target = target
             #print(self.target.depth)
+            pass
 
 # self.params = np.array(candidates["params"])
 # self.camera_matrix = camera_matrix
@@ -567,3 +577,17 @@ class SpecificWorker(GenericWorker):
 
 # self.candidates = self.project_polygons(self.candidates)
 # self.candidates = self.create_masks(frame_shape, self.candidates)
+
+
+    # IMPLEMENTATION of setPlan method from GridPlanner interface
+    #
+    def GridPlanner_setPlan(self, plan):
+        if plan.valid:
+            self.grid_target = [plan.subtarget.x, plan.subtarget.y]
+        else:
+            self.grid_target = None
+
+ ######################
+    # From the RoboCompGridPlanner you can use this types:
+    # RoboCompGridPlanner.TPoint
+    # RoboCompGridPlanner.TPlan

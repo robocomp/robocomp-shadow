@@ -1,11 +1,13 @@
 import "Lidar3D.idsl";
 import "SegmentatorTrackingPub.idsl";
 import "OmniRobot.idsl";
+import "GridPlanner.idsl";
 
 Component dwa
 {
     Communications
     {
+        implements GridPlanner;
         requires Lidar3D, OmniRobot;
         subscribesTo SegmentatorTrackingPub;
     };

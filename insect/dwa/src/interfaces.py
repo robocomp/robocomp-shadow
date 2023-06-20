@@ -7,6 +7,8 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/GridPlanner.ice")
+import RoboCompGridPlanner
 Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
 import RoboCompLidar3D
 Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
@@ -16,6 +18,24 @@ import RoboCompSegmentatorTrackingPub
 Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
 import RoboCompVisualElements
 
+class Points(list):
+    def __init__(self, iterable=list()):
+        super(Points, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompGridPlanner.TPoint)
+        super(Points, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompGridPlanner.TPoint)
+        super(Points, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompGridPlanner.TPoint)
+        super(Points, self).insert(index, item)
+
+setattr(RoboCompGridPlanner, "Points", Points)
 class TLidarData(list):
     def __init__(self, iterable=list()):
         super(TLidarData, self).__init__(iterable)
@@ -53,6 +73,7 @@ class TObjects(list):
 
 setattr(RoboCompVisualElements, "TObjects", TObjects)
 
+import gridplannerI
 import segmentatortrackingpubI
 
 
@@ -154,6 +175,7 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
+        self.gridplanner = self.create_adapter("GridPlanner", gridplannerI.GridPlannerI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
