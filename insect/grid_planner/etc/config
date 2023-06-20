@@ -10,7 +10,7 @@ SegmentatorTrackingPubTopic.Endpoints=tcp -p 11113
 
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
-GridPlannerProxy = gridplanner:tcp -h localhost -p 12000
+GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

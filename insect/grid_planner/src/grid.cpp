@@ -708,6 +708,7 @@ void Grid::update_costs(bool wide)
                     fmap.at(kk).tile->setBrush(orange_brush);
                 }
             }
+
 //        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 50; }, fmap))
 //            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
 //            {
