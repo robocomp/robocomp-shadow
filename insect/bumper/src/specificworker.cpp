@@ -19,6 +19,7 @@
 #include "specificworker.h"
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/filter.hpp>
+#include <cppitertools/range.hpp>
 
 
 /**
@@ -60,13 +61,18 @@ void SpecificWorker::initialize(int period)
 	else
 	{
 		// Viewer
- 		viewer = new AbstractGraphicViewer(this->frame, QRectF(-1000, -1000, 2000, 2000));
-        viewer->draw_contour();
-        viewer->add_robot(500, 500, 0, 0, QColor("Blue"));
+ 		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000));
+        //viewer->draw_contour();
+        viewer->add_robot(200, 200, 0, 0, QColor("Blue"));
 
+        // creatºe map from degrees (0..360)  -> edge distances
+        int robot_width = 460;
+        int robot_heigth = 480;
+        robot_contour << QPointF(-230,240) << QPointF(230, 240) << QPointF(230, -240) << QPointF(-230, -240);
 		map_of_points = create_map_of_points();
+        draw_ring(map_of_points, &viewer->scene);
 
-		timer.start(Period);
+        timer.start(Period);
 	}
 
 }
@@ -75,20 +81,33 @@ void SpecificWorker::compute()
 {
 	auto ldata = get_lidar_data();
 
-	// check for a repulsion force
-	for(const auto p: ldata)
+    // check for a repulsion force
+    Eigen::Vector2f result{0.f, 0.f};
+    std::vector<QPointF> draw_points;
+    for(const auto &p: ldata)
 	{
-		float ang = atan2(p.x, p.y);
-		int index = ang*() +  ;
-		if(map_of_points.at(index) > p.norm())
-		{
+		float ang = atan2(p.x(), p.y());
+        int index  = qRadiansToDegrees(ang);
+        if(index <0) index += 360;
+        float diff = map_of_points.at(index) - p.head(2).norm();
+        //qInfo() << "diff" << diff;
+        if(diff < 0 and diff> -BAND_WIDTH)
+        {
 			// something is inside the perimeter
-
+            float modulus = std::clamp(diff*(1.f/BAND_WIDTH), 0.f, 1.f);
+            result -= p.head(2).normalized() * modulus;
+            draw_points.push_back(QPointF(p.x(), p.y()));
 		}
-
 	}
 
-	// if resultant force is not zero, inhibit DWA proposal and move the robot
+    draw_ring_points(draw_points, &viewer->scene);
+    //draw_all_points(ldata, &viewer->scene);
+
+
+
+    // if resultant force is zero and there are NOT points inside the ring, inhibit DWA proposal and move the robot
+
+    // if resultant force is zero and there are points inside de ring, the robot is TRAPPED
 	
 
 }
@@ -97,47 +116,104 @@ void SpecificWorker::compute()
 std::vector<float> SpecificWorker::create_map_of_points()
 {
 	std::vector<float> dists;
-	for(const auto i: iter::range(DEGREES_NUMBER))
+	for(const auto &i: iter::range(DEGREES_NUMBER))
 	{
 		// get the corresponding angle: 0..360 -> -pi, +pi
-		float alf = qDegreesToRadians(i)
-		//float alf = i*() + ;
+		float alf = qDegreesToRadians(i);
 		bool found = false;
 		for(const int r : iter::range(OUTER_RIG_DISTANCE))
 		{
 			float x = r * sin(alf);
 			float y = r * cos(alf);
-			if( not contour.containsPoint(QPointf(x, y), Qt::OddEvenFill))
+            if( not robot_contour.containsPoint(QPointF(x, y), Qt::OddEvenFill))
 			{
 				dists.push_back(Eigen::Vector2f(x, y).norm() - 1);
 				found = true;
 				break;
 			}
-
 		}
-		if(not found) { qFatal("ERROR: Could not find limit for angle " + QString::number(i));	}
+		if(not found) { qFatal("ERROR: Could not find limit for angle ");	}
 	}
-}	
-
+    return dists;
+}
 
 std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
 {
     std::vector <Eigen::Vector3f> points;
     try 
 	{
-        auto ldata = lidar3d_proxy->getLidarData("bpearl", 0, 900, 1);
-        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
+        auto ldata = lidar3d_proxy->getLidarData("bpearl", 0, 360, 1);
+        for (auto &&[i, p]: iter::filter([this](auto p)
         {
-            float dist = sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
-            return p.z < 300		// uppper limit
-                   and p.z > -500	// floor limit
-                   and dist < 750	// range limit
-                   and dist > 550;	// body out limit. This should be computed using the robot's contour
+            float dist = sqrt(p.x*p.x + p.y*p.y);
+            float ang = atan2(p.x, p.y);
+            int index  = qRadiansToDegrees(ang);
+            if(index <0) index += 360;
+            return dist > map_of_points.at(index) and p.z > -700 and p.z < 0;
         }, ldata) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
     }
     catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
     return points;
+}
+
+//            return p.z < 100		// uppper limit
+//                   and p.z > -600	// floor limit
+//                   and dist < 1000	// range limit
+//                   and dist > 100;	// body out limit. This should be computed using the robot's contour
+
+void SpecificWorker::draw_ring(const std::vector<float> &dists, QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem *> draw_points;
+    for(const auto &p : draw_points) {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_points.clear();
+
+    QPolygonF poly;
+    for(const auto &[i, p]: dists | iter::enumerate)
+        poly << QPointF(p * cos(qDegreesToRadians(i)), p * sin(qDegreesToRadians(i)));
+
+    qInfo() << poly;
+    auto o = scene->addPolygon(poly, QPen(QColor("red"), 10));
+    draw_points.push_back(o);
+}
+
+void SpecificWorker::draw_ring_points(const std::vector<QPointF> &points, QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem *> draw_points;
+    for(const auto &p : draw_points) {
+        scene->removeItem(p);
+        delete p;
+    }
+     draw_points.clear();
+
+     for(const auto p: points)
+     {
+
+         auto o = scene->addRect(-10, 10, 20, 20, QPen(QColor("green")), QBrush(QColor("green")));
+         o->setPos(p);
+         draw_points.push_back(o);
+     }
+}
+
+void SpecificWorker::draw_all_points(const std::vector<Eigen::Vector3f> &points, QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem *> draw_points;
+
+    for(const auto &p : draw_points) {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_points.clear();
+
+    for(const auto p: points)
+    {
+        auto o = scene->addRect(-10, 10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
+        o->setPos(p.x(), p.y());
+        draw_points.push_back(o);
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -29,7 +29,7 @@
 #include <Eigen/Dense>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
 #include <fps/fps.h>
-
+#include <math.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -67,7 +67,14 @@ class SpecificWorker : public GenericWorker
 
         // Viewer
 		AbstractGraphicViewer *viewer;
+        QPolygonF robot_contour;
 
+        int BAND_WIDTH = 250;
+
+        void draw_ring_points(const vector<QPointF> &points, QGraphicsScene *scene);
+        void draw_ring(const vector<float> &dists, QGraphicsScene *scene);
+
+    static void draw_all_points(const vector<Eigen::Vector3f> &points, QGraphicsScene *scene);
 };
 
 #endif
