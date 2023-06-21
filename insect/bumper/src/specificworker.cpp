@@ -149,7 +149,7 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
             float ang = atan2(p.x, p.y);
             int index  = qRadiansToDegrees(ang);
             if(index <0) index += 360;
-            return dist > map_of_points.at(index) and p.z > -700 and p.z < 0;
+            return dist > map_of_points.at(index) and p.z > -300 and p.z < 0;
         }, ldata) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
     }
