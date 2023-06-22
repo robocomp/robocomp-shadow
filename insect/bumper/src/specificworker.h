@@ -67,14 +67,19 @@ class SpecificWorker : public GenericWorker
 
         // Viewer
 		AbstractGraphicViewer *viewer;
-        QPolygonF robot_contour;
+        QPolygonF robot_contour, robot_safe_band;
 
-        int BAND_WIDTH = 250;
+        int BAND_WIDTH = 200;
 
-        void draw_ring_points(const vector<QPointF> &points, QGraphicsScene *scene);
+        // Robot speeds
+        float x_gain = 50;
+        float y_gain = 50;
+        bool robot_stop = false;
+
+        void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_ring(const vector<float> &dists, QGraphicsScene *scene);
 
-    static void draw_all_points(const vector<Eigen::Vector3f> &points, QGraphicsScene *scene);
+        void draw_all_points(const vector<Eigen::Vector3f> &points, QGraphicsScene *scene);
 };
 
 #endif

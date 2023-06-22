@@ -31,9 +31,11 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
+#include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
+#include <Person.h>
 #include <SegmentatorTrackingPub.h>
 #include <VisualElements.h>
 
@@ -42,7 +44,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr>;
+using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -59,6 +61,7 @@ public:
 
 
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
+	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 
 	virtual void OmniRobot_correctOdometer(int x, int z, float alpha) = 0;
 	virtual void OmniRobot_getBasePose(int &x, int &z, float &alpha) = 0;
