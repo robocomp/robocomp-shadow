@@ -6,8 +6,8 @@ Component bumper
 {
     Communications
     {
-	implements OmniRobot;
-        requires Lidar3D;
+	    implements OmniRobot;
+        requires Lidar3D, OmniRobot;
         subscribesTo SegmentatorTrackingPub;
     };
     language Cpp11;
