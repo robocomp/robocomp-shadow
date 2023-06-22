@@ -35,6 +35,8 @@ from collections import deque
 from typing import List, Dict
 from numpy.typing import NDArray
 from typing import Any
+from threading import Thread, Event
+import queue
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -46,6 +48,8 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+
+            self.thread_period = 50     # period in ms
 
             # DWA
             self.A = 425
@@ -102,6 +106,14 @@ class SpecificWorker(GenericWorker):
             # optimal
             self.previous_choice = np.zeros(2)
 
+            # lidar read thread
+            self.rgb = None
+            self.read_queue = queue.Queue(1)
+            self.event = Event()
+            self.read_thread = Thread(target=self.read_lidar_data, args=["helios", self.event],
+                                      name="read_queue", daemon=True)
+            self.read_thread.start()
+
             self.timer.timeout.connect(self.compute)
             #self.timer.setSingleShot(True)
             self.timer.start(self.Period)
@@ -120,11 +132,15 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         now = time.time()
-        ldata_set = self.read_lidar_data()
-        #print("t1", time.time() - now)
 
+        #ldata_set = self.read_lidar_data()
+        ldata_set = self.read_queue.get()
+
+        print("lidar", time.time() - now)
         # discard_occupied_lanes
         safe_lanes = self.discard_occupied_lanes(ldata_set, self.candidates)
+        # print("0", time.time() - now)
+
         #print("t2", time.time() - now)
 
         # base image
@@ -138,29 +154,38 @@ class SpecificWorker(GenericWorker):
         #     print(self.target.depth)
 
         # select optimal lane
-        optimal = self.select_optimal_lane(safe_lanes, self.target, ldata_set)
-        #print(optimal[1]['params'])
-
-        # control.
-        if self.grid_target is not None:
-            print("********************GRIIIIIIIIIIIID******************")
-            self.control(self.grid_target)
-            self.draw_target(img, self.grid_target)
-        else:
-            if optimal is not None:
-                print("********************DWAAAAAAAAAAAAAAAAA******************")
-                self.control(optimal[1]['tip'])
-                self.draw_target(img, optimal[1]['tip'])
 
         if self.target == None:
+            self.grid_target = None
+            t1 = time.time()
             self.stop_robot()
+            print("proxy", time.time()-t1)
+        else:
+            if self.grid_target is not None:
+                self.target.x = self.grid_target[0]
+                self.target.y = self.grid_target[1]
 
-        # draw candidates
-        self.draw_candidates(safe_lanes, img, optimal)
+            print("1", time.time() - now)
+            optimal = self.select_optimal_lane(safe_lanes, self.target, ldata_set)
+            #print(optimal[1]['params'])
+            print("1.1", time.time() - now)
+
+            self.control(optimal[1]['tip'])
+            print("control", time.time() - now)
+            self.draw_target(img, optimal[1]['tip'])
+
+            # draw candidates
+            self.draw_candidates(safe_lanes, img, optimal)
 
         cv2.imshow(self.window_name, img)
         cv2.waitKey(2)
-        self.show_fps()
+
+        try:
+            self.show_fps()
+        except KeyboardInterrupt:
+            self.event.set()
+
+        print("2", time.time() - now)
 
     def create_candidates_omni(self):
         current_adv_speed = 0
@@ -282,22 +307,19 @@ class SpecificWorker(GenericWorker):
         #print("Created ", len(candidates), " candidates")
         return candidates
 
-    def read_lidar_data(self) -> NDArray[[float, float]]:
-        ldata_set = []
-        try:
-            ldata = self.lidar3d_proxy.getLidarData("helios", 0, 360, 4 )
-            # remove points 30cm from floor and above robot
-            ldata_set = [(l.x, l.y-200) for i, l in enumerate(ldata) if i % 3 == 0
-                         if l.z > (400 - self.z_lidar_height)
-                         and l.z < 300                              # robot's height
-                         and np.linalg.norm((l.x, l.y)) > 400       # robot's body]
-                         and np.linalg.norm((l.x, l.y)) < 3000]
-                         #and np.linalg.norm((l.x, l.y)) < self.dyn.max_distance_ahead]     # too far away. TODO: add current speed
-            #print(len(ldata), len(ldata_set))
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e, "Error connecting to Lidar3D")
-        return ldata_set
+    def read_lidar_data(self, name: str, event: Event ) -> NDArray[[float, float]]:
+        while not event.is_set():
+           try:
+               ldata = self.lidar3d_proxy.getLidarData(name, 270, 180, 5 )
+               # remove points 30cm from floor and above robot
+               ldata_set = [(l.x, l.y-200) for i, l in enumerate(ldata) if i % 3 == 0
+                            if (400 - self.z_lidar_height) < l.z < 300  # robot's height
+                            and 400 < np.linalg.norm((l.x, l.y)) < 2000]
+               self.read_queue.put(ldata_set)
+           except Ice.Exception as e:
+               traceback.print_exc()
+               print(e, "Error connecting to Lidar3D")
+        #return ldata_set
 
     def discard_occupied_lanes(self, ldata, lanes):
         safe_lanes = []
@@ -403,7 +425,7 @@ class SpecificWorker(GenericWorker):
         l_length = l_length / np.max(l_length)
 
         D = 1
-        suma = (self.A*l_tar) + (self.B*l_prev) + (self.C*l_obs) + ((D*l_length))
+        suma = (self.A*l_tar) + (self.B*l_prev) + (self.C*l_obs) + (D*l_length)
 
         min_index = suma.argsort()[0]
         self.previous_choice = np.array(lanes[min_index]["tip"])
@@ -415,7 +437,7 @@ class SpecificWorker(GenericWorker):
     def control(self, local_target):    # get local_target from DWA as next place to go
         MAX_ADV_SPEED = 3250
         MAX_SIDE_SPEED = 400
-        MAX_ROT_SPEED = 1
+        MAX_ROT_SPEED = 2
         rot = np.arctan2(local_target[0], local_target[1])
         if self.target is not None:
             if self.target.depth < 1500:
@@ -426,8 +448,7 @@ class SpecificWorker(GenericWorker):
                     print(e, "Error connecting to omnirobot")
                 #self.target = None
                 print("Control: Target achieved")
-                # self.omnirobot_proxy.setSpeedBase(0, 0, rot)
-                pass
+                self.omnirobot_proxy.setSpeedBase(0, 0, rot)
             else:
                 dist = np.linalg.norm(local_target)
                 #rot = np.arctan2(local_target[0], local_target[1])
@@ -445,14 +466,15 @@ class SpecificWorker(GenericWorker):
                 # adv = MAX_ADV_SPEED * self.sigmoid(local_target[1])
                 adv = MAX_ADV_SPEED * np.clip(local_target[1] * (1 / 2500), 0, 1)
                 side = MAX_SIDE_SPEED * self.sigmoid_side(local_target[0])
-                rot *= 0.8
+                rot *= 1
                 #print("kkk", local_target[0], side)
 
-                print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
-                       "rot: {:.2f} TARGETX: {:.2f}".format(self.target.depth, dist, side, adv, rot, self.target.x))
-                #self.prev_fovea_error = rot_error
-
+                # print("dist: {:.2f} l_dist: {:.2f} side: {:.2f} adv: {:.2f} "
+                #        "rot: {:.2f} TARGETX: {:.2f}".format(self.target.depth, dist, side, adv, rot, self.target.x))
+                # #self.prev_fovea_error = rot_error
+                # print("set speeds: si/ad/rot", side, adv, rot)
                 try:
+                    pass
                     self.omnirobot_proxy.setSpeedBase(side, adv, rot )
                 except Ice.Exception as e:
                     print(e, "Error connecting to omnirobot")
@@ -477,7 +499,6 @@ class SpecificWorker(GenericWorker):
     def stop_robot(self):
         try:
             print("STOPPING THE ROBOT")
-            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
             self.omnirobot_proxy.setSpeedBase(0, 0, 0)
         except Ice.Exception as e:
             traceback.print_exc()
