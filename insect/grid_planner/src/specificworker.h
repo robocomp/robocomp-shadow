@@ -60,6 +60,15 @@ class SpecificWorker : public GenericWorker
         //GRID
         int z_lidar_height = 700;
         Grid grid;
+        int grid_widht =8000;
+        int grid_length = 8000;
+        int back_distance = 2000;
+        int tile_size = 100;
+
+        float xMin = -grid_widht / 2;
+        float xMax = grid_widht / 2;
+        float yMin = -back_distance;
+        float yMax = grid_length - back_distance;
 
         // FPS
         FPSCounter fps;
@@ -92,6 +101,8 @@ class SpecificWorker : public GenericWorker
     void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
 
     bool los_path(QPointF f);
+
+    Eigen::Vector2f  border_subtarget(RoboCompVisualElements::TObject target);
 };
 
 #endif
