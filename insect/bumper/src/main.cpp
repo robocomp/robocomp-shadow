@@ -84,9 +84,7 @@
 #include <omnirobotI.h>
 #include <segmentatortrackingpubI.h>
 
-#include <Camera360RGB.h>
 #include <GenericBase.h>
-#include <Person.h>
 #include <VisualElements.h>
 
 

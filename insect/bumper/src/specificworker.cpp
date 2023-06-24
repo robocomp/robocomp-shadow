@@ -63,9 +63,9 @@ void SpecificWorker::initialize(int period)
 		// Viewer
  		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000), false);
         //viewer->draw_contour();
-        viewer->add_robot(460, 480, 0, 0, QColor("Blue"));
+        viewer->add_robot(460, 480, 0, 100, QColor("Blue"));
 
-        // creatºe map from degrees (0..360)  -> edge distances
+        // create map from degrees (0..360)  -> edge distances
         // int robot_width = 460;
         // int robot_heigth = 480;
         robot_contour << QPointF(-230,240) << QPointF(230, 240) << QPointF(230, -240) << QPointF(-230, -240);
@@ -93,23 +93,18 @@ void SpecificWorker::compute()
 		float ang = atan2(p.x(), p.y());
         int index  = qRadiansToDegrees(ang);
         if(index <0) index += 360;
-        float diff = map_of_points.at(index) - p.head(2).norm();
-        if(diff < 0 and diff> -BAND_WIDTH)
+        float diff = map_of_points.at(index) - p.head(2).norm();    // negative vals are inside belt
+        if(diff < 0 and diff  > -BAND_WIDTH)
         {
 			// something is inside the perimeter
-            float modulus = std::clamp(fabs(diff)*(1.f/BAND_WIDTH), 0.f, 1.f);
-            result -= p.head(2).normalized() * modulus;
+            float modulus = std::clamp(fabs(diff)*(1.f/BAND_WIDTH), 0.f, 1.f);  // pseudo sigmoid
+            result -= p.head(2).normalized() * modulus;     // opposite direction and normalized modulus
             //qInfo() << "diff" << diff << modulus << result.x() << result.y();
-            draw_points.push_back(QPointF(p.x(), p.y()));
+            draw_points.emplace_back(p.x(), p.y());
 		}
 	}
-
-    // if(display)
-    draw_ring_points(draw_points, result, &viewer->scene);
-    //draw_all_points(ldata, &viewer->scene);
-
-    //qInfo() << "Res" << result.x() << "," << result.y();
-    if(result.norm()> 5)
+    //qInfo() << result.norm();
+    if(result.norm()> 3)    // a clean bumper should be zero
     {
         try
         {
@@ -128,6 +123,12 @@ void SpecificWorker::compute()
                 robot_stop = true;
             }
             catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+
+    // if(display)
+    draw_ring_points(draw_points, result, &viewer->scene);
+    //draw_all_points(ldata, &viewer->scene);
+    
+    fps.print("FPS:");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -160,7 +161,8 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
     std::vector <Eigen::Vector3f> points;
     try 
 	{
-        auto ldata = lidar3d_proxy->getLidarData("bpearl", 0, 360, 1);
+        auto ldata = lidar3d_proxy->getLidarData("bpearl", 0, 360, 2);
+
         for (auto &&[i, p]: iter::filter([this](auto p)
         {
             float dist = sqrt(p.x*p.x + p.y*p.y);
@@ -168,8 +170,9 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
             int index  = qRadiansToDegrees(ang);
             if(index <0) index += 360;
             return dist > map_of_points.at(index) and p.z > -280 and p.z < 0;
-        }, ldata) | iter::enumerate)
+        }, ldata.points) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+        self_adjust_period((int)ldata.period);
     }
     catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
     return points;
@@ -249,6 +252,20 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
+void SpecificWorker::self_adjust_period(int new_period)
+{
+    if(abs(new_period - this->Period) < 2)      // do it only if period changes
+        return;
+    if(new_period > this->Period)
+    {
+        this->Period += 1;
+        timer.setInterval(this->Period);
+    } else
+    {
+        this->Period -= 1;
+        this->timer.setInterval(this->Period);
+    }
+}
 //////////////////////////// Interfaces //////////////////////////////////////////
 
 void SpecificWorker::OmniRobot_correctOdometer(int x, int z, float alpha)
