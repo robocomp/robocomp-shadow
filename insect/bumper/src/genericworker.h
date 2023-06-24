@@ -31,11 +31,9 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
-#include <Person.h>
 #include <SegmentatorTrackingPub.h>
 #include <VisualElements.h>
 

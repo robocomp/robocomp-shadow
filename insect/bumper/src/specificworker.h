@@ -59,8 +59,9 @@ class SpecificWorker : public GenericWorker
 		bool startup_check_flag;
 		int DEGREES_NUMBER = 360;		// division of the circle
 		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm)
+        int BAND_WIDTH = 100;
 
-   		int z_lidar_height = 750;
+   		//int z_lidar_height = 750;
         std::vector<float> create_map_of_points();
         std::vector<Eigen::Vector3f> get_lidar_data();
 		std::vector<float> map_of_points;
@@ -69,17 +70,18 @@ class SpecificWorker : public GenericWorker
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
 
-        int BAND_WIDTH = 200;
-
-        // Robot speeds
-        float x_gain = 50;
+        // Robot speed gains
+        float x_gain = 100;
         float y_gain = 50;
         bool robot_stop = false;
 
         void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_ring(const vector<float> &dists, QGraphicsScene *scene);
-
         void draw_all_points(const vector<Eigen::Vector3f> &points, QGraphicsScene *scene);
+
+        // Timing
+        void self_adjust_period(int new_period);
+        FPSCounter fps;
 };
 
 #endif
