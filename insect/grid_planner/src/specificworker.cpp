@@ -175,7 +175,7 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
                                                     and p.z > -200
                                                     and dist < 5000
                                                     and dist > 250;
-                                         }, ldata) | iter::enumerate)
+                                         }, ldata.points) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
         return points;
     }
