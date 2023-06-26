@@ -223,7 +223,6 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         while True:
             try:
-                now = time.time()
                 self.pr.step()
                 self.read_robot_pose()
                 self.move_robot()
@@ -258,47 +257,7 @@ class SpecificWorker(GenericWorker):
         except Ice.Exception as e:
             print(e)
 
-    def read_laser(self):
-        data = self.pr.script_call("get_depth_data@Hokuyo", 1)
-        if len(data[1]) > 0:
-            self.hokuyo = Shape("Hokuyo")
-            h_pos = self.hokuyo.get_position()
-            polar = np.zeros(shape=(int(len(data[1])/3), 2))
-            i = 0
-            for x, y, z in self.grouper(data[1], 3):                      # extract non-intersecting groups of 3
-                # translate to the robot center
-                #x += h_pos[0]
-                #y += h_pos[1]
-                polar[i] = [-np.arctan2(y, x), np.linalg.norm([x, y])]    # add to list in polar coordinates
-                i += 1
-
-            angles = np.linspace(-np.radians(120), np.radians(120), 360)  # create regular angular values
-            positions = np.searchsorted(angles, polar[:, 0])  # list of closest position in polar for each laser measurement
-            self.ldata_write = [RoboCompLaser.TData(a, 0) for a in angles]  # create empty 240 angle array
-            pos, medians = npi.group_by(positions).median(polar[:, 1])  # group by repeated positions
-            for p, m in it.zip_longest(pos, medians):  # fill the angles with measures
-                if p < len(self.ldata_write):
-                    self.ldata_write[p].dist = int(m * 1000)  # to millimeters
-            if self.ldata_write[0] == 0:
-               self.ldata_write[0] = 200  # half robot width
-            del self.ldata_write[-3:]
-            del self.ldata_write[:3]
-            for i in range(1, len(self.ldata_write)):
-               if self.ldata_write[i].dist == 0:
-                   self.ldata_write[i].dist = self.ldata_write[i - 1].dist
-
-            # probar optim gpt4
-            # for i, data in enumerate(self.ldata_write[1:], start=1):
-            #     if data.dist == 0:
-            #         data.dist = self.ldata_write[i - 1].dist
-
-            self.ldata_read, self.ldata_write = self.ldata_write, self.ldata_read
-
-            # try:
-            #     self.laserpub_proxy.pushLaserData(self.ldata_read)
-            # except Ice.Exception as e:
-            #     print(e)
-
+    #
     def grouper(self, inputs, n, fillvalue=None):
         iters = [iter(inputs)] * n
         return it.zip_longest(*iters, fillvalue=fillvalue)
@@ -308,7 +267,7 @@ class SpecificWorker(GenericWorker):
     ###########################################
     def read_cameras(self, camera_names):
         while True:
-             if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
+            if self.omni_camera_rgb_name in camera_names:  # RGB not-rotated
                  cam = self.cameras_write[self.omni_camera_rgb_name]
                  image_float = cam["handle"].capture_rgb()
                  image = cv2.normalize(src=image_float, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
@@ -317,15 +276,14 @@ class SpecificWorker(GenericWorker):
                  image = cv2.flip(image, 1)
                  cam["rgb"] = image
                  cam["is_ready"] = True
-
-             self.cameras_write, self.cameras_read = self.cameras_read, self.cameras_write
+            self.cameras_write, self.cameras_read = self.cameras_read, self.cameras_write
+            time.sleep(0.005)
 
     ###########################################
     ### CAMERAS get and publish cameras data
     ###########################################
 
     def read_lidar3d(self, lidar_names):
-        print("threas", lidar_names)
         while True:
             for name in lidar_names:
                 lidar = self.lidars_write[name]
@@ -387,11 +345,14 @@ class SpecificWorker(GenericWorker):
                     int(np.ceil(len(points) / 32)))
                 z_values = z_values[:len(points)]
                 new_points_arr = np.c_[new_points_arr.reshape(-1, new_points_arr.shape[-1]), z_values]
-                lidar["points"] = [RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=point[2], intensity=0)
+
+                tpoints = [RoboCompLidar3D.TPoint(x=point[0], y=point[1], z=point[2], intensity=0)
                        for point in new_points_arr]
+                lidar["points"] = RoboCompLidar3D.TData(points=tpoints, period=float(self.tc.current_period),
+                                                        timestamp=int(time.time()))
 
             self.lidars_write, self.lidars_read = self.lidars_read, self.lidars_write
-
+            time.sleep(0.005)
 
     ###########################################
     ### JOYSITCK read and move the robot
@@ -1035,3 +996,44 @@ class SpecificWorker(GenericWorker):
         # z_values = z_values[:len(points)]
         # new_points_arr = np.c_[new_points_arr.reshape(-1, new_points_arr.shape[-1]), z_values]
         # return new_points_arr
+
+#def read_laser(self):
+    #     data = self.pr.script_call("get_depth_data@Hokuyo", 1)
+    #     if len(data[1]) > 0:
+    #         self.hokuyo = Shape("Hokuyo")
+    #         h_pos = self.hokuyo.get_position()
+    #         polar = np.zeros(shape=(int(len(data[1])/3), 2))
+    #         i = 0
+    #         for x, y, z in self.grouper(data[1], 3):                      # extract non-intersecting groups of 3
+    #             # translate to the robot center
+    #             #x += h_pos[0]
+    #             #y += h_pos[1]
+    #             polar[i] = [-np.arctan2(y, x), np.linalg.norm([x, y])]    # add to list in polar coordinates
+    #             i += 1
+    #
+    #         angles = np.linspace(-np.radians(120), np.radians(120), 360)  # create regular angular values
+    #         positions = np.searchsorted(angles, polar[:, 0])  # list of closest position in polar for each laser measurement
+    #         self.ldata_write = [RoboCompLaser.TData(a, 0) for a in angles]  # create empty 240 angle array
+    #         pos, medians = npi.group_by(positions).median(polar[:, 1])  # group by repeated positions
+    #         for p, m in it.zip_longest(pos, medians):  # fill the angles with measures
+    #             if p < len(self.ldata_write):
+    #                 self.ldata_write[p].dist = int(m * 1000)  # to millimeters
+    #         if self.ldata_write[0] == 0:
+    #            self.ldata_write[0] = 200  # half robot width
+    #         del self.ldata_write[-3:]
+    #         del self.ldata_write[:3]
+    #         for i in range(1, len(self.ldata_write)):
+    #            if self.ldata_write[i].dist == 0:
+    #                self.ldata_write[i].dist = self.ldata_write[i - 1].dist
+    #
+    #         # probar optim gpt4
+    #         # for i, data in enumerate(self.ldata_write[1:], start=1):
+    #         #     if data.dist == 0:
+    #         #         data.dist = self.ldata_write[i - 1].dist
+    #
+    #         self.ldata_read, self.ldata_write = self.ldata_write, self.ldata_read
+    #
+    #         # try:
+    #         #     self.laserpub_proxy.pushLaserData(self.ldata_read)
+    #         # except Ice.Exception as e:
+    #         #     print(e)
