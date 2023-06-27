@@ -1,0 +1,14 @@
+cd ~/robocomp/components/robocomp-shadow/insect/yolov8_360# Endpoints for implements interfaces VisualElements.Endpoints=tcp -p 15601 src/yolov8_360.py etc/config cd 
+~/robocomp/components/robocomp-shadow/insect/controller# Proxies for required interfaces Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097 ByteTrackProxy = 
+bytetrack:tcp -h localhost -p 14737 src/controller.py etc/config display = true depth = false
+
+# the common directory is /home/robocomp, even if you have a robolab user
+classes-path-file = /home/robocomp/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+

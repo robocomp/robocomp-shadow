@@ -1,0 +1,19 @@
+# Endpoints for implements interfaces
+VisualElements.Endpoints=tcp -p 11062
+
+
+# Proxies for required interfaces
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 15317
+Lidar3DProxy = lidar3d:tcp -h localhost -p 14697
+
+
+
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
