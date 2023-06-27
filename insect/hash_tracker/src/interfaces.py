@@ -34,24 +34,24 @@ class ImgType(list):
         super(ImgType, self).insert(index, item)
 
 setattr(RoboCompCamera360RGB, "ImgType", ImgType)
-class TLidarData(list):
+class TPoints(list):
     def __init__(self, iterable=list()):
-        super(TLidarData, self).__init__(iterable)
+        super(TPoints, self).__init__(iterable)
 
     def append(self, item):
         assert isinstance(item, RoboCompLidar3D.TPoint)
-        super(TLidarData, self).append(item)
+        super(TPoints, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
             assert isinstance(item, RoboCompLidar3D.TPoint)
-        super(TLidarData, self).extend(iterable)
+        super(TPoints, self).extend(iterable)
 
     def insert(self, index, item):
         assert isinstance(item, RoboCompLidar3D.TPoint)
-        super(TLidarData, self).insert(index, item)
+        super(TPoints, self).insert(index, item)
 
-setattr(RoboCompLidar3D, "TLidarData", TLidarData)
+setattr(RoboCompLidar3D, "TPoints", TPoints)
 class TConnections(list):
     def __init__(self, iterable=list()):
         super(TConnections, self).__init__(iterable)

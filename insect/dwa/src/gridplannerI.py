@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
 #
 #    Copyright (C) 2023 by YOUR NAME HERE
 #
@@ -17,47 +15,28 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
+#
 
-import sys, Ice, os
-from PySide6 import QtWidgets, QtCore
+import sys, os, Ice
 
 ROBOCOMP = ''
 try:
     ROBOCOMP = os.environ['ROBOCOMP']
-except KeyError:
+except:
     print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
     ROBOCOMP = '/opt/robocomp'
-
-Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
-import RoboCompCommonBehavior
-
+if len(ROBOCOMP)<1:
+    raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
+Ice.loadSlice("-I ./src/ --all ./src/GridPlanner.ice")
 
-class GenericWorker(QtCore.QObject):
+from RoboCompGridPlanner import *
 
-    kill = QtCore.Signal()
-
-    def __init__(self, mprx):
-        super(GenericWorker, self).__init__()
-
-        self.lidar3d_proxy = mprx["Lidar3DProxy"]
-        self.omnirobot_proxy = mprx["OmniRobotProxy"]
-
-        self.mutex = QtCore.QMutex()
-        self.Period = 30
-        self.timer = QtCore.QTimer(self)
+class GridPlannerI(GridPlanner):
+    def __init__(self, worker):
+        self.worker = worker
 
 
-    @QtCore.Slot()
-    def killYourSelf(self):
-        rDebug("Killing myself")
-        self.kill.emit()
-
-    # \brief Change compute period
-    # @param per Period in ms
-    @QtCore.Slot(int)
-    def setPeriod(self, p):
-        print("Period changed", p)
-        self.Period = p
-        self.timer.start(self.Period)
+    def setPlan(self, plan, c):
+        return self.worker.GridPlanner_setPlan(plan)

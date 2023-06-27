@@ -1,7 +1,9 @@
 # controller
 Intro to component here
 
-If regenerated you need to check that ui_mainUI.py has been generated with uic-qt6 (check in the header lines) 
+If regenerated you need to check that ui_mainUI.py has been generated with uic-qt6 (check in the header lines)
+Check for pyside6 in CMakeList.txt (COMMAND pyside6-uic ${CMAKE_CURRENT_SOURCE_DIR}/src/${input_file}.ui -o ${CMAKE_CURRENT_SOURCE_DIR}/src/ui_${input_file}.py) 
+
 
 Also in genericworker.py:
  - self.visualelements1_proxy = mprx["VisualElements1Proxy"]

@@ -1,6 +1,7 @@
 # hash_tracker
 Intro to component here
 
+pip3 install Cython cython-bbox cupy
 
 ## Configuration parameters
 As any other component, *hash_tracker* needs a configuration file to start. In
