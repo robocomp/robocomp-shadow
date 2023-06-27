@@ -98,7 +98,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "bin/bumper etc/c
 
 #CONTROL
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cd ~/robocomp/components/robocomp-shadow/insect/controller"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "src/controller.py etc/config 
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "src/controller.py etc/config"
 
 
 
