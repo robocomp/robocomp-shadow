@@ -1,455 +1,463 @@
-import time
+import time, sys
 import threading
 import numpy as np
 import serial
 
 
 ''''ESTRUCTURA DE TELEGRAMAS/DATAGRAMA'''
+CODE_TELEGRAM ={
 #___________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8    |
 #|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_LOW|
-CODE_TELEGRAM_READ = bytearray([0x03])
-
+"READ": bytearray([0x03]),
 #______________________________________________________________________
 #|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N    |
 #|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_LOW|
-CODE_TELEGRAM_WRITE = bytearray([0x10])
+"WRITE": bytearray([0x10])
+}
 
 
-''''REGISTROS DEL DRIVER'''
-R_SET_STATUS = bytearray([0x53, 0x00])          #uint16//SET ESTADO DEL DRIVER 0=STOP; 1=START; 2=CLEAN ALARMS
-R_GET_STATUS = bytearray([0x54, 0x00])          #ESTADO DEL DRIVER 0=STOP; 1=RUN
-R_SET_SPEED = bytearray([0x53, 0x04])           #int16//VELOCIDAD TARGET
-R_GET_SPEED = bytearray([0x54, 0x10])           #int16//VELOCIDAD ACTUAL
-R_GET_MOTOR_TEMPERATURE = bytearray([0x54, 0x04])#int16//TEMPERATURA DEL MOTOR
-R_GET_DRIVE_TEMPERATURE = bytearray([0x21, 0x35])#int16//TEMPERATURA DEL DRIVER
-R_MAX_SPEED = bytearray([0x50, 0x1C])           #uint16//MAXIMA VELOCIDAD
-R_DIRECTION = bytearray([0x50, 0x28])           #uint16//DIRECCION DEL MOTOR 0=NORMAL; 1=INVERT
-R_MAX_ACCELERATION = bytearray([0x51, 0x08])    #uint16//MAXIMA ACELERACION
-R_MAX_DECELATION = bytearray([0x51, 0x0C])      #uint16//MAXIMA DECELERACION   
-R_CURVE_ACCELERATION = bytearray([0x51, 0x10])  #uint16//CURVA EN S DE ACELERACION "Speed smoothing time S-type acceleration time"
-R_ID = bytearray([0x30, 0x01])                  #
+DRIVER_REGISTERS = {
+    "SET_STATUS": bytearray([0x53, 0x00]),          # uint16//SET DRIVER STATUS 0=STOP; 1=START; 2=CLEAN ALARMS
+    "GET_STATUS": bytearray([0x54, 0x00]),          # DRIVER STATUS 0=STOP; 1=RUN
+    "SET_SPEED": bytearray([0x53, 0x04]),           # int16//TARGET SPEED
+    "GET_SPEED": bytearray([0x54, 0x10]),           # int16//CURRENT SPEED
+    "GET_MOTOR_TEMPERATURE": bytearray([0x54, 0x04]),# int16//MOTOR TEMPERATURE
+    "GET_DRIVE_TEMPERATURE": bytearray([0x21, 0x35]),# int16//DRIVER TEMPERATURE
+    "MAX_SPEED": bytearray([0x50, 0x1C]),           # uint16//MAXIMUM SPEED
+    "DIRECTION": bytearray([0x50, 0x28]),           # uint16//MOTOR DIRECTION 0=NORMAL; 1=INVERT
+    "MAX_ACCELERATION": bytearray([0x51, 0x08]),    # uint16//MAXIMUM ACCELERATION
+    "MAX_DECELATION": bytearray([0x51, 0x0C]),      # uint16//MAXIMUM DECELERATION   
+    "CURVE_ACCELERATION": bytearray([0x51, 0x10]),  # uint16//S-CURVE ACCELERATION "Speed smoothing time S-type acceleration time"
+    "ID": bytearray([0x30, 0x01]),                  # ID
+    "MODE": bytearray([0x30, 0x08])                 # MODE
+}             #
 R_MODE = bytearray([0x30, 0x08]) 
 ''''VARIABLES DE COMUNICACCIÓN'''
-MSL = 0.01 * 2                                  #Maximum Segment Lifetime             
+MSL = 0.015 * 2                                  #Maximum Segment Lifetime             
 NUM_ATTEMPT = 3                                 #Número de intentos de la conexión con el driver
 
 class SVD48V:
+    """
+    Driver class to handle interaction with a motor controller device.
 
-    def __init__(self, port, IDs, wheelRadius, maxSpeed, maxAcceleration, maxDeceleration):
+    Attributes:
+        port: The serial port the driver is connected to.
+        IDs: The identifiers for the motors driver.
+        wheelRadius: The radius of the wheels for the motor.
+        rpmMaxSpeed: The maximum speed in RPM.
+    """
+
+    def __init__(self, port="/dev/ttyUSB0", IDs=[1,2], wheelRadius=6, maxSpeed=800, maxAcceleration=1000, maxDeceleration=1500):
+        """
+        Initializes an instance of the class.
+
+        Args:
+            port (str): The port to be used. Defaults to "/dev/ttyUSB0".
+            IDs (list): A list containing the IDs. Defaults to [1,2].
+            wheelRadius (int): The radius of the wheel. Defaults to 6.
+            maxSpeed (int): The maximum speed mm/s. Defaults to 800.
+            maxAcceleration (int): The maximum acceleration mm/s2. Defaults to 1000.
+            maxDeceleration (int): The maximum deceleration mm/s2. Defaults to 1500.
+        """
+        print("Initializing SVD48V")
         self.port = port
-        self.IDs = IDs
-        self.wheelRadius = wheelRadius
-        self.mms2rpm = (60/(2*np.pi*self.wheelRadius))
-        self.maxSpeed = maxSpeed
-        self.maxAcceleration = maxAcceleration
-        self.maxDeceleration = maxDeceleration
+        self.ids = IDs
+        self.wheel_radius = wheelRadius
+        self.mms2rpm = 60 / (2 * np.pi * self.wheel_radius)
+        self.rpm_max_speed = int(maxSpeed * self.mms2rpm)
+        self.rpm_max_acceleration = int(maxAcceleration * self.mms2rpm)
+        self.rpm_max_deceleration = int(maxDeceleration * self.mms2rpm)
         self.mutex = threading.Lock()
-        print(maxSpeed*self.mms2rpm)
 
-        self.accurary_com = {"MSL" : 0.0, "CRC" : 0.0, "CODE" : 0.0, "OK" : 0.0}
+        self.accuracy_com = {"MSL" : 0.0, "CRC" : 0.0, "CODE" : 0.0, "OK" : 0.0}
         self.time_com = []
         self.data = {'Speed' : [0.0, 0.0, 0.0], 'Status' : [0,0], 'Temperature' : [0,0,0,0]}
 
-        print('Abriendo puerto serie con el driver')
-        self.driver = serial.Serial(
-            port=self.port,
-            baudrate=115200,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            bytesize=serial.EIGHTBITS,
-            timeout=0)
+        print('Opening serial port with the SVD48V')
+        self.driver = None
+        self.thSelfResetting = None
+        self.self_resetting = False
+        try:
+            self.driver = serial.Serial(
+                port=self.port,
+                baudrate=115200,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                bytesize=serial.EIGHTBITS,
+                timeout=0
+            )
+        except Exception:
+            sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
 
-        self.start_diver()
+        print("Starting SVD48V")
+        if self.driver.isOpen():
+            for id in self.ids:
+                self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
+                self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
+                #self.write_register(id, DRIVER_REGISTERS['MAX_SPEED'], [self.rpm_max_speed, self.rpm_max_speed])
+                self.start_diver()
+        else:
+            sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
 
-        self.thereadsLive = True
-        self.thereads = []
-        self.thereads.append(threading.Thread(target=self.update_parameter, args=(0.5, R_GET_STATUS, "Status")))
-        self.thereads.append(threading.Thread(target=self.update_parameter, args=(0.5, R_GET_SPEED, "Speed")))
-        self.thereads.append(threading.Thread(target=self.update_parameter, args=(10, R_GET_MOTOR_TEMPERATURE, "Temperature")))
-        for th in self.thereads:
-            th.daemon = True
-            th.start()
+        print("Creating reading threads")
+        self.threads_alive = True
+        self.threads = [
+        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_STATUS"], "Status")),
+        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_SPEED"], "Speed")),
+        threading.Thread(daemon=True, target=self.update_parameter, args=(10, DRIVER_REGISTERS["GET_MOTOR_TEMPERATURE"], "Temperature"))
+        ]
+        for thread in self.threads:
+            thread.start()
         
         self.show_params(True)
-        time.sleep(2)
+        time.sleep(0.5)
+        print("SVD48V started successfully")
         
     
     def __del__(self):
-        self.thereadsLive = False
-        self.stop_driver()
-        print("-------------------------------ESTADISTICAS DE COMUNICACIÓN--------------------------------")
-    
+        self.threads_alive = False
+        if self.driver is not None:
+            print("Turning off SVD48V")
+            self.stop_driver()
 
-        print("ERRORES DE COMUNICACIÓN:", self.accurary_com, "ACCURACY:",self.accurary_com["OK"]*100/sum(self.accurary_com.values()) )
-        print("TIEMPO MEDIO DE COMUNICACIÓN: ", np.mean(self.time_com))
-        for th in self.thereads:
-            th.join()
+            print("Closing serial connection")
+            self.driver.close()
+            if not self.driver.isOpen():
+                self.driver = None
+            print("-------------------------------COMMUNICATION STATISTICS--------------------------------")
 
-        print("Cerramos serie")
-        self.driver.close()
+            print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
+            print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
+            for thread in self.threads:
+                thread.join()
 
-    '''
-    PRE:-
-    POST:-
-    DESC: Establece la conexión con el driver asigando al puerto "port", 
-        habiliando al variable self.driver y poniendo el motor a 0 y
-        el registro de funcionamiento a ON
-    '''
     def start_diver(self):
+        """
+        Start the motor driver.
+        """
         if self.driver.isOpen():
-            print("Puerto abierto")
-            #imprimimos el arranque del driver
             time.sleep(1)
-            #imprimimos el arranque del driver si se estaria arancando
+
+            #Print initial message
             print_info = True
             flag = False
             timeout=0
             while print_info and timeout<25:
                 text = self.driver.readline()
                 if len(text) == 0 and flag:
-                    print_info =False
+                    print_info = False
                 elif len(text) > 0:
                     print(text)
                     flag = True
-                timeout=timeout+1
+                timeout += 1
 
-            print("Encendemos motores")
-            #arrancamos los driver con velocidad 0
-            err=0
-            rpmMaxAcceleration = int(self.maxAcceleration * self.mms2rpm)
-            rpmMaxDeceleration = int(self.maxDeceleration * self.mms2rpm)
-            rmpMaxSpeed = int(self.maxSpeed * self.mms2rpm)
-            for id in self.IDs:
-                err-=self.write_register(id, R_MAX_ACCELERATION, [rpmMaxAcceleration, rpmMaxAcceleration])
-                err-=self.write_register(id, R_MAX_DECELATION, [rpmMaxDeceleration, rpmMaxDeceleration])
-                #err-=self.write_register(id, R_MAX_SPEED, [rmpMaxSpeed, rmpMaxSpeed])
-                err-=self.write_register(id, R_SET_SPEED, [0,0])
-                err-=self.write_register(id, R_SET_STATUS, [1,1])
-            return err
+            print("Starting motors")
+            for id in self.ids:
+                self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
+                self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
+            if self.thSelfResetting is None:
+                self.self_resetting = True
+                self.thSelfResetting = threading.Thread(target=self.still_alive,daemon=True)
+                self.thSelfResetting.start()
+
         else:
-            print("No se pudo habrir el puerto")
-            return -50
+            sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
 
-    '''
-    PRE:-
-    POST:-
-    DESC: Establece la conexión con el driver asigando al puerto "port", 
-        habiliando al variable self.driver y poniendo el motor a 0 y
-        el registro de funcionamiento a ON
-    '''
-    def reset_diver(self):
-        if self.driver.isOpen():
-            print("Reiniciando driver")
-            #imprimimos el arranque del driver
-            time.sleep(1)
-            #imprimimos el arranque del driver si se estaria arancando
-            print_info = True
-            flag = False
-            timeout=0
-            while print_info and timeout<25:
-                text = self.driver.readline()
-                if len(text) == 0 and flag:
-                    print_info =False
-                elif len(text) > 0:
-                    print(text)
-                    flag = True
-                timeout=timeout+1
-
-            print("Encendemos motores")
-            #arrancamos los driver con velocidad 0
-            err=0
-            for id in self.IDs:
-                err-=self.write_register(id, R_SET_SPEED, [0,0])
-                err-=self.write_register(id, R_SET_STATUS, [1,1])
-            return err
-        else:
-            print("No se pudo habrir el puerto")
-            return -50
-    
-    '''
-    PRE: self.driver abierto
-    POST:-
-    DESC: Cierra la conexión con el driver (variable self.driver)
-        además pondra el motor a 0 y el registro de funcionamiento a OFF
-    '''
     def stop_driver(self):
-        #paramos los driver con velocidad 0
-        for id in self.IDs:
-            self.write_register(id, R_SET_SPEED, [0,0])
-            self.write_register(id, R_SET_STATUS, [0,0])
-            #Confirmamos el estado
-            status = self.read_register(id, R_GET_STATUS, False)
+        """
+        Stop the motor driver.
+        """
+        if self.thSelfResetting is not None:
+            self.self_resetting = False
+            self.thSelfResetting.join()
+
+        # Stop the drivers with speed 0
+        for id in self.ids:
+            self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
+            self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [0,0])
+            # Confirm status
+            status = self.read_register(id, DRIVER_REGISTERS['GET_STATUS'], False)
             if 1 in status:
-                print("Error al parar los motores")
+                print("Error when stopping the motors")
             else:
-                print("Motores parado")
+                print("Motors stopped")
 
+    def generate_telegram(self, id=0xee, action_code="READ", add_register=DRIVER_REGISTERS["GET_STATUS"],single=False, data=None):
+        """
+        Generate a telegram to be sent to the motor driver.
+        
+        Args:
+            id (int): The id of the motor driver. Defaults to 0xee.
+            action_code (str): The action to be performed ("READ" or "WRITE"). Defaults to "READ".
+            add_register (Register): The register to read from or write to. Defaults to DRIVER_REGISTERS["GET_STATUS"].
+            single (bool): Whether to read/write only a single register. Defaults to False.
+            data (list): The data to write to the register. Required if action_code is "WRITE".
+            
+        Returns:
+            bytearray: The generated telegram.
+        """
+        telegram = bytearray([id])                             #Direction
+        telegram.extend(CODE_TELEGRAM[action_code])            #Action
+        telegram.extend(add_register)                          #Registers
 
-    '''
-    PRE: self.driver abierto
-    POST: Devuelve una lista de los datos leidos
-    DESC: Lee los registros del driver, "add_register"=dirección de comienzo
-        "single"=true un solo registro, =false dos registros contiguos(M1 y M2)
-    '''
-    def read_register(self, id=0xee, add_register=R_GET_STATUS, single=False):
+        if action_code == "WRITE":                             #telegram write
+            if len(data) in [1, 2]:
+                telegram.extend([0, len(data), len(data) * 2]) #Length Registers
+            else:
+                print("Missing or extra register data")
+                return None
+            for item in data:
+                telegram.extend(self.short_to_2bytes(int(item)))#Set Data
+        else:                                                   #Telegram Read
+            telegram.extend([0, 1] if single else [0, 2])       #Length registers
+        telegram.extend(self.short_to_2bytes(self.calculate_crc(telegram))) 
+
+        return telegram
+    
+
+    def process_telegram(self, telegram, action_code="READ"):
+        """
+        Process/Send a telegram from the motor driver.
+        
+        Args:
+            telegram (bytearray): The telegram to process/send.
+            action_code (str): The action performed ("READ" or "WRITE"). Defaults to "READ".
+            
+        Returns:
+            list: A list of data read from the register. [] if the action_code is "WRITE". None in case of failure.
+        """
         data = []
         if self.driver.isOpen():
-            #generamos el telegrama de peticion
-            telegram = bytearray([id])
-            telegram.extend(CODE_TELEGRAM_READ)
-            telegram.extend(add_register)
-            if single:
-                telegram.extend([0,1])
-            else:
-                telegram.extend([0,2])
-            telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
+            self.mutex.acquire()  
             self.driver.flushInput()
-        
-            #procedemos al envio y escucha de los telegramas
-            read_data = True
-            attempt = NUM_ATTEMPT #numeros de intentos
-            self.mutex.acquire()  #bloqueamos el serial para evitar colisiones
-
-            while read_data:
-                try:
-                    if attempt == 0:
-                        print("INTENTOS DE LECTURA CONSUMIDOS ")
-                        break
-                    #print("Telegrama de peticion: ", telegram)
-                    self.driver.write(telegram) #enviamos telegrama
-                    t1 = time.time()        #obtememos tiempo 
-                    attempt-=1
-                    while read_data:
-                        time.sleep(0)
-                        telegram = bytearray (self.driver.readline())
-                        if len(telegram) > 1:
-                            #print("respuesta recivida: ", telegram)
-                            if telegram[1] != CODE_TELEGRAM_READ[0] :
-                                print("TELEGRMA NO APTO REINTENTANDO LECTURA")
-                                self.accurary_com["CODE"] += 1
-                                print(telegram)
-                                break
-                            crc_low = telegram.pop()
-                            crc_high = telegram.pop()
-                            tel_crc_high, tel_crc_low = self.shortto2bytes(self.Calc_Crc(telegram))
-                            if crc_high != tel_crc_high or crc_low !=tel_crc_low:
-                                print("FALLO EN EL CRC REINTENTANDO LA LECTURA")
-                                self.accurary_com["CRC"] += 1
-                                print(telegram)
-                                break
-                            for i in range(0, telegram[2], 2):
-                                #print(telegram[i+3], " - ", telegram[i+4] )
-                                data.append(np.int16(int(telegram[i+3] * 2**8) + telegram[i+4]))
-                                #print(data)
-                            read_data = False
-                            self.accurary_com["OK"] += 1
-                            self.time_com.insert(0, time.time() - t1)
-                            self.time_com = self.time_com[:50]
-                        t2 = time.time()
-                        if t2 - t1 > MSL:
-                            print("FALLO DEL MSL REINTENTANDO LA LECTURA")
-                            self.accurary_com["MSL"] += 1
-                            break   
-
-                except Exception as e:
-                    print("Error in Serial")
-                    print(e)
-                    
-            self.mutex.release()
-
-        else:
-            print("PRUERTO NO ABIERTO")
-        return data
-                
-        
-    '''
-    PRE: self.driver abierto & len("tupla_data")<=2
-    POST: -
-    DESC: Escribe los registros del driver, "add_register"=dirección de comienzo
-        "single"=true un solo registro, =false dos registros contiguos(M1 y M2), 
-        "tupla_data" datos a escribir
-    '''
-    def write_register(self, id=0xee, add_register=R_SET_STATUS, tupla_data=[0,0]):
-        if self.driver.isOpen():
-            #generamos el telegrama de escritura
-            telegram = bytearray([id])
-            telegram.extend(CODE_TELEGRAM_WRITE)
-            telegram.extend(add_register)
-            if len(tupla_data)==1:
-                telegram.extend([0,1,2])
-            elif(len(tupla_data)==2):
-                telegram.extend([0,2,4])
-            else:
-                print("Faltan o sobran datos de registro")
-                return -2
-            for data in tupla_data:
-                telegram.extend(self.shortto2bytes(int (data)))
-            telegram.extend(self.shortto2bytes(self.Calc_Crc(telegram)))   
-            self.driver.flushInput()
-
-            #procedemos al envio y escucha de los telegramas
-            read_data = True
-            attempt = NUM_ATTEMPT #numeros de intentos
-            self.mutex.acquire()  #bloqueamos el serial para evitar colisiones
-            
-            while read_data:
-                try:
-                    if attempt == 0:
-                        print("INTENTOS DE ESCRITURA CONSUMIDOS ")
-                        self.mutex.release()
-                        return -3
-                    #print("Telegrama de peticion: ", telegram)
-                    self.driver.write(telegram) #enviamos telegrama
-                    t1 = time.time()        #obtememos tiempo 
-                    attempt-=1
-                    while read_data:
-                        time.sleep(0)
-                        telegram = bytearray (self.driver.readline())
-                        if len(telegram) > 1:
-                            #print("respuesta recivida: ", telegram)
-                            if telegram[1] != CODE_TELEGRAM_WRITE[0] :
-                                print("TELEGRMA NO APTO REINTENTANDO ESCRITURA")
-                                self.accurary_com["CODE"] += 1
-                                break
-                            crc_low = telegram.pop()
-                            crc_high = telegram.pop()
-                            tel_crc_high, tel_crc_low = self.shortto2bytes(self.Calc_Crc(telegram))
-                            if crc_high != tel_crc_high or crc_low !=tel_crc_low:
-                                print("FALLO EN EL CRC REINTENTANDO ESCRITURA")
-                                self.accurary_com["CRC"] += 1
-                                print(telegram)
-                                break
-                            read_data = False
-                        t2 = time.time()
-                        if t2 - t1 > MSL:
-                            print("FALLO DEL MSL REINTENTANDO LA ESCRITURA")
-                            self.accurary_com["MSL"] += 1
+            #numbers attempt
+            for _ in range(NUM_ATTEMPT):
+                self.driver.write(telegram) #Send telegram
+                t1 = time.time()            #get time for MSL
+                #Listening
+                while True:
+                    time.sleep(0)
+                    reply = bytearray (self.driver.readline())#get telegram of reply
+                    #Have telegram of reply?
+                    if len(reply) > 1:
+                        #Have same number of action?
+                        if reply[1] != CODE_TELEGRAM[action_code][0] :
+                            print(f"UNSUITABLE TELEGRAM. RE-{action_code}")
+                            self.accuracy_com["CODE"] += 1
                             break
-                except Exception as e:
-                    print("Error in Serial")
-                    print(e)
 
+                        #Check CRC for telegram
+                        crc_low, crc_high = reply.pop(), reply.pop()
+                        tel_crc_high, tel_crc_low = self.short_to_2bytes(self.calculate_crc(reply))
+                        if crc_high != tel_crc_high or crc_low != tel_crc_low:
+                            print(f"CRC FAILURE. RE-{action_code}")
+                            self.accuracy_com["CRC"] += 1
+                            break
+
+                        #Get data from telegram response
+                        if action_code == "READ":
+                            for i in range(0, reply[2], 2):
+                                data.append(np.int16(int(reply[i+3] * 2**8) + reply[i+4]))
+                        
+                        #Telegram OK
+                        self.mutex.release()
+                        self.accuracy_com["OK"] += 1
+                        self.time_com.insert(0, time.time() - t1)
+                        self.time_com = self.time_com[:50]
+                        return data
+                    
+                    if time.time() - t1 > MSL:
+                        print(f"MSL FAILURE. RE-{action_code}")
+                        self.accuracy_com["MSL"] += 1
+                        break  
             self.mutex.release()
-            self.accurary_com["OK"] += 1
-            self.time_com.insert(0, time.time() - t1)
-            self.time_com = self.time_com[:50]
-            return 0
-        else:
-            print("PRUERTO NO ABIERTO")
-            return-1
+            print(f"{action_code} ATTEMPTS EXHAUSTED ")
+        return None
 
+    def read_register(self, id=0xee, add_register=DRIVER_REGISTERS["GET_STATUS"], single=False):
+        """
+        Read register from the motor driver.
 
-    '''
-    Function name: Calc_Crc(uint8_t\*pack_buff,uint8_tpack_len) Description:
-    Modbus protocol CRC check incoming value: pack_buff, packet data,
-    pack_len refers to the length of the data to be checked. Outgoing value: returns a twobyte CRC check code ***/ 
-    '''
-    def Calc_Crc(self, telegram):
-        num = len(telegram)
-        crc_result = 0xffff
-        crc_num = 0
-        xor_flag = 0
-        for i in range(num):
-            crc_result = crc_result ^ int(telegram[i])
-            crc_num = (crc_result & 0x0001); 
-            for m in range(8):
-                if (crc_num == 1):
-                    xor_flag = 1
-                else:
-                    xor_flag = 0
-                crc_result >>= 1
-                if(xor_flag):
-                    crc_result = crc_result ^ 0xa001
-                crc_num =(crc_result & 0x0001)
-        return crc_result
+        Args:
+            id (int): The id of the motor driver. Defaults to 0xee.
+            add_register (str): The register to read from. Defaults to DRIVER_REGISTERS["GET_STATUS"].
+            single (bool): Whether to read only a single register. Defaults to False.
+
+        Returns:
+            list: A list of the data from the register.
+        """
         
-    '''
-    PRE:-
-    POST: Devuelve dosr variables enteras fragmentos del short
-    DESC: Fragmenta los dos brtes del short en dos bytes independientes
-    '''
-    def shortto2bytes(self, short):
+        telegram = self.generate_telegram(id, "READ",add_register, False)
+        while (data := self.process_telegram(telegram, "READ")) is None:
+            print("Restarting Reading")
+            time.sleep(0.0001)
+        return data
+        
+        
+    def write_register(self, id=0xee, add_register=DRIVER_REGISTERS["SET_STATUS"], data_tuple=[0,0]):
+        """
+        Write to a register on the motor driver.
+
+        Args:
+            id (int): The id of the motor driver. Defaults to 0xee.
+            add_register (str): The register to write to. Defaults to DRIVER_REGISTERS["SET_STATUS"].
+            data_tuple (list): The data to write to the register. Defaults to [0,0].
+
+        Returns:
+            int: -2 if the wrong number of data items are provided. 0 otherwise.
+        """
+        telegram = self.generate_telegram(id, "WRITE", add_register,False, data_tuple)
+        if telegram is None:
+            print("Wrong number of data items")
+            return -2
+        while (data := self.process_telegram(telegram, "WRITE")) is None:
+            print("Restarting Writing")
+            time.sleep(0.0001)
+        return 0
+
+
+    def calculate_crc(self, telegram):
+        """
+        Calculate the Cyclic Redundancy Check (CRC) of a telegram.
+
+        Args:
+            telegram (bytearray): The telegram to calculate the CRC of.
+
+        Returns:
+            int: The calculated CRC of the telegram.
+        """
+        crc_result = 0xffff
+        for i in range(len(telegram)):
+            crc_result = crc_result ^ int(telegram[i])
+            for m in range(8):
+                crc_num = (crc_result & 0x0001)
+                xor_flag = 1 if crc_num == 1 else 0
+                crc_result >>= 1
+                if xor_flag:
+                    crc_result = crc_result ^ 0xa001
+        return crc_result
+
+    def short_to_2bytes(self, short):
+        """
+        Convert a short integer to a list of 2 bytes.
+
+        Args:
+            short (int): The short integer to convert.
+
+        Returns:
+            list: The short integer represented as a list of 2 bytes.
+        """
         low = int(short & 0x00FF)
-        high = short & 0xFF00
-        high = int(high/2**8)
+        high = int((short & 0xFF00) >> 8)
         return high, low
         
 
     def show_params(self, advanced=False):
+        """
+        Display the parameters of the current object.
+
+    Args:
+        advanced (bool, optional): If True, display advanced parameters. Defaults to False.
+        """
 
         print("------------------------------")
-        print("Lista de parametros del driver:")
+        print("Driver parameters list:")
         if advanced:
             print("port: ", self.port)
-            print("maxSpeed: ", self.maxSpeed)
-            print("Drivers ID: ", self.IDs)
-            print("wheelRadius: ", self.wheelRadius)
-        print("Estados drivers: ", self.get_status())   
-        print("Velocidad (m1, m2, m3, m4): ", self.get_speed())
-        print("Temperaruta motores: ", self.get_temperature())
+            print("rpmMaxSpeed: ", self.rpm_max_speed)
+            print("Drivers ID: ", self.ids)
+            print("wheelRadius: ", self.wheel_radius)
+        print("Driver states: ", self.get_status())   
+        print("Speed (m1, m2, m3, m4): ", self.get_speed())
+        print("Motor temperature: ", self.get_temperature())
         print("------------------------------")
 
+    def update_parameter(self, period, register, tag):
+        """
+        Update a specific parameter in a given register.
 
-    def test_function(self):
-        for i in self.IDs:
-            print("ID", self.read_register(i, R_ID,True))
-            print("vel", self.read_register(i, R_GET_SPEED,False))
-            self.write_register(i, R_SET_SPEED,[0,0])
-
-        time.sleep(5) 
-        for i in self.IDs:
-            self.write_register(i, R_SET_SPEED,[0,0])
-        time.sleep(2) 
-
-
-
-    #funcion para hilos de lectura
-    def update_parameter(self, times, register, tag):
-        while self.thereadsLive:
+    Args:
+        period (int): The period to updating the parameter.
+        register (dict): The register that contains the parameter to update.
+        tag (str): The tag of the parameter to update in the register.
+        """
+        while self.threads_alive:
             data = []
-            for id in self.IDs:
+            for id in self.ids:
                 data.extend(self.read_register(id, register, False))
             self.data[tag] = data
-            time.sleep(times)
+            time.sleep(period)
 
     def still_alive(self):
-        if not self.driver.isOpen():
-            return False
-        for id in self.IDs:
-            #Confirmamos el estado
-            status = self.read_register(id, R_GET_STATUS, False)
-            if len(status) == 0:
-                return False
-        return True
+        """
+        Check whether the motor driver is still responsive and try to reset it if not.
+        """
+        time.sleep(0.5)
+        while self.self_resetting:
+            if self.driver.isOpen():
+                for id in self.ids:
+                    #Confirmamos el estado
+                    status = self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False)
+                    if 0 in status:
+                        print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
+                        self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
+                        self.start_diver()
+            else:
+                sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
+            time.sleep(0.5)
 
     def get_status(self):
+        """
+        Get the status of the motor driver.
+
+        Returns:
+            The status of the motor driver.
+        """
         return self.data["Status"]
 
     def get_temperature(self):
+        """
+        Get the temperature of the motors.
+
+        Returns:
+            The temperature of the motors.
+        """
         return np.array(self.data["Temperature"])/-10
 
     def get_speed(self):
+        """
+        Get the speed of the motors.
+
+        Returns:
+            The speed of the motors.
+        """
         return np.array(self.data["Speed"])/(self.mms2rpm*10)
-                  
+    
     
     def set_speed(self, motor_speed):
-        #print("M1 ", motor_speed[0], "M2 ", motor_speed[1], "M3 ", motor_speed[2], "M4 ", motor_speed[3])
+        """
+        Set the speed of the motors. If the speed exceeds the maximum, 
+        all speeds are reduced proportionally.
+
+        Args:
+            motor_speed: The speed to set for the four motors.
+
+        Returns:
+            -1 if the speed had to be adjusted due to exceeding the maximum RPM, 0 otherwise.
+        """
+
         ret = 0
-        for i in range(len(motor_speed)):
-            if motor_speed[i] > self.maxSpeed:
-                print("AVISO SUPERADA LA VELOCIDAD MAXIMA DE RUEDA", motor_speed[i],"CUNADO MAXIMA ES", self.maxSpeed)
-                motor_speed[i] = self.maxSpeed
-                ret = -1
-            elif motor_speed[i] < -self.maxSpeed:
-                print("AVISO SUPERADA LA VELOCIDAD MAXIMA DE RUEDA", motor_speed[i],"CUNADO MAXIMA ES", self.maxSpeed)
-                motor_speed[i] = -self.maxSpeed
-                ret = -1
-        print("MM/S",motor_speed)
-        rpm = motor_speed * self.mms2rpm
-        print ("RPM", rpm)
-        for i in range(int(len(motor_speed)/2)):
-            self.write_register(self.IDs[i], R_SET_SPEED,[rpm[i*2],rpm[i*2+1]])
+        rpm = np.array(motor_speed, dtype=float) * self.mms2rpm
+        max_rpm = np.max(np.abs(rpm))
 
+        if max_rpm > self.rpm_max_speed:
+            print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
+            rpm = (rpm / max_rpm) * self.rpm_max_speed
+            ret = -1
+
+        print(f"MM/S {motor_speed}")
+        print(f"RPM {rpm}")
+        for i in range(len(motor_speed) // 2):
+            self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[rpm[i * 2], rpm[i * 2 + 1]])
         return ret
-
