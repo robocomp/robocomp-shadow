@@ -229,11 +229,12 @@ class SVD48V:
         """
         data = []
         if self.driver.isOpen():
-            self.mutex.acquire()  
-            self.driver.flushInput()
+            self.mutex.acquire()      
             #numbers attempt
             for _ in range(NUM_ATTEMPT):
+                self.driver.flushInput()
                 self.driver.write(telegram) #Send telegram
+                self.driver.flush()
                 t1 = time.time()            #get time for MSL
                 #Listening
                 while True:
