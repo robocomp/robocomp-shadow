@@ -12,9 +12,9 @@ maxRotSpeed=2.25		#max velocidad de rotacion rad/s
 maxWheelSpeed=2400.0	#maxima velocidad de la ruedas mm/s
 maxAcceleration=750.0	#Aceleracion mm/s
 maxDeceleration=1000.0	#Deceleracion mm/s
-wheelRadius=60.0		#Radio de las ruedas
-distAxes=220.0			#Distancias entre ejes
-axesLength=400.0		#Longitud entre ejes
+wheelRadius=80.0		#Radio de las ruedas
+distAxes=270.0			#Distancias entre ejes
+axesLength=455.0		#Longitud entre ejes
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

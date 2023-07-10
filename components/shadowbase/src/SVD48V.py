@@ -65,9 +65,9 @@ class SVD48V:
         self.ids = IDs
         self.wheel_radius = wheelRadius
         self.mms2rpm = 60 / (2 * np.pi * self.wheel_radius)
-        self.rpm_max_speed = int(maxSpeed * self.mms2rpm)
-        self.rpm_max_acceleration = int(maxAcceleration * self.mms2rpm)
-        self.rpm_max_deceleration = int(maxDeceleration * self.mms2rpm)
+        self.set_max_speed(maxSpeed)
+        self.set_acceleration(maxAcceleration)
+        self.set_deceleration(maxDeceleration)
         self.mutex = threading.Lock()
 
         self.accuracy_com = {"MSL" : 0.0, "CRC" : 0.0, "CODE" : 0.0, "OK" : 0.0}
@@ -78,6 +78,7 @@ class SVD48V:
         self.driver = None
         self.thSelfResetting = None
         self.self_resetting = False
+        self.safety = False
         try:
             self.driver = serial.Serial(
                 port=self.port,
@@ -92,11 +93,25 @@ class SVD48V:
 
         print("Starting SVD48V")
         if self.driver.isOpen():
+            time.sleep(1)
+            #Print initial message
+            print_info = True
+            flag = False
+            timeout=0
+            while print_info and timeout<25:
+                text = self.driver.readline()
+                if len(text) == 0 and flag:
+                    print_info = False
+                elif len(text) > 0:
+                    print(text)
+                    flag = True
+                timeout += 1
+
             for id in self.ids:
                 self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
                 self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
                 #self.write_register(id, DRIVER_REGISTERS['MAX_SPEED'], [self.rpm_max_speed, self.rpm_max_speed])
-                self.start_diver()
+                self.enable_driver()
         else:
             sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
 
@@ -112,6 +127,7 @@ class SVD48V:
         
         self.show_params(True)
         time.sleep(0.5)
+        self.safety = True
         print("SVD48V started successfully")
         
     
@@ -119,7 +135,7 @@ class SVD48V:
         self.threads_alive = False
         if self.driver is not None:
             print("Turning off SVD48V")
-            self.stop_driver()
+            self.disable_driver()
 
             print("Closing serial connection")
             self.driver.close()
@@ -130,47 +146,36 @@ class SVD48V:
             print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
             print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
             for thread in self.threads:
-                thread.join()
+                thread.join(timeout=2)
+            print("SVD48V Deleted")
 
-    def start_diver(self):
+    def enable_driver(self):
         """
-        Start the motor driver.
+        Enable the motor driver.
         """
         if self.driver.isOpen():
-            time.sleep(1)
-
-            #Print initial message
-            print_info = True
-            flag = False
-            timeout=0
-            while print_info and timeout<25:
-                text = self.driver.readline()
-                if len(text) == 0 and flag:
-                    print_info = False
-                elif len(text) > 0:
-                    print(text)
-                    flag = True
-                timeout += 1
-
             print("Starting motors")
             for id in self.ids:
+                self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
                 self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
                 self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
-            if self.thSelfResetting is None:
+            if not self.self_resetting:
                 self.self_resetting = True
                 self.thSelfResetting = threading.Thread(target=self.still_alive,daemon=True)
                 self.thSelfResetting.start()
+            print("Motors started ")
 
         else:
             sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
 
-    def stop_driver(self):
+    def disable_driver(self):
         """
-        Stop the motor driver.
+        Disable the motor driver.
         """
+        print("Stopping motors")
         if self.thSelfResetting is not None:
             self.self_resetting = False
-            self.thSelfResetting.join()
+            self.thSelfResetting.join(timeout=2)
 
         # Stop the drivers with speed 0
         for id in self.ids:
@@ -180,8 +185,7 @@ class SVD48V:
             status = self.read_register(id, DRIVER_REGISTERS['GET_STATUS'], False)
             if 1 in status:
                 print("Error when stopping the motors")
-            else:
-                print("Motors stopped")
+        print("Motors stopped")
 
     def generate_telegram(self, id=0xee, action_code="READ", add_register=DRIVER_REGISTERS["GET_STATUS"],single=False, data=None):
         """
@@ -227,53 +231,58 @@ class SVD48V:
         Returns:
             list: A list of data read from the register. [] if the action_code is "WRITE". None in case of failure.
         """
-        data = []
-        if self.driver.isOpen():
-            self.mutex.acquire()      
-            #numbers attempt
-            for _ in range(NUM_ATTEMPT):
-                self.driver.flushInput()
-                self.driver.write(telegram) #Send telegram
-                self.driver.flush()
-                t1 = time.time()            #get time for MSL
-                #Listening
-                while True:
-                    time.sleep(0)
-                    reply = bytearray (self.driver.readline())#get telegram of reply
-                    #Have telegram of reply?
-                    if len(reply) > 1:
-                        #Have same number of action?
-                        if reply[1] != CODE_TELEGRAM[action_code][0] :
-                            print(f"UNSUITABLE TELEGRAM. RE-{action_code}")
-                            self.accuracy_com["CODE"] += 1
-                            break
+        try:
+            data = []
+            if self.driver.isOpen():
+                self.mutex.acquire()      
+                #numbers attempt
+                for _ in range(NUM_ATTEMPT):
+                    self.driver.flushInput()
+                    self.driver.write(telegram) #Send telegram
+                    self.driver.flush()
+                    t1 = time.time()            #get time for MSL
+                    #Listening
+                    while True:
+                        time.sleep(0)
+                        reply = bytearray (self.driver.readline())#get telegram of reply
+                        #Have telegram of reply?
+                        if len(reply) > 1:
+                            #Have same number of action?
+                            if reply[1] != CODE_TELEGRAM[action_code][0] :
+                                print(f"UNSUITABLE TELEGRAM. RE-{action_code}")
+                                self.accuracy_com["CODE"] += 1
+                                break
 
-                        #Check CRC for telegram
-                        crc_low, crc_high = reply.pop(), reply.pop()
-                        tel_crc_high, tel_crc_low = self.short_to_2bytes(self.calculate_crc(reply))
-                        if crc_high != tel_crc_high or crc_low != tel_crc_low:
-                            print(f"CRC FAILURE. RE-{action_code}")
-                            self.accuracy_com["CRC"] += 1
-                            break
+                            #Check CRC for telegram
+                            crc_low, crc_high = reply.pop(), reply.pop()
+                            tel_crc_high, tel_crc_low = self.short_to_2bytes(self.calculate_crc(reply))
+                            if crc_high != tel_crc_high or crc_low != tel_crc_low:
+                                print(f"CRC FAILURE. RE-{action_code}")
+                                self.accuracy_com["CRC"] += 1
+                                break
 
-                        #Get data from telegram response
-                        if action_code == "READ":
-                            for i in range(0, reply[2], 2):
-                                data.append(np.int16(int(reply[i+3] * 2**8) + reply[i+4]))
+                            #Get data from telegram response
+                            if action_code == "READ":
+                                for i in range(0, reply[2], 2):
+                                    data.append(np.int16(int(reply[i+3] * 2**8) + reply[i+4]))
+                            
+                            #Telegram OK
+                            self.mutex.release()
+                            self.accuracy_com["OK"] += 1
+                            self.time_com.insert(0, time.time() - t1)
+                            self.time_com = self.time_com[:50]
+                            return data
                         
-                        #Telegram OK
-                        self.mutex.release()
-                        self.accuracy_com["OK"] += 1
-                        self.time_com.insert(0, time.time() - t1)
-                        self.time_com = self.time_com[:50]
-                        return data
-                    
-                    if time.time() - t1 > MSL:
-                        print(f"MSL FAILURE. RE-{action_code}")
-                        self.accuracy_com["MSL"] += 1
-                        break  
-            self.mutex.release()
-            print(f"{action_code} ATTEMPTS EXHAUSTED ")
+                        if time.time() - t1 > MSL:
+                            print(f"MSL FAILURE. RE-{action_code}")
+                            self.accuracy_com["MSL"] += 1
+                            break  
+                self.mutex.release()
+                print(f"{action_code} ATTEMPTS EXHAUSTED ")
+        except serial.SerialException:
+            sys.exit("FAUL IN PORT. Has the SVD48V possibly been disconnected?")
+        except Exception as e:
+            print(e)
         return None
 
     def read_register(self, id=0xee, add_register=DRIVER_REGISTERS["GET_STATUS"], single=False):
@@ -402,11 +411,11 @@ class SVD48V:
                     status = self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False)
                     if 0 in status:
                         print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
-                        self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
-                        self.start_diver()
+                        self.enable_driver()
             else:
                 sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
             time.sleep(0.5)
+        return 
 
     def get_status(self):
         """
@@ -435,6 +444,51 @@ class SVD48V:
         """
         return np.array(self.data["Speed"])/(self.mms2rpm*10)
     
+    def get_safety(self):
+        """
+        Returns the current safety status of the motor drivers.
+
+        Returns:
+            bool: The safety status. True if it's safe to operate, False it is not safe to operate.
+        """
+        return self.safety
+    
+    def get_enable(self):
+        """
+        Returns the current status of the motor drivers.
+
+        Returns:
+            bool: The status. True if it's  enable, False it's disable.
+        """
+        return self.self_resetting
+    
+    
+    def set_acceleration(self, max_acceleration):
+        """
+        Set the maximum acceleration.
+
+        Args:
+            max_acceleration (int): The maximum acceleration to set in mm/s^2.
+        """
+        self.rpm_max_acceleration = abs(int(max_acceleration * self.mms2rpm))
+
+    def set_deceleration(self, max_deceleration):
+        """
+        Set the maximum deceleration.
+
+        Args:
+            max_deceleration (int): The maximum deceleration to set in mm/s^2.
+        """
+        self.rpm_max_deceleration = abs(int(max_deceleration * self.mms2rpm))
+
+    def set_max_speed(self, max_speed):
+        """
+        Set the maximum speed.
+
+        Args:
+            max_speed: The maximum speed to set in mm/s.
+        """
+        self.rpm_max_speed = abs(int(max_speed * self.mms2rpm))
     
     def set_speed(self, motor_speed):
         """
@@ -442,23 +496,51 @@ class SVD48V:
         all speeds are reduced proportionally.
 
         Args:
-            motor_speed: The speed to set for the four motors.
+            motor_speed[(int), (int), (int), (int)]: The speed to set for the four motors.
 
         Returns:
-            -1 if the speed had to be adjusted due to exceeding the maximum RPM, 0 otherwise.
+            -2 if emergency stop is activated, -1 if the speed had to be adjusted due to exceeding the maximum RPM, 0 otherwise.
         """
+        if self.safety:
+            ret = 0
+            rpm = np.array(motor_speed, dtype=float) * self.mms2rpm
+            max_rpm = np.max(np.abs(rpm))
 
-        ret = 0
-        rpm = np.array(motor_speed, dtype=float) * self.mms2rpm
-        max_rpm = np.max(np.abs(rpm))
+            if max_rpm > self.rpm_max_speed:
+                print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
+                rpm = (rpm / max_rpm) * self.rpm_max_speed
+                ret = -1
 
-        if max_rpm > self.rpm_max_speed:
-            print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
-            rpm = (rpm / max_rpm) * self.rpm_max_speed
-            ret = -1
-
-        print(f"MM/S {motor_speed}")
-        print(f"RPM {rpm}")
-        for i in range(len(motor_speed) // 2):
-            self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[rpm[i * 2], rpm[i * 2 + 1]])
+            #print(f"MM/S {motor_speed}")
+            #print(f"RPM {rpm}")
+            for i in range(len(motor_speed) // 2):
+                self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[rpm[i * 2], rpm[i * 2 + 1]])
+        else:
+            ret = -2
+            print("Emergency stop is activated")
         return ret
+    
+    def reset_emergency_stop(self):
+        """
+        Resets the emergency stop for the motor drivers.
+        """
+        print("RESET EMERGENCY STOP")
+        for id in self.ids:
+                self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'],[self.rpm_max_acceleration, self.rpm_max_acceleration])
+        self.safety = True
+
+    def emergency_stop(self):
+        """
+        Triggers an emergency stop for the motor drivers.
+
+        Note:
+            The acceleration is increased abruptly to induce a quick stop for each motor driver using their IDs.
+            The speed is set to zero and the safety flag is also set to False, indicating an unsafe condition.
+        """
+        print("EMERGENCY STOP")
+        self.safety = False
+        acc_stop = self.mms2rpm*2000
+        for id in self.ids:
+            self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [acc_stop, acc_stop])
+            self.write_register(id, DRIVER_REGISTERS["SET_SPEED"], [0, 0])   
+                

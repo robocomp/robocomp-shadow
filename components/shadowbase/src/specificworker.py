@@ -27,7 +27,7 @@
 
 from lib2to3.pgen2 import driver
 from multiprocessing.resource_sharer import stop
-from time import sleep
+import time
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
@@ -40,8 +40,6 @@ import numpy as np
 import traceback
 
 import SVD48V
-
-sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
 
@@ -63,6 +61,8 @@ class SpecificWorker(GenericWorker):
         self. oldTargetSpeed = np.array([[0.0], [0.0], [0.0]])
         self.driver=None
         self.joystickControl = False
+        self.time_disble = time.time()
+        self.time_emergency = time.time()
 
         if startup_check:
             self.startup_check()
@@ -95,7 +95,7 @@ class SpecificWorker(GenericWorker):
             self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxWheelSpeed,
                                         maxAcceleration, maxDeceleration)  
 
-            if not self.driver.still_alive():
+            if not self.driver.get_enable():
                 print("NO se conecto al driver o fallo uno de ellos , cerrando programa")
                 exit(-1)
 
@@ -123,34 +123,36 @@ class SpecificWorker(GenericWorker):
         return True
 
     def setAdvx(self, val):
-        if val>self.maxLinSpeed:  
+        if abs(val)>self.maxLinSpeed:  
             print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[0],"CUNADO MAXIMA ES", self.maxLinSpeed)
-            self.targetSpeed[0] = self.maxLinSpeed
+            self.targetSpeed[0] = self.maxLinSpeed if self.maxLinSpeed > 0 else -self.maxLinSpeed
         else:  self.targetSpeed[0] = val
 
     def setAdvz(self, val):
         if val>self.maxLinSpeed: 
             print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[1],"CUNADO MAXIMA ES", self.maxLinSpeed) 
-            self.targetSpeed[1] = self.maxLinSpeed
+            self.targetSpeed[1] = self.maxLinSpeed if self.maxLinSpeed > 0 else -self.maxLinSpeed
         else:  self.targetSpeed[1] = val
 
     def setRot(self, val):
         if val>self.maxRotSpeed:  
             print("AVISO SUPERADA LA VELOCIDAD MAXIMA", self.targetSpeed[2],"CUNADO MAXIMA ES", self.maxRotSpeed)
-            self.targetSpeed[2] = self.maxRotSpeed     
+            self.targetSpeed[2] = self.maxRotSpeed if self.maxRotSpeed > 0 else -self.maxRotSpeed 
         else:  self.targetSpeed[2] = val
 
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
         if self.driver != None:
-            if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
-                speeds = self.m_wheels@self.targetSpeed
-                #print("mm/s",speeds)
-                self.driver.set_speed(speeds)
-                self.oldTargetSpeed = np.copy(self.targetSpeed)
-                #print("Modificamos velocidades: ", self.oldTargetSpeed)
-
+            if self.driver.get_enable() and self.driver.get_safety():
+                if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
+                    speeds = self.m_wheels@self.targetSpeed
+                    #print("mm/s",speeds)
+                    self.driver.set_speed(speeds)
+                    self.oldTargetSpeed = np.copy(self.targetSpeed)
+                    #print("Modificamos velocidades: ", self.oldTargetSpeed)
+            else:
+                pass
             #self.driver.show_params(False)
         return True
 
@@ -249,10 +251,14 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of stopBase method from OmniRobot interface
     #
     def OmniRobot_stopBase(self):
-        print("///////////////////////PARADA DE EMERGENCIA////////////////////")
-        self.setAdvx(0.0)
-        self.setAdvz(0.0)
-        self.setRot(0.0)
+        self.time_emergency =time.time()
+        self.OmniRobot_setSpeedBase(0, 0, 0)
+        self.driver.emergency_stop()
+    
+    def reset_emergency_stop(self):
+        if time.time()-self.time_emergency>1:
+            self.OmniRobot_setSpeedBase(0, 0, 0)
+            self.driver.reset_emergency_stop()
 
 
     # ===================================================================
@@ -280,19 +286,29 @@ class SpecificWorker(GenericWorker):
     
         #print(data)
         for b in data.buttons:
-            if b.name == "stop":
+            if b.name == "block":
                 if b.step == 1:
-                    self.OmniRobot_stopBase()
+                    if self.driver.get_safety():
+                        self.OmniRobot_stopBase()
+                    else:
+                        self.reset_emergency_stop()
                     self.joystickControl = False
-            elif  b.name == "block":
+            elif  b.name == "stop":
                 if b.step == 1:
-                    self.driver.stop_driver()
+                    if self.driver.get_enable():
+                        self.time_disble = time.time()
+                        self.driver.disable_driver()
+                    elif time.time()-self.time_disble > 1:
+                        self.driver.enable_driver()
                     self.joystickControl = False
             elif b.name == "joystick_control":
                 if b.step == 1:
                     self.joystickControl = not self.joystickControl
+                    if not self.joystickControl:
+                        self.OmniRobot_setSpeedBase(0, 0, 0)
+                    print("Joystick control: ", self.joystickControl)
             else:
-                print(b.name, "PULASDOR NO AJUSTADO")
+                pass#print(b.name, "PULASDOR NO AJUSTADO")
             
             if self.joystickControl:
                 for a in  data.axes:
@@ -303,7 +319,7 @@ class SpecificWorker(GenericWorker):
                     elif a.name == "side":
                         self.setAdvx(a.value)
                     else:
-                        print(a.name, "VELODIDAD NO AJUSTADA")
+                        pass#print(a.name, "JOYSTICK NO AJUSTADO")
 
         
 
