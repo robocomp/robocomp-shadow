@@ -8,7 +8,7 @@ import cv2
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score, clase, image, hash, kalman_enabled=False):
+    def __init__(self, tlwh, score, clase, image, hash, orientation, kalman_enabled=False):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -19,6 +19,7 @@ class STrack(BaseTrack):
         self.image = image
         self.hash = hash
         self.hash_memory = deque(maxlen=50)
+        self.orientation = orientation
         self.last_hash_stored = time.time()
         self.store_period = 0.5
         self.score = score
@@ -72,6 +73,7 @@ class STrack(BaseTrack):
         if new_id:
             self.track_id = self.next_id()
         self.score = new_track.score
+        self.orientation = new_track.orientation
         self.image = new_track.image
         self.hash = new_track.hash
         self.hash_memory = new_track.hash_memory
@@ -99,6 +101,7 @@ class STrack(BaseTrack):
         self.is_activated = True
         self.image = new_track.image
         self.hash = new_track.hash
+        self.orientation = new_track.orientation
         if time.time() - self.last_hash_stored > self.store_period:
             self.hash_memory.append(new_track.hash)
             self.last_hash_stored = time.time()
@@ -182,18 +185,18 @@ class HashTracker(object):
         self.tracked_element = None
         self.chosen_track = -1
 
-    def update(self, scores, bboxes, clases, images, hash):
+    def update(self, scores, bboxes, clases, images, hash, orientations):
         if not self.tracked_stracks and not self.lost_stracks:
             self.chosen_track = -1
         # Cleaning not followed tracks
         if self.chosen_track != -1:
             self.tracked_stracks = [track for track in self.tracked_stracks if track.track_id == self.chosen_track]
             self.lost_stracks = [track for track in self.lost_stracks if track.track_id == self.chosen_track]
-            return self.update_element_following(scores, bboxes, clases, images, hash)
+            return self.update_element_following(scores, bboxes, clases, images, hash, orientations)
         else:
-            return self.update_original(scores, bboxes, clases, images, hash)
+            return self.update_original(scores, bboxes, clases, images, hash, orientations)
 
-    def update_element_following(self, scores, bboxes, clases, images, hash):
+    def update_element_following(self, scores, bboxes, clases, images, hash, orientations):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -204,8 +207,8 @@ class HashTracker(object):
             '''Detections'''
             # detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, images, hash) for
             #               (tlbr, s, clases, images, hash) in zip(dets, scores_keep, clases_keep, images_keep, hash_keep)]
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, images, hash) for
-                          (tlbr, s, clases, images, hash) in zip(bboxes, scores, clases, images, hash)]
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, images, hash, orientations) for
+                          (tlbr, s, clases, images, hash, orientations) in zip(bboxes, scores, clases, images, hash, orientations)]
         else:
             detections = []
 
@@ -273,7 +276,7 @@ class HashTracker(object):
 
         return output_stracks
 
-    def update_original(self, scores, bboxes, clases, images, hash):
+    def update_original(self, scores, bboxes, clases, images, hash, orientations):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -295,11 +298,13 @@ class HashTracker(object):
         images_second = images[inds_second]
         hash_keep = hash[remain_inds]
         hash_second = hash[inds_second]
+        orientations_keep = orientations[remain_inds]
+        orientations_second = orientations[inds_second]
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, image, hash) for
-                          (tlbr, s, clases, image, hash) in zip(dets, scores_keep, clases_keep, images_keep, hash_keep)]
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, image, hash, orientations) for
+                          (tlbr, s, clases, image, hash, orientations) in zip(dets, scores_keep, clases_keep, images_keep, hash_keep, orientations_keep)]
         else:
             detections = []
 
@@ -338,8 +343,8 @@ class HashTracker(object):
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, image, hash) for
-                          (tlbr, s, clases, image, hash) in zip(dets_second, scores_second, clases_second, images_second, hash_second)]
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, clases, image, hash, orientations) for
+                          (tlbr, s, clases, image, hash, orientations) in zip(dets_second, scores_second, clases_second, images_second, hash_second, orientations_second)]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
