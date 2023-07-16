@@ -21,7 +21,7 @@
 
 import sys
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QPolygon
 from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
@@ -248,6 +248,7 @@ class SpecificWorker(GenericWorker):
             yolo_objects = []
         if self.semantic:
             sm_objects = self.read_ss_objects()
+
             sm_masks = self.get_ss_masks(["floor"])
         else:
             sm_objects = []
@@ -314,52 +315,119 @@ class SpecificWorker(GenericWorker):
         # read masks from SemanticSegmentator
         ss_masks = []
         try:
-            ss_masks = self.maskelements_proxy.getMasks(class_names)
-            self.convert_from_2d_to_3d_mask_points(ss_masks)
+            ss_masks_ = self.maskelements_proxy.getMasks(class_names)
+            ss_masks = self.convert_from_2d_to_3d_mask_points(ss_masks_)
         except Ice.Exception as e:
             traceback.print_exc()
             print(e)
         return ss_masks
 
     def convert_from_2d_to_3d_mask_points(self, masks):
+        masks_ = []
         for mask in masks:
             mask_img = np.frombuffer(mask.image, dtype=np.uint8).reshape((mask.height, mask.width, 1))
-            min_x = 0
-            max_x = 0
-            max_y = 0
-            mask_real_points = []
-            for y, row in enumerate(mask_img):
-                x_values = np.where(row == 255)
-                # Get maximun distance
-                if len(x_values[0]) > 0:
-                    for x in x_values[0]:
-                        act_x, act_y = self.to_3d(x, y)
-                        mask_real_points.append([int(round(act_x, 2) * 100), int(round(act_y, 2) * 100)])
-                        if act_y > max_y:
-                            max_y = act_y
-                        if act_x < min_x:
-                            min_x = act_x
-                        if act_x > max_x:
-                            max_x = act_x
-            print("MAX Y" , max_y)
-            print("X", min_x, max_x)
-            y_array_dim = int(round(max_y, 2) * 100)
-            x_array_dim = int(round(2 * abs(min_x), 2) * 100) if abs(min_x) > abs(max_x) else int(round(2 * abs(max_x), 2) * 100)
-            print(x_array_dim, y_array_dim)
-            converted = np.zeros((y_array_dim + 1, x_array_dim + 1, 1), dtype=np.uint8)
-            for point in mask_real_points:
-                converted[point[1]][point[0] + int(x_array_dim / 2)] = 255
-            converted = cv2.resize(converted, (int((x_array_dim + 1) / 2), int((y_array_dim + 1)/2)))
-            cv2.imshow("original", mask_img)
-            cv2.imshow("conv", converted[::-1])
-            cv2.waitKey(1)
+            mask_box = self.do_box(mask_img)
+            if any(numero < 0 for numero in mask_box) or (mask_box[0] == mask_box[1]) or (mask_box[2] == mask_box[3]):
+                return masks_
+            print(mask_box)
+            # Bbox points converted
+            top_left_x, top_left_y = self.to_3d(mask_box[0], mask_box[2])
+            top_right_x, top_right_y = self.to_3d(mask_box[1], mask_box[2])
+            bot_left_x, bot_left_y = self.to_3d(mask_box[0], mask_box[3])
+            bot_right_x, bot_right_y = self.to_3d(mask_box[1], mask_box[3])
 
+            if top_left_x < bot_left_x:
+                # Move negative x points to positive section
+                if top_left_x < 0:
+                    top_right_x += abs(top_left_x)
+                    bot_right_x += abs(top_left_x)
+                    bot_left_x += abs(top_left_x)
+                    top_left_x += abs(top_left_x)
+                else:
+                    top_right_x -= top_left_x
+                    bot_right_x -= top_left_x
+                    bot_left_x -= top_left_x
+                    top_left_x = 0
+            else:
+                if bot_left_x < 0:
+                    top_right_x += abs(bot_left_x)
+                    top_left_x += abs(bot_left_x)
+                    bot_right_x += abs(bot_left_x)
+                    bot_left_x += abs(bot_left_x)
+                else:
+                    top_right_x -= bot_left_x
+                    top_left_x = 0
+                    bot_right_x -= bot_left_x
+                    bot_left_x -= bot_left_x
+
+            image_polygon_width = top_right_x * 100 if top_right_x > bot_right_x else bot_right_x * 100
+
+            print("ANCHO Y ALTO:", image_polygon_width, int(top_left_y * 100))
+            polygon = QPolygon()
+            polygon << QPoint(int(top_left_x * 100), int(top_left_y * 100)) << QPoint(int(top_right_x * 100), int(top_right_y * 100)) << QPoint(int(bot_right_x * 100), int(bot_right_y * 100)) << QPoint(int(bot_left_x * 100), int(bot_left_y * 100))
+
+            print(int(top_left_x * 100), int(top_left_y * 100))
+            print(int(top_right_x * 100), int(top_right_y * 100))
+            print(int(bot_left_x * 100), int(bot_left_y * 100))
+            print(int(bot_right_x * 100), int(bot_right_y * 100))
+            if image_polygon_width > 100 and  int(top_left_y * 100) > 100:
+                masks_.append(self.draw_polygon(polygon, int(top_left_y * 100), int(image_polygon_width)))
+        return masks_
+            # min_x = 0
+            # max_x = 0
+            # max_y = 0
+            # mask_real_points = []
+            # for y, row in enumerate(mask_img):
+            #     x_values = np.where(row == 255)
+            #     # Get maximun distance
+            #     if len(x_values[0]) > 0:
+            #         for x in x_values[0]:
+            #             act_x, act_y = self.to_3d(x, y)
+            #             mask_real_points.append([int(round(act_x, 2) * 100), int(round(act_y, 2) * 100)])
+            #             if act_y > max_y:
+            #                 max_y = act_y
+            #             if act_x < min_x:
+            #                 min_x = act_x
+            #             if act_x > max_x:
+            #                 max_x = act_x
+            # y_array_dim = int(round(max_y, 2) * 100)
+            # x_array_dim = int(round(2 * abs(min_x), 2) * 100) if abs(min_x) > abs(max_x) else int(round(2 * abs(max_x), 2) * 100)
+            # print(x_array_dim, y_array_dim)
+            # converted = np.zeros((y_array_dim + 1, x_array_dim + 1, 1), dtype=np.uint8)
+            # for point in mask_real_points:
+            #     converted[point[1]][point[0] + int(x_array_dim / 2)] = 255
+            # converted = cv2.resize(converted, (int((x_array_dim + 1) / 2), int((y_array_dim + 1)/2)))
+
+    def do_box(self, mask):
+        box = cv2.boundingRect(mask)
+        left = int(box[0])
+        right = left + int(box[2]) - 1
+        top = int(box[1])
+        bot = top + int(box[3]) - 1
+        return [left, right, top, bot]
+
+    def draw_polygon(self, polygon, height, width):
+
+        image = QImage(width, height, QImage.Format_RGB32)
+        image.fill(Qt.black)
+
+        # Crear un QPainter para dibujar en la imagen
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        fill_color = QColor(0, 255, 0)  # Rojo
+        painter.setBrush(fill_color)
+        outline_color = QColor(0, 0, 0)  # Azul
+        painter.setPen(outline_color)
+        painter.drawPolygon(polygon)
+        painter.end()
+        return image
 
 
     def to_3d(self, x, y):
         world_y = 128 * 1.35 / (y - 192)
         world_x = world_y * (x - 192) / 128
-        return world_x, world_y
+        return round(world_x, 2), round(world_y, 2)
     def read_yolo_objects(self):
         yolo_objects = ifaces.RoboCompVisualElements.TObjects()
         try:
@@ -512,7 +580,6 @@ class SpecificWorker(GenericWorker):
         frame = self.draw_objects(frame, objects)
         self.glviewer.process_elements(objects)
         if len(masks) > 0:
-
             self.glviewer.update_floor_plane(masks[0])
 
         # Convert the OpenCV image to a QImage. WATCH that the ratio is lost

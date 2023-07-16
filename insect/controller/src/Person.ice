@@ -26,6 +26,7 @@ module RoboCompPerson
 	struct TPerson
 	{
 		int id;
+		float orientation;
 		TJoints joints;
 		long timestamp;
 	};

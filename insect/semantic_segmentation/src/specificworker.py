@@ -481,7 +481,7 @@ class SpecificWorker(GenericWorker):
                                                                 xsize=self.roi_xsize, ysize=self.roi_ysize,
                                                                 finalxsize=self.final_xsize, finalysize=self.final_ysize)
             self.objects_write.append(act_object)
-        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+        # self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
