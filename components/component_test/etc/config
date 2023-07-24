@@ -2,6 +2,7 @@
 JoystickAdapterTopic.Endpoints=tcp -p 18897
 
 # Proxies for required interfaces
+FullPoseEstimationProxy = fullposeestimation:tcp -h localhost -p 10696
 IMUProxy = imu:tcp -h localhost -p 10020
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10032
 

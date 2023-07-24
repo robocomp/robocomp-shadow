@@ -75,7 +75,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "bin/RicohOmni et
 
 
 #YOLO
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/components/robocomp-shadow/insect/yolov8_360"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/components/robocomp-shadow/insect/yolov8_360_seg"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "src/yolov8_360.py etc/config"
 
 #HASH

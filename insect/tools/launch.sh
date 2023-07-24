@@ -50,7 +50,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "cd ~/robocomp/co
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "src/byte_tracker.py etc/config_m2f"
 
 #-------------------------------YOLO-------------------------
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/components/robocomp-shadow/insect/yolov8_360"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/components/robocomp-shadow/insect/yolov8_360_seg"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "src/yolov8_360.py etc/config"
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cd ~/robocomp/components/robocomp-shadow/insect/byte_tracker"

@@ -1,13 +1,14 @@
 import "OmniRobot.idsl";
 import "JoystickAdapter.idsl"; 
 import "IMU.idsl";
+import "FullPoseEstimation.idsl";
 
 
-Component vibrator_test
+Component component_test
 {
 	Communications
 	{
-		requires OmniRobot, IMU;
+		requires OmniRobot, IMU, FullPoseEstimation;
 		subscribesTo JoystickAdapter;
 	};
 	language python;

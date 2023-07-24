@@ -2,6 +2,7 @@ import "VisualElements.idsl";
 import "Lidar3D.idsl";
 import "SegmentatorTrackingPub.idsl";
 import "Camera360RGB.idsl";
+import "Camera360RGB.idsl";
 Component hash_tracker
 {
     Communications
