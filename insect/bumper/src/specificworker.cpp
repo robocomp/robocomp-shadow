@@ -127,7 +127,7 @@ void SpecificWorker::compute()
     // if(display)
     draw_ring_points(draw_points, result, &viewer->scene);
     //draw_all_points(ldata, &viewer->scene);
-    
+
     fps.print("FPS:");
 }
 
