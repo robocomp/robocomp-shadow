@@ -5,6 +5,8 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/FullPoseEstimation.ice")
+import RoboCompFullPoseEstimation
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/IMU.ice")
@@ -90,6 +92,8 @@ class Requires:
     def __init__(self, ice_connector):
         self.ice_connector = ice_connector
         self.mprx={}
+
+        self.FullPoseEstimation = self.create_proxy("FullPoseEstimationProxy", RoboCompFullPoseEstimation.FullPoseEstimationPrx)
 
         self.IMU = self.create_proxy("IMUProxy", RoboCompIMU.IMUPrx)
 

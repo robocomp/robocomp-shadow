@@ -32,11 +32,23 @@ from threading import Thread, Event
 import traceback
 import queue
 import sys
+import yaml
+import copy
 
-sys.path.append('/home/robocomp/software/YOLOv8-TensorRT')
-from models.utils import blob, letterbox, path_to_list, seg_postprocess
-# from models.cudart_api import TRTEngine
-from models.pycuda_api import TRTEngine
+sys.path.append('/home/robocomp/software/JointBDOE')
+
+from utils.torch_utils import select_device
+from utils.general import check_img_size, scale_coords, non_max_suppression
+from utils.datasets import LoadImages
+from models.experimental import attempt_load
+from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
+
+sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/hash_tracker/HashTrack')
+import matching
+
+from ultralytics import YOLO
+import torch
+
 
 console = Console(highlight=False)
 
@@ -154,7 +166,18 @@ class SpecificWorker(GenericWorker):
             self.Period = 1
             self.thread_period = 10
             self.display = False
-            self.yolo_segmentation_model = "yolov8m-seg.engine"
+            self.yolo_model_name = 'yolov8m-seg.pt'
+            # self.yolo_model_name = 'yolov8n-pose.pt'
+
+            self.model_v8 = YOLO(self.yolo_model_name)
+
+            self.device = select_device("0", batch_size=1)
+            self.model = attempt_load(
+                "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
+                map_location=self.device)
+            self.stride = int(self.model.stride.max())
+            with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
+                self.data = yaml.safe_load(f)  # load data dict
 
             # OJO, comentado en el main
             self.setParams(params)
@@ -196,10 +219,7 @@ class SpecificWorker(GenericWorker):
 
             self.window_name = "Yolo Segmentator"
 
-            # trt
-            self.engine = TRTEngine(self.yolo_segmentation_model)
-            self.H, self.W = self.engine.inp_info[0].shape[-2:]
-            print("Loaded YOLO model: ", self.yolo_segmentation_model)
+            print("Loaded YOLO model: ", self.yolo_model_name)
 
             # Hz
             self.cont = 0
@@ -264,26 +284,29 @@ class SpecificWorker(GenericWorker):
         # Get image with depth
         data = self.read_queue.get()
         if self.depth_flag:
-            rgb, depth, blob_, alive_time, period, dw, dh = data
+            rgb, depth, alive_time, period = data
         else:
-            rgb, blob_, alive_time, period, dw, dh = data
+            rgb, alive_time, period = data
 
-        data = self.engine(blob_)
+        img0 = copy.deepcopy(rgb)
+
+        init = time.time()
+        bboxes, confidences, associated_orientations, masks, classes = self.inference_over_image(rgb)
+
+        print("TIEMPO INFERENCIA:", time.time() - init)
 
         # Set ROI dimensions if tracking an object
         if self.tracked_id is not None:
             self.set_roi_dimensions(self.objects_read)
-
+        #
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
-        # If detections are found
-        if data is not None:
-            bboxes, scores, labels, masks = seg_postprocess(
-                data, rgb.shape[:2], 0.25, 0.65)
-            mask_rois = self.get_mask_with_modified_background(masks[:, dh:self.H - dh, dw:self.W - dw, :].astype(np.uint8), rgb)
-            self.create_interface_data(bboxes, scores, labels, mask_rois)
-            self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
 
-        # swap
+        masks = self.get_mask_with_modified_background(masks, bboxes, img0)
+
+        self.objects_write = self.create_interface_data(bboxes, confidences, classes, masks, associated_orientations)
+        self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
+        #
+        # # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
         # If display is enabled, show the tracking results on the image
@@ -320,14 +343,12 @@ class SpecificWorker(GenericWorker):
 
                 # Convert image data to numpy array and reshape it.
                 color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
-                bgr, ratio, dwdh = letterbox(cv2.cvtColor(color, cv2.COLOR_BGR2RGB), (self.H, self.W))
-                tensor, seg_img = blob(bgr, return_seg=True)
-                blob_ = np.ascontiguousarray(tensor)
+
                 # Calculate time difference.
                 delta = int(1000 * time.time() - self.rgb.alivetime)
 
                 # Prepare the data package to be put into the queue.
-                data_package = [color, blob_, delta, self.rgb.period, int(dwdh[0]), int(dwdh[1])]
+                data_package = [color, delta, self.rgb.period]
 
                 # If the depth flag is set, insert the depth information into the data package.
                 if self.depth_flag:
@@ -350,19 +371,21 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
                 print(e, "Error communicating with Camera360RGB")
 
-    def get_mask_with_modified_background(self, masks, image):
+    def get_mask_with_modified_background(self, masks, bboxes, image):
         output_masks = []
-        for mask in masks:
-            masked_image = mask * image
-            _, binary_mask = cv2.threshold(mask, 0, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            contour = max(contours, key=cv2.contourArea)
-            x, y, w, h = cv2.boundingRect(contour)
-            roi = masked_image[y:y + h, x:x + w]
-            background_color = roi[int(h / 3), int(w / 2)]
-            black_pixels = np.where(np.all(roi == [0, 0, 0], axis=-1))
-            roi[black_pixels] = background_color
-            output_masks.append(roi)
+        if len(masks) == len(bboxes):
+            for i in range(len(masks)):
+                image_mask = np.zeros((self.rgb.height, self.rgb.width, 3), dtype=np.uint8)
+                act_mask = masks[i].astype(np.int32)
+                act_bbox = bboxes[i]
+                cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
+                masked_image = image_mask * image
+                roi = masked_image[act_bbox[1]:act_bbox[3], act_bbox[0]:act_bbox[2]]
+                h, w, _ = roi.shape
+                background_color = roi[int(h / 3), int(w / 2)]
+                black_pixels = np.where(np.all(roi == [0, 0, 0], axis=-1))
+                roi[black_pixels] = background_color
+                output_masks.append(roi)
         return output_masks
 
 
@@ -421,6 +444,85 @@ class SpecificWorker(GenericWorker):
 
         self.last_ROI_error = aux_x_diff
 
+    def inference_over_image(self, img):
+        img0 = copy.deepcopy(img)
+        img = letterbox(img, 640, stride=self.stride, auto=True)[0]
+        img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        img = np.ascontiguousarray(img)
+        img = torch.from_numpy(img).to(self.device)
+        img = img / 255.0  # 0 - 255 to 0.0 - 1.0
+
+        if len(img.shape) == 3:
+            img = img[None]  # expand for batch dim
+
+        # Make inference with both models
+        out_ori = self.model(img, augment=True, scales=[self.roi_xsize / 640])[0]
+        orientation_bboxes, orientations = self.get_orientation_data(out_ori, img, img0)
+
+        out_v8 = self.model_v8.predict(img0, classes=0, show_conf=True)
+
+        # YOLO V8 data processing
+        if "pose" in self.yolo_model_name:
+            bboxes, confidences, skeletons, classes = self.get_pose_data(out_v8)
+        else:
+            bboxes, confidences, masks, classes = self.get_segmentator_data(out_v8)
+
+        matches = self.associate_orientation_with_segmentation(orientation_bboxes, bboxes)
+
+        associated_orientations = []
+        for i in range(len(matches)):
+            for j in range(len(matches)):
+                if i == matches[j][1]:
+                    associated_orientations.append(np.deg2rad(orientations[matches[j][0]][0]))
+                    break
+
+        return bboxes, confidences, associated_orientations, masks, classes
+
+    def associate_orientation_with_segmentation(self, seg_bboxes, ori_bboxes):
+        dists = matching.v_iou_distance(seg_bboxes, ori_bboxes)
+        matches, unmatched_a, unmatched_b = matching.linear_assignment(dists, 0.9)
+        return matches
+
+    def get_pose_data(self, result):
+        pose_bboxes = []
+        pose_confidences = []
+        skeletons = []
+        for result in result:
+            if result.keypoints != None and result.boxes != None:
+                boxes = result.boxes
+                keypoints = result.keypoints.xy.cpu().numpy().astype(int)
+                if len(keypoints) == len(boxes):
+                    for i in range(len(keypoints)):
+                        person_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
+                        pose_bboxes.append(person_bbox)
+                        pose_confidences.append(boxes[i].conf.cpu().numpy()[0])
+                        skeletons.append(keypoints[i])
+        return pose_bboxes, pose_confidences, skeletons, [0] * len(boxes)
+
+    def get_segmentator_data(self, result):
+        segmentation_bboxes = []
+        segmentation_masks = []
+        segmentation_confidences = []
+        segmentation_classes = []
+        for result in result:
+            if result.masks != None and result.boxes != None:
+                masks = result.masks.xy
+                boxes = result.boxes
+                if len(masks) == len(boxes):
+                    for i in range(len(boxes)):
+                        person_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
+                        segmentation_bboxes.append(person_bbox)
+                        segmentation_classes.append(boxes[i].cls.cpu().numpy()[0])
+                        segmentation_confidences.append(boxes[i].conf.cpu().numpy()[0])
+                        segmentation_masks.append(masks[i].astype(int))
+        return segmentation_bboxes, segmentation_confidences, segmentation_masks, segmentation_classes
+
+    def get_orientation_data(self, results, processed_image, original_image):
+        out = non_max_suppression(results, 0.3, 0.5, num_angles=self.data['num_angles'])
+        orientation_bboxes = scale_coords(processed_image.shape[2:], out[0][:, :4], original_image.shape[:2]).cpu().numpy().astype(int)  # native-space pred
+        orientations = (out[0][:, 6:].cpu().numpy() * 360) - 180   # N*1, (0,1)*360 --> (0,360)
+        return orientation_bboxes, orientations
+
     def yolov8_objects(self, blob):
         """
         This method infers objects in the given image blob using YOLO (You Only Look Once) version 8 object detection model.
@@ -454,7 +556,7 @@ class SpecificWorker(GenericWorker):
         #                        final_cls_inds[:num[0]].reshape(-1, 1)], axis=-1)
         # return dets
 
-    def create_interface_data(self, boxes, scores, cls_inds, mask_rois): #Optimizado
+    def create_interface_data(self, boxes, scores, cls_inds, mask_rois, orientations): #Optimizado
         """
         This method generates interface data for visual objects detected in an image.
 
@@ -469,26 +571,26 @@ class SpecificWorker(GenericWorker):
 
         The method also includes the region of interest (ROI) in the RGB image where the object was detected.
         """
-        self.objects_write = ifaces.RoboCompVisualElements.TObjects()
+        objects_write = ifaces.RoboCompVisualElements.TObjects()
 
         # Extracting desired indices, scores, boxes, and classes in one go
-        desired_data = [(i, score, box, cls, roi) for i, (score, box, cls, roi) in enumerate(zip(scores, boxes, cls_inds, mask_rois)) if
+        desired_data = [(i, score, box, cls, roi, orientation) for i, (score, box, cls, roi, orientation) in enumerate(zip(scores, boxes, cls_inds, mask_rois, orientations)) if
                         cls in self.classes]
-        for i, score, box, cls, roi in desired_data:
+        for i, score, box, cls, roi, orientation in desired_data:
             act_object = ifaces.RoboCompVisualElements.TObject()
             act_object.type = int(cls)
+            if int(cls) == 0:
+                act_object.person = ifaces.RoboCompPerson.TPerson(orientation = float(orientation))
             act_object.left = int(box[0])
             act_object.top = int(box[1])
             act_object.right = int(box[2])
             act_object.bot = int(box[3])
             act_object.score = float(score)
             act_object.image = self.get_bbox_image_data(roi)
-            self.objects_write.append(act_object)
-        return self.objects_write
+            objects_write.append(act_object)
+        return objects_write
 
     def get_bbox_image_data(self, image):
-        cv2.imshow("roi", image)
-        cv2.waitKey(1)
         bbox_image = ifaces.RoboCompCamera360RGB.TImage()
         bbox_image.image = image.tobytes()
         bbox_image.height, bbox_image.width, _ = image.shape
@@ -684,7 +786,7 @@ class SpecificWorker(GenericWorker):
             color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
 
             # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
-            text = f'{cls_ind} - {element.id}'
+            text = f'{cls_ind} - {element.id} - {element.person.orientation}'
             txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]

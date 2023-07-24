@@ -147,6 +147,18 @@ def v_iou_distance(atracks, btracks):
 
     return cost_matrix
 
+def ious( atlbrs, btlbrs):
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=float)
+    if ious.size == 0:
+        return ious
+
+    ious = bbox_ious(
+        np.ascontiguousarray(atlbrs, dtype=float),
+        np.ascontiguousarray(btlbrs, dtype=float)
+)
+
+    return ious
+
 def embedding_distance(tracks, detections, metric='cosine'):
     """
     :param tracks: list[STrack]

@@ -1,9 +1,13 @@
 # yolov8_360_seg
 Intro to component here
 
-Goto  https://github.com/triple-Mu/YOLOv8-TensorRT and follow instructions in docs/Segment.md.
+To install the software for getting orientation: 
+- Clone https://github.com/hnuzhy/JointBDOE in /home/robocomp/software
+- Download the weights from https://huggingface.co/HoyerChou/JointBDOE 
+- Copy them to /home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights
+- Rename the chosen one to "best.pt"
+
 You can download yolov8-seg.pt from https://github.com/ultralytics/ultralytics 
-Transform the models into trt. Note that you have to do it for each differente GPU
 
 ## Configuration parameters
 As any other component, *yolov8_360* needs a configuration file to start. In

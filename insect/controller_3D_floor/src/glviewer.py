@@ -54,9 +54,9 @@ class GLViewer:
 
         # Create a grid geometry
         self.grid_geometry = Qt3DExtras.QPlaneMesh()
-        self.grid_geometry.setWidth(20)
-        self.grid_geometry.setHeight(20)
-        self.grid_geometry.setMeshResolution(QSize(20, 20))
+        self.grid_geometry.setWidth(30)
+        self.grid_geometry.setHeight(30)
+        self.grid_geometry.setMeshResolution(QSize(30, 30))
 
         # Create a floor geometry
         self.floor_geometry = Qt3DExtras.QPlaneMesh()
@@ -95,7 +95,7 @@ class GLViewer:
 
         # Create a grid material
         self.grid_material = Qt3DExtras.QPhongMaterial()
-        self.grid_material.setAmbient(QColor(Qt.lightGray))
+        self.grid_material.setAmbient(QColor(Qt.black))
 
 
         self.planeTransform = Qt3DCore.QTransform()
@@ -141,18 +141,27 @@ class GLViewer:
 
     def update_floor_plane(self, mask):
 
-        mask_img = np.frombuffer(mask.image, dtype=np.uint8).reshape((mask.height, mask.width, 1))
-        array_created = np.full((500, 500, 3),
-                                np.random.choice(range(256), size=3), dtype=np.uint8)
-        print(mask_img.shape)
-        qimage = QImage(mask_img, mask_img.shape[1], mask_img.shape[0],
-                        QImage.Format_RGB888)
+        # mask_img = np.frombuffer(mask.image, dtype=np.uint8).reshape((mask.height, mask.width, 1))
+        # array_created = np.full((500, 500, 3),
+        #                         np.random.choice(range(256), size=3), dtype=np.uint8)
+        # print(mask_img.shape)
+        # qimage = QImage(mask_img, mask_img.shape[1], mask_img.shape[0],
+        #                 QImage.Format_RGB888)
+        mask = mask.scaled( mask.width(), mask.height())
+        mask.save("poligono.png")
+        self.floor_geometry.setMeshResolution(QSize(mask.height()/100, mask.width()/100))
+        width = mask.width()/100
+        height = mask.height() / 100
+        print(height/2, -((height/2)+0.005))
+        self.floor_geometry.setWidth(width)
+        self.floor_geometry.setHeight(height)
         self.image = Image()
-        self.image.set_image(qimage)  # type(image): QImage
+        self.image.set_image(mask.mirrored())  # type(image): QImage
         self.floor_material.normal().addTextureImage(self.image)
         self.floor_material.diffuse().addTextureImage(self.image)
-        self.floor_material.setTextureScale(0.3)
+        self.floor_material.setTextureScale(1)
         self.floor_material.setAmbient(QColor.fromRgbF(1, 1, 1, 1))
+        self.floorTransform.setTranslation(QVector3D(0, height/3, -((height/3))+0.005))
 
     def load_stl_model(self):
         self.modelEntity = Qt3DCore.QEntity(self.grid_entity)

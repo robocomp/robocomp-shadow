@@ -41,6 +41,7 @@ class GenericWorker(QtCore.QObject):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
+        self.fullposeestimation_proxy = mprx["FullPoseEstimationProxy"]
         self.imu_proxy = mprx["IMUProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
 

@@ -24,9 +24,8 @@ from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-import time, pandas, datetime
+import time, pandas, datetime, threading
 
-sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
 
@@ -39,20 +38,22 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 30
+        self.Period = 0.0004
         self.enable =False
-        self.columns=["tiempo", "x", "y", "z"]
-        self.data = pandas.DataFrame(columns=self.columns)
-        self.tstart = time.time()
+        self.thread = None
+
         if startup_check:
             self.startup_check()
         else:
-            self.timer.timeout.connect(self.compute)
-            self.timer.start(self.Period)
+            pass
+            #self.timer.timeout.connect(self.compute)
+            #self.timer.start(self.Period)
 
     def __del__(self):
-        if self.enable:
-            self.data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_vibrator.csv")
+        self.omnirobot_proxy.setSpeedBase(0,0,0)
+        if self.thread is not None:
+            self.enable = False
+            self.thread.join(timeout=2)
 
     def setParams(self, params):
         return True
@@ -60,17 +61,46 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        if self.enable:
-            print('Scan...')
+        return True
+    
+
+    def vibration_data(self):
+        data = pandas.DataFrame(columns=["tiempo", "ax", "ay", "az"])
+        tstart = time.time()
+        print('Scan vibration...')
+        while self.enable:
+            
+
             try:
                 imu = self.imu_proxy.getAcceleration()
-                self.data = pandas.concat([self.data, pandas.DataFrame({"tiempo":time.time()-self.tstart, "x":imu.XAcc, "y":imu.YAcc, "z":imu.ZAcc}, index=[0])], ignore_index=True)
+                data = pandas.concat([data, pandas.DataFrame({"tiempo":time.time()-tstart, "ax":imu.XAcc, "ay":imu.YAcc, "az":imu.ZAcc}, index=[0])], ignore_index=True)
             except Exception as e :
                 print(e)
+            time.sleep(self.Period)
+        print('Save vibration...')
+        data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_vibrator.csv", sep=";", index=False)
+    
+    def speed_data(self):
+        data = pandas.DataFrame(columns=["tiempo", "vx", "vy", "vz"])
+        tstart = time.time()
+        print('Scan speed...')
+        while self.enable:
             
-        return True
+            try:
+                realsense = self.fullposeestimation_proxy.getFullPoseEuler()
+                data = pandas.concat([data, pandas.DataFrame({"tiempo":time.time()-tstart, "vx":realsense.vx, "vy":realsense.vy, "vz":realsense.vz, "ax":realsense.vx, "ay":realsense.vy, "az":realsense.az}, index=[0])], ignore_index=True)
+            except Exception as e :
+                print(e)
+            time.sleep(self.Period)
+        print('Save speed...')
+        data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_speed.csv", sep=";", index=False)
+
 
     def startup_check(self):
+        print(f"Testing RoboCompFullPoseEstimation.FullPoseMatrix from ifaces.RoboCompFullPoseEstimation")
+        test = ifaces.RoboCompFullPoseEstimation.FullPoseMatrix()
+        print(f"Testing RoboCompFullPoseEstimation.FullPoseEuler from ifaces.RoboCompFullPoseEstimation")
+        test = ifaces.RoboCompFullPoseEstimation.FullPoseEuler()
         print(f"Testing RoboCompIMU.Acceleration from ifaces.RoboCompIMU")
         test = ifaces.RoboCompIMU.Acceleration()
         print(f"Testing RoboCompIMU.Gyroscope from ifaces.RoboCompIMU")
@@ -145,6 +175,10 @@ class SpecificWorker(GenericWorker):
         except Exception as e :
             print(e)
 
+    def max_speed_test(self):
+        self.omnirobot_proxy.setSpeedBase(800,0,0)
+        time.sleep(3)
+        self.omnirobot_proxy.setSpeedBase(0,0,0)
 
     #
     # SUBSCRIPTION to sendData method from JoystickAdapter interface
@@ -152,14 +186,28 @@ class SpecificWorker(GenericWorker):
     def JoystickAdapter_sendData(self, data):
     
         for b in data.buttons:
-            if b.name == "test" and b.step == 1 and self.enable ==False:
-                self.data = pandas.DataFrame(columns=["tiempo", "x", "y", "z"])
-                self.tstart = time.time()
+            if b.name == "vibrator_test" and b.step == 1 and self.thread ==None:
                 self.enable = True
+                self.thread = threading.Thread(target=self.vibration_data, daemon=True)
+                self.thread.start()
+
                 self.vibration_test()
-                print("Result:\n", self.data)
-                self.data.to_csv("test/" + datetime.datetime.now().strftime("%Y_%m_%d_%H_%M") + "_vibrator.csv")
+
                 self.enable = False
+                self.thread.join()
+                self.thread = None
+                
+                self.enable = False
+            elif b.name == "speed_test" and b.step == 1 and self.thread ==None:
+                self.enable = True
+                self.thread = threading.Thread(target=self.speed_data, daemon=True)
+                self.thread.start()
+
+                self.max_speed_test()
+
+                self.enable = False
+                self.thread.join()
+                self.thread = None
             
 
 
@@ -168,6 +216,17 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
 
 
+
+    ######################
+    # From the RoboCompFullPoseEstimation you can call this methods:
+    # self.fullposeestimation_proxy.getFullPoseEuler(...)
+    # self.fullposeestimation_proxy.getFullPoseMatrix(...)
+    # self.fullposeestimation_proxy.setInitialPose(...)
+
+    ######################
+    # From the RoboCompFullPoseEstimation you can use this types:
+    # RoboCompFullPoseEstimation.FullPoseMatrix
+    # RoboCompFullPoseEstimation.FullPoseEuler
 
     ######################
     # From the RoboCompIMU you can call this methods:

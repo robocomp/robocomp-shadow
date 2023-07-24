@@ -1,3 +1,4 @@
 pyside6-essentials
 ultralytics
 shapely
+yaml

@@ -33,7 +33,7 @@ import time
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
-sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/hash_tracker/HashTrack')
+sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/hash_tracker_alt/HashTrack')
 # from yolox.tracker.byte_tracker_depth import BYTETracker as BYTETrackerDepth
 from hash import HashTracker
 from dataclasses import dataclass
@@ -549,7 +549,8 @@ class SpecificWorker(GenericWorker):
                 "boxes": [[object.left, object.top, object.right, object.bot] for object in visual_objects],
                 "clases": [object.type for object in visual_objects],
                 "image": [object.image for object in visual_objects],
-                "hash": [self.get_imagehash_from_roi(object) for object in visual_objects]
+                "hash": [self.get_imagehash_from_roi(object) for object in visual_objects],
+                "orientations": [object.person.orientation if object.type == 0 else 0 for object in visual_objects]
             }
 
             # get roi params from first visual object since all are the same
@@ -577,8 +578,13 @@ class SpecificWorker(GenericWorker):
                 image=track.image, id=int(track.track_id), score=track.score,
                 left=int(track.tlwh[0]), top=int(track.tlwh[1]),
                 right=int(track.tlwh[0] + track.tlwh[2]),
-                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase,
-            )
+                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase, person=ifaces.RoboCompPerson.TPerson(orientation=round(track.orientation, 3)))
+                if track.clase == 0 else
+            ifaces.RoboCompVisualElements.TObject(
+                image=track.image, id=int(track.track_id), score=track.score,
+                left=int(track.tlwh[0]), top=int(track.tlwh[1]),
+                right=int(track.tlwh[0] + track.tlwh[2]),
+                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase)
             for track in tracks
         ]
         objects = self.distance_to_object(targets)
@@ -1021,11 +1027,13 @@ class SpecificWorker(GenericWorker):
         data = self.process_visual_objects(objects)
         self.objects = objects
         # Get tracks from Bytetrack and convert data to VisualElements interface
+
         tracks = self.tracker.update(np.array(data["scores"]),
                                                        np.array(data["boxes"]),
                                                        np.array(data["clases"]),
                                                        np.array(data["image"]),
-                                                       np.array(data["hash"]))
+                                                       np.array(data["hash"]),
+                                                        np.array(data["orientations"]))
         return self.to_visualelements_interface(tracks)
     ##############################################################################################
 
