@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from random import sample
+from sqlite3 import Time
 import sys
 import os
 from tkinter import NO
+from turtle import title
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -49,11 +51,12 @@ def plot_signal(title, signal, time_period, frequencies, windows_size, frecuenci
     _, eAxis = plt.subplots(3, 1)
     plt.subplots_adjust(hspace=0.5)
 
-    for i in range(3):
+    for i, coord in enumerate(["x", "y", "z"]):
         eAxis[i].specgram(x=signal[i], Fs=frecuencia_muestreo)
         eAxis[i].set_ylabel("Hz", fontsize=10)
         eAxis[i].set_xlabel("Time second", fontsize=10)
-    plt.suptitle(title, fontsize=16)
+        eAxis[i].set_title("Axis "+coord)
+    plt.suptitle("Spectrogram of " + title , fontsize=16)
     
     plt.show()
 
@@ -62,32 +65,37 @@ def plot_signal(title, signal, time_period, frequencies, windows_size, frecuenci
     plt.subplots_adjust(hspace=0.75)
     overlap = windows_size // 2
     end = len(signal[0]) - windows_size
-
+    primero = False
     for t in range(0, end, overlap):
-        for i in range(3):
+        for i, coord in enumerate(["x", "y", "z"]):
             signal_window = signal[i][t:t + windows_size]
             fourier_transform = np.fft.fft(signal_window) / len(signal_window)
             fourier_transform = fourier_transform[range(int(len(signal_window) / 2))]
 
             axis[i].cla()
             axis[i].set_ylim(0, 3)
-            axis[i].set_title("Movement " + get_movement(t * time_period / 1000) + " / Window " + str(t * time_period / 1000) + " s to " + str((t + windows_size) * time_period / 1000) + " s", fontsize=10)
+            axis[i].set_title("Movement " + get_movement(t * time_period / 1000) + " / Window " + 
+                              str(t * time_period / 1000) + " s to " + str((t + windows_size) * time_period / 1000) +
+                                " s / in Axis "+ coord, fontsize=10)
             axis[i].set_xlabel("Hz", fontsize=10)
             axis[i].set_xticks(np.arange(0, frequencies[-1], 10))
             axis[i].set_yticks(np.arange(0, 3, 0.5))
-            axis[i].set_ylabel("Acceleration", fontsize=10)
+            axis[i].set_ylabel("mm/s^2", fontsize=10)
             axis[i].grid()
             axis[i].plot(frequencies[1:], abs(fourier_transform[1:]))
-
-        plt.suptitle(title, fontsize=16)
+        plt.suptitle("FFT of " + title, fontsize=16)
         plt.draw()
-        plt.pause(0.25)
+        if not primero:
+            primero = True
+            plt.pause(60)
+        else:
+            plt.pause(0.25)
 
-def process_csv_file(path, file, time_period, max_y, min_y, samples):
+def process_csv_file(title, file, time_period, max_y, min_y, samples):
     
 
     # Plot data
-    file.plot(xlabel="Time second", ylabel="mm/s^2", subplots=True, kind="line", logy=False, grid=True, ylim=[min_y,max_y], title=path, xlim = [0, samples])
+    file.plot(xlabel="Time x4 milliseconds", ylabel="mm/s^2", subplots=True, kind="line", logy=False, grid=True, ylim=[min_y,max_y], title="Accelerations of " + title, xlim = [0, samples])
     plt.show()
 
     if 'ax' in file:
@@ -100,7 +108,7 @@ def process_csv_file(path, file, time_period, max_y, min_y, samples):
         values = values * frecuencia_muestreo / windows_size
         frequencies = values
 
-        plot_signal(path, signal_full, time_period, frequencies, windows_size, frecuencia_muestreo)
+        plot_signal(title, signal_full, time_period, frequencies, windows_size, frecuencia_muestreo)
 
 
 def process_csv_files(data_directory, time_period):
@@ -132,12 +140,12 @@ def process_csv_files(data_directory, time_period):
         elif (aux:=file.min().min())<min: min = aux
         if (aux:=file.shape[0])>samples: samples = aux
 
-        files[csv_file_path] = file
+        files[csv_file[0:-4].replace("_", " ").replace("-", "/")] = file
         
     print("Max: ", max, "/Min: ", min, "/Num samples: ", samples)
     # Start all Processes
-    for path, file in files.items():
-        proc = multiprocessing.Process(target=process_csv_file, args=(path, file, time_period, max, min, samples))
+    for title, file in files.items():
+        proc = multiprocessing.Process(target=process_csv_file, args=(title, file, time_period, max, min, samples))
         Processes.append(proc)
         proc.start()
 
