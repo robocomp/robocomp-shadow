@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-from random import sample
-from sqlite3 import Time
 import sys
 import os
-from tkinter import NO
-from turtle import title
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
