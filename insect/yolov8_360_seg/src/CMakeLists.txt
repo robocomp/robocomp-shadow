@@ -1,6 +1,18 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 PROJECT(  yolov8_360 )
 
-INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
+SET(RC_COMPONENT_PATH ${CMAKE_CURRENT_SOURCE_DIR} CACHE STRING "component base path")
+SET(RC_COMPONENT_DEVEL_PATH ${CMAKE_CURRENT_SOURCE_DIR} CACHE STRING "component binary path")
+ADD_SUBDIRECTORY( src )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGB Camera360RGB Person SegmentatorTrackingPub VisualElements VisualElements VisualElements )
+MACRO( WRAP_PYTHON_UI )
+  FOREACH( input_file ${ARGN} )
+    ADD_CUSTOM_COMMAND (
+      OUTPUT src/ui_${input_file}.py
+      COMMAND pyside2-uic ${CMAKE_CURRENT_SOURCE_DIR}/src/${input_file}.ui -o ${CMAKE_CURRENT_SOURCE_DIR}/src/ui_${input_file}.py
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${input_file}.ui
+      COMMENT "Generating src/ui_${input_file}.py from src/${input_file}.ui"
+    )
+    ADD_CUSTOM_TARGET(ui_${input_file} ALL DEPENDS src/ui_${input_file}.py )
+  ENDFOREACH( input_file )
+ENDMACRO( WRAP_PYTHON_UI )
