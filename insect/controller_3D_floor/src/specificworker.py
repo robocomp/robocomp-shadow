@@ -32,6 +32,7 @@ import cv2
 import time
 import itertools
 import queue
+import math
 from dwa_optimizer import DWA_Optimizer
 sys.path.append('/home/robocomp/robocomp/lib')
 console = Console(highlight=False)
@@ -329,7 +330,6 @@ class SpecificWorker(GenericWorker):
             mask_box = self.do_box(mask_img)
             if any(numero < 0 for numero in mask_box) or (mask_box[0] == mask_box[1]) or (mask_box[2] == mask_box[3]):
                 return masks_
-            print(mask_box)
             # Bbox points converted
             top_left_x, top_left_y = self.to_3d(mask_box[0], mask_box[2])
             top_right_x, top_right_y = self.to_3d(mask_box[1], mask_box[2])
@@ -362,14 +362,9 @@ class SpecificWorker(GenericWorker):
 
             image_polygon_width = top_right_x * 100 if top_right_x > bot_right_x else bot_right_x * 100
 
-            print("ANCHO Y ALTO:", image_polygon_width, int(top_left_y * 100))
             polygon = QPolygon()
             polygon << QPoint(int(top_left_x * 100), int(top_left_y * 100)) << QPoint(int(top_right_x * 100), int(top_right_y * 100)) << QPoint(int(bot_right_x * 100), int(bot_right_y * 100)) << QPoint(int(bot_left_x * 100), int(bot_left_y * 100))
 
-            print(int(top_left_x * 100), int(top_left_y * 100))
-            print(int(top_right_x * 100), int(top_right_y * 100))
-            print(int(bot_left_x * 100), int(bot_left_y * 100))
-            print(int(bot_right_x * 100), int(bot_right_y * 100))
             if image_polygon_width > 100 and  int(top_left_y * 100) > 100:
                 masks_.append(self.draw_polygon(polygon, int(top_left_y * 100), int(image_polygon_width)))
         return masks_
@@ -467,6 +462,7 @@ class SpecificWorker(GenericWorker):
             element.right = int(element.right * x_factor + x_roi_offset) % self.rgb.width
             element.top = int(element.top*y_factor + y_roi_offset)
             element.bot = int(element.bot*y_factor + y_roi_offset)
+            print(element.x, element.y)
         return total_objects
 
     def check_human_interface(self, candidates):
@@ -576,7 +572,7 @@ class SpecificWorker(GenericWorker):
         #     # roi_frame.copyTo(frame[])
         #     center_x = frame.shape[0]//2
         #     cv2.polylines(frame, [c["projected_polygon"].astype(dtype='int32')+[center_x, 0]], False, (255, 255, 255))
-
+        print(objects)
         frame = self.draw_objects(frame, objects)
         self.glviewer.process_elements(objects)
         if len(masks) > 0:
@@ -592,6 +588,7 @@ class SpecificWorker(GenericWorker):
     def draw_objects(self, image, objects):
         if len(objects) == +0:
             return image
+        print("EEEEENTRA")
         for element in objects:
             x0 = int(element.left)
             y0 = int(element.top)
@@ -607,7 +604,7 @@ class SpecificWorker(GenericWorker):
                 cv2.rectangle(image, (0, y0), (x1, y1), color, line)
             else:
                 cv2.rectangle(image, (x0, y0), (x1, y1), color, line)
-            text = 'Cls: {} - Score: {:.1f}% - ID: {} - Depth: {:.1f}mm'.format(element.type, element.score * 100, element.id, element.depth)
+            text = 'Cls: {} - Score: {:.1f}% - ID: {} - Depth: {:.1f}mm'.format(element.type, element.score * 100, element.id, math.sqrt(element.x ** 2 + element.y ** 2))
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
             cv2.rectangle(
