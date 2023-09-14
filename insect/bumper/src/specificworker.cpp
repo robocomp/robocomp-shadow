@@ -60,10 +60,12 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
+
 		// Viewer
  		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000), false);
-        //viewer->draw_contour();
+        viewer->draw_contour();
         viewer->add_robot(460, 480, 0, 100, QColor("Blue"));
+        std::cout << "Started viewer" << std::endl;
 
         // create map from degrees (0..360)  -> edge distances
         // int robot_width = 460;
@@ -73,8 +75,28 @@ void SpecificWorker::initialize(int period)
                            QPointF(230+BAND_WIDTH, 240+BAND_WIDTH) <<
                            QPointF(230+BAND_WIDTH, -240-BAND_WIDTH) <<
                            QPointF(-230-BAND_WIDTH, -240-BAND_WIDTH);
+
 		map_of_points = create_map_of_points();
         draw_ring(map_of_points, &viewer->scene);
+
+        float x1 = -band.left_distance;
+        float y1 = -band.frontal_distance;
+        float width = band.left_distance + band.right_distance;
+        float height = band.frontal_distance + band.back_distance;
+
+        rectItem = viewer->scene.addRect(QRectF(x1, y1, width, height), QColor("Red"));
+
+        // Create Pen used in the QrectItem
+        QPen rect_pen;
+        rect_pen.setColor(QColor("Red"));
+        rect_pen.setWidth(20);
+        rectItem->setPen(rect_pen);
+
+        std::cout << "Started robot draw" << std::endl;
+
+        // A thread is created 
+        read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
+        std::cout << "Started lidar reader" << std::endl;
 
         timer.start(50);
 	}
@@ -83,63 +105,297 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-	auto ldata = get_lidar_data();
+
+    //std::cout << "Speeds:" << robot_speed.adv_speed << " " << robot_speed.side_speed << " "  << robot_speed.rot_speed << std::endl;
+
+    // Calculate band width using last robot_speed
+    //band = adjustSafetyZone(Eigen::Vector3f(robot_speed.adv_speed,robot_speed.side_speed,robot_speed.rot_speed));
+
+    #if DEBUG
+    auto start = std::chrono::high_resolution_clock::now();
+    #endif
+
+    auto res_ = buffer_lidar_data.try_get();
+
+    if(not res_.has_value()){
+        qWarning() << "No data Lidar";
+        return;
+    }
+
+    auto ldata = res_.value();
+    //auto ldata = filterPointsInRectangle(ldata_raw);
+    draw_histogram(ldata.points);
+
+    #if DEBUG
+    qInfo() << "Post get_lidar_data" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+    start = std::chrono::high_resolution_clock::now();
+    #endif
 
     // check for a repulsion force
     Eigen::Vector2f result{0.f, 0.f};
     std::vector<QPointF> draw_points;
-    for(const auto &p: ldata)
+
+    for(const auto &p: ldata.points)
 	{
-		float ang = atan2(p.x(), p.y());
+		float ang = atan2(p.x, p.y);
         int index  = qRadiansToDegrees(ang);
-        if(index <0) index += 360;
-        float diff = map_of_points.at(index) - p.head(2).norm();    // negative vals are inside belt
-        if(diff < 0 and diff  > -BAND_WIDTH)
+
+        if(index < 0) index += 360;
+
+        float norma = std::sqrt(p.x * p.x + p.y * p.y);
+        float diff = map_of_points.at(index) - norma;// negative vals are inside belt
+        
+        //Check that p is greater than robot body and smaller than robot body + BAND_WIDTH
+        if(diff < 0 and diff > -BAND_WIDTH)
         {
 			// something is inside the perimeter
-            float modulus = std::clamp(fabs(diff)*(1.f/BAND_WIDTH), 0.f, 1.f);  // pseudo sigmoid
-            result -= p.head(2).normalized() * modulus;     // opposite direction and normalized modulus
+            // pseudo sigmoid
+            auto diff_normalized = fabs(diff)*(1.f/BAND_WIDTH);
+            //std::cout << "Diff_normalized:" << diff_normalized << std::endl;
+            //float modulus = std::clamp(fabs(diff)*(1.f/BAND_WIDTH), 0.f, 1.f);  
+            float modulus = (-1/(1+ exp((diff_normalized-0.5)*12)))+1;
+            //std::cout << "Modulus:" << modulus << std::endl;
+            //std::cout << "Distance:" << p.head(2).normalized() << std::endl;
+            //result -= p.head(2).normalized() * modulus;     // opposite direction and normalized modulus
+            result -= Eigen::Vector2f{p.x/norma, p.y/norma} * modulus;     // opposite direction and normalized modulus
+
             //qInfo() << "diff" << diff << modulus << result.x() << result.y();
-            draw_points.emplace_back(p.x(), p.y());
+            draw_points.emplace_back(p.x, p.y);
 		}
 	}
-    //qInfo() << result.norm();
-    if(result.norm()> 3)    // a clean bumper should be zero
+
+    #if DEBUG
+    qInfo() << "Post result" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+    start = std::chrono::high_resolution_clock::now();
+    #endif
+
+    //qInfo() << "Result norm from last point" << result.norm();
+    // TODO: Modify to one try catch calling setSpeedBase and only modify adv and side variables 
+    if(result.norm() > 3)    // a clean bumper should be zero
     {
-        try
-        {
-            float side = result.x() * x_gain;
-            float adv = result.y() * y_gain;
-            omnirobot_proxy->setSpeedBase(side, adv, 0);
-            robot_stop = false;
-        }
-        catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        // Use std::clamp to ensure that the value of side is within the range [-value, value]
+        robot_speed.adv_speed = std::clamp(result.x() * x_gain,-max_adv,max_adv);
+        robot_speed.side_speed = std::clamp(result.y() * y_gain,-max_side,max_side);
+        robot_speed.rot_speed = 0.0f;
+
+        robot_stop = false;
+    }
+    else if(const auto res = buffer_dwa.try_get(); res.has_value())
+    {
+        const auto &[side, adv, rot] = res.value();
+
+        robot_speed.adv_speed = adv;
+        robot_speed.side_speed = side;
+        robot_speed.rot_speed = rot;
     }
     else
         if(not robot_stop)
-            try
-            {
-                omnirobot_proxy->setSpeedBase(0, 0, 0);
-                robot_stop = true;
-            }
-            catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        {
+            robot_speed.adv_speed = 0.0f;
+            robot_speed.side_speed = 0.0f;
+            robot_speed.rot_speed = 0.0f;
+            robot_stop = true;
+        }
+    try
+    {
+        omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, robot_speed.side_speed, robot_speed.rot_speed);
 
-    // if(display)
-    draw_ring_points(draw_points, result, &viewer->scene);
-    //draw_all_points(ldata, &viewer->scene);
+        // Draw repulsion line
+        static QGraphicsItem * line = nullptr;
+        if( line != nullptr)
+            viewer->scene.removeItem(line);
+
+        line =  viewer->scene.addLine(0, 0, robot_speed.adv_speed*5, robot_speed.side_speed*5, QPen(QColor("Green"), 10));
+
+    }
+    catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+
+    #if DEBUG
+    qInfo() << "Post sending adv, side, rot" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+    start = std::chrono::high_resolution_clock::now();
+    #endif
+
+//     if(display)
+//         draw_ring_points(draw_points, result, &viewer->scene);
+
+    draw_all_points(ldata.points, result,&viewer->scene);
+
+    draw_band_width(&viewer->scene);
+
+    #if DEBUG
+    qInfo() << "Post draw_all_points" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+    qInfo() << "";
+    #endif
     
     fps.print("FPS:");
+
+}
+//Draw an histogram using opencv
+void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
+{
+    // Crear una imagen en blanco
+    static int width = 840, height = 480;
+    cv::Mat graph = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+
+    // Escalar y dibujar los datos
+    float max_distance = 1500.0;  // Asumiendo que 5m es la distancia máxima
+    float scaleX = width / 360.0;  // Asumiendo que el ángulo varía de 0 a 360
+    float scaleY = height / max_distance;
+
+    std::vector<std::tuple<int, float>> gpoints;
+    int running_angle = (int)qRadiansToDegrees(ldata[0].phi);
+    float running_min = -1;
+    for (const auto& p : ldata) {
+        int phi = (int) qRadiansToDegrees(p.phi);
+        if (p.phi >= running_angle) {
+            running_angle = p.phi;
+            gpoints.emplace_back(std::make_tuple(p.phi, running_min));
+            running_min = -1;
+        } else {
+            if (p.distance2d < running_min)
+                running_min = p.distance2d;
+        }
+
+        // cv::Point pt1(qRadiansToDegrees(p.phi) * scaleX, height - p.distance2d * scaleY);
+        //cv::circle(graph,pt1,2,cv::Scalar(0, 0, 255),-1);
+    }
+    for(const auto &[ang, dist] : gpoints)
+    {
+        cv::Point pt1(ang * scaleX, height - dist * scaleY);
+        cv::circle(graph, pt1, 2, cv::Scalar(0, 0, 255),-1);
+    }
+//    for (size_t i = 1; i < ldata.size(); i++)
+//    {
+//        cv::Point pt1(angles[i - 1] * scaleX, height - distances[i - 1] * scaleY);
+//        cv::Point pt2(angles[i] * scaleX, height - distances[i] * scaleY);
+//        cv::line(graph, pt1, pt2, cv::Scalar(0, 0, 255), 2);
+//    }
+
+    // Mostrar el gráfico
+    cv::namedWindow("Graph", cv::WINDOW_AUTOSIZE);
+    cv::imshow("Graph", graph);
+    cv::waitKey(1);
+}
+
+SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
+{
+    Band adjusted;
+
+    // Si x es positivo, aumentamos la distancia frontal y disminuimos la trasera.
+    // Si x es negativo, hacemos lo contrario.
+    if (velocity.x() >= 0.0f)
+    {
+        adjusted.right_distance = std::max(velocity.x()*5,600.0f);
+        adjusted.left_distance = -600.0f;
+    } else //if(velocity.x() <= -600.0f)
+    {
+        adjusted.right_distance = 600.0f;
+        adjusted.left_distance = std::min(velocity.x()*5,-600.0f);
+    }
+//    else
+//    {
+//        adjusted.right_distance = 600.0f;
+//        adjusted.left_distance = 600.0f;
+//    }
+
+    // Si y es positivo, aumentamos la distancia derecha y disminuimos la izquierda.
+    // Si y es negativo, hacemos lo contrario.
+    if (velocity.y() >= 0.0f)
+    {
+        adjusted.frontal_distance = std::max(velocity.y()*5,600.0f);
+        adjusted.back_distance = -600.0f;
+    } else //if(velocity.y() <= -600.0f)
+    {
+        adjusted.frontal_distance = 600.0f;
+        adjusted.back_distance = std::min(velocity.y()*5,-600.0f);
+    }
+//    else
+//    {
+//        adjusted.frontal_distance = 600.0f;
+//        adjusted.back_distance = 600.0f;
+//    }
+
+    std::cout << adjusted.frontal_distance << " " << adjusted.back_distance << " " << adjusted.right_distance << " " << adjusted.left_distance << std::endl;
+    return adjusted;
+}
+
+void SpecificWorker::draw_band_width(QGraphicsScene *scene)
+{
+    // Suponiendo que el punto central es (0, 0)
+    float x1 = band.left_distance;   // Coordenada x de la esquina superior izquierda
+    float y1 = band.frontal_distance; // Coordenada y de la esquina superior izquierda
+    float x2 = band.right_distance;   // Coordenada x de la esquina inferior derecha
+    float y2 = band.back_distance;   // Coordenada y de la esquina inferior derecha
+
+    rectItem->setRect(QRectF ( x1, y1, x2 - x1, y2 - y1));
+}
+std::vector<Eigen::Vector3f> SpecificWorker::filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points)
+{
+    std::vector<Eigen::Vector3f> filteredPoints;
+
+    for (const auto& p : points)
+    {
+        if (p.x() >= band.left_distance && p.x() <= band.right_distance &&
+            p.y() >= band.back_distance && p.y() <= band.frontal_distance)
+        {
+            filteredPoints.push_back(p);
+        }
+    }
+
+    return filteredPoints;
+}
+
+//void SpecificWorker::draw_speed_vector(Eigen::Vector3f &velocity, Eigen::Vector3f &colour, QGraphicsScene *scene)
+//{
+//
+//}
+
+void SpecificWorker::read_lidar()
+{
+    while(true)
+    {
+//        try
+//        {
+//            auto data = lidar3d_proxy->getLidarData("bpearl", 0, 360, 8);
+//            buffer_lidar_data.put(std::move(data), [this](auto &&I, auto &O)
+//                {
+//                    for (auto &p: iter::filter([this](auto p) //Check if can be deleted
+//                            {
+//                                float dist = sqrt(p.x*p.x + p.y*p.y);
+//                                float ang = atan2(p.x, p.y);
+//                                int index  = qRadiansToDegrees(ang);
+//                                if(index < 0) index += 360;
+//                                return dist > map_of_points.at(index); //and p.z > -280 and p.z < 0
+//                            }, I.points))
+//                    {
+//                        O.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+//                    }
+//                });
+//        }
+//        catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
+
+        try
+        {
+//            auto data = lidar3d_proxy->getLidarData("bpearl", 0, 360, 8);
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1500);
+//            std::cout << data.points.size() << std::endl;
+            buffer_lidar_data.put(std::move(data));
+        }
+        catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
+        sleep(0.05);
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
 std::vector<float> SpecificWorker::create_map_of_points()
 {
 	std::vector<float> dists;
-	for(const auto &i: iter::range(DEGREES_NUMBER))
+	for(auto &&i: iter::range(DEGREES_NUMBER))
 	{
 		// get the corresponding angle: 0..360 -> -pi, +pi
-		float alf = qDegreesToRadians(i);
+		float alf = qDegreesToRadians(static_cast<float>(i));
 		bool found = false;
+        // iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
 		for(const int r : iter::range(OUTER_RIG_DISTANCE))
 		{
 			float x = r * sin(alf);
@@ -155,29 +411,6 @@ std::vector<float> SpecificWorker::create_map_of_points()
 	}
     return dists;
 }
-
-std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
-{
-    std::vector <Eigen::Vector3f> points;
-    try 
-	{
-        auto ldata = lidar3d_proxy->getLidarData("bpearl", 0, 360, 2);
-
-        for (auto &&[i, p]: iter::filter([this](auto p)
-        {
-            float dist = sqrt(p.x*p.x + p.y*p.y);
-            float ang = atan2(p.x, p.y);
-            int index  = qRadiansToDegrees(ang);
-            if(index <0) index += 360;
-            return dist > map_of_points.at(index) and p.z > -280 and p.z < 0;
-        }, ldata.points) | iter::enumerate)
-            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-        self_adjust_period((int)ldata.period);
-    }
-    catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
-    return points;
-}
-
 //            return p.z < 100		// uppper limit
 //                   and p.z > -600	// floor limit
 //                   and dist < 1000	// range limit
@@ -193,7 +426,7 @@ void SpecificWorker::draw_ring(const std::vector<float> &dists, QGraphicsScene *
 
     QPolygonF poly;
     for (const auto &[i, p]: dists | iter::enumerate)
-        poly << QPointF(p * cos(qDegreesToRadians(i)), p * sin(qDegreesToRadians(i)));
+        poly << QPointF(p * cos(qDegreesToRadians(static_cast<float>(i))), p * sin(qDegreesToRadians(static_cast<float>(i))));
     auto o = scene->addPolygon(poly, QPen(QColor("DarkBlue"), 10));
     draw_points.push_back(o);
 
@@ -225,7 +458,7 @@ void SpecificWorker::draw_ring_points(const std::vector<QPointF> &points, const 
      draw_points.push_back(ball);
 }
 
-void SpecificWorker::draw_all_points(const std::vector<Eigen::Vector3f> &points, QGraphicsScene *scene)
+void SpecificWorker::draw_all_points(const RoboCompLidar3D::TPoints &points, const Eigen::Vector2f &result,QGraphicsScene *scene)
 {
     static std::vector<QGraphicsItem *> draw_points;
 
@@ -238,9 +471,16 @@ void SpecificWorker::draw_all_points(const std::vector<Eigen::Vector3f> &points,
     for(const auto &p: points)
     {
         auto o = scene->addRect(-10, 10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
-        o->setPos(p.x(), p.y());
+        o->setPos(p.x, p.y);
         draw_points.push_back(o);
     }
+
+    static QGraphicsItem * line = nullptr;
+    if( line != nullptr)
+        scene->removeItem(line);
+    
+    line = scene->addLine(0, 0, result.x()*50, result.y()*50, QPen(QColor("red"), 10));
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -254,8 +494,9 @@ int SpecificWorker::startup_check()
 
 void SpecificWorker::self_adjust_period(int new_period)
 {
-    if(abs(new_period - this->Period) < 2)      // do it only if period changes
+    if(abs(new_period - this->Period) < 2 || new_period < 1)      // do it only if period changes
         return;
+
     if(new_period > this->Period)
     {
         this->Period += 1;
@@ -266,6 +507,7 @@ void SpecificWorker::self_adjust_period(int new_period)
         this->timer.setInterval(this->Period);
     }
 }
+
 //////////////////////////// Interfaces //////////////////////////////////////////
 
 void SpecificWorker::OmniRobot_correctOdometer(int x, int z, float alpha)
@@ -306,8 +548,9 @@ void SpecificWorker::OmniRobot_setOdometerPose(int x, int z, float alpha)
 
 void SpecificWorker::OmniRobot_setSpeedBase(float advx, float advz, float rot)
 {
-//implementCODE
 
+//     Todo: Check range of input values.
+    buffer_dwa.put(std::make_tuple(advx, advz, rot));
 }
 
 void SpecificWorker::OmniRobot_stopBase()
@@ -328,10 +571,27 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TOb
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
 // this->lidar3d_proxy->getLidarData(...)
+// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
 
 /**************************************/
 // From the RoboCompLidar3D you can use this types:
 // RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TData
+
+/**************************************/
+// From the RoboCompOmniRobot you can call this methods:
+// this->omnirobot_proxy->correctOdometer(...)
+// this->omnirobot_proxy->getBasePose(...)
+// this->omnirobot_proxy->getBaseState(...)
+// this->omnirobot_proxy->resetOdometer(...)
+// this->omnirobot_proxy->setOdometer(...)
+// this->omnirobot_proxy->setOdometerPose(...)
+// this->omnirobot_proxy->setSpeedBase(...)
+// this->omnirobot_proxy->stopBase(...)
+
+/**************************************/
+// From the RoboCompOmniRobot you can use this types:
+// RoboCompOmniRobot::TMechParams
 
 /**************************************/
 // From the RoboCompOmniRobot you can use this types:
