@@ -28,7 +28,14 @@
 
 #include <genericworker.h>
 #include <Eigen/Dense>
-#include <abstract_graphic_viewer_qt5/abstract_graphic_viewer.h>
+
+#define QT6
+#ifdef QT5
+    #include <abstract_graphic_viewer_qt5/abstract_graphic_viewer.h>
+#else
+    #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
+#endif
+
 #include <fps/fps.h>
 #include <math.h>
 #include <doublebuffer/DoubleBuffer.h>
@@ -120,7 +127,7 @@ class SpecificWorker : public GenericWorker
 
         // Thread method
         void read_lidar();
-    Band adjustSafetyZone(Eigen::Vector3f velocity);
+        Band adjustSafetyZone(Eigen::Vector3f velocity);
         std::vector<Eigen::Vector3f> filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points);
 
         // Timing

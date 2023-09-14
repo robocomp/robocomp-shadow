@@ -376,8 +376,10 @@ void SpecificWorker::read_lidar()
 
         try
         {
-//            auto data = lidar3d_proxy->getLidarData("bpearl", 0, 360, 8);
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1500);
+            //Use with simulated lidar in webots using "pearl" name
+            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
+
+//            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("pearl", 1500);
 //            std::cout << data.points.size() << std::endl;
             buffer_lidar_data.put(std::move(data));
         }
