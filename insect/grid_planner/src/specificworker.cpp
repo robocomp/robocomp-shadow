@@ -95,7 +95,7 @@ void SpecificWorker::compute()
             if(not path.empty() and path.size() > 0)
             {
                 auto subtarget = send_path(path, 750, M_PI_4 / 4);
-
+                    
                 draw_path(path, &viewer->scene);
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
@@ -103,11 +103,24 @@ void SpecificWorker::compute()
                 RoboCompGridPlanner::TPlan returning_plan;
                 returning_plan.subtarget = subtarget;
                 returning_plan.valid = true;
+                
+                for (auto &&p : iter::sliding_window(path, 1)){
+                    auto point = RoboCompGridPlanner::TPoint(p[0][0], p[0][1]);
+                    returning_plan.path.push_back(point);
+                }
+                
                 try
                 {
                     gridplanner_proxy->setPlan(returning_plan);
                 }
                 catch (const Ice::Exception &e) { std::cout << "Error setting valid plan" << e << std::endl; }
+                
+                
+                try
+                {
+                   gridplanner_pubproxy->setPlan(returning_plan);
+                }
+                catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
 
             }
             else
@@ -120,6 +133,13 @@ void SpecificWorker::compute()
                     gridplanner_proxy->setPlan(returning_plan);
                 }
                 catch (const Ice::Exception &e) { std::cout << "Error setting valid plan" << e << std::endl; }
+                
+                try
+                {
+                    gridplanner_pubproxy->setPlan(returning_plan);
+                }
+                catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
+                
             }
         }
         else
@@ -133,6 +153,13 @@ void SpecificWorker::compute()
                 gridplanner_proxy->setPlan(returning_plan);
             }
             catch (const Ice::Exception &e) { std::cout << "Error setting empty plan" << e << std::endl; }
+            
+            try
+                {
+                    gridplanner_pubproxy->setPlan(returning_plan);
+                }
+                catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
+                
         }
 
         viewer->update();
@@ -359,6 +386,10 @@ bool SpecificWorker::los_path(QPointF f) {
 // From the RoboCompGridPlanner you can use this types:
 // RoboCompGridPlanner::TPoint
 // RoboCompGridPlanner::TPlan
+
+/**************************************/
+// From the RoboCompGridPlanner you can publish calling this methods:
+// this->gridplanner_pubproxy->setPlan(...)
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:

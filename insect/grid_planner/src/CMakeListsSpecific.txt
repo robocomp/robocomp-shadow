@@ -3,7 +3,7 @@ SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
   grid.cpp
-  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp
+  /home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.cpp
 )
 
 # Headers set
@@ -11,11 +11,11 @@ SET ( HEADERS
   specificworker.h
   specificmonitor.h
   grid.h
-  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
+  /home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.h
 )
 
 add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
-SET (LIBS ${LIBS}  QGLViewer-qt6 Qt6OpenGLWidgets)
+SET (LIBS ${LIBS}  QGLViewer-qt5)
 
 

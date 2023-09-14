@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 
 IF ( "$ENV{ROBOCOMP}" STREQUAL "")
   MESSAGE(WARNING "ROBOCOMP variable not set. Using the default value: /opt/robocomp")
-  SET (ENV{ROBOCOMP} "/home/robocomp/robocomp/")
+  SET (ENV{ROBOCOMP} "/opt/robocomp/")
 ENDIF ( "$ENV{ROBOCOMP}" STREQUAL "")
 
 IF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
@@ -35,8 +35,8 @@ FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior GridPlanner Lidar3D SegmentatorTrackingPub VisualElements)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior GridPlanner Lidar3D SegmentatorTrackingPub VisualElements)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior GridPlanner GridPlanner Lidar3D SegmentatorTrackingPub VisualElements)
+ROBOCOMP_ICE_TO_SRC( CommonBehavior GridPlanner GridPlanner Lidar3D SegmentatorTrackingPub VisualElements)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 QT_WRAP_UI( UI_HEADERS mainUI.ui )
