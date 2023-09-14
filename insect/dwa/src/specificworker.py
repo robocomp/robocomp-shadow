@@ -19,9 +19,9 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from PySide6.QtCore import *
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QPolygonF
+from PySide2.QtCore import *
+from PySide2.QtWidgets import QApplication
+from PySide2.QtGui import QPolygonF
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -37,9 +37,11 @@ from numpy.typing import NDArray
 from typing import Any
 from threading import Thread, Event
 import queue
+import os
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
+
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -50,6 +52,9 @@ class SpecificWorker(GenericWorker):
         else:
 
             self.thread_period = 50     # period in ms
+            
+            self.using_qt = os.environ.get('USING_QT', 'QT6')
+            print("QT Version: ", self.using_qt)
 
             # DWA
             self.A = 425
@@ -110,7 +115,7 @@ class SpecificWorker(GenericWorker):
             self.rgb = None
             self.read_queue = queue.Queue(1)
             self.event = Event()
-            self.read_thread = Thread(target=self.read_lidar_data, args=["helios", self.event],
+            self.read_thread = Thread(target=self.read_lidar_data, args=["bpearl", self.event],
                                       name="read_queue", daemon=True)
             self.read_thread.start()
 
