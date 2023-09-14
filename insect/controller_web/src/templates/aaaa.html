@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Streaming</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #video-container {
+            position: relative;
+            width: {{width}}px;
+            height: {{height}}px;
+            margin: auto;
+        }
+
+        #video {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #indicator {
+            height: 50px;
+            width: 50px;
+            background-color: red;
+            border-radius: 50%;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+
+        #indicator-text {
+            display: inline-block;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Video Streaming</h1>
+        {% if width and height %}
+            <div id="video-container" class="mt-5">
+                <img id="video" src="{{ url_for('video_feed', width=width, height=height) }}">
+                <canvas id="canvas" width="{{width}}" height="{{height}}"></canvas>
+            </div>
+            <div class="d-flex justify-content-center mt-3">
+                <div id="indicator"></div>
+                <div id="indicator-text">No seleccionado</div>
+            </div>
+        {% else %}
+            <p>Ingrese el ancho y la altura para ver el video.</p>
+        {% endif %}
+        <form class="mt-3" action="{{ url_for('index') }}" method="GET">
+            <div class="form-group">
+                <label for="width">Ancho:</label>
+                <input class="form-control" type="number" id="width" name="width" min="1" max="1920">
+            </div>
+            <div class="form-group">
+                <label for="height">Altura:</label>
+                <input class="form-control" type="number" id="height" name="height" min="1" max="1080">
+            </div>
+            <button class="btn btn-primary" type="submit">Actualizar</button>
+        </form>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
