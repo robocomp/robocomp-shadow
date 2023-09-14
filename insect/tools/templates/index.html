@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Video Streaming</title>
+    </head>
+    <body>
+        <h1>Video Streaming with WebRTC</h1>
+        <video id="localVideo" autoplay playsinline></video>
+        <script>
+            let pc = new RTCPeerConnection();
+            let video = document.querySelector("#localVideo");
+
+            pc.ontrack = function (event) {
+                if (event.track.kind === 'video') {
+                    event.track.onunmute = () => {
+                        video.srcObject = event.streams[0];
+                    };
+                }
+            };
+
+            pc.addTransceiver('video', {direction: 'recvonly'});
+
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .then(() => {
+                    fetch('/offer', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            sdp: pc.localDescription.sdp,
+                            type: pc.localDescription.type
+                        }),
+                    })
+                    .then(response => response.json())
+                    .then(answer => pc.setRemoteDescription(answer));
+                });
+        </script>
+    </body>
+</html>
+
