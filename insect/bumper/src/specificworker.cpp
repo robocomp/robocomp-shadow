@@ -208,7 +208,7 @@ void SpecificWorker::compute()
         line =  viewer->scene.addLine(0, 0, robot_speed.adv_speed*5, robot_speed.side_speed*5, QPen(QColor("Green"), 10));
 
     }
-    catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+    catch (const Ice::Exception &e) {}//std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
 
     #if DEBUG
     qInfo() << "Post sending adv, side, rot" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
@@ -233,6 +233,7 @@ void SpecificWorker::compute()
 //Draw an histogram using opencv
 void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
 {
+
     // Crear una imagen en blanco
     static int width = 840, height = 480;
     cv::Mat graph = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
@@ -244,25 +245,35 @@ void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
 
     std::vector<std::tuple<int, float>> gpoints;
     int running_angle = (int)qRadiansToDegrees(ldata[0].phi);
-    float running_min = -1;
-    for (const auto& p : ldata) {
-        int phi = (int) qRadiansToDegrees(p.phi);
-        if (p.phi >= running_angle) {
-            running_angle = p.phi;
-            gpoints.emplace_back(std::make_tuple(p.phi, running_min));
-            running_min = -1;
-        } else {
+    float running_min = ldata[0].distance2d;
+
+    int phi = 0;
+
+    //Function to obtain the minimun distance to each angle in lidar data
+    for (const auto& p : ldata)
+    {
+        phi = (int) qRadiansToDegrees(p.phi);
+        if (phi > running_angle)
+        {
+            running_angle = phi;
+            gpoints.emplace_back(std::make_tuple(phi, running_min));
+            running_min = p.distance2d;
+        } else
+        {
             if (p.distance2d < running_min)
                 running_min = p.distance2d;
         }
-
-        // cv::Point pt1(qRadiansToDegrees(p.phi) * scaleX, height - p.distance2d * scaleY);
-        //cv::circle(graph,pt1,2,cv::Scalar(0, 0, 255),-1);
     }
+
+//    std::cout << "Gpoints size:" << gpoints.size() << std::endl;
+//    std::cout << "Ldata size:" << ldata.size() << std::endl;
+
     for(const auto &[ang, dist] : gpoints)
     {
+//        std::cout << "Ang:" << ang << std::endl;
+//        std::cout << "Dist:" << dist << std::endl;
         cv::Point pt1(ang * scaleX, height - dist * scaleY);
-        cv::circle(graph, pt1, 2, cv::Scalar(0, 0, 255),-1);
+        cv::circle(graph, pt1, 2, cv::Scalar(0, 0, 255),-8);
     }
 //    for (size_t i = 1; i < ldata.size(); i++)
 //    {
@@ -377,9 +388,9 @@ void SpecificWorker::read_lidar()
         try
         {
             //Use with simulated lidar in webots using "pearl" name
-            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
+//            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
 
-//            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("pearl", 1500);
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("pearl", 1500);
 //            std::cout << data.points.size() << std::endl;
             buffer_lidar_data.put(std::move(data));
         }
