@@ -1,10 +1,10 @@
-from PySide6.Qt3DExtras import *
-from PySide6.QtGui import *
-from PySide6.QtCore import *
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QVector3D
-from PySide6.Qt3DCore import Qt3DCore
-from PySide6.Qt3DRender import Qt3DRender
+#from PySide2.Qt3DExtras import *
+from PySide2.QtGui import *
+from PySide2.QtCore import *
+from PySide2.QtCore import Qt
+from PySide2.QtGui import QColor, QVector3D
+from PySide2.Qt3DCore import Qt3DCore
+from PySide2.Qt3DRender import Qt3DRender
 import copy
 import numpy as np
 
