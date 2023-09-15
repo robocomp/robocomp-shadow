@@ -5,7 +5,7 @@
 
 sleep 20
 # Arrancamos rcnode tiene que tener permisos de ejecucion
-/home/robocomp/robocomp/tools/rcnode/rcnode.sh &
+rcnode &
 # Ubicamos en componente de la base y ejecutamos
 cd /home/robocomp/robocomp/components/robocomp-shadow/components/shadowbase
 src/shadowbase.py etc/config &

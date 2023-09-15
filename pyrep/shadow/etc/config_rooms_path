@@ -22,7 +22,7 @@ Ice.MessageSizeMax=20004800
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0
-
+Ice.ThreadPool.Client.Size=10
 ##################################################
 
 #scene_file = ../../etc/corralgiraff.ttt
