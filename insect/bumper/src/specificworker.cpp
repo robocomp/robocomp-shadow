@@ -408,7 +408,7 @@ void SpecificWorker::read_lidar()
             //Use with simulated lidar in webots using "pearl" name
 //            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
 
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("pearl", 1500);
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1500);
 //            std::cout << data.points.size() << std::endl;
             std::ranges::sort(data.points, {}, &RoboCompLidar3D::TPoint::phi);
 
