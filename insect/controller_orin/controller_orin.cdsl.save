@@ -1,0 +1,18 @@
+import "VisualElements.idsl";
+import "MaskElements.idsl";
+import "SegmentatorTrackingPub.idsl";
+dsl";
+
+Component controller_orin
+{
+    Communications
+    {
+        requires VisualElements, VisualElements, MaskElements;
+        publishes SegmentatorTrackingPub;
+	subscribes SegmentatorTrackingPub;
+    };
+    language python;
+    
+};
+
+

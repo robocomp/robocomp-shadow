@@ -1,0 +1,157 @@
+<!DOCTYPE html />
+<html>
+<head>
+    <style>
+        #indicator {
+            height: 50px;
+            width: 50px;
+            background-color: red;
+            border-radius: 50%;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+
+        #indicator-text {
+            display: inline-block;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <h1>Video Streaming</h1>
+    {% if width and height %}
+        <img id="video" src="{{ url_for('video_feed', width=width, height=height) }}">
+        <div>
+            <div id="indicator"></div>
+            <div id="indicator-text">No seleccionado</div>
+        </div>
+    {% else %}
+        <p>Ingrese el ancho y la altura para ver el video.</p>
+    {% endif %}
+    <form action="{{ url_for('index') }}" method="GET">
+        <label for="width">Ancho:</label>
+        <input type="number" id="width" name="width" min="1" max="1920">
+        <br>
+        <label for="height">Altura:</label>
+        <input type="number" id="height" name="height" min="1" max="1080">
+        <br>
+        <button type="submit">Actualizar</button>
+    </form>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        var boxes = [];
+        var selectedId = null;
+        var found = false;
+        var clickedBox = null;
+
+        // Obtener los bounding boxes del servidor cada segundo
+        setInterval(function() {
+            $.get('/get_boxes', function(data) {
+                boxes = data;
+
+                // Comprobar si el ID seleccionado sigue apareciendo en los nuevos boxes
+                if (selectedId !== null) {
+                    found = false;
+                    for (var i = 0; i < boxes.length; i++) {
+                        if (boxes[i].id === selectedId) {
+                            found = true;
+                            clickedBox = boxes[i];
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        console.log('El ID seleccionado ya no aparece en los nuevos bounding boxes.');
+                        selectedId = null;
+                        clickedBox = null;
+                        document.getElementById('indicator').style.backgroundColor = 'red';
+                        document.getElementById('indicator-text').textContent = 'No seleccionado';
+                    }
+                }
+
+                // Verificar si clickedBox tiene valor
+                if (clickedBox !== null) {
+                    document.getElementById('indicator').style.backgroundColor = 'green';
+                    document.getElementById('indicator-text').textContent = 'Seleccionado ' + selectedId;
+
+                    // Enviar el bounding box seleccionado al servidor
+                    $.ajax({
+                        url: '/select_person',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({'box': clickedBox}),
+                        success: function(data) {
+                            if (data.status === 'success') {
+                                // Remover la clase "selected-box" de todos los bounding boxes
+                                $('.bounding-box').removeClass('selected-box');
+
+                                // Agregar la clase "selected-box" al bounding box seleccionado
+                                $('.bounding-box').eq(clickedIndex).addClass('selected-box');
+
+                                // Hacer algo cuando la selección es exitosa
+                                console.log('Bounding box seleccionado:', clickedBox);
+                                alert('Se ha seleccionado un bounding box');
+                            }
+                        }
+                    });
+                } else {
+                    $.ajax({
+                        url: '/select_person',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({'box': {}}),
+                        success: function(data) {
+                            if (data.status === 'success') {
+                                // Remover la clase "selected-box" de todos los bounding boxes
+                                $('.bounding-box').removeClass('selected-box');
+
+                                // Agregar la clase "selected-box" al bounding box seleccionado
+                                $('.bounding-box').eq(clickedIndex).addClass('selected-box');
+
+                                // Hacer algo cuando la selección es exitosa
+                                console.log('Bounding box seleccionado:', clickedBox);
+                                alert('Se ha seleccionado un bounding box');
+                            }
+                        }
+                    });
+                }
+            });
+        }, 1000);
+
+        // Manejar el evento de clic
+        $('#video').click(function(e) {
+            // Obtener las coordenadas del clic relativas al elemento de la imagen
+            var mouseX = e.pageX - this.offsetLeft;
+            var mouseY = e.pageY - this.offsetTop;
+
+            // Determinar en qué bounding box se hizo clic
+            clickedBox = null;
+            var clickedIndex = null;
+                        
+            for (var i = 0; i < boxes.length; i++) {
+                var box = boxes[i];
+                console.error("Posición del raton:",mouseX,mouseY);
+                console.error("x, y" ,box.x , box.y);
+
+                if (mouseX >= box.x && mouseX <= box.x + box.width &&
+                    mouseY >= box.y && mouseY <= box.y + box.height) {
+                    clickedBox = box;
+                    clickedIndex = i;
+                    selectedId = box.id;
+                    console.error(box.id);
+                    break;
+                }
+            }
+            console.error(clickedBox);
+            console.error(selectedId);
+
+            if (clickedBox === null) {
+                selectedId = null;
+                document.getElementById('indicator').style.backgroundColor = 'red';
+                document.getElementById('indicator-text').textContent = 'No seleccionado';
+            }
+        });
+    </script>
+</body>
+</html>

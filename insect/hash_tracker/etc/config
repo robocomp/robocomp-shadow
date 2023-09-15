@@ -7,8 +7,8 @@ VisualElements.Endpoints=tcp -p 11062
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 15240
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 15317
-Lidar3DProxy = lidar3d:tcp -h localhost -p 14697
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
 
 
 

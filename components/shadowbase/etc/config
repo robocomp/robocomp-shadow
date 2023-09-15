@@ -1,5 +1,5 @@
 # Endpoints for implements interfaces
-OmniRobot.Endpoints=tcp -p 10032
+OmniRobot.Endpoints=tcp -p 10004
 
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 18896
@@ -14,7 +14,7 @@ maxAcceleration=750.0	#Aceleracion mm/s
 maxDeceleration=1000.0	#Deceleracion mm/s
 wheelRadius=80.0		#Radio de las ruedas
 distAxes=270.0			#Distancias entre ejes
-axesLength=455.0		#Longitud entre ejes
+axesLength=475.0		#Longitud entre ejes
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

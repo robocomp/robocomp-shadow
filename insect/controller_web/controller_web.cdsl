@@ -1,0 +1,19 @@
+import "Camera360RGB.idsl";
+import "OmniRobot.idsl";
+import "VisualElements.idsl";
+import "MaskElements.idsl";
+import "MPC.idsl";
+import "SegmentatorTrackingPub.idsl";
+import "Person.idsl";
+
+Component controller
+{
+    Communications
+    {
+        requires Camera360RGB, OmniRobot, MPC, VisualElements, MaskElements;
+        publishes SegmentatorTrackingPub;
+    };
+    language python;
+
+};
+
