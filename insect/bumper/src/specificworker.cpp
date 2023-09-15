@@ -228,31 +228,37 @@ void SpecificWorker::compute()
     #endif
     fps.print("FPS:");
 }
+
 //Draw an histogram using opencv
 void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
 {
+    // Draw a white image one for each graph
+    static const int width = 840, height = 840;
+    cv::Mat graphCartesian = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+    cv::Mat graphPolar = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
 
-    // Crear una imagen en blanco
-    static int width = 840, height = 480;
-    cv::Mat graph = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+    // Max_distance of the laser used for scaling
+    static const float max_distance = 1500.0;
 
-    // Escalar y dibujar los datos
-    float max_distance = 1500.0;  // Asumiendo que 5m es la distancia máxima
-    float scaleX = width / 360.0;  // Asumiendo que el ángulo varía de 0 a 360
-    float scaleY = height / max_distance;
+    // Factor scales
+    static const float scaleXcartesian = width / 360.0;
+    static const float scaleYcartesian = height / max_distance;
+    static const float scaleXpolar = width / (2 * max_distance);  // Asumiendo que el ángulo varía de 0 a 360
+    static const float scaleYpolar = height / (2 * max_distance);
 
     std::vector<std::tuple<int, float>> gpoints;
     int running_angle = (int)qRadiansToDegrees(ldata[0].phi);
     float running_min = ldata[0].distance2d;
     int phi = 0;
     //Function to obtain the minimun distance to each angle in lidar data
+
     for (const auto& p : ldata)
     {
         phi = (int) qRadiansToDegrees(p.phi);
         if (phi > running_angle)
         {
+            gpoints.emplace_back(std::make_tuple(running_angle, running_min));
             running_angle = phi;
-            gpoints.emplace_back(std::make_tuple(phi, running_min));
             running_min = p.distance2d;
         } else
         {
@@ -261,26 +267,31 @@ void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
         }
     }
 
-//    std::cout << "Gpoints size:" << gpoints.size() << std::endl;
-//    std::cout << "Ldata size:" << ldata.size() << std::endl;
+    //  TODO: Divide into methods draw_polar_graph and draw_cartesian_graph
 
+    //  Draw the Gpoints vector in cartesian coordinates angles/distance
     for(const auto &[ang, dist] : gpoints)
     {
-//        std::cout << "Ang:" << ang << std::endl;
-//        std::cout << "Dist:" << dist << std::endl;
-        cv::Point pt1(ang * scaleX, height - dist * scaleY);
-        cv::circle(graph, pt1, 2, cv::Scalar(0, 0, 255),-8);
+        cv::Point pt1(ang * scaleXcartesian, height - dist * scaleYcartesian);
+        cv::circle(graphCartesian, pt1, 2, cv::Scalar(0, 0, 255),-8);
     }
-//    for (size_t i = 1; i < ldata.size(); i++)
-//    {
-//        cv::Point pt1(angles[i - 1] * scaleX, height - distances[i - 1] * scaleY);
-//        cv::Point pt2(angles[i] * scaleX, height - distances[i] * scaleY);
-//        cv::line(graph, pt1, pt2, cv::Scalar(0, 0, 255), 2);
-//    }
 
-    // Mostrar el gráfico
-    cv::namedWindow("Graph", cv::WINDOW_AUTOSIZE);
-    cv::imshow("Graph", graph);
+    //  Draw the Gpoints vector in polar coordinates
+    for(const auto &[ang, dist] : gpoints)
+    {
+        cv::line(graphPolar, cv::Point{width/2, height/2},
+                 cv::Point{ width/2 - (int)(dist * scaleXpolar * std::sin(qDegreesToRadians((float)ang))),
+                            height/2 - (int)(dist * scaleYpolar * std::cos(qDegreesToRadians((float)ang))) }, cv::Scalar(0, 255, 0), 2);
+    }
+
+    // Show cartesian graph
+    cv::namedWindow("GraphCartesian", cv::WINDOW_AUTOSIZE);
+    cv::imshow("GraphCartesian", graphCartesian);
+
+    // Show polar graph
+    cv::namedWindow("GraphPolar", cv::WINDOW_AUTOSIZE);
+    cv::imshow("GraphPolar", graphPolar);
+
     cv::waitKey(1);
 }
 
@@ -359,8 +370,12 @@ std::vector<Eigen::Vector3f> SpecificWorker::filterPointsInRectangle(const std::
 
 void SpecificWorker::read_lidar()
 {
+    auto start = std::chrono::high_resolution_clock::now();
     while(true)
     {
+        // qInfo() << "While beginning" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+        // start = std::chrono::high_resolution_clock::now();
+        // This process is made in the lidar3dproxytreeshold now
 //        try
 //        {
 //            auto data = lidar3d_proxy->getLidarData("bpearl", 0, 360, 8);
@@ -386,13 +401,15 @@ void SpecificWorker::read_lidar()
             //Use with simulated lidar in webots using "pearl" name
 //            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
 
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("pearl", 1500);
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1500);
 //            std::cout << data.points.size() << std::endl;
+            std::ranges::sort(data.points, {}, &RoboCompLidar3D::TPoint::phi);
+
             buffer_lidar_data.put(std::move(data));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
-        sleep(0.05);
-    }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

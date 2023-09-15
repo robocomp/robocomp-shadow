@@ -191,7 +191,7 @@ class SpecificWorker(GenericWorker):
 
         # Fetch LIDAR points that fall within the specified angle range.
         try:
-            points = self.lidar3d_proxy.getLidarData("helios", int(start_angle), int(len_angle), 1)
+            points = self.lidar3d_proxy.getLidarData("helios", int(start_angle), int(len_angle), 1).points
             #points = self.lidar3d_proxy.getLidarData(0, 900)
             #print("Points", len(points))
             # Convert points into a numpy array and scale from millimeters to meters.
