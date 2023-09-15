@@ -380,8 +380,8 @@ void SpecificWorker::read_lidar()
     auto start = std::chrono::high_resolution_clock::now();
     while(true)
     {
-        qInfo() << "While beginning" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
-        start = std::chrono::high_resolution_clock::now();
+        // qInfo() << "While beginning" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
+        // start = std::chrono::high_resolution_clock::now();
         // This process is made in the lidar3dproxytreeshold now
 //        try
 //        {
