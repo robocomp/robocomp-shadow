@@ -19,13 +19,6 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-#from lib2to3.pgen2 import driver
-#from logging import exception
-#from time import sleep
-#from tkinter import image_names
-
-
-from lib2to3.pgen2 import driver
 from multiprocessing.resource_sharer import stop
 import time
 from PySide2.QtCore import QTimer
@@ -33,28 +26,17 @@ from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-
-import threading
-
 import numpy as np
-import traceback
-
 import SVD48V
+
 console = Console(highlight=False)
-
-
-# If RoboComp was compiled with Python bindings you can use InnerModel in Python
-# import librobocomp_qmat
-# import librobocomp_osgviewer
-# import librobocomp_innermodel
-
 
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         print("Iniciando shadow")
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 10
+        self.Period = 5
         
         #variables de clase
         self.targetSpeed = np.array([[0.0], [0.0], [0.0]])
@@ -63,6 +45,7 @@ class SpecificWorker(GenericWorker):
         self.joystickControl = False
         self.time_disble = time.time()
         self.time_emergency = time.time()
+        self.time_move = time.time()
 
         if startup_check:
             self.startup_check()
@@ -150,7 +133,11 @@ class SpecificWorker(GenericWorker):
                     #print("mm/s",speeds)
                     self.driver.set_speed(speeds)
                     self.oldTargetSpeed = np.copy(self.targetSpeed)
+                    self.time_move = time.time()
                     #print("Modificamos velocidades: ", self.oldTargetSpeed)
+                #si en un segundo no hay nuevo target se detiene
+               # elif time.time() - self.time_move < 1:
+               #     self.OmniRobot_setSpeedBase(0,0,0)
             else:
                 pass
             #self.driver.show_params(False)
@@ -241,7 +228,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setSpeedBase method from OmniRobot interface
     #
     def OmniRobot_setSpeedBase(self, advx, advz, rot):
-        self.setAdvx(advx)
+        self.setAdvx(-advx)
         self.setAdvz(advz)
         self.setRot(rot)
 

@@ -195,7 +195,7 @@ class SpecificWorker(GenericWorker):
             #points = self.lidar3d_proxy.getLidarData(0, 900)
             #print("Points", len(points))
             # Convert points into a numpy array and scale from millimeters to meters.
-            points_array = np.array([[p.x, p.y, p.z] for p in points])
+            points_array = np.array([[p.x, p.y, p.z] for p in points.points])
             return np.array(self.lidar_coppelia_cp(points_array))
             # if self.simulator else np.array(self.lidar_real(points_array))
 
@@ -542,10 +542,11 @@ class SpecificWorker(GenericWorker):
             self.y_roi_offset = self.roi_ycenter - self.roi_ysize / 2
             self.x_factor = self.roi_xsize / self.final_xsize
             self.y_factor = self.roi_ysize / self.final_ysize
-
+        visual_objects = self.distance_to_object(visual_objects)
         try:
             data = {
                 "scores": [object.score for object in visual_objects],
+                "poses": [[object.x, object.y] for object in visual_objects],
                 "boxes": [[object.left, object.top, object.right, object.bot] for object in visual_objects],
                 "clases": [object.type for object in visual_objects],
                 "image": [object.image for object in visual_objects],
@@ -576,19 +577,25 @@ class SpecificWorker(GenericWorker):
         targets = [
             ifaces.RoboCompVisualElements.TObject(
                 image=track.image, id=int(track.track_id), score=track.score,
-                left=int(track.tlwh[0]), top=int(track.tlwh[1]),
-                right=int(track.tlwh[0] + track.tlwh[2]),
-                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase, person=ifaces.RoboCompPerson.TPerson(orientation=round(track.orientation, 3)))
+                left=int(track.bbox[0]), top=int(track.bbox[1]),
+                right=int(track.bbox[2]),
+                bot=int(track.bbox[3]), type=track.clase, person=ifaces.RoboCompPerson.TPerson(orientation=round(track.orientation, 3)),
+                x=round(track.mean[0], 2) if track.kalman_initiated else round(track._pose[0], 2),
+                y=round(track.mean[1], 2) if track.kalman_initiated else round(track._pose[1], 2)
+            )
                 if track.clase == 0 else
             ifaces.RoboCompVisualElements.TObject(
                 image=track.image, id=int(track.track_id), score=track.score,
-                left=int(track.tlwh[0]), top=int(track.tlwh[1]),
-                right=int(track.tlwh[0] + track.tlwh[2]),
-                bot=int(track.tlwh[1] + track.tlwh[3]), type=track.clase)
+                left=int(track.bbox[0]), top=int(track.bbox[1]),
+                right=int(track.bbox[2]),
+                bot=int(track.bbox[3]), type=track.clase,
+            x=round(track.mean[0], 2) if track.kalman_initiated else round(track._pose[0], 2),
+            y=round(track.mean[1], 2) if track.kalman_initiated else round(track._pose[1], 2))
             for track in tracks
         ]
-        objects = self.distance_to_object(targets)
-        self.objects_write = ifaces.RoboCompVisualElements.TObjects(objects)
+        for element in targets:
+            print(element.x, element.y)
+        self.objects_write = ifaces.RoboCompVisualElements.TObjects(targets)
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
@@ -596,7 +603,7 @@ class SpecificWorker(GenericWorker):
 
     def distance_to_object(self, objects):
 
-        if len(self.objects) == 0:
+        if len(objects) == 0:
             return []
 
         # Calculate scaling factors and offsets based on the ROI dimensions.
@@ -823,27 +830,8 @@ class SpecificWorker(GenericWorker):
     #
     def get_imagehash_from_roi(self, object):
         color = np.frombuffer(object.image.image, dtype=np.uint8).reshape(object.image.height, object.image.width, 3)
-        # cv2.imshow("!color", color)
-        # cv2.waitKey(1)
         image = Image.fromarray(color)
-        image_hash = imagehash.colorhash(image)
-        # t_init = time.time()
-        # image_hash = imagehash.phash(image)
-        # print("TIME phash:", time.time()-t_init)
-        # t_init = time.time()
-        # image_hash = imagehash.dhash(image)
-        # print("TIME dhash:", time.time()-t_init)
-        # t_init = time.time()
-        # image_hash = imagehash.whash(image)
-        # print("TIME whash:", time.time()-t_init)
-        # t_init = time.time()
-        # image_hash = imagehash.colorhash(image)
-        # print("TIME colorhash:", time.time()-t_init)
-        # t_init = time.time()
-        # image_hash = imagehash.crop_resistant_hash(image)
-        # print("TIME crop_resistant_hash:", time.time()-t_init)
-        # self.last_image_hash = image_hash
-        return image_hash
+        return imagehash.colorhash(image)
     #
     # def distance_to_object(self, objects):
     #
@@ -1025,15 +1013,17 @@ class SpecificWorker(GenericWorker):
     def VisualElements_getVisualObjects(self, objects):
         # Read visual elements from segmentator
         data = self.process_visual_objects(objects)
-        self.objects = objects
+        # self.objects = objects
+
         # Get tracks from Bytetrack and convert data to VisualElements interface
 
         tracks = self.tracker.update(np.array(data["scores"]),
-                                                       np.array(data["boxes"]),
-                                                       np.array(data["clases"]),
-                                                       np.array(data["image"]),
-                                                       np.array(data["hash"]),
-                                                        np.array(data["orientations"]))
+                                     np.array(data["poses"]),
+                                   np.array(data["boxes"]),
+                                   np.array(data["clases"]),
+                                   np.array(data["image"]),
+                                   np.array(data["hash"]),
+                                    np.array(data["orientations"]))
         return self.to_visualelements_interface(tracks)
     ##############################################################################################
 

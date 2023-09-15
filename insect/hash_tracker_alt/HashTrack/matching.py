@@ -69,13 +69,20 @@ def hash_distance_following(followed_track, btracks):
     return cost_matrix
 
 def get_max_similarity_detection(distances_matrix):
-
-    filtered_array = remove_arrays_with_values_under_value(distances_matrix, 0.15)
+    filtered_array = remove_arrays_with_values_under_value(distances_matrix, 0.05)
     min_value_by_memory = np.argmin(filtered_array, axis=-1)
     counts = np.bincount(min_value_by_memory)
+
     if len(counts) == 0:
+    # if len(counts) == 0:
         return -1
-    return np.argmax(counts)
+    else:
+
+        if counts[np.argmax(counts)] < int(0.9 * len(distances_matrix[0])):
+            return -1
+        else:
+            return np.argmax(counts)
+
 
 def remove_arrays_with_values_under_value(array, value):
     array_mask = np.any(array <= value, axis=-1)
@@ -132,8 +139,8 @@ def iou_distance(atracks, btracks):
         atlbrs = atracks
         btlbrs = btracks
     else:
-        atlbrs = [track.tlbr for track in atracks]
-        btlbrs = [track.tlbr for track in btracks]
+        atlbrs = [track.bbox for track in atracks]
+        btlbrs = [track.bbox for track in btracks]
     _ious = ious(atlbrs, btlbrs)
     cost_matrix = 1 - _ious
     cost_matrix = check_for_classes(atracks, btracks, cost_matrix)

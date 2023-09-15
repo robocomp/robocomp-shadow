@@ -304,6 +304,7 @@ class SpecificWorker(GenericWorker):
         masks = self.get_mask_with_modified_background(masks, bboxes, img0)
 
         self.objects_write = self.create_interface_data(bboxes, confidences, classes, masks, associated_orientations)
+        print("OBJETOS ENCONTRADOS:", len(self.objects_write))
         self.objects_write = self.visualelements_proxy.getVisualObjects(self.objects_write)
         #
         # # swap
@@ -340,6 +341,7 @@ class SpecificWorker(GenericWorker):
                     self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
                     self.roi_ysize, self.final_xsize, self.final_ysize
                 )
+                # print("ROI DIMENSIONS:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize)
 
                 # Convert image data to numpy array and reshape it.
                 color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
@@ -381,10 +383,14 @@ class SpecificWorker(GenericWorker):
                 cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
                 masked_image = image_mask * image
                 roi = masked_image[act_bbox[1]:act_bbox[3], act_bbox[0]:act_bbox[2]]
+
                 h, w, _ = roi.shape
-                background_color = roi[int(h / 3), int(w / 2)]
+                # background_color = roi[int(h / 3), int(w / 2)]
+                background_color = cv2.mean(roi)[:3]
                 black_pixels = np.where(np.all(roi == [0, 0, 0], axis=-1))
                 roi[black_pixels] = background_color
+                cv2.imshow("", roi)
+                cv2.waitKey(1)
                 output_masks.append(roi)
         return output_masks
 
@@ -839,6 +845,7 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
+        print("TRAAACK", track.id)
         if track.id == -1:
             self.tracked_element = None
             self.tracked_id = None

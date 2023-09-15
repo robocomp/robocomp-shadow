@@ -10,7 +10,7 @@ VisualElements1Proxy = visualelements:tcp -h localhost -p 14601      # semantics
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
-yolo = False
+yolo = True
 semantic = True
 
 Ice.MessageSizeMax=20004800
