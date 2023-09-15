@@ -18,7 +18,9 @@ add_definitions(-O3 -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/
 
 SET (LIBS ${LIBS} )
 
-if( DEFINED USE_QT6)
+option(USE_QT6 "Use Qt6" OFF) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
+
+if( USE_QT6)
     LIST(APPEND SOURCES "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp")
     LIST(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h")
     LIST(APPEND LIBS QGLViewer-qt6 Qt6OpenGLWidgets)

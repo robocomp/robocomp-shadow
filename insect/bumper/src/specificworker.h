@@ -29,7 +29,7 @@
 #include <genericworker.h>
 #include <Eigen/Dense>
 
-#define QT6
+#define QT5
 #ifdef QT5
     #include <abstract_graphic_viewer_qt5/abstract_graphic_viewer.h>
 #else
@@ -84,19 +84,21 @@ class SpecificWorker : public GenericWorker
         };
 
 
-        struct
+        struct Robot_speed
         {
             float adv_speed = 0.0f;
             float rot_speed = 0.0f;
             float side_speed = 0.0f;
 
-        }robot_speed;
+        };
 
    		//int z_lidar_height = 750;
         std::vector<float> create_map_of_points();
 		std::vector<float> map_of_points;
-        Band band;
 
+        //Struct declaration for robot band width and speeds
+        Band band;
+        Robot_speed robot_speed;
         // Viewer
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
