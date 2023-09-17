@@ -20,7 +20,8 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/range.hpp>
-
+#include <cppitertools/sliding_window.hpp>
+#include <cppitertools/slice.hpp>
 
 /**
 * \brief Default constructor
@@ -60,7 +61,6 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
-
 		// Viewer
  		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000), false);
         viewer->draw_contour();
@@ -100,12 +100,10 @@ void SpecificWorker::initialize(int period)
 
         timer.start(50);
 	}
-
 }
 
 void SpecificWorker::compute()
 {
-
     //std::cout << "Speeds:" << robot_speed.adv_speed << " " << robot_speed.side_speed << " "  << robot_speed.rot_speed << std::endl;
 
     // Calculate band width using last robot_speed
@@ -115,18 +113,26 @@ void SpecificWorker::compute()
     auto start = std::chrono::high_resolution_clock::now();
     #endif
 
-    auto res_ = buffer_lidar_data.try_get();
-
-    if(not res_.has_value()){
-        qWarning() << "No data Lidar";
-        return;
-    }
-
+    auto res_ = buffer_lidar_data.try_get(); res_.has_value();
+    if(not res_.has_value())
+    { qWarning() << "No data Lidar"; return; }
     auto ldata = res_.value();
-    //auto ldata = filterPointsInRectangle(ldata_raw);
-    draw_histogram(ldata.points);
 
-    #if DEBUG
+    // filter out floor points and inbody points
+    RoboCompLidar3D::TPoints above_floor_points;
+    for(const auto &p: ldata.points)    // TODO: Check this
+        if(p.z > 1000 and p.r > 200)
+            above_floor_points.emplace_back(p);
+
+    if(above_floor_points.empty())
+    { qInfo() << "empty vector"; return;}
+
+    //auto ldata = filterPointsInRectangle(ldata_raw);
+    auto discr_points = discretize_lidar(above_floor_points);
+    auto enlarged_points = configuration_space(discr_points);
+
+
+#if DEBUG
     qInfo() << "Post get_lidar_data" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
     start = std::chrono::high_resolution_clock::now();
     #endif
@@ -198,7 +204,7 @@ void SpecificWorker::compute()
         }
     try
     {
-        omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, robot_speed.side_speed, robot_speed.rot_speed);
+        //omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, robot_speed.side_speed, robot_speed.rot_speed);
 
         // Draw repulsion line
         static QGraphicsItem * line = nullptr;
@@ -218,8 +224,7 @@ void SpecificWorker::compute()
 //     if(display)
 //         draw_ring_points(draw_points, result, &viewer->scene);
 
-    draw_all_points(ldata.points, result,&viewer->scene);
-
+    draw_all_points(above_floor_points, discr_points, enlarged_points, result, &viewer->scene);
     draw_band_width(&viewer->scene);
 
     #if DEBUG
@@ -229,72 +234,54 @@ void SpecificWorker::compute()
     fps.print("FPS:");
 }
 
-//Draw an histogram using opencv
-void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
+std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const RoboCompLidar3D::TPoints &ldata)
 {
-    // Draw a white image one for each graph
-    static const int width = 840, height = 840;
-    cv::Mat graphCartesian = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
-    cv::Mat graphPolar = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+    std::vector<std::tuple<float, float>> polar_points;
+    const float delta_phi = 2*(M_PI*2/360); // number of degrees
+    float running_angle = ldata[0].phi +  delta_phi;
+    float running_min = std::numeric_limits<float>::max();
 
-    // Max_distance of the laser used for scaling
-    static const float max_distance = 1500.0;
-
-    // Factor scales
-    static const float scaleXcartesian = width / 360.0;
-    static const float scaleYcartesian = height / max_distance;
-    static const float scaleXpolar = width / (2 * max_distance);  // Asumiendo que el ángulo varía de 0 a 360
-    static const float scaleYpolar = height / (2 * max_distance);
-
-    std::vector<std::tuple<int, float>> gpoints;
-    int running_angle = (int)qRadiansToDegrees(ldata[0].phi);
-    float running_min = ldata[0].distance2d;
-    int phi = 0;
-    //Function to obtain the minimun distance to each angle in lidar data
-
+    // Group points by discrete angle bins and compute the min dist of the set
     for (const auto& p : ldata)
     {
-        phi = (int) qRadiansToDegrees(p.phi);
-        if (phi > running_angle)
+        if (p.phi > running_angle)
         {
-            gpoints.emplace_back(std::make_tuple(running_angle, running_min));
-            running_angle = phi;
-            running_min = p.distance2d;
-        } else
-        {
+            polar_points.emplace_back(running_angle, std::min(running_min, p.distance2d));
+            running_angle += delta_phi;
+            running_min = std::numeric_limits<float>::max();
+        }
+        else
             if (p.distance2d < running_min)
                 running_min = p.distance2d;
-        }
     }
-
-    //  TODO: Divide into methods draw_polar_graph and draw_cartesian_graph
-
-    //  Draw the Gpoints vector in cartesian coordinates angles/distance
-    for(const auto &[ang, dist] : gpoints)
-    {
-        cv::Point pt1(ang * scaleXcartesian, height - dist * scaleYcartesian);
-        cv::circle(graphCartesian, pt1, 2, cv::Scalar(0, 0, 255),-8);
-    }
-
-    //  Draw the Gpoints vector in polar coordinates
-    for(const auto &[ang, dist] : gpoints)
-    {
-        cv::line(graphPolar, cv::Point{width/2, height/2},
-                 cv::Point{ width/2 - (int)(dist * scaleXpolar * std::sin(qDegreesToRadians((float)ang))),
-                            height/2 - (int)(dist * scaleYpolar * std::cos(qDegreesToRadians((float)ang))) }, cv::Scalar(0, 255, 0), 2);
-    }
-
-    // Show cartesian graph
-    cv::namedWindow("GraphCartesian", cv::WINDOW_AUTOSIZE);
-    cv::imshow("GraphCartesian", graphCartesian);
-
-    // Show polar graph
-    cv::namedWindow("GraphPolar", cv::WINDOW_AUTOSIZE);
-    cv::imshow("GraphPolar", graphPolar);
-
-    cv::waitKey(1);
+    return polar_points;
 }
 
+// compute new polar vector extending the obstacles by half the radius of the robot: paper
+std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const std::vector<std::tuple<float, float>> &points)
+{
+    std::vector<std::tuple<float, float>> conf_space;
+    const float R = 250;
+    auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
+    for (const auto &[ang_i, dist_i] : points)
+    {
+        std::vector<float> dij_vec;
+        for(auto &&[ang_j, dist_j] :
+                iter::filter([ang_i, angle_diff](auto pj){return fabs(angle_diff(ang_i, std::get<0>(pj))) <= M_PI;},  points))
+        {
+            float diff = fabs(angle_diff(ang_i, ang_j));
+            float sij = dist_j * sin(diff);
+            if(sij > R or dist_j*cos(diff) > dist_i)
+                dij_vec.emplace_back(dist_i);
+            else
+                dij_vec.emplace_back(dist_j*cos(diff));
+        }
+        conf_space.emplace_back(ang_i, std::ranges::min(dij_vec) + R);
+    }
+    return conf_space;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
 {
     Band adjusted;
@@ -347,6 +334,7 @@ void SpecificWorker::draw_band_width(QGraphicsScene *scene)
 
     rectItem->setRect(QRectF ( x1, y1, x2 - x1, y2 - y1));
 }
+
 std::vector<Eigen::Vector3f> SpecificWorker::filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points)
 {
     std::vector<Eigen::Vector3f> filteredPoints;
@@ -368,51 +356,27 @@ std::vector<Eigen::Vector3f> SpecificWorker::filterPointsInRectangle(const std::
 //
 //}
 
+// Thread to read the lidar
 void SpecificWorker::read_lidar()
 {
-    auto start = std::chrono::high_resolution_clock::now();
+    //auto start = std::chrono::high_resolution_clock::now();
     while(true)
     {
         // qInfo() << "While beginning" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
         // start = std::chrono::high_resolution_clock::now();
-        // This process is made in the lidar3dproxytreeshold now
-//        try
-//        {
-//            auto data = lidar3d_proxy->getLidarData("bpearl", 0, 360, 8);
-//            buffer_lidar_data.put(std::move(data), [this](auto &&I, auto &O)
-//                {
-//                    for (auto &p: iter::filter([this](auto p) //Check if can be deleted
-//                            {
-//                                float dist = sqrt(p.x*p.x + p.y*p.y);
-//                                float ang = atan2(p.x, p.y);
-//                                int index  = qRadiansToDegrees(ang);
-//                                if(index < 0) index += 360;
-//                                return dist > map_of_points.at(index); //and p.z > -280 and p.z < 0
-//                            }, I.points))
-//                    {
-//                        O.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-//                    }
-//                });
-//        }
-//        catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
-
         try
         {
-            //Use with simulated lidar in webots using "pearl" name
-//            auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
+            // Use with simulated lidar in webots using "pearl" name
+            // auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
 
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1500);
-//            std::cout << data.points.size() << std::endl;
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 3000);
+            // std::cout << data.points.size() << std::endl;
             std::ranges::sort(data.points, {}, &RoboCompLidar3D::TPoint::phi);
-
             buffer_lidar_data.put(std::move(data));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));    }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));}
 }
-
-//////////////////////////////////////////////////////////////////////////////
 std::vector<float> SpecificWorker::create_map_of_points()
 {
 	std::vector<float> dists;
@@ -442,6 +406,7 @@ std::vector<float> SpecificWorker::create_map_of_points()
 //                   and dist < 1000	// range limit
 //                   and dist > 100;	// body out limit. This should be computed using the robot's contour
 
+///////////////////////////////////////////////////////////////////////////
 void SpecificWorker::draw_ring(const std::vector<float> &dists, QGraphicsScene *scene) {
     static std::vector<QGraphicsItem *> draw_points;
     for (const auto &p: draw_points) {
@@ -484,29 +449,110 @@ void SpecificWorker::draw_ring_points(const std::vector<QPointF> &points, const 
      draw_points.push_back(ball);
 }
 
-void SpecificWorker::draw_all_points(const RoboCompLidar3D::TPoints &points, const Eigen::Vector2f &result,QGraphicsScene *scene)
+void SpecificWorker::draw_all_points(const RoboCompLidar3D::TPoints &points,
+                                     const std::vector<std::tuple<float, float>> &discr_points,
+                                     const std::vector<std::tuple<float, float>> &enlarged_points,
+                                     const Eigen::Vector2f &result,  QGraphicsScene *scene)
 {
-    static std::vector<QGraphicsItem *> draw_points;
+    // draw draw points
+//    static std::vector<QGraphicsItem *> draw_points;
+//    for(const auto &p : draw_points)
+//    {
+//        scene->removeItem(p);
+//        delete p;
+//    }
+//    draw_points.clear();
+//
+//    //qInfo() << __FUNCTION__ << "points" << points.size();
+//    for(const auto &p: points)
+//    {
+//        auto o = scene->addRect(-10, -10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
+//        o->setPos(p.x, p.y);
+//        draw_points.push_back(o);
+//    }
 
-    for(const auto &p : draw_points) {
+    ///////////////////////////////
+    /// draw discretized
+    ///////////////////////////////
+    //qInfo() << __FUNCTION__ << "discr points" << discr_points.size();
+    static std::vector<QGraphicsItem *> draw_discr_points;
+    for(const auto &p : draw_discr_points)
+    {
         scene->removeItem(p);
         delete p;
     }
-    draw_points.clear();
+    draw_discr_points.clear();
 
-    for(const auto &p: points)
+    for(const auto &[ang, dist]: discr_points)
     {
-        auto o = scene->addRect(-10, 10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
-        o->setPos(p.x, p.y);
-        draw_points.push_back(o);
+        auto o = scene->addRect(-15, -15, 30, 30, QPen(QColor("green")), QBrush(QColor("green")));
+        QPointF pos{-dist*sin(ang), dist*cos(ang)}; //TODO: Por qué hay que cambiar el signo de x?
+        o->setPos(pos);
+        draw_discr_points.push_back(o);
     }
 
+    // draw polar contour
+    static std::vector<QGraphicsItem *> draw_discr_lines;
+    for(const auto &p : draw_discr_lines)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_discr_lines.clear();
+
+    for(auto &&ps  : discr_points | iter::sliding_window(2))
+    {
+        auto &[ang1, dist1] = ps[0];
+        auto &[ang2, dist2] = ps[1];
+        QLineF l{QPointF{-dist1*sin(ang1), dist1*cos(ang1)}, QPointF{-dist2*sin(ang2), dist2*cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("green"), 5));
+        draw_discr_lines.push_back(o);
+    }
+    // join first and last points
+    {
+        auto &[ang1, dist1] = discr_points.front();
+        auto &[ang2, dist2] = discr_points.back();
+        QLineF l{QPointF{-dist1 * sin(ang1), dist1 * cos(ang1)}, QPointF{-dist2 * sin(ang2), dist2 * cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("green"), 5));
+        draw_discr_lines.push_back(o);
+    }
+
+    ////////////////////////
+    /// draw enlarged contour
+    ////////////////////////
+    static std::vector<QGraphicsItem *> draw_enlarged_lines;
+    for(const auto &p : draw_enlarged_lines)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_enlarged_lines.clear();
+
+    for(auto &&ps  : enlarged_points | iter::sliding_window(2))
+    {
+        auto &[ang1, dist1] = ps[0];
+        auto &[ang2, dist2] = ps[1];
+        QLineF l{QPointF{-dist1*sin(ang1), dist1*cos(ang1)}, QPointF{-dist2*sin(ang2), dist2*cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("magenta"), 5));
+        draw_enlarged_lines.push_back(o);
+    }
+    // join first and last points
+    {
+        auto &[ang1, dist1] = enlarged_points.front();
+        auto &[ang2, dist2] = enlarged_points.back();
+        QLineF l{QPointF{-dist1 * sin(ang1), dist1 * cos(ang1)}, QPointF{-dist2 * sin(ang2), dist2 * cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("magenta"), 5));
+        draw_enlarged_lines.push_back(o);
+    }
+
+    /////////////////////////
+    /// draw resultant
+    /////////////////////////
     static QGraphicsItem * line = nullptr;
     if( line != nullptr)
         scene->removeItem(line);
     
     line = scene->addLine(0, 0, result.x()*50, result.y()*50, QPen(QColor("red"), 10));
-
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -517,7 +563,6 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
-
 void SpecificWorker::self_adjust_period(int new_period)
 {
     if(abs(new_period - this->Period) < 2 || new_period < 1)      // do it only if period changes
@@ -541,44 +586,37 @@ void SpecificWorker::OmniRobot_correctOdometer(int x, int z, float alpha)
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_getBasePose(int &x, int &z, float &alpha)
 {
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_getBaseState(RoboCompGenericBase::TBaseState &state)
 {
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_resetOdometer()
 {
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_setOdometer(RoboCompGenericBase::TBaseState state)
 {
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_setOdometerPose(int x, int z, float alpha)
 {
 //implementCODE
 
 }
-
 void SpecificWorker::OmniRobot_setSpeedBase(float advx, float advz, float rot)
 {
 
 //     Todo: Check range of input values.
     buffer_dwa.put(std::make_tuple(advx, advz, rot));
 }
-
 void SpecificWorker::OmniRobot_stopBase()
 {
 //implementCODE
@@ -591,8 +629,6 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TOb
 //subscribesToCODE
 
 }
-
-
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
@@ -623,3 +659,76 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TOb
 // From the RoboCompOmniRobot you can use this types:
 // RoboCompOmniRobot::TMechParams
 
+////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+//  TODO: Divide into methods draw_polar_graph and draw_cartesian_graph
+
+//  Draw the Gpoints vector in cartesian coordinates angles/distance
+//    for(const auto &[ang, dist] : gpoints)
+//    {
+//        cv::Point pt1(ang * scaleXcartesian, height - dist * scaleYcartesian);
+//        cv::circle(graphCartesian, pt1, 2, cv::Scalar(0, 0, 255),-8);
+//    }
+// Show cartesian graph
+//const float scaleXcartesian = width / 360.0;
+//const float scaleYcartesian = height / max_distance;
+//cv::namedWindow("GraphCartesian", cv::WINDOW_AUTOSIZE);
+//cv::imshow("GraphCartesian", graphCartesian);
+
+//void SpecificWorker::draw_histogram(const RoboCompLidar3D::TPoints &ldata)
+//{
+//    // Draw a white image one for each graph
+//    const int width = 400, height = 400;
+//    cv::Mat graphPolar = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+//
+//    // Max_distance of the laser used for scaling
+//    const float max_distance = 4000.0; //mm
+//
+//    // scale factors
+//
+//    const float scaleX = width / (2 * max_distance);  // Asumiendo que el ángulo varía de 0 a 360
+//    const float scaleY = height / (2 * max_distance);
+//
+//    for(auto &ps : ldata )
+//    {
+//        cv::Point p{static_cast<int>(width/2.0 - (ps.r * scaleX)), static_cast<int>(height/2.0 - (ps.r * scaleY))};
+//        cv::circle(graphPolar, p, 3, cv::Scalar(255,0,0));
+//    }
+//    cv::line(graphPolar, cv::Point{0, height/2}, cv::Point{width, height/2}, cv::Scalar(0, 255, 0), 1);
+//    cv::line(graphPolar, cv::Point{width/2, 0}, cv::Point{width/2, height}, cv::Scalar(0, 255, 0), 1);
+//    cv::namedWindow("GraphPolar", cv::WINDOW_AUTOSIZE);
+//    cv::imshow("GraphPolar", graphPolar);
+//    cv::waitKey(1);
+//}
+//void SpecificWorker::draw_histogram(const std::vector<std::tuple<float, float>> &pdata)
+//{
+//    // Draw a white image one for each graph
+//    const int width = 400, height = 400;
+//    cv::Mat graphPolar = cv::Mat::zeros(height, width, CV_8UC3) + cv::Scalar(255, 255, 255);
+//
+//    // Max_distance of the laser used for scaling
+//    const float max_distance = 1500.0; //mm
+//
+//    // scale factors
+//
+//    const float scaleXpolar = width / (2 * max_distance);  // Asumiendo que el ángulo varía de 0 a 360
+//    const float scaleYpolar = height / (2 * max_distance);
+//
+//    //  Draw the Gpoints vector in polar coordinates
+//    for(auto &&ps : pdata | iter::sliding_window(2))
+//    {
+//        const auto &[d1, ang1] = ps[0];
+//        cv::Point p1{ static_cast<int>(width/2.0 - (d1 * scaleXpolar * std::sin(qDegreesToRadians((float)ang1)))),
+//                      static_cast<int>(height/2.0 - (d1 * scaleYpolar * std::cos(qDegreesToRadians((float)ang1))))};
+//        const auto &[d2, ang2] = ps[1];
+//        cv::Point p2{ static_cast<int>(width/2.0 - (d2 * scaleXpolar * std::sin(qDegreesToRadians((float)ang2)))),
+//                      static_cast<int>(height/2.0 - (d2 * scaleYpolar * std::cos(qDegreesToRadians((float)ang2))))};
+//
+//        cv::line(graphPolar, p1, p2, cv::Scalar(255, 0, 0), 2);
+//    }
+//    cv::line(graphPolar, cv::Point{0, height/2}, cv::Point{width, height/2}, cv::Scalar(0, 255, 0), 1);
+//    cv::line(graphPolar, cv::Point{width/2, 0}, cv::Point{width/2, height}, cv::Scalar(0, 255, 0), 1);
+//    cv::namedWindow("GraphPolar", cv::WINDOW_AUTOSIZE);
+//    cv::imshow("GraphPolar", graphPolar);
+//    cv::waitKey(1);
+//}
