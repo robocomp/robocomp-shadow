@@ -123,9 +123,14 @@ class SpecificWorker : public GenericWorker
         // Draw method
         void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_ring(const vector<float> &dists, QGraphicsScene *scene);
-        void draw_all_points(const RoboCompLidar3D::TPoints &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
+        void draw_all_points(const RoboCompLidar3D::TPoints &points,
+                             const std::vector<std::tuple<float, float>> &discr_points,
+                             const std::vector<std::tuple<float, float>> &enlarged_points,
+                             const Eigen::Vector2f &result,
+                             QGraphicsScene *scene);
         void draw_band_width(QGraphicsScene *scene);
-        void draw_histogram(const RoboCompLidar3D::TPoints &ldata);
+//        void draw_histogram(const RoboCompLidar3D::TPoints &ldata);
+//        void draw_histogram(const vector<std::tuple<float, float>> &ldata);
 
         // Thread method
         void read_lidar();
@@ -135,8 +140,12 @@ class SpecificWorker : public GenericWorker
         // Timing
         void self_adjust_period(int new_period);
         FPSCounter fps;
+
         // Double Buffer 
         DoubleBuffer<std::tuple<float, float, float>,std::tuple<float, float, float>> buffer_dwa;
+
+        std::vector<tuple<float, float>> discretize_lidar(const RoboCompLidar3D::TPoints &ldata);
+        vector<tuple<float, float>> configuration_space(const std::vector<std::tuple<float, float>> &points);
 };
 
 #endif
