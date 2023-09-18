@@ -114,14 +114,16 @@ void SpecificWorker::compute()
     #endif
 
     auto res_ = buffer_lidar_data.try_get(); res_.has_value();
-    if(not res_.has_value())
+
+    if(res_.has_value() == false)
     { qWarning() << "No data Lidar"; return; }
+
     auto ldata = res_.value();
 
     // filter out floor points and inbody points
     RoboCompLidar3D::TPoints above_floor_points;
     for(const auto &p: ldata.points)    // TODO: Check this
-        if(p.z > 1000 and p.r > 200)
+        if(p.r > 100 and p.z < 1000)
             above_floor_points.emplace_back(p);
 
     if(above_floor_points.empty())
@@ -177,19 +179,19 @@ void SpecificWorker::compute()
 
     //qInfo() << "Result norm from last point" << result.norm();
     // TODO: Modify to one try catch calling setSpeedBase and only modify adv and side variables 
-    if(result.norm() > 3)    // a clean bumper should be zero
-    {
-        // Use std::clamp to ensure that the value of side is within the range [-value, value]
-        robot_speed.adv_speed = std::clamp(result.x() * x_gain,-max_adv,max_adv);
-        robot_speed.side_speed = std::clamp(result.y() * y_gain,-max_side,max_side);
-        robot_speed.rot_speed = 0.0f;
-
-        robot_stop = false;
-    }
-    else if(const auto res = buffer_dwa.try_get(); res.has_value())
+//    if(result.norm() > 3)    // a clean bumper should be zero
+//    {
+//        // Use std::clamp to ensure that the value of side is within the range [-value, value]
+//        robot_speed.adv_speed = std::clamp(result.x() * x_gain,-max_adv,max_adv);
+//        robot_speed.side_speed = std::clamp(result.y() * y_gain,-max_side,max_side);
+//        robot_speed.rot_speed = 0.0f;
+//
+//        robot_stop = false;
+//    }
+//    else
+    if(const auto res = buffer_dwa.try_get(); res.has_value())
     {
         const auto &[side, adv, rot] = res.value();
-
         robot_speed.adv_speed = adv;
         robot_speed.side_speed = side;
         robot_speed.rot_speed = rot;
@@ -204,7 +206,7 @@ void SpecificWorker::compute()
         }
     try
     {
-        //omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, robot_speed.side_speed, robot_speed.rot_speed);
+        omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, 0, robot_speed.rot_speed);
 
         // Draw repulsion line
         static QGraphicsItem * line = nullptr;
@@ -238,36 +240,57 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
 {
     std::vector<std::tuple<float, float>> polar_points;
     const float delta_phi = 2*(M_PI*2/360); // number of degrees
-    float running_angle = ldata[0].phi +  delta_phi;
+    //float running_angle = ldata[0].phi +  delta_phi;
+    float running_angle = -M_PI + delta_phi;
     float running_min = std::numeric_limits<float>::max();
+
 
     // Group points by discrete angle bins and compute the min dist of the set
     for (const auto& p : ldata)
     {
-        if (p.phi > running_angle)
+        if(p.phi <= running_angle)
         {
-            polar_points.emplace_back(running_angle, std::min(running_min, p.distance2d));
-            running_angle += delta_phi;
-            running_min = std::numeric_limits<float>::max();
+            if (p.r < running_min)
+                running_min = p.r;
         }
         else
-            if (p.distance2d < running_min)
-                running_min = p.distance2d;
+        {
+            if (p.phi <= running_angle + delta_phi)
+            {
+                polar_points.emplace_back(running_angle + delta_phi / 2.f, std::min(running_min, p.r));
+                running_angle += delta_phi;
+            }
+            else
+                while(p.phi > running_angle + delta_phi)
+                {
+                    polar_points.emplace_back(running_angle + delta_phi / 2.f, 3000);
+                    running_angle += delta_phi;
+                    if(running_angle > M_PI) running_angle -= 2*M_PI;
+                }
+            running_min = std::numeric_limits<float>::max();
+        }
+    }
+    // complete the circle
+    while(running_angle< M_PI)
+    {
+        polar_points.emplace_back(running_angle + delta_phi / 2.f, 3000);
+        running_angle += delta_phi;
     }
     return polar_points;
 }
-
 // compute new polar vector extending the obstacles by half the radius of the robot: paper
 std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const std::vector<std::tuple<float, float>> &points)
 {
     std::vector<std::tuple<float, float>> conf_space;
     const float R = 250;
     auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
+    //auto angle_diff = [](auto a, auto b){ float diff = std::abs(a-b); if(diff > 180.0) diff = 2*M_PI - diff; return diff;};
+
     for (const auto &[ang_i, dist_i] : points)
     {
         std::vector<float> dij_vec;
         for(auto &&[ang_j, dist_j] :
-                iter::filter([ang_i, angle_diff](auto pj){return fabs(angle_diff(ang_i, std::get<0>(pj))) <= M_PI;},  points))
+                iter::filter([ang_i, angle_diff](auto pj){return fabs(angle_diff(ang_i, std::get<0>(pj))) <= M_PI/4;},  points))
         {
             float diff = fabs(angle_diff(ang_i, ang_j));
             float sij = dist_j * sin(diff);
@@ -276,7 +299,7 @@ std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const 
             else
                 dij_vec.emplace_back(dist_j*cos(diff));
         }
-        conf_space.emplace_back(ang_i, std::ranges::min(dij_vec) + R);
+        conf_space.emplace_back(ang_i, std::ranges::min(dij_vec) - R);
     }
     return conf_space;
 }
@@ -455,26 +478,25 @@ void SpecificWorker::draw_all_points(const RoboCompLidar3D::TPoints &points,
                                      const Eigen::Vector2f &result,  QGraphicsScene *scene)
 {
     // draw draw points
-//    static std::vector<QGraphicsItem *> draw_points;
-//    for(const auto &p : draw_points)
-//    {
-//        scene->removeItem(p);
-//        delete p;
-//    }
-//    draw_points.clear();
-//
-//    //qInfo() << __FUNCTION__ << "points" << points.size();
-//    for(const auto &p: points)
-//    {
-//        auto o = scene->addRect(-10, -10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
-//        o->setPos(p.x, p.y);
-//        draw_points.push_back(o);
-//    }
+    static std::vector<QGraphicsItem *> draw_points;
+    for(const auto &p : draw_points)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_points.clear();
+
+    //qInfo() << __FUNCTION__ << "points" << points.size();
+    for(const auto &p: points)
+    {
+        auto o = scene->addRect(-10, -10, 20, 20, QPen(QColor("blue")), QBrush(QColor("blue")));
+        o->setPos(p.x, p.y);
+        draw_points.push_back(o);
+    }
 
     ///////////////////////////////
     /// draw discretized
     ///////////////////////////////
-    //qInfo() << __FUNCTION__ << "discr points" << discr_points.size();
     static std::vector<QGraphicsItem *> draw_discr_points;
     for(const auto &p : draw_discr_points)
     {
