@@ -130,7 +130,7 @@ void SpecificWorker::compute()
     //auto ldata = filterPointsInRectangle(ldata_raw);
     auto discr_points = discretize_lidar(above_floor_points);
     auto enlarged_points = configuration_space(discr_points);
-
+    //qInfo() << discr_points.size() << enlarged_points.size();
 
 #if DEBUG
     qInfo() << "Post get_lidar_data" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
