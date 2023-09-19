@@ -92,6 +92,15 @@ class SpecificWorker : public GenericWorker
 
         };
 
+        struct Block
+        {
+            float pointA_ang = 0.0f;
+            float pointA_dist = 0.0f;
+            float pointB_ang = 0.0f;
+            float pointB_dist = 0.0f;
+            bool concave = true;
+        };
+
    		//int z_lidar_height = 750;
         std::vector<float> create_map_of_points();
 		std::vector<float> map_of_points;
@@ -99,6 +108,7 @@ class SpecificWorker : public GenericWorker
         //Struct declaration for robot band width and speeds
         Band band;
         Robot_speed robot_speed;
+
         // Viewer
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
@@ -118,16 +128,20 @@ class SpecificWorker : public GenericWorker
         bool robot_stop = false;
 		const float max_adv = 500;
 		const float max_side = 500;
+        const float R = 250;
 
 		// Methods
         // Draw method
         void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_ring(const vector<float> &dists, QGraphicsScene *scene);
+        void draw_discr_points(const std::vector<std::tuple<float, float>> &discr_points, QGraphicsScene *scene);
+        void draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene);
+        void draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene);
         void draw_all_points(const RoboCompLidar3D::TPoints &points,
-                             const std::vector<std::tuple<float, float>> &discr_points,
-                             const std::vector<std::tuple<float, float>> &enlarged_points,
-                             const Eigen::Vector2f &result,
-                             QGraphicsScene *scene);
+                                     const std::vector<std::tuple<float, float>> &discr_points,
+                                     const std::vector<std::tuple<float, float>> &enlarged_points,
+                                     const Eigen::Vector2f &result,
+                                 QGraphicsScene *scene);
         void draw_band_width(QGraphicsScene *scene);
 //        void draw_histogram(const RoboCompLidar3D::TPoints &ldata);
 //        void draw_histogram(const vector<std::tuple<float, float>> &ldata);
@@ -145,7 +159,9 @@ class SpecificWorker : public GenericWorker
         DoubleBuffer<std::tuple<float, float, float>,std::tuple<float, float, float>> buffer_dwa;
 
         std::vector<tuple<float, float>> discretize_lidar(const RoboCompLidar3D::TPoints &ldata);
-        vector<tuple<float, float>> configuration_space(const std::vector<std::tuple<float, float>> &points);
+        std::vector<tuple<float, float>> configuration_space(const std::vector<std::tuple<float, float>> &points);
+        std::vector<Block> get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points);
+        std::vector<Block> set_blocks_symbol(const std::vector<Block> &blocks);
 };
 
 #endif

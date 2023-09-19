@@ -132,6 +132,8 @@ void SpecificWorker::compute()
     //auto ldata = filterPointsInRectangle(ldata_raw);
     auto discr_points = discretize_lidar(above_floor_points);
     auto enlarged_points = configuration_space(discr_points);
+    auto blocks = get_blocks(enlarged_points);
+    auto sblocks = set_blocks_symbol(blocks);
     //qInfo() << discr_points.size() << enlarged_points.size();
 
 #if DEBUG
@@ -206,7 +208,7 @@ void SpecificWorker::compute()
         }
     try
     {
-        omnirobot_proxy->setSpeedBase(robot_speed.adv_speed, 0, robot_speed.rot_speed);
+        omnirobot_proxy->setSpeedBase(robot_speed.side_speed, robot_speed.adv_speed, robot_speed.rot_speed);
 
         // Draw repulsion line
         static QGraphicsItem * line = nullptr;
@@ -226,7 +228,10 @@ void SpecificWorker::compute()
 //     if(display)
 //         draw_ring_points(draw_points, result, &viewer->scene);
 
-    draw_all_points(above_floor_points, discr_points, enlarged_points, result, &viewer->scene);
+    draw_discr_points(discr_points,&viewer->scene);
+    draw_enlarged_points(enlarged_points,&viewer->scene);
+    draw_blocks(sblocks,&viewer->scene);
+//    draw_all_points(above_floor_points, discr_points, enlarged_points, result, &viewer->scene);
     draw_band_width(&viewer->scene);
 
     #if DEBUG
@@ -271,7 +276,7 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
         }
     }
     // complete the circle
-    while(running_angle< M_PI)
+    while(running_angle < M_PI)
     {
         polar_points.emplace_back(running_angle + delta_phi / 2.f, 3000);
         running_angle += delta_phi;
@@ -282,7 +287,6 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
 std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const std::vector<std::tuple<float, float>> &points)
 {
     std::vector<std::tuple<float, float>> conf_space;
-    const float R = 250;
     auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
     //auto angle_diff = [](auto a, auto b){ float diff = std::abs(a-b); if(diff > 180.0) diff = 2*M_PI - diff; return diff;};
 
@@ -304,6 +308,68 @@ std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const 
     return conf_space;
 }
 
+std::vector<SpecificWorker::Block> SpecificWorker::get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points)
+{
+    auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
+    Block block{std::get<0>(enlarged_points[0]),std::get<1>(enlarged_points[0])};
+    std::vector<Block> blocks;
+    std::vector<std::tuple<float, float>> aux(enlarged_points.begin()+1,enlarged_points.end());
+    aux.push_back(enlarged_points.back());
+
+    for (auto &&p: aux | iter::sliding_window(2))
+    {
+        auto &[ang,dist] = p[0];
+        auto &[ang1,dist1] = p[1];
+        float beta = angle_diff(ang,block.pointA_ang);
+        float diff_dist = std::sqrt(block.pointA_dist*block.pointA_dist + dist1*dist1 - 2*cos(beta)*block.pointA_dist*dist1);
+
+        if( diff_dist < R * 1.1)
+        {
+            block.pointB_ang = ang1;
+            block.pointB_dist = dist1;
+        }
+        else
+        {
+            blocks.push_back(block);
+            block.pointA_ang = ang1;
+            block.pointA_dist = dist1;
+            block.pointB_ang = ang1;
+            block.pointB_dist = dist1;
+        }
+    }
+    qInfo() << blocks.size() << aux.size();
+    return blocks;
+}
+
+vector<SpecificWorker::Block> SpecificWorker::set_blocks_symbol(const vector<Block> &blocks)
+{
+    std::vector<Block> sblocks(blocks);
+
+    auto gt_than = [](auto &b0, auto &b1, auto &b2)
+            { return b1.pointA_dist >= b0.pointB_dist and b1.pointB_dist >= b2.pointA_dist;};
+
+        for(auto &sb : sblocks | iter::sliding_window(3))
+            if( gt_than(sb[0], sb[1], sb[2]) )
+                sb[1].concave = false;
+
+        if( gt_than(sblocks[sblocks.size()-2],sblocks.back(), sblocks.front()))
+            sblocks.back().concave = false;
+
+        if( gt_than(sblocks.back(),sblocks.front(),  sblocks[2]))
+            sblocks.front().concave = false;
+
+//    for(auto &sb : sblocks | iter::sliding_window(3))
+//        if( gt_than(sb[1], sb[0]) and gt_than(sb[1], sb[2]))
+//            sb[1].concave = false;
+//
+//    if( gt_than(sblocks.back(), sblocks.front()) and gt_than(blocks.back(), sblocks[sblocks.size()-2]))
+//        sblocks.back().concave = false;
+//
+//    if( gt_than(sblocks.front(), sblocks.back()) and gt_than(blocks.front(), sblocks[2]))
+//        sblocks.front().concave = false;
+
+    return sblocks;
+}
 //////////////////////////////////////////////////////////////////////////////
 SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
 {
@@ -361,14 +427,11 @@ void SpecificWorker::draw_band_width(QGraphicsScene *scene)
 std::vector<Eigen::Vector3f> SpecificWorker::filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points)
 {
     std::vector<Eigen::Vector3f> filteredPoints;
-
     for (const auto& p : points)
     {
         if (p.x() >= band.left_distance && p.x() <= band.right_distance &&
             p.y() >= band.back_distance && p.y() <= band.frontal_distance)
-        {
             filteredPoints.push_back(p);
-        }
     }
 
     return filteredPoints;
@@ -470,6 +533,109 @@ void SpecificWorker::draw_ring_points(const std::vector<QPointF> &points, const 
      auto ball = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("orange"), 15));
      ball->setPos(result.x()*scl, result.y()*scl);
      draw_points.push_back(ball);
+}
+
+void SpecificWorker::draw_discr_points(const std::vector<std::tuple<float, float>> &discr_points, QGraphicsScene *scene)
+{
+    ///////////////////////////////
+    /// draw discretized
+    ///////////////////////////////
+    static std::vector<QGraphicsItem *> draw_discr_points;
+    for(const auto &p : draw_discr_points)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_discr_points.clear();
+
+    for(const auto &[ang, dist]: discr_points)
+    {
+        auto o = scene->addRect(-15, -15, 30, 30, QPen(QColor("green")), QBrush(QColor("green")));
+        QPointF pos{-dist*sin(ang), dist*cos(ang)}; //TODO: Por qué hay que cambiar el signo de x?
+        o->setPos(pos);
+        draw_discr_points.push_back(o);
+    }
+
+    // draw polar contour
+    static std::vector<QGraphicsItem *> draw_discr_lines;
+    for(const auto &p : draw_discr_lines)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_discr_lines.clear();
+
+    for(auto &&ps  : discr_points | iter::sliding_window(2))
+    {
+        auto &[ang1, dist1] = ps[0];
+        auto &[ang2, dist2] = ps[1];
+        QLineF l{QPointF{-dist1*sin(ang1), dist1*cos(ang1)}, QPointF{-dist2*sin(ang2), dist2*cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("green"), 5));
+        draw_discr_lines.push_back(o);
+    }
+    // join first and last points
+    {
+        auto &[ang1, dist1] = discr_points.front();
+        auto &[ang2, dist2] = discr_points.back();
+        QLineF l{QPointF{-dist1 * sin(ang1), dist1 * cos(ang1)}, QPointF{-dist2 * sin(ang2), dist2 * cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("green"), 5));
+        draw_discr_lines.push_back(o);
+    }
+}
+
+void SpecificWorker::draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene)
+{
+    ////////////////////////
+    /// draw enlarged contour
+    ////////////////////////
+    static std::vector<QGraphicsItem *> draw_enlarged_lines;
+    for(const auto &p : draw_enlarged_lines)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_enlarged_lines.clear();
+
+    for(auto &&ps  : enlarged_points | iter::sliding_window(2))
+    {
+        auto &[ang1, dist1] = ps[0];
+        auto &[ang2, dist2] = ps[1];
+        QLineF l{QPointF{-dist1*sin(ang1), dist1*cos(ang1)}, QPointF{-dist2*sin(ang2), dist2*cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("magenta"), 5));
+        draw_enlarged_lines.push_back(o);
+    }
+    // join first and last points
+    {
+        auto &[ang1, dist1] = enlarged_points.front();
+        auto &[ang2, dist2] = enlarged_points.back();
+        QLineF l{QPointF{-dist1 * sin(ang1), dist1 * cos(ang1)}, QPointF{-dist2 * sin(ang2), dist2 * cos(ang2)}};
+        auto o = scene->addLine(l, QPen(QColor("magenta"), 5));
+        draw_enlarged_lines.push_back(o);
+    }
+}
+
+void SpecificWorker::draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem *> draw_blocks_lines;
+    for(const auto &p : draw_blocks_lines)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_blocks_lines.clear();
+
+    QColor concave_color("orange");
+    QColor convex_color("black");
+    for( auto &&b : blocks)
+    {
+        QLineF l{QPointF{-b.pointA_dist*sin(b.pointA_ang), b.pointA_dist*cos(b.pointA_ang)}, QPointF{-b.pointB_dist*sin(b.pointB_ang), b.pointB_dist*cos(b.pointB_ang)}};
+        QGraphicsLineItem *o;
+        if( b.concave)
+            o = scene->addLine(l, QPen(concave_color, 25));
+        else
+            o = scene->addLine(l, QPen(convex_color, 25));
+        draw_blocks_lines.push_back(o);
+    }
 }
 
 void SpecificWorker::draw_all_points(const RoboCompLidar3D::TPoints &points,
@@ -651,6 +817,8 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TOb
 //subscribesToCODE
 
 }
+
+
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
