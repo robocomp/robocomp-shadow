@@ -74,7 +74,7 @@ class SpecificWorker : public GenericWorker
 		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
         int BAND_WIDTH = 400;			// distance to the obstacle that repels the object
 
-        // Struct that correspond to the band witdh of the robot
+        // Structs
         struct Band
         {
             float frontal_distance = 400.0f;
@@ -82,16 +82,12 @@ class SpecificWorker : public GenericWorker
             float left_distance = 400.0f;
             float right_distance = 400.0f;
         };
-
-
         struct Robot_speed
         {
-            float adv_speed = 0.0f;
-            float rot_speed = 0.0f;
-            float side_speed = 0.0f;
-
+            float adv = 0.0f;
+            float rot = 0.0f;
+            float side = 0.0f;
         };
-
         struct Block
         {
             float pointA_ang = 0.0f;
@@ -100,14 +96,31 @@ class SpecificWorker : public GenericWorker
             float pointB_dist = 0.0f;
             bool concave = true;
         };
+        struct LPoint
+        {
+            float ang;
+            float dist;
+            int block;
+            bool concave;
+            bool kinematics;
+            float coste = 0.f;
+        };
+        struct Target
+        {
+            float x = 0.f, y = 0.f, ang = 0,f, dist = 0.f;  // target
+            float side, adv, rot; // assigned speed
+            bool active = false;
+            void set(float x_, float y_) { x=x_; y=y_; ang = atan2(y, x); dist = sqrt(x*x+y*y); active = true;};
+        };
 
    		//int z_lidar_height = 750;
         std::vector<float> create_map_of_points();
 		std::vector<float> map_of_points;
 
-        //Struct declaration for robot band width and speeds
+        //Struct declaration
         Band band;
         Robot_speed robot_speed;
+        Target target;
 
         // Viewer
 		AbstractGraphicViewer *viewer;
@@ -158,10 +171,14 @@ class SpecificWorker : public GenericWorker
         // Double Buffer 
         DoubleBuffer<std::tuple<float, float, float>,std::tuple<float, float, float>> buffer_dwa;
 
+        // Processing steps
         std::vector<tuple<float, float>> discretize_lidar(const RoboCompLidar3D::TPoints &ldata);
         std::vector<tuple<float, float>> configuration_space(const std::vector<std::tuple<float, float>> &points);
-        std::vector<Block> get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points);
-        std::vector<Block> set_blocks_symbol(const std::vector<Block> &blocks);
+        std::pair<std::vector<Block>, std::vector<LPoint>>
+            get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points);
+        std::vector<Block> set_blocks_symbol(const std::vector<SpecificWorker::Block> &blocks);
+        LPoint cost_function(const std::vector<LPoint> &points, const std::vector<Block> &blocks, const Target &target);
+
 };
 
 #endif
