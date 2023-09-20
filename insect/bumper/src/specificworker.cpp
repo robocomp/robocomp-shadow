@@ -102,38 +102,58 @@ void SpecificWorker::initialize(int period)
 	}
 }
 
-void SpecificWorker::compute()
-{
+void SpecificWorker::compute() {
     //std::cout << "Speeds:" << robot_speed.adv_speed << " " << robot_speed.side_speed << " "  << robot_speed.rot_speed << std::endl;
 
     // Calculate band width using last robot_speed
     //band = adjustSafetyZone(Eigen::Vector3f(robot_speed.adv_speed,robot_speed.side_speed,robot_speed.rot_speed));
 
-    #if DEBUG
+#if DEBUG
     auto start = std::chrono::high_resolution_clock::now();
-    #endif
+#endif
 
-    auto res_ = buffer_lidar_data.try_get(); res_.has_value();
+    auto res_ = buffer_lidar_data.try_get();
+    res_.has_value();
 
-    if(res_.has_value() == false)
-    { qWarning() << "No data Lidar"; return; }
+    if (res_.has_value() == false) {
+        qWarning() << "No data Lidar";
+        return;
+    }
 
     auto ldata = res_.value();
 
     // filter out floor points and inbody points
     RoboCompLidar3D::TPoints above_floor_points;
-    for(const auto &p: ldata.points)    // TODO: Check this
-        if(p.r > 100 and p.z < 1000)
+    for (const auto &p: ldata.points)    // TODO: Check this
+        if (p.r > 100 and p.z < 1000)
             above_floor_points.emplace_back(p);
 
-    if(above_floor_points.empty())
-    { qInfo() << "empty vector"; return;}
+    if (above_floor_points.empty()) {
+        qInfo() << "empty vector";
+        return;
+    }
 
     //auto ldata = filterPointsInRectangle(ldata_raw);
     auto discr_points = discretize_lidar(above_floor_points);
     auto enlarged_points = configuration_space(discr_points);
-    auto blocks = get_blocks(enlarged_points);
-    auto sblocks = set_blocks_symbol(blocks);
+    auto blocks_and_tagged_points = get_blocks(enlarged_points);
+    auto sblocks = set_blocks_symbol(blocks_and_tagged_points.first);
+
+    LPoint res;
+
+    if (target.active)
+    {
+        res = cost_function(blocks_and_tagged_points.second, sblocks, target);
+        qInfo() << "Result:" << res.ang << res.dist;
+
+        static QGraphicsItem * o = nullptr;
+        if( o != nullptr) viewer->scene.removeItem(o);
+
+        o = viewer->scene.addRect(-15, -15, 70, 70, QPen(QColor("red")), QBrush(QColor("red")));
+        QPointF pos{-res.dist*sin(res.ang), res.dist*cos(res.ang)};
+        o->setPos(pos);
+    }
+
     //qInfo() << discr_points.size() << enlarged_points.size();
 
 #if DEBUG
@@ -194,31 +214,43 @@ void SpecificWorker::compute()
     if(const auto res = buffer_dwa.try_get(); res.has_value())
     {
         const auto &[side, adv, rot] = res.value();
-        robot_speed.adv_speed = adv;
-        robot_speed.side_speed = side;
-        robot_speed.rot_speed = rot;
+        target.set(side, adv);
+
+
+        robot_speed.adv = adv;
+        robot_speed.side = side;
+        robot_speed.rot = rot;
     }
     else
         if(not robot_stop)
         {
-            robot_speed.adv_speed = 0.0f;
-            robot_speed.side_speed = 0.0f;
-            robot_speed.rot_speed = 0.0f;
+            robot_speed.adv = 0.0f;
+            robot_speed.side = 0.0f;
+            robot_speed.rot = 0.0f;
             robot_stop = true;
+//            target.active = false;
         }
     try
     {
-        omnirobot_proxy->setSpeedBase(robot_speed.side_speed, robot_speed.adv_speed, robot_speed.rot_speed);
+//        auto new_adv = sqrt(robot_speed.adv*robot_speed.adv+robot_speed.side*robot_speed.side)*cos(res.ang);
+//        auto new_side = sqrt(robot_speed.adv*robot_speed.adv+robot_speed.side*robot_speed.side)*sin(res.ang);
+//
+//        omnirobot_proxy->setSpeedBase(-new_side, new_adv, robot_speed.rot);
 
-        // Draw repulsion line
+        omnirobot_proxy->setSpeedBase(robot_speed.side, robot_speed.adv, robot_speed.rot);
+        //omnirobot_proxy->setSpeedBase(target.side, target.adv, target.rot);
+
+        // Draw speed line
         static QGraphicsItem * line = nullptr;
-        if( line != nullptr)
-            viewer->scene.removeItem(line);
-
-        line =  viewer->scene.addLine(0, 0, robot_speed.adv_speed*5, robot_speed.side_speed*5, QPen(QColor("Green"), 10));
+        static QGraphicsItem * ball = nullptr;
+        if( line != nullptr) viewer->scene.removeItem(line);
+        if( ball != nullptr) viewer->scene.removeItem(ball);
+        line =  viewer->scene.addLine(0, 0, -robot_speed.adv*5, robot_speed.side*5, QPen(QColor("green"), 20));
+        ball =  viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20));
+        ball->setPos(-robot_speed.adv*5, robot_speed.side*5);
 
     }
-    catch (const Ice::Exception &e) {}//std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+    catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
 
 #if DEBUG
     qInfo() << "Post sending adv, side, rot" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
@@ -308,14 +340,17 @@ std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const 
     return conf_space;
 }
 
-std::vector<SpecificWorker::Block> SpecificWorker::get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points)
+std::pair<std::vector<SpecificWorker::Block>, std::vector<SpecificWorker::LPoint>>
+SpecificWorker::get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points)
 {
     auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
     Block block{std::get<0>(enlarged_points[0]),std::get<1>(enlarged_points[0])};
     std::vector<Block> blocks;
+    std::vector<LPoint> tagged_enlarged_points;
     std::vector<std::tuple<float, float>> aux(enlarged_points.begin()+1,enlarged_points.end());
     aux.push_back(enlarged_points.back());
 
+    int i=0;
     for (auto &&p: aux | iter::sliding_window(2))
     {
         auto &[ang,dist] = p[0];
@@ -327,49 +362,63 @@ std::vector<SpecificWorker::Block> SpecificWorker::get_blocks(const std::vector<
         {
             block.pointB_ang = ang1;
             block.pointB_dist = dist1;
+            tagged_enlarged_points.emplace_back(LPoint{.ang=ang1, .dist=dist1, .block=i});
         }
         else
         {
             blocks.push_back(block);
+            tagged_enlarged_points.emplace_back(LPoint{.ang=ang1, .dist=dist1, .block=++i});
             block.pointA_ang = ang1;
             block.pointA_dist = dist1;
             block.pointB_ang = ang1;
             block.pointB_dist = dist1;
         }
     }
-    qInfo() << blocks.size() << aux.size();
-    return blocks;
+
+    // Check if last point of the last block if connected to the first option of that same block
+
+    //qInfo() << blocks.size() << aux.size();
+    return {blocks, tagged_enlarged_points};
 }
 
-vector<SpecificWorker::Block> SpecificWorker::set_blocks_symbol(const vector<Block> &blocks)
+vector<SpecificWorker::Block> SpecificWorker::set_blocks_symbol(const std::vector<Block> &blocks)
 {
     std::vector<Block> sblocks(blocks);
-
     auto gt_than = [](auto &b0, auto &b1, auto &b2)
             { return b1.pointA_dist >= b0.pointB_dist and b1.pointB_dist >= b2.pointA_dist;};
 
-        for(auto &sb : sblocks | iter::sliding_window(3))
-            if( gt_than(sb[0], sb[1], sb[2]) )
-                sb[1].concave = false;
+    for(auto &sb : sblocks | iter::sliding_window(3))
+        if( gt_than(sb[0], sb[1], sb[2]) )
+            sb[1].concave = false;
 
-        if( gt_than(sblocks[sblocks.size()-2],sblocks.back(), sblocks.front()))
-            sblocks.back().concave = false;
+    if( gt_than(sblocks[sblocks.size()-2],sblocks.back(), sblocks.front()))
+        sblocks.back().concave = false;
 
-        if( gt_than(sblocks.back(),sblocks.front(),  sblocks[2]))
-            sblocks.front().concave = false;
-
-//    for(auto &sb : sblocks | iter::sliding_window(3))
-//        if( gt_than(sb[1], sb[0]) and gt_than(sb[1], sb[2]))
-//            sb[1].concave = false;
-//
-//    if( gt_than(sblocks.back(), sblocks.front()) and gt_than(blocks.back(), sblocks[sblocks.size()-2]))
-//        sblocks.back().concave = false;
-//
-//    if( gt_than(sblocks.front(), sblocks.back()) and gt_than(blocks.front(), sblocks[2]))
-//        sblocks.front().concave = false;
+    if( gt_than(sblocks.back(),sblocks.front(),  sblocks[2]))
+        sblocks.front().concave = false;
 
     return sblocks;
 }
+
+SpecificWorker::LPoint SpecificWorker::cost_function(const std::vector<LPoint> &points, const std::vector<Block> &blocks, const Target &target)
+{
+    std::vector<LPoint> p_costs(points);
+    auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
+    const float k1 = 10.f; const float k2 = 0.f; const float k3 = 0.001;
+
+    for(auto &p : p_costs)
+    {
+        float hg = angle_diff(p.ang, target.ang);
+        float ho = p.ang;
+        if(not blocks[p.block].concave)
+        {
+            p.coste = (p.dist / ( k1 * hg + k2 * ho + k3));
+        }
+    }
+
+    return std::ranges::max_element(p_costs, [](auto &a, auto &b){ return a.coste > b.coste;}).operator*();
+}
+
 //////////////////////////////////////////////////////////////////////////////
 SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
 {
@@ -817,6 +866,7 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TOb
 //subscribesToCODE
 
 }
+
 
 
 
