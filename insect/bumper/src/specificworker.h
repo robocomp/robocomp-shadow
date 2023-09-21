@@ -98,8 +98,8 @@ class SpecificWorker : public GenericWorker
         };
         struct LPoint
         {
-            float ang;
-            float dist;
+            float ang = 0.0f;
+            float dist = 0.0f;
             int block;
             bool concave;
             bool kinematics;

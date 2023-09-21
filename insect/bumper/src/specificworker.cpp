@@ -216,28 +216,28 @@ void SpecificWorker::compute() {
         const auto &[side, adv, rot] = res.value();
         target.set(side, adv);
 
-
         robot_speed.adv = adv;
         robot_speed.side = side;
         robot_speed.rot = rot;
+        std::cout << side << adv << rot << std::endl;
     }
     else
+    {
+         // Check
         if(not robot_stop)
         {
             robot_speed.adv = 0.0f;
             robot_speed.side = 0.0f;
             robot_speed.rot = 0.0f;
             robot_stop = true;
-//            target.active = false;
+            target.active = false;
         }
+    }
     try
     {
-//        auto new_adv = sqrt(robot_speed.adv*robot_speed.adv+robot_speed.side*robot_speed.side)*cos(res.ang);
-//        auto new_side = sqrt(robot_speed.adv*robot_speed.adv+robot_speed.side*robot_speed.side)*sin(res.ang);
 //
-//        omnirobot_proxy->setSpeedBase(-new_side, new_adv, robot_speed.rot);
-
-        omnirobot_proxy->setSpeedBase(robot_speed.side, robot_speed.adv, robot_speed.rot);
+//        omnirobot_proxy->setSpeedBase(0, 0, res.ang);
+        omnirobot_proxy->setSpeedBase(res.dist*cos(res.ang)/2500, res.dist*sin(res.ang)/2500,res.ang);
         //omnirobot_proxy->setSpeedBase(target.side, target.adv, target.rot);
 
         // Draw speed line
@@ -335,7 +335,7 @@ std::vector<std::tuple<float, float>> SpecificWorker::configuration_space(const 
             else
                 dij_vec.emplace_back(dist_j*cos(diff));
         }
-        conf_space.emplace_back(ang_i, std::ranges::min(dij_vec) - R);
+        conf_space.emplace_back(ang_i, std::ranges::min(dij_vec) - R*2);
     }
     return conf_space;
 }
