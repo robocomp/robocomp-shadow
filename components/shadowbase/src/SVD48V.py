@@ -1,3 +1,4 @@
+from tabnanny import check
 import time, sys
 import threading
 import numpy as np
@@ -74,46 +75,53 @@ class SVD48V:
         self.time_com = []
         self.data = {'Speed' : [0.0, 0.0, 0.0], 'Status' : [0,0], 'Temperature' : [0,0,0,0]}
 
-        print('Opening serial port with the SVD48V')
         self.driver = None
         self.thSelfResetting = None
         self.self_resetting = False
         self.safety = False
-        try:
-            self.driver = serial.Serial(
-                port=self.port,
-                baudrate=115200,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                bytesize=serial.EIGHTBITS,
+
+        while self.driver is None:
+            print('Opening serial port with the SVD48V')
+            try:
+                self.driver = serial.Serial(
+                    port=self.port,
+                    baudrate=115200,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    bytesize=serial.EIGHTBITS,
+                    timeout=0
+                )
+            except Exception:
+                sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
+
+            if self.driver.isOpen():
+                time.sleep(1)
+                #Print initial message
+                print_info = True
+                flag = False
                 timeout=0
-            )
-        except Exception:
-            sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
+                while print_info and timeout<25:
+                    text = self.driver.readline()
+                    if len(text) == 0 and flag:
+                        print_info = False
+                    elif len(text) > 0:
+                        #print(text)
+                        flag = True
+                    timeout += 1
+            else:
+                sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
+            if not self.check_connect():
+                self.driver.close()
+                self.driver = None
+                print("Failed to connect motor drivers, restarting...")
 
         print("Starting SVD48V")
-        if self.driver.isOpen():
-            time.sleep(1)
-            #Print initial message
-            print_info = True
-            flag = False
-            timeout=0
-            while print_info and timeout<25:
-                text = self.driver.readline()
-                if len(text) == 0 and flag:
-                    print_info = False
-                elif len(text) > 0:
-                    print(text)
-                    flag = True
-                timeout += 1
-
-            for id in self.ids:
-                self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
-                self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
-                #self.write_register(id, DRIVER_REGISTERS['MAX_SPEED'], [self.rpm_max_speed, self.rpm_max_speed])
-                self.enable_driver()
-        else:
-            sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
+        for id in self.ids:
+            self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
+            self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
+            #self.write_register(id, DRIVER_REGISTERS['MAX_SPEED'], [self.rpm_max_speed, self.rpm_max_speed])
+            self.enable_driver()
+        
 
         print("Creating reading threads")
         self.threads_alive = True
@@ -132,15 +140,14 @@ class SVD48V:
         
     
     def __del__(self):
-        self.threads_alive = False
-        if self.driver is not None:
+        
+        if self.driver is not None and self.threads_alive:
+            self.threads_alive = False
             print("Turning off SVD48V")
             self.disable_driver()
 
             print("Closing serial connection")
             self.driver.close()
-            if not self.driver.isOpen():
-                self.driver = None
             print("-------------------------------COMMUNICATION STATISTICS--------------------------------")
 
             print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
@@ -148,6 +155,17 @@ class SVD48V:
             for thread in self.threads:
                 thread.join(timeout=2)
             print("SVD48V Deleted")
+
+    def check_connect(self):
+        """
+        Check de conection motor driver.
+        """
+        for id in self.ids:
+            status = self.read_register(id, DRIVER_REGISTERS['GET_STATUS'], False)
+            if status is None:
+                return False
+        return True
+
 
     def enable_driver(self):
         """
@@ -297,11 +315,12 @@ class SVD48V:
         Returns:
             list: A list of the data from the register.
         """
-        
+        attempt = 0
         telegram = self.generate_telegram(id, "READ",add_register, False)
-        while (data := self.process_telegram(telegram, "READ")) is None:
+        while (data := self.process_telegram(telegram, "READ")) is None and attempt < 2:
             print("Restarting Reading")
-            time.sleep(0.0001)
+            time.sleep(0.005)
+            attempt+=1
         return data
         
         
@@ -315,16 +334,19 @@ class SVD48V:
             data_tuple (list): The data to write to the register. Defaults to [0,0].
 
         Returns:
-            int: -2 if the wrong number of data items are provided. 0 otherwise.
+            int: -2 if the wrong number of data items are provided, 0 OK and None fault communication .
         """
+
+        attempt = 0
         telegram = self.generate_telegram(id, "WRITE", add_register,False, data_tuple)
         if telegram is None:
             print("Wrong number of data items")
             return -2
-        while (data := self.process_telegram(telegram, "WRITE")) is None:
+        while (data := self.process_telegram(telegram, "WRITE")) is None and attempt < 2:
             print("Restarting Writing")
-            time.sleep(0.0001)
-        return 0
+            time.sleep(0.005)
+            attempt+=1
+        return data
 
 
     def calculate_crc(self, telegram):
