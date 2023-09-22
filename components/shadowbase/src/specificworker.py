@@ -54,12 +54,18 @@ class SpecificWorker(GenericWorker):
             self.timer.start(self.Period)
         print("Shadow iniciado correctamente")
 
+    ####################################################### IMPORTANT ################################################################################
+    #please in the shadowbase.py file the handler will call the __del__ 
+    #SIGNALS handler
+    #def sigint_handler(*args):
+    #    QtCore.QCoreApplication.quit()
+    #    worker.__del__()
+    ####################################################### IMPORTANT ###########################################################
     def __del__(self):
         print("Finalizando shadow")
         """Destructor"""
-        if self.driver is not None:
-            self.driver.__del__()
-        print("Shadow destruido")
+        self.driver.__del__()
+        print("Shadow destruido")        
 
     def setParams(self, params):
         print("Cargando parametros:")
@@ -136,8 +142,11 @@ class SpecificWorker(GenericWorker):
                     self.time_move = time.time()
                     #print("Modificamos velocidades: ", self.oldTargetSpeed)
                 #si en un segundo no hay nuevo target se detiene
-               # elif time.time() - self.time_move < 1:
-               #     self.OmniRobot_setSpeedBase(0,0,0)
+                elif time.time() - self.time_move > 3:
+                    print("No comand, Stoping ")
+                    self.OmniRobot_setSpeedBase(0,0,0)
+                    self.time_move = float("inf")
+
             else:
                 pass
             #self.driver.show_params(False)
@@ -292,7 +301,7 @@ class SpecificWorker(GenericWorker):
                 if b.step == 1:
                     self.joystickControl = not self.joystickControl
                     if not self.joystickControl:
-                        self.OmniRobot_setSpeedBase(0, 0, 0)
+                        pass#self.OmniRobot_setSpeedBase(0, 0, 0)
                     print("Joystick control: ", self.joystickControl)
             else:
                 pass#print(b.name, "PULASDOR NO AJUSTADO")
