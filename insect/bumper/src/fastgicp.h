@@ -1,5 +1,9 @@
 //
 // Created by pbustos on 23/09/23.
+// Lidar3D odometry using Fast_GICP    https://github.com/SMRT-AIST/fast_gicp/tree/master
+//
+// To use instantiate the class as a regular variable and call the method assign with the LiDar data.
+// A trajectory will start immediately. Call reset() to reinitiate it to (0,0,0)
 //
 
 #ifndef BUMPER_FASTGICP_H
@@ -30,16 +34,19 @@ class FastGICP
 {
     public:
         FastGICP();
-        pcl::PointCloud<pcl::PointXY>::Ptr   align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
+        //pcl::PointCloud<pcl::PointXY>::Ptr  align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
+        Eigen::Isometry3d align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
+
         void reset();
 
     private:
         std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d>> poses;
         pcl::PointCloud<pcl::PointXY>::Ptr  trajectory;
-        int index = 0;
         bool first_time = true;
-        bool active = false;
+
         fast_gicp::FastGICP<pcl::PointXYZ, pcl::PointXYZ> fgicp;
+
+        // other options
         // fast_gicp::FastVGICP<pcl::PointXYZ, pcl::PointXYZ> gicp;
         // fast_gicp::FastVGICPCuda<pcl::PointXYZ, pcl::PointXYZ> gicp;
         // fast_gicp::NDTCuda<pcl::PointXYZ, pcl::PointXYZ> gicp;

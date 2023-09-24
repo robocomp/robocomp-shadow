@@ -11,7 +11,56 @@ FastGICP::FastGICP()
     trajectory = pcl::PointCloud<pcl::PointXY>::Ptr(new pcl::PointCloud<pcl::PointXY>());
 }
 
-pcl::PointCloud<pcl::PointXY>::Ptr FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud)
+//pcl::PointCloud<pcl::PointXY>::Ptr FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud)
+//{
+//    if(source_cloud->empty())
+//    { std::cout << "Empty cloud. Returning" << std::endl; return {};}
+//
+//    // remove invalid points around origin
+//    source_cloud->erase(
+//            std::remove_if(source_cloud->begin(), source_cloud->end(), [=](const pcl::PointXYZ& pt) { return pt.getVector3fMap().squaredNorm() < 1e-3; }),
+//            source_cloud->end());
+////    target_cloud->erase(
+////            std::remove_if(target_cloud->begin(), target_cloud->end(), [=](const pcl::PointXYZ& pt) { return pt.getVector3fMap().squaredNorm() < 1e-3; }),
+////            target_cloud->end());
+//
+//    // downsampling
+//    pcl::ApproximateVoxelGrid<pcl::PointXYZ> voxelgrid;
+//    voxelgrid.setLeafSize(0.1f, 0.1f, 0.1f);
+//
+//    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>());
+//    voxelgrid.setInputCloud(source_cloud);
+//    voxelgrid.filter(*filtered);
+//    source_cloud = filtered;
+//
+//    // align
+//    if(first_time)
+//    {
+//        fgicp.setInputTarget(source_cloud);
+//        poses.resize(1);
+//        trajectory->clear();
+//        poses[0].setIdentity();
+//        first_time = false;
+//    }
+//    pcl::PointCloud<pcl::PointXYZ>::Ptr aligned(new pcl::PointCloud<pcl::PointXYZ>);
+//    //auto t1 = std::chrono::high_resolution_clock::now();
+//    fgicp.setInputSource(source_cloud);
+//    fgicp.align(*aligned);
+//    fgicp.swapSourceAndTarget();
+//
+//    // accumulate pose
+//    poses.emplace_back(poses.back() * fgicp.getFinalTransformation().cast<double>());
+//    trajectory->emplace_back(pcl::PointXY(poses.back()(0, 3), poses.back()(1, 3)));
+//    //auto t2 = std::chrono::high_resolution_clock::now();
+//    //double fitness_score = fgicp.getFitnessScore();
+//    //double single = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1e6;
+//    //std::cout << "multi:" << single << "[msec] " << "source:" << source_cloud->size()
+//    //    << "[pts] score:" << fitness_score << " length: " << trajectory->size() << std::endl;;
+//
+//    return trajectory;
+//}
+
+Eigen::Isometry3d FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud)
 {
     if(source_cloud->empty())
     { std::cout << "Empty cloud. Returning" << std::endl; return {};}
@@ -40,26 +89,23 @@ pcl::PointCloud<pcl::PointXY>::Ptr FastGICP::align(pcl::PointCloud<pcl::PointXYZ
         poses.resize(1);
         trajectory->clear();
         poses[0].setIdentity();
-        index = 0;
         first_time = false;
     }
     pcl::PointCloud<pcl::PointXYZ>::Ptr aligned(new pcl::PointCloud<pcl::PointXYZ>);
-    double fitness_score = 0.0;
-    auto t1 = std::chrono::high_resolution_clock::now();
+    //auto t1 = std::chrono::high_resolution_clock::now();
     fgicp.setInputSource(source_cloud);
     fgicp.align(*aligned);
     fgicp.swapSourceAndTarget();
 
     // accumulate pose
     poses.emplace_back(poses.back() * fgicp.getFinalTransformation().cast<double>());
-    trajectory->emplace_back(pcl::PointXY(poses.back()(0, 3), poses.back()(1, 3)));
-    auto t2 = std::chrono::high_resolution_clock::now();
-    fitness_score = fgicp.getFitnessScore();
-    double single = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1e6;
+    //auto t2 = std::chrono::high_resolution_clock::now();
+    //double fitness_score = fgicp.getFitnessScore();
+    //double single = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1e6;
     //std::cout << "multi:" << single << "[msec] " << "source:" << source_cloud->size()
     //    << "[pts] score:" << fitness_score << " length: " << trajectory->size() << std::endl;;
 
-    return trajectory;
+    return poses.back();
 }
 
 void FastGICP::reset()

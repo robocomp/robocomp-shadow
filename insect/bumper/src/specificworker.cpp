@@ -125,8 +125,9 @@ void SpecificWorker::compute()
     {  qInfo() << "empty vector"; return; }
 
     // get odometry
-    auto traj = fastgicp.align(pcl_cloud_source);
-    QPointF robot_pos(traj->back().x*1000, traj->back().y*1000);
+    auto robot_pose = fastgicp.align(pcl_cloud_source);
+    //QPointF robot_pos(traj->back().x*1000, traj->back().y*1000);
+    QPointF robot_tr(robot_pose(0, 3)*1000, robot_pose(1, 3)*1000);
 
     auto discr_points = discretize_lidar(above_floor_points);
     auto enlarged_points = configuration_space(discr_points);
@@ -155,15 +156,18 @@ void SpecificWorker::compute()
             target.set(res.dist * sin(res.ang), res.dist * cos(res.ang), 0);
         }
         draw_target(target);
-        float adv, side;
-        adv = target.y - robot_pos.y();
-        side = target.x - robot_pos.x();
+        // build 2D rot matrix R and do R'(t - T) = X
+        // rot = atan2(X.x, X.y)
+        auto target_in_robot = robot_pose.inverse().matrix() * Eigen::Vector4d(target.x/1000.f, target.y/1000.f, 0.f, 1.f);
+        float adv = target_in_robot(1)*1000;
+        float side = target_in_robot(0)*1000;
+        float rot = atan2(side, adv);
 
         try
         {
-            qInfo() << adv << side;
-            omnirobot_proxy->setSpeedBase(adv/1000, -side/1000, 0);
-            qInfo() << "Dist to target:" << target.distance_to_go(robot_pos.x(), robot_pos.y());
+            qInfo() << adv << side << rot;
+            omnirobot_proxy->setSpeedBase(adv/1000, -side/1000, -rot);
+            qInfo() << "Dist to target:" << target_in_robot.norm();
         }
         catch (const Ice::Exception &e)
         { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
