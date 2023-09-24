@@ -144,10 +144,17 @@ void SpecificWorker::compute()
         target.print();
     }
 
-    LPoint res;
     if (target.active)
     {
-        res = cost_function(blocks_and_tagged_points.second, sblocks, target);
+        auto target_in_robot = robot_pose.inverse().matrix() * Eigen::Vector4d(target.x/1000.f, target.y/1000.f, 0.f, 1.f) * 1000;
+        qInfo() << "Dist to target:" << target_in_robot.norm();
+        if(target_in_robot.norm() < 1100)
+        {
+            stop_robot();
+            return;
+        }
+
+        LPoint res = cost_function(blocks_and_tagged_points.second, sblocks, target);
         draw_result(res);
 
         if(not inside_contour(target, blocks_and_tagged_points.second))
@@ -156,18 +163,15 @@ void SpecificWorker::compute()
             target.set(res.dist * sin(res.ang), res.dist * cos(res.ang), 0);
         }
         draw_target(target);
-        // build 2D rot matrix R and do R'(t - T) = X
-        // rot = atan2(X.x, X.y)
-        auto target_in_robot = robot_pose.inverse().matrix() * Eigen::Vector4d(target.x/1000.f, target.y/1000.f, 0.f, 1.f);
-        float adv = target_in_robot(1)*1000;
-        float side = target_in_robot(0)*1000;
+
+        float adv = target_in_robot(1) * 0.8;
+        float side = target_in_robot(0) * 0.8;
         float rot = atan2(side, adv);
 
         try
         {
             qInfo() << adv << side << rot;
             omnirobot_proxy->setSpeedBase(adv/1000, -side/1000, -rot);
-            qInfo() << "Dist to target:" << target_in_robot.norm();
         }
         catch (const Ice::Exception &e)
         { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
@@ -488,12 +492,14 @@ std::vector<float> SpecificWorker::create_map_of_points()
 //                   and dist > 100;	// body out limit. This should be computed using the robot's contour
 void SpecificWorker::stop_robot()
 {
-    if(not robot_stop)
+    target.active = false;
+    try
     {
-        robot_speed.adv = 0.0f; robot_speed.side = 0.0f; robot_speed.rot = 0.0f;
-        robot_stop = true;
-        target.active = false;
+        omnirobot_proxy->setSpeedBase(0, 0, 0);
+        qInfo() << __FUNCTION__ << "Robot stopped";
     }
+    catch (const Ice::Exception &e)
+    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
 };
 ///////////////////////////////////////////////////////////////////////////
 void SpecificWorker::draw_ring(const std::vector<float> &dists, QGraphicsScene *scene) {
