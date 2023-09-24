@@ -1,0 +1,13 @@
+
+dependecias:
+    pcl
+    openmp
+    https://github.com/strasdat/Sophus
+
+librería:
+
+https://github.com/SMRT-AIST/fast_gicp/tree/master
+
+
+Link:
+sudo ln -sf eigen3/unsupported unsupported
