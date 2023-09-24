@@ -28,6 +28,10 @@
 
 #include <genericworker.h>
 #include <Eigen/Dense>
+#include "fastgicp.h"
+#include <pcl/common/io.h>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
 
 #define QT6
 #ifdef QT5
@@ -67,6 +71,7 @@ class SpecificWorker : public GenericWorker
 		void compute();
 		int startup_check();
 		void initialize(int period);
+        void new_mouse_coordinates(QPointF);
 
 	private:
 		bool startup_check_flag;
@@ -90,11 +95,12 @@ class SpecificWorker : public GenericWorker
         };
         struct Block
         {
-            float pointA_ang = 0.0f;
-            float pointA_dist = 0.0f;
-            float pointB_ang = 0.0f;
-            float pointB_dist = 0.0f;
+            float A_ang = 0.0f;
+            float A_dist = 0.0f;
+            float B_ang = 0.0f;
+            float B_dist = 0.0f;
             bool concave = true;
+            float dist() const { return (A_dist+B_dist)/2.f; };
         };
         struct LPoint
         {
@@ -110,7 +116,18 @@ class SpecificWorker : public GenericWorker
             float x = 0.f, y = 0.f, ang = 0,f, dist = 0.f;  // target
             float side, adv, rot; // assigned speed
             bool active = false;
-            void set(float x_, float y_) { x=x_; y=y_; ang = atan2(y, x); dist = sqrt(x*x+y*y); active = true;};
+            void set(float x_, float y_, float rot_)
+                { x=x_; y=y_; ang = atan2(x, y); dist = sqrt(x*x+y*y); active = true;
+                  side = x; adv = y; rot = rot_;};
+            void print() const {
+                qInfo() << "Target:";
+                qInfo() << "    side:" << side << "adv:" << adv << "rot:" << rot;
+                qInfo() << "    x:" << x << "y:" << y << "ang:" << ang;
+            }
+            float distance_to_go(float px, float py)
+            {
+                return sqrt((x-px)*(x-px) + (y-py)*(y-py));
+            }
         };
 
    		//int z_lidar_height = 750;
@@ -143,6 +160,8 @@ class SpecificWorker : public GenericWorker
 		const float max_side = 500;
         const float R = 250;
 
+        FastGICP fastgicp;
+
 		// Methods
         // Draw method
         void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
@@ -150,11 +169,6 @@ class SpecificWorker : public GenericWorker
         void draw_discr_points(const std::vector<std::tuple<float, float>> &discr_points, QGraphicsScene *scene);
         void draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene);
         void draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene);
-        void draw_all_points(const RoboCompLidar3D::TPoints &points,
-                                     const std::vector<std::tuple<float, float>> &discr_points,
-                                     const std::vector<std::tuple<float, float>> &enlarged_points,
-                                     const Eigen::Vector2f &result,
-                                 QGraphicsScene *scene);
         void draw_band_width(QGraphicsScene *scene);
 //        void draw_histogram(const RoboCompLidar3D::TPoints &ldata);
 //        void draw_histogram(const vector<std::tuple<float, float>> &ldata);
@@ -179,6 +193,14 @@ class SpecificWorker : public GenericWorker
         std::vector<Block> set_blocks_symbol(const std::vector<SpecificWorker::Block> &blocks);
         LPoint cost_function(const std::vector<LPoint> &points, const std::vector<Block> &blocks, const Target &target);
 
+        void repulsion_force(const RoboCompLidar3D::TData &ldata);
+        void draw_result(const LPoint &res);
+        void stop_robot();
+        void draw_target(const Target &t, bool erase=false);
+        bool inside_contour(const Target &target, const std::vector<LPoint> &contour);
+
+
+    void draw_target_original(const Target &t);
 };
 
 #endif
