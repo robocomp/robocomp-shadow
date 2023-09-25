@@ -80,10 +80,10 @@ void SpecificWorker::initialize(int period)
 		map_of_points = create_map_of_points();
         //draw_ring(map_of_points, &viewer->scene);
 
-        float x1 = -band.left_distance;
-        float y1 = -band.frontal_distance;
-        float width = band.left_distance + band.right_distance;
-        float height = band.frontal_distance + band.back_distance;
+//        float x1 = -band.left_distance;
+//        float y1 = -band.frontal_distance;
+//        float width = band.left_distance + band.right_distance;
+//        float height = band.frontal_distance + band.back_distance;
 
         //rectItem = viewer->scene.addRect(QRectF(x1, y1, width, height), QPen(QColor("Red"), 5));
         std::cout << "Robot is drawn" << std::endl;
@@ -124,21 +124,22 @@ void SpecificWorker::compute()
 
     auto discr_points = discretize_lidar(above_floor_points);
     auto enlarged_points = configuration_space(discr_points);
-    auto blocks_and_tagged_points = get_blocks(enlarged_points);
-    auto sblocks = set_blocks_symbol(blocks_and_tagged_points.first);
+    //auto blocks_and_tagged_points = get_blocks(enlarged_points);
+    //auto sblocks = set_blocks_symbol(blocks_and_tagged_points.first);
 
     // Check for new external target
     if(const auto ext = buffer_dwa.try_get(); ext.has_value())
     {
         const auto &[side, adv, rot] = ext.value();
         target.set(side, adv, rot);
+        draw_target_original(target);
+        target = get_closest_point_inside(enlarged_points, target);
         fastgicp.reset();
-        //draw_target_original(target);
         target.print();
     }
 
     //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
-    if(auto new_target = check_safety(blocks_and_tagged_points.second); new_target.has_value())
+    if(auto new_target = check_safety(enlarged_points); new_target.has_value())
         try
         {
             qInfo() << "Collision:" << new_target.value().x() << new_target.value().y();
@@ -150,53 +151,38 @@ void SpecificWorker::compute()
     { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
     else
     {
-        stop_robot();
-        draw_target( 0,0, true);
+        if (target.active)
+        {
+            auto target_in_robot =
+                    robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
+                    1000;
+            qInfo() << "Dist to target:" << target_in_robot.norm();
+            if (target_in_robot.norm() < 1050)
+            {
+                stop_robot();
+                return;
+            }
+
+            draw_target(target_in_robot(0), target_in_robot(1));
+
+            float adv = target_in_robot(1) * 0.4;
+            float side = target_in_robot(0) * 0.4;
+            float rot = atan2(side, adv);
+            robot_current_speed = {adv, side};
+
+            try
+            {
+                //qInfo() << adv << side << rot;
+                omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
+                robot_stopped = false;
+            }
+            catch (const Ice::Exception &e)
+            { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        }
     }
-
-    if (target.active)
-    {
-        auto target_in_robot = robot_pose.inverse().matrix() * Eigen::Vector4d(target.x/1000.f, target.y/1000.f, 0.f, 1.f) * 1000;
-        qInfo() << "Dist to target:" << target_in_robot.norm();
-        if(target_in_robot.norm() < 1050)
-        {
-            stop_robot();
-            return;
-        }
-
-        LPoint res = cost_function(blocks_and_tagged_points.second, sblocks, target);
-        draw_result(res);
-
-        if(not inside_contour(target, blocks_and_tagged_points.second))
-        {
-            // set a subtarget in the new direction but must end inside the contour
-            target.set(res.dist * sin(res.ang), res.dist * cos(res.ang), 0);
-            qInfo() << "Outside";
-            return;
-        }
-        draw_target(target_in_robot(0), target_in_robot(1));
-
-        float adv = target_in_robot(1) * 0.4;
-        float side = target_in_robot(0) * 0.4;
-        float rot = atan2(side, adv);
-        robot_current_speed = {adv, side};
-
-        try
-        {
-            //qInfo() << adv << side << rot;
-            omnirobot_proxy->setSpeedBase(adv/1000, -side/1000, -rot);
-        }
-        catch (const Ice::Exception &e)
-        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-    }
-
     // draw
     draw_discr_points(discr_points,&viewer->scene);
     draw_enlarged_points(enlarged_points,&viewer->scene);
-    //draw_blocks(sblocks,&viewer->scene);
-    //draw_band_width(&viewer->scene);
-
-//
     // fps.print("FPS:");
 }
 
@@ -324,45 +310,26 @@ vector<SpecificWorker::Block> SpecificWorker::set_blocks_symbol(const std::vecto
 
     return sblocks;
 }
-SpecificWorker::LPoint SpecificWorker::cost_function(const std::vector<LPoint> &points, const std::vector<Block> &blocks, const Target &target)
+
+SpecificWorker::Target SpecificWorker::get_closest_point_inside(const std::vector<std::tuple<float, float>> &points, const Target &target)
 {
-    std::vector<LPoint> p_costs(points);
-    auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
-    const float k1 = 10.f; const float k2 = 1.f; const float k3 = 0.001;
-
-    for(auto &p : p_costs)
-    {
-        float hg = angle_diff(p.ang, target.ang);
-        float ho = fabs(p.ang);
-        //Eigen::Vector2f d{p.dist*sin(p.ang), p.dist*cos(p.ang)};
-        //float proy = (robot_current_speed.transpose() * d ) ;
-        //proy = proy / d.norm();
-        //if(proy < d.norm())
-        //if(not blocks[p.block].concave)
-        {
-            //p.coste = (blocks[p.block].dist() / ( k1 * hg + k2 * ho + k3));
-            p.coste = (p.dist / ( k1 * hg + k2 * ho + k3));
-        }
-    }
-    LPoint max_point = std::ranges::max_element(p_costs, [](auto &a, auto &b){ return a.coste > b.coste;}).operator*();
-    max_point.dist *= 0.8;  // to avoid being on the border
-    return  max_point;
+    Target t = target;
+    if(auto r =  std::upper_bound(points.cbegin(), points.cend(), target.ang,
+                     [](float value, std::tuple<float, float> p){ return std::get<0>(p) > value;}); r != points.end())
+        if(std::get<1>(*r) < target.dist)
+            t.set(std::get<0>(*r), std::get<1>(*r));
+    return t;
 }
-
 //////////////////////////////////////////////////////////////////////////////
-std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<LPoint> &points)
+std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
 {
   //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
   // get lidar points closer than safety band. If none return
   std::vector<Eigen::Vector2f> close_points;
   const float MIN_DIST = 100;
-  for(const auto &p: points)
-      if(p.dist < MIN_DIST)
-          close_points.emplace_back(Eigen::Vector2f{p.dist*sin(p.ang), p.dist*cos(p.ang)});
- //   qInfo() << close_points.size();
-//    for (auto &p: close_points)
-//        qInfo() << p.x() << p.y() << p.norm();
-//    qInfo() << "--------------------";
+  for(const auto &[ang, dist]: points)
+      if(dist < MIN_DIST)
+          close_points.emplace_back(Eigen::Vector2f{dist*sin(ang), dist*cos(ang)});
 
   // max dist to reach from current situation
   const float delta_t = 1; //200ms
@@ -395,24 +362,20 @@ std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<LP
       }
       if (not displacements.empty())    // choose best displacement from candidates
       {
-          auto res = std::ranges::max(displacements, [](auto &a, auto &b)
-          { return a.second < b.second; });
-//          qInfo() << "Num points inside" << close_points.size() << "dist:" << dist << "res:" << res.x() << res.y();
-//          for (auto &p: displacements)
-//              qInfo() << p.x() << p.y();
-//          qInfo() << "--------------------";
+          auto res = std::ranges::max(displacements,
+                       [](auto &a, auto &b){ return a.second < b.second; });
           return res.first;
       }
   }
   else
       return {};
 }
-bool SpecificWorker::inside_contour(const Target &target, const std::vector<LPoint> &contour)
+bool SpecificWorker::inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour)
 {
     auto r =  std::upper_bound(contour.cbegin(), contour.cend(), target.ang,
-                             [](float value, LPoint p){ return p.ang > value;});
+                             [](float value, std::tuple<float, float> p){ return std::get<0>(p) > value;});
     //qInfo()<< (*r).ang << (*r).dist << target.ang << target.dist;
-    if(r != contour.end() and (*r).dist > target.dist)
+    if(r != contour.end() and std::get<1>(*r) > target.dist)
         return true;
     else
         return false;
@@ -955,3 +918,28 @@ void SpecificWorker::new_mouse_coordinates(QPointF p)
 //        qInfo() << "Post draw_all_points" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
 //        qInfo() << "";
 //    #endif
+
+//std::tuple<float, float> SpecificWorker::cost_function(const std::vector<std::tuple<float, float>> &points, const Target &target)
+//{
+//    std::vector<std::tuple<float, float>> p_costs(points);
+//    auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
+//    const float k1 = 10.f; const float k2 = 1.f; const float k3 = 0.001;
+//
+//    for(auto &[ang, dist] : p_costs)
+//    {
+//        float hg = angle_diff(p.ang, target.ang);
+//        float ho = fabs(p.ang);
+//        //Eigen::Vector2f d{p.dist*sin(p.ang), p.dist*cos(p.ang)};
+//        //float proy = (robot_current_speed.transpose() * d ) ;
+//        //proy = proy / d.norm();
+//        //if(proy < d.norm())
+//        //if(not blocks[p.block].concave)
+//        {
+//            //p.coste = (blocks[p.block].dist() / ( k1 * hg + k2 * ho + k3));
+//            p.coste = (p.dist / ( k1 * hg + k2 * ho + k3));
+//        }
+//    }
+//    LPoint max_point = std::ranges::max_element(p_costs, [](auto &a, auto &b){ return a.coste > b.coste;}).operator*();
+//    max_point.dist *= 0.8;  // to avoid being on the border
+//    return  max_point;
+//}

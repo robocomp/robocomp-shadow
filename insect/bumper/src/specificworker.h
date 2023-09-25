@@ -117,10 +117,19 @@ class SpecificWorker : public GenericWorker
             float side, adv, rot; // assigned speed
             bool active = false;
             void set(float x_, float y_, float rot_)
-                { x=x_; y=y_; ang = atan2(x, y); dist = sqrt(x*x+y*y); active = true;
-                  side = x; adv = y; rot = rot_;};
-            void print() const {
-                qInfo() << "Target:";
+            {
+                x=x_; y=y_; ang = atan2(x, y); dist = sqrt(x*x+y*y); active = true;
+                side = x; adv = y; rot = rot_;
+            };
+            void set(float ang_, float dist_)
+            {
+                ang = ang_; dist = dist_; x = dist*sin(ang); y = dist*cos(ang); rot = 0; active = true;
+                side = x; adv = y; rot = 0;
+            }
+
+            void print(QString txt="") const
+            {
+                qInfo() << "Target " << txt;
                 qInfo() << "    side:" << side << "adv:" << adv << "rot:" << rot;
                 qInfo() << "    x:" << x << "y:" << y << "ang:" << ang;
             }
@@ -189,20 +198,22 @@ class SpecificWorker : public GenericWorker
         std::pair<std::vector<Block>, std::vector<LPoint>>
             get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points);
         std::vector<Block> set_blocks_symbol(const std::vector<SpecificWorker::Block> &blocks);
-        LPoint cost_function(const std::vector<LPoint> &points, const std::vector<Block> &blocks, const Target &target);
+        std::tuple<float, float> cost_function(const std::vector<std::tuple<float, float>> &points, const Target &target);
 
         void repulsion_force(const RoboCompLidar3D::TData &ldata);
         void draw_result(const LPoint &res);
         void stop_robot();
         void draw_target(const Target &t, bool erase=false);
-        bool inside_contour(const Target &target, const std::vector<LPoint> &contour);
+        bool inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour);
 
         void draw_target_original(const Target &t);
         void draw_target(double x, double y, bool erase=false);
         Eigen::Vector2f robot_current_speed = {0.f, 0.f};
 
-        std::optional<Eigen::Vector2f> check_safety(const vector<LPoint> &points);
+        std::optional<Eigen::Vector2f> check_safety(const vector<std::tuple<float, float>> &points);
         bool robot_stopped = false;
+
+    Target get_closest_point_inside(const vector<std::tuple<float, float>> &points, const Target &target);
 };
 
 #endif
