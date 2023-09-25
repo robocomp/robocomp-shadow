@@ -201,7 +201,8 @@ class SpecificWorker : public GenericWorker
         void draw_target(double x, double y, bool erase=false);
         Eigen::Vector2f robot_current_speed = {0.f, 0.f};
 
-        LPoint check_safety(const vector<LPoint> &points);
+        std::optional<Eigen::Vector2f> check_safety(const vector<LPoint> &points);
+        bool robot_stopped = false;
 };
 
 #endif

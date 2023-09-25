@@ -138,7 +138,21 @@ void SpecificWorker::compute()
     }
 
     //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
-    auto new_target = check_safety(blocks_and_tagged_points.second);
+    if(auto new_target = check_safety(blocks_and_tagged_points.second); new_target.has_value())
+        try
+        {
+            qInfo() << "Collision:" << new_target.value().x() << new_target.value().y();
+            omnirobot_proxy->setSpeedBase(8*new_target.value().y()/1000, -8*new_target.value().x()/1000, 0);
+            draw_target( new_target.value().x()*10, new_target.value().y()*10);
+            robot_stopped = false;
+        }
+        catch (const Ice::Exception &e)
+    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+    else
+    {
+        stop_robot();
+        draw_target( 0,0, true);
+    }
 
     if (target.active)
     {
@@ -336,48 +350,62 @@ SpecificWorker::LPoint SpecificWorker::cost_function(const std::vector<LPoint> &
 }
 
 //////////////////////////////////////////////////////////////////////////////
-SpecificWorker::LPoint SpecificWorker::check_safety(const std::vector<LPoint> &points)
+std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<LPoint> &points)
 {
   //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
   // get lidar points closer than safety band. If none return
   std::vector<Eigen::Vector2f> close_points;
+  const float MIN_DIST = 100;
   for(const auto &p: points)
-      if(p.dist < 10)
-          close_points.emplace_back(Eigen::Vector2f{-p.dist*sin(p.ang), -p.dist*cos(p.ang)});
-//
+      if(p.dist < MIN_DIST)
+          close_points.emplace_back(Eigen::Vector2f{p.dist*sin(p.ang), p.dist*cos(p.ang)});
+ //   qInfo() << close_points.size();
 //    for (auto &p: close_points)
-//        qInfo() << p.x() << p.y();
+//        qInfo() << p.x() << p.y() << p.norm();
 //    qInfo() << "--------------------";
 
   // max dist to reach from current situation
-  const float delta_t = 0; //200ms
+  const float delta_t = 1; //200ms
   const float MAX_ACC = 500; // mm/sg2
   double dist = robot_current_speed.norm() * delta_t + 0.5*(MAX_ACC * delta_t * delta_t);
   if(not close_points.empty())
   {
-      std::vector<Eigen::Vector2f> displacements;
+      std::vector<std::pair<Eigen::Vector2f, float>> displacements;
       for (const double ang: iter::range(-M_PI, M_PI, 0.3))
       {
           // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
           Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
-          if (auto r = std::ranges::find_if(close_points, [t](auto &p)
-              { return (p - t).norm() < 10; }); r != close_points.end())
+          //if (auto r = std::ranges::find_if(close_points, [t](auto &p)
+          //    { return (p - t).norm() < 50; }); r == close_points.end())
+          float acum = 0;
+          bool free = true;
+          for(const auto &p: close_points)
           {
-              qInfo() << t.x() << t.y();
-              displacements.emplace_back(t); // add displacement to list
+              float dist = (p-t).norm();
+              if(dist > MIN_DIST)
+                  acum += dist;
+              else
+              {
+                  free = false;
+                  break;
+              }
           }
-          qInfo() << "-------------";
+          if(free)
+              displacements.emplace_back(t, acum); // add displacement to list
       }
       if (not displacements.empty())    // choose best displacement from candidates
       {
           auto res = std::ranges::max(displacements, [](auto &a, auto &b)
-          { return a.norm() > b.norm(); });
-          //qInfo() << "Num points inside" << close_points.size() << "dist:" << dist << "res:" << res.x() << res.y();
-          //for (auto &p: displacements)
-          //    qInfo() << p.x() << p.y();
-          //qInfo() << "--------------------";
+          { return a.second < b.second; });
+//          qInfo() << "Num points inside" << close_points.size() << "dist:" << dist << "res:" << res.x() << res.y();
+//          for (auto &p: displacements)
+//              qInfo() << p.x() << p.y();
+//          qInfo() << "--------------------";
+          return res.first;
       }
   }
+  else
+      return {};
 }
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<LPoint> &contour)
 {
@@ -502,7 +530,7 @@ void SpecificWorker::read_lidar()
 
             auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
             //std::cout << data.points.size() << " " << data.period << std::endl;
-            std::ranges::for_each(data.points, [](auto& c){c.phi = -c.phi; return c;});
+            //std::ranges::for_each(data.points, [](auto& c){c.phi = -c.phi; return c;});
             std::ranges::sort(data.points, {}, &RoboCompLidar3D::TPoint::phi);
             buffer_lidar_data.put(std::move(data));
         }
@@ -539,16 +567,20 @@ std::vector<float> SpecificWorker::create_map_of_points()
 //                   and dist > 100;	// body out limit. This should be computed using the robot's contour
 void SpecificWorker::stop_robot()
 {
-    target.active = false;
-    try
+    if(not robot_stopped)
     {
-        omnirobot_proxy->setSpeedBase(0, 0, 0);
-        qInfo() << __FUNCTION__ << "Robot stopped";
-        draw_target(target, true);
-        robot_current_speed = {0.f, 0.f};
+        target.active = false;
+        try
+        {
+            omnirobot_proxy->setSpeedBase(0, 0, 0);
+            qInfo() << __FUNCTION__ << "Robot stopped";
+            draw_target(target, true);
+            robot_current_speed = {0.f, 0.f};
+        }
+        catch (const Ice::Exception &e)
+        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        robot_stopped = true;
     }
-    catch (const Ice::Exception &e)
-    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
 };
 ///////////////////////////////////////////////////////////////////////////
 void SpecificWorker::draw_ring(const std::vector<float> &dists, QGraphicsScene *scene) {
@@ -697,7 +729,7 @@ void SpecificWorker::draw_result(const LPoint &res)
     static QGraphicsItem * l = nullptr;
     if( o != nullptr) viewer->scene.removeItem(o);
     if( l != nullptr) viewer->scene.removeItem(l);
-    //l =  viewer->scene.addLine(0, 0, -res.dist*sin(res.ang), res.dist*cos(res.ang), QPen(QColor("blue"), 15));
+    l =  viewer->scene.addLine(0, 0, res.dist*sin(res.ang), res.dist*cos(res.ang), QPen(QColor("red"), 15));
     o = viewer->scene.addRect(-60, -60, 120, 120, QPen(QColor("red")), QBrush(QColor("red")));
     QPointF pos{res.dist*sin(res.ang), res.dist*cos(res.ang)};
     o->setPos(pos);
