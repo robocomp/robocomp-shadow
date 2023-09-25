@@ -77,15 +77,15 @@ class SpecificWorker : public GenericWorker
 		bool startup_check_flag;
 		int DEGREES_NUMBER = 360;		// division of the circle
 		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
-        int BAND_WIDTH = 400;			// distance to the obstacle that repels the object
+        int BAND_WIDTH = 300;			// distance to the obstacle that repels the object
 
         // Structs
         struct Band
         {
-            float frontal_distance = 400.0f;
-            float back_distance = 400.0f;
-            float left_distance = 400.0f;
-            float right_distance = 400.0f;
+            float frontal_distance = 300.0f;
+            float back_distance = 300.0f;
+            float left_distance = 300.0f;
+            float right_distance = 300.0f;
         };
         struct Robot_speed
         {
@@ -170,8 +170,6 @@ class SpecificWorker : public GenericWorker
         void draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene);
         void draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene);
         void draw_band_width(QGraphicsScene *scene);
-//        void draw_histogram(const RoboCompLidar3D::TPoints &ldata);
-//        void draw_histogram(const vector<std::tuple<float, float>> &ldata);
 
         // Thread method
         void read_lidar();
@@ -199,8 +197,11 @@ class SpecificWorker : public GenericWorker
         void draw_target(const Target &t, bool erase=false);
         bool inside_contour(const Target &target, const std::vector<LPoint> &contour);
 
+        void draw_target_original(const Target &t);
+        void draw_target(double x, double y, bool erase=false);
+        Eigen::Vector2f robot_current_speed = {0.f, 0.f};
 
-    void draw_target_original(const Target &t);
+        LPoint check_safety(const vector<LPoint> &points);
 };
 
 #endif
