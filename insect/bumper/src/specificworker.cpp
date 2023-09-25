@@ -85,15 +85,8 @@ void SpecificWorker::initialize(int period)
         float width = band.left_distance + band.right_distance;
         float height = band.frontal_distance + band.back_distance;
 
-        rectItem = viewer->scene.addRect(QRectF(x1, y1, width, height), QColor("Red"));
-
-        // Create Pen used in the QrectItem
-        QPen rect_pen;
-        rect_pen.setColor(QColor("Red"));
-        rect_pen.setWidth(20);
-        rectItem->setPen(rect_pen);
-
-        std::cout << "Started robot draw" << std::endl;
+        //rectItem = viewer->scene.addRect(QRectF(x1, y1, width, height), QPen(QColor("Red"), 5));
+        std::cout << "Robot is drawn" << std::endl;
 
         // A thread is created 
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
@@ -140,15 +133,18 @@ void SpecificWorker::compute()
         const auto &[side, adv, rot] = ext.value();
         target.set(side, adv, rot);
         fastgicp.reset();
-        draw_target_original(target);
+        //draw_target_original(target);
         target.print();
     }
+
+    //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
+    auto new_target = check_safety(blocks_and_tagged_points.second);
 
     if (target.active)
     {
         auto target_in_robot = robot_pose.inverse().matrix() * Eigen::Vector4d(target.x/1000.f, target.y/1000.f, 0.f, 1.f) * 1000;
         qInfo() << "Dist to target:" << target_in_robot.norm();
-        if(target_in_robot.norm() < 1100)
+        if(target_in_robot.norm() < 1050)
         {
             stop_robot();
             return;
@@ -161,27 +157,30 @@ void SpecificWorker::compute()
         {
             // set a subtarget in the new direction but must end inside the contour
             target.set(res.dist * sin(res.ang), res.dist * cos(res.ang), 0);
+            qInfo() << "Outside";
+            return;
         }
-        draw_target(target);
+        draw_target(target_in_robot(0), target_in_robot(1));
 
-        float adv = target_in_robot(1) * 0.8;
-        float side = target_in_robot(0) * 0.8;
+        float adv = target_in_robot(1) * 0.4;
+        float side = target_in_robot(0) * 0.4;
         float rot = atan2(side, adv);
+        robot_current_speed = {adv, side};
 
         try
         {
-            qInfo() << adv << side << rot;
+            //qInfo() << adv << side << rot;
             omnirobot_proxy->setSpeedBase(adv/1000, -side/1000, -rot);
         }
         catch (const Ice::Exception &e)
         { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
     }
 
+    // draw
     draw_discr_points(discr_points,&viewer->scene);
     draw_enlarged_points(enlarged_points,&viewer->scene);
-    draw_blocks(sblocks,&viewer->scene);
-    //    draw_all_points(above_floor_points, discr_points, enlarged_points, result, &viewer->scene);
-    draw_band_width(&viewer->scene);
+    //draw_blocks(sblocks,&viewer->scene);
+    //draw_band_width(&viewer->scene);
 
 //
     // fps.print("FPS:");
@@ -315,15 +314,20 @@ SpecificWorker::LPoint SpecificWorker::cost_function(const std::vector<LPoint> &
 {
     std::vector<LPoint> p_costs(points);
     auto angle_diff = [](auto a, auto b){ return atan2(sin(a - b), cos(a - b));};
-    const float k1 = 10.f; const float k2 = 0.f; const float k3 = 0.001;
+    const float k1 = 10.f; const float k2 = 1.f; const float k3 = 0.001;
 
     for(auto &p : p_costs)
     {
         float hg = angle_diff(p.ang, target.ang);
-        float ho = p.ang;
-        if(not blocks[p.block].concave)
+        float ho = fabs(p.ang);
+        //Eigen::Vector2f d{p.dist*sin(p.ang), p.dist*cos(p.ang)};
+        //float proy = (robot_current_speed.transpose() * d ) ;
+        //proy = proy / d.norm();
+        //if(proy < d.norm())
+        //if(not blocks[p.block].concave)
         {
-            p.coste = (blocks[p.block].dist() / ( k1 * hg + k2 * ho + k3));
+            //p.coste = (blocks[p.block].dist() / ( k1 * hg + k2 * ho + k3));
+            p.coste = (p.dist / ( k1 * hg + k2 * ho + k3));
         }
     }
     LPoint max_point = std::ranges::max_element(p_costs, [](auto &a, auto &b){ return a.coste > b.coste;}).operator*();
@@ -332,6 +336,49 @@ SpecificWorker::LPoint SpecificWorker::cost_function(const std::vector<LPoint> &
 }
 
 //////////////////////////////////////////////////////////////////////////////
+SpecificWorker::LPoint SpecificWorker::check_safety(const std::vector<LPoint> &points)
+{
+  //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
+  // get lidar points closer than safety band. If none return
+  std::vector<Eigen::Vector2f> close_points;
+  for(const auto &p: points)
+      if(p.dist < 10)
+          close_points.emplace_back(Eigen::Vector2f{-p.dist*sin(p.ang), -p.dist*cos(p.ang)});
+//
+//    for (auto &p: close_points)
+//        qInfo() << p.x() << p.y();
+//    qInfo() << "--------------------";
+
+  // max dist to reach from current situation
+  const float delta_t = 0; //200ms
+  const float MAX_ACC = 500; // mm/sg2
+  double dist = robot_current_speed.norm() * delta_t + 0.5*(MAX_ACC * delta_t * delta_t);
+  if(not close_points.empty())
+  {
+      std::vector<Eigen::Vector2f> displacements;
+      for (const double ang: iter::range(-M_PI, M_PI, 0.3))
+      {
+          // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
+          Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
+          if (auto r = std::ranges::find_if(close_points, [t](auto &p)
+              { return (p - t).norm() < 10; }); r != close_points.end())
+          {
+              qInfo() << t.x() << t.y();
+              displacements.emplace_back(t); // add displacement to list
+          }
+          qInfo() << "-------------";
+      }
+      if (not displacements.empty())    // choose best displacement from candidates
+      {
+          auto res = std::ranges::max(displacements, [](auto &a, auto &b)
+          { return a.norm() > b.norm(); });
+          //qInfo() << "Num points inside" << close_points.size() << "dist:" << dist << "res:" << res.x() << res.y();
+          //for (auto &p: displacements)
+          //    qInfo() << p.x() << p.y();
+          //qInfo() << "--------------------";
+      }
+  }
+}
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<LPoint> &contour)
 {
     auto r =  std::upper_bound(contour.cbegin(), contour.cend(), target.ang,
@@ -497,6 +544,8 @@ void SpecificWorker::stop_robot()
     {
         omnirobot_proxy->setSpeedBase(0, 0, 0);
         qInfo() << __FUNCTION__ << "Robot stopped";
+        draw_target(target, true);
+        robot_current_speed = {0.f, 0.f};
     }
     catch (const Ice::Exception &e)
     { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
@@ -664,6 +713,19 @@ void SpecificWorker::draw_target(const Target &t, bool erase)
         line = viewer->scene.addLine(0, 0, target.x, target.y, QPen(QColor("green"), 20));
         ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20));
         ball->setPos(target.x, target.y);
+    }
+}
+void SpecificWorker::draw_target(double x, double y, bool erase)
+{
+    static QGraphicsItem * line = nullptr;
+    static QGraphicsItem * ball = nullptr;
+    if( line != nullptr) { viewer->scene.removeItem(line); line = nullptr; }
+    if( ball != nullptr) { viewer->scene.removeItem(ball); ball = nullptr; }
+    if(not erase)
+    {
+        line = viewer->scene.addLine(0, 0, x, y, QPen(QColor("green"), 20));
+        ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20));
+        ball->setPos(x, y);
     }
 }
 void SpecificWorker::draw_target_original(const Target &t)
