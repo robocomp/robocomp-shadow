@@ -135,9 +135,16 @@ void SpecificWorker::compute()
         target.print();
     }
 
-    //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
+    // Check bumper
     std::vector<std::pair<Eigen::Vector2f, float>> displacements = check_safety(enlarged_points);
-    if(not target.active)
+    bool safety_break = not displacements.empty();
+
+    // We have four possibilities
+    if(not safety_break and not target.active) {
+        stop_robot();
+        return;
+    }
+    if(not target.active and safety_break)
     {
         if (not displacements.empty())    // choose displacement that maximizes sum of distances to obstacles
         {
@@ -153,7 +160,7 @@ void SpecificWorker::compute()
             catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
         }
     }
-    else    // target active
+    if(target.active and safety_break)    // target active. Choose displacemnte aligned with target
     {
         auto target_in_robot =
                 robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
@@ -180,11 +187,12 @@ void SpecificWorker::compute()
         catch (const Ice::Exception &e)
         { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
     }
+    if(target.active and not safety_break)
+    {
+        
+    }
 
-    if( not target.active and not displacements.empty())
-        stop_robot();
-
-    // draw
+    //////////////////////////// draw
     draw_discr_points(discr_points,&viewer->scene);
     draw_enlarged_points(enlarged_points,&viewer->scene);
     // fps.print("FPS:");
@@ -194,14 +202,11 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
 {
     std::vector<std::tuple<float, float>> polar_points;
     const float delta_phi = 2*(M_PI*2/360); // number of degrees
-    //float running_angle = ldata[0].phi +  delta_phi;
     float running_angle = -M_PI + delta_phi;
     float running_min = std::numeric_limits<float>::max();
 
-
     // Group points by discrete angle bins and compute the min dist of the set
     for (const auto& p : ldata)
-    {
         if(p.phi <= running_angle)
         {
             if (p.r < running_min)
@@ -223,7 +228,7 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
                 }
             running_min = std::numeric_limits<float>::max();
         }
-    }
+
     // complete the circle
     while(running_angle < M_PI)
     {
@@ -342,27 +347,25 @@ std::vector<std::pair<Eigen::Vector2f, float>> SpecificWorker::check_safety(cons
   double dist = robot_current_speed.norm() * delta_t + 0.5*(MAX_ACC * delta_t * delta_t);
   if(not close_points.empty())
   {
-      for (const double ang: iter::range(-M_PI, M_PI, 0.3))
-      {
+      for (const double ang: iter::range(-M_PI, M_PI, 0.3)) {
           // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
           Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
           float acum = 0;
           bool free = true;
-          for(const auto &p: close_points)
-          {
-              float dist = (p-t).norm();
-              if(dist > MIN_DIST)
+          for (const auto &p: close_points) {
+              float dist = (p - t).norm();
+              if (dist > MIN_DIST)
                   acum += dist;
-              else
-              {
+              else {
                   free = false;
                   break;
               }
           }
-          if(free)
+          if (free)
               displacements.emplace_back(t, acum); // add displacement to list
       }
       return displacements;
+  }
 }
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour)
 {
