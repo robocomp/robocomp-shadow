@@ -46,7 +46,7 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 20
+        self.Period = 33
         if startup_check:
             self.startup_check()
         else:
@@ -64,6 +64,7 @@ class SpecificWorker(GenericWorker):
         self.bbox_lock = threading.Lock()
         self.cont = 0
         self.last_time = time.time()
+        self.target = -1
         self.fps = 0
         # Iniciar el servidor Flask en un nuevo hilo
         self.app = Flask(__name__)
@@ -84,7 +85,7 @@ class SpecificWorker(GenericWorker):
             try:
                 with self.bbox_lock:
                     boxes = self.bbox_queue.get_nowait()
-                    print(boxes)
+                    # print(boxes)
             except queue.Empty:
                 boxes = []
             return jsonify(boxes)
@@ -94,39 +95,37 @@ class SpecificWorker(GenericWorker):
             if not request.is_json:
                 return jsonify({'status': 'failure', 'reason': 'Expected JSON'}), 400
 
-            print(request.json)
             box = request.json.get('box')
             if not box:
-                print("ENTRAAAAA3")
-                print("NO TARGET")
-                target = ifaces.RoboCompVisualElements.TObject()
-                target.id = -1
-                self.segmentatortrackingpub_proxy.setTrack(target)
+                # print("ENTRAAAAA3")
+                # print("NO TARGET")
+                self.target = -1
+                # self.segmentatortrackingpub_proxy.setTrack(target)
                 return jsonify({'status': 'failure', 'reason': 'No box data'}), 400
 
             for b in self.boxes:
-                print("id box", b.id)
-                print("id BOXES", str(box.get('id')))
+                # print("id box", b.id)
+                # print("id BOXES", str(box.get('id')))
                 if b.id == box.get('id'):
-                    target = b
-                    print("HAY TARGET", target)
+                    self.target = b.id
+                    # print("HAY TARGET", target)
 
-            try:
-                if target:
-                    self.segmentatortrackingpub_proxy.setTrack((target))
-                else:
-                    print("NO TARGET")
-                    target = ifaces.RoboCompVisualElements.TObject()
-                    target.id = -1
-                    self.segmentatortrackingpub_proxy.setTrack(target)
+            # try:
+            #     if target:
+            #         self.segmentatortrackingpub_proxy.setTrack((target))
+            #     else:
+            #         print("NO TARGET")
+            #         target = ifaces.RoboCompVisualElements.TObject()
+            #         target.id = -1
+            #         self.segmentatortrackingpub_proxy.setTrack(target)
 
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e)
-                return jsonify({'status': 'failure', 'reason': "str(e)"}), 500
+            # except Ice.Exception as e:
+            #     traceback.print_exc()
+            #     print(e)
+            #     return jsonify({'status': 'failure', 'reason': "str(e)"}), 500
 
             return jsonify({'status': 'success'})
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.153', 'port': 5000})
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.249', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
@@ -159,6 +158,26 @@ class SpecificWorker(GenericWorker):
         except:
             print("No Objects")
 
+        for b in self.boxes:
+            # print("id box", b.id)
+            # print("id BOXES", str(box.get('id')))
+            if b.id == self.target:
+                target = b
+                # print("HAY TARGET", target)
+
+        try:
+            if self.target != -1:
+                self.segmentatortrackingpub_proxy.setTrack((target))
+            else:
+                print("NO TARGET")
+                target = ifaces.RoboCompVisualElements.TObject()
+                target.id = -1
+                self.segmentatortrackingpub_proxy.setTrack(target)
+
+        except Ice.Exception as e:
+            traceback.print_exc()
+            print(e)
+
         t4 = time.time()
         self.create_queues(image, boxes)
         #print("TIEMPO", (time.time()-t1) *1000)
@@ -170,6 +189,7 @@ class SpecificWorker(GenericWorker):
         boxes = []
         for obj in objects:
             # Obten la informacion de la ROI
+            
             roi = obj.image.roi
             final_xsize = roi.finalxsize
             final_ysize = roi.finalysize
@@ -177,7 +197,6 @@ class SpecificWorker(GenericWorker):
             roi_ycenter = roi.ycenter
             roi_xsize = roi.xsize
             roi_ysize = roi.ysize
-
             # Calcula el factor de escala y offset
             x_roi_offset = roi_xcenter - roi_xsize / 2
             y_roi_offset = roi_ycenter - roi_ysize / 2
