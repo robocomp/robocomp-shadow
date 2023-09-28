@@ -42,6 +42,7 @@ sys.path.append('/home/robocomp/robocomp/components/robocomp-shadow/insect/hash_
 from hash import HashTracker
 from dataclasses import dataclass
 import cupy as cp
+import matplotlib.pyplot as plt
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -75,18 +76,50 @@ class SpecificWorker(GenericWorker):
                                   "cam_back_2": cp.asarray(self.make_matrix_rt(0, 0, np.pi, 0, 0, -108.51)),
                                   "cam_left": cp.asarray(self.make_matrix_rt(np.pi, np.pi, -np.pi / 2, 0, 0, -108.51))}
 
+            # Crear el mapa de color "jet"
+            self.cmap = plt.get_cmap('jet')
 
+            #REAL LIDAR
+            # self.overlap = 260
+            self.overlap = 0
+            self.rvec = np.array( [np.deg2rad(90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec = np.array([0., 220., 30.])
+            self.rvec_back = np.array([np.deg2rad(-90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec_back = np.array([0., -220., 0.])
+
+            #WB
+            self.overlap = 0
+            self.rvec = np.array( [np.deg2rad(90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec = np.array([0., 1130., 0.])
+            self.rvec_back = np.array([np.deg2rad(-90), np.deg2rad(0), np.deg2rad(0)])
+            self.tvec_back = np.array([0., -1130., 0.])
+
+            self.distance_threshold = 7000
+
+            self.aperture = np.deg2rad(180)
+
+            self.K = np.array([[1080, 0.0, 1824], [0.0, 1080, 1824],
+                               [0.0, 0.0, 1.0]])
+
+            self.D = np.array([[0.32508720224831864], [-0.396793518453425], [0.20325216832157427], [-0.03725173372715627]])
+            # self.D = np.array([[0.0], [0.0], [0.0], [0.0]])
+            self.fisheye_calibration_size = (3648, 3648)
 
             self.focal_x = 128
             self.focal_y = 128
-            self.width_img = 1024
-            self.height_img = 512
+            self.width_img = 1200
+            self.height_img = 600
             self.conditions = [
                 ((-np.pi / 4, np.pi / 4), "cam_front"),
                 ((np.pi / 4, (np.pi * 3) / 4), "cam_right"),
                 ((-(np.pi * 3) / 4, -np.pi / 4), "cam_left"),
                 ((-np.pi, -(np.pi * 3) / 4), "cam_back_2"),
                 (((np.pi * 3) / 4, np.pi), "cam_back_1"),
+            ]
+
+            self.conditions_real = [
+                ((-np.pi / 2, np.pi / 2), "cam_front"),
+                ((-np.pi / 2, np.pi / 2), "cam_back"),
             ]
 
             # ROI offsets respect the original image
@@ -131,6 +164,7 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
+
         try:
             if params["depth_flag"] == "true" or params["depth_flag"] == "True":
                 self.tracker = BYTETrackerDepth(frame_rate=30)
@@ -201,7 +235,7 @@ class SpecificWorker(GenericWorker):
             #print("Points", len(points))
             # Convert points into a numpy array and scale from millimeters to meters.
             points_array = np.array([[p.x, p.y, p.z] for p in points])
-            return np.array(self.lidar_coppelia_cp(points_array))
+            return np.array(self.lidar_real(points_array))
             # if self.simulator else np.array(self.lidar_real(points_array))
 
         except Ice.Exception as e:
@@ -210,6 +244,152 @@ class SpecificWorker(GenericWorker):
 
         return []
 
+    def lidar_real(self, lidar_points):
+        """
+        Method for projecting real-world LIDAR points onto the image plane considering multiple camera views.
+
+        Args:
+            lidar_points (numpy array): A numpy array containing the real-world LIDAR points to be projected.
+        """
+
+        # Cast the lidar_points to float data type.
+        lidar_points = lidar_points.astype("f")
+
+        # Split the points into front and back groups based on the 'overlap' parameter.
+        lidar_front = lidar_points[lidar_points[:, 1] > -self.overlap]
+        lidar_back = lidar_points[lidar_points[:, 1] < self.overlap]
+
+        # Initialize list to hold LIDAR points projected onto the image plane.
+        lidar_in_image = []
+
+        # For each condition and camera in the real-world conditions:
+        for condition, cam in self.conditions_real:
+            # If the current camera is the front camera:
+            if cam == "cam_front":
+                # Project the points onto the image plane using the 'proyect_front_real_lidar' method.
+                transformed_points = self.proyect_front_real_lidar(lidar_front.reshape(-1, 1, 3))
+                # Set the points array to lidar_front.
+                points_array = lidar_front
+            else:  # If the current camera is not the front camera:
+                # Project the points onto the image plane using the 'proyect_back_real_lidar' method.
+                transformed_points = self.proyect_back_real_lidar(lidar_back.reshape(-1, 1, 3))
+                # Set the points array to lidar_back.
+                points_array = lidar_back
+
+            # Add the transformed points and their respective information to the lidar_in_image list.
+            lidar_in_image.extend(np.column_stack([transformed_points[:, 0],
+                                                   transformed_points[:, 1],
+                                                   np.linalg.norm(points_array[:, :3], axis=1),
+                                                   points_array[:, 0],
+                                                   points_array[:, 1],
+                                                   points_array[:, 2]
+                                                   ]).tolist())
+        # Return the list of LIDAR points projected onto the image plane.
+        return lidar_in_image
+
+    def proyect_front_real_lidar(self, points):
+        """
+        Method for projecting real-world LIDAR points onto the image plane for the front camera view using a fisheye lens model.
+
+        Args:
+            points (numpy array): A numpy array containing the real-world LIDAR points to be projected.
+        """
+
+        # Project the points onto the image plane using the fisheye lens model with the given rotation and translation vectors, camera matrix, and distortion coefficients.
+        # The alpha parameter is set to 0 for no scaling.
+        front_points_2d, _ = cv2.fisheye.projectPoints(points, self.rvec, self.tvec, self.K, self.D, alpha=0)
+
+        # Convert the fisheye points to equirectangular projection, taking into account the fisheye calibration size and the desired image size.
+        equirect_points_front = self.fish2equirect(front_points_2d[:, 0, :], self.fisheye_calibration_size,
+                                                   (self.width_img, self.height_img))
+
+        # Adjust the x coordinates of the points by half the image height.
+        equirect_points_front[:, 0] += int(self.height_img // 2)
+
+        # Return the projected points.
+        return equirect_points_front
+
+    def proyect_back_real_lidar(self, points):
+        """
+        Method for projecting real-world LIDAR points onto the image plane for the back camera view using a fisheye lens model.
+
+        Args:
+            points (numpy array): A numpy array containing the real-world LIDAR points to be projected.
+        """
+        # Invert the y coordinates.
+        points[:, :, 1] = -points[:, :, 1]
+
+        # Project the points onto the image plane using the fisheye lens model with the given rotation and translation vectors, camera matrix, and distortion coefficients for the back camera.
+        # The alpha parameter is set to 0 for no scaling.
+        back_points_2d, _ = cv2.fisheye.projectPoints(points, self.rvec_back, self.tvec_back, self.K, self.D, alpha=0)
+
+        # Convert the fisheye points to equirectangular projection, taking into account the fisheye calibration size and the desired image size.
+        equirect_points_back = self.fish2equirect(back_points_2d[:, 0, :], self.fisheye_calibration_size,
+                                                  (self.width_img, self.height_img))
+
+        # Find the indices of the points where the x coordinate is greater than a quarter of the image width.
+        greater_index = equirect_points_back[:, 0] > (self.width_img // 4)
+
+        # If the x coordinate is greater than a quarter of the image width, subtract a quarter of the image width.
+        equirect_points_back[greater_index, 0] -= (self.width_img // 4)
+
+        # If the x coordinate is less than or equal to a quarter of the image width, add three quarters of the image width.
+        equirect_points_back[~greater_index, 0] += (self.width_img * 3) // 4
+
+        # Return the projected points.
+        return equirect_points_back
+
+    def fish2equirect(self, points, size_in, size_out):
+        """
+        Translates points from a fisheye perspective to an equirectangular plane.
+
+        Parameters:
+            points (numpy array): Points in the fisheye perspective to be translated. They should be in the format [[x,y],...].
+            size_in (list): The size of the fisheye image in the format [x,y].
+            size_out (list): The desired size of the output equirectangular image in the format [x,y].
+
+        Returns:
+            pointsEquirect (numpy array): Points in the equirectangular plane, in the format [[x,y],...].
+        """
+
+        # Dimensions of the fisheye image.
+        width = size_in[0]
+        height = size_in[1]
+
+        # Desired dimensions of the output equirectangular image.
+        dst_width = size_out[0]
+        dst_height = size_out[1]
+
+        # Calculate the center of the image.
+        center_x = width // 2
+        center_y = height // 2
+
+        # Normalize the points to the range [-1,1], with inversion in y.
+        src_x_norm = (points[:, 0] - center_x) * 2 / width
+        src_y_norm = -(points[:, 1] - center_y) * 2 / height
+
+        # Calculate the radius or hypotenuse.
+        r = np.sqrt(src_x_norm ** 2 + src_y_norm ** 2)
+
+        # Convert to 3D fisheye points.
+        p_x = src_x_norm
+        p_z = src_y_norm
+        p_y = np.where(r != 0, r / np.tan(r * self.aperture / 2), 0)
+
+        # Convert 3D fisheye points to 3D lat/lon.
+        latitude = np.arctan2(p_z, np.sqrt(p_x ** 2 + p_y ** 2))
+        longitude = np.arctan2(p_y, p_x)
+
+        # Convert 3D lat/lon to 2D equirectangular.
+        dst_x_norm = longitude / np.pi
+        dst_y_norm = latitude * 2 / np.pi
+
+        # Scale the equirectangular points to the range [0, dst_width] and [0, dst_height], with inversion in y.
+        x = ((-dst_x_norm / 2 + 0.5) * dst_width).astype(int)
+        y = ((-dst_y_norm / 2 + 0.5) * dst_height).astype(int)
+
+        # Return the equirectangular points.
+        return np.stack((x, y), axis=-1)
     def lidar_coppelia(self, points_array):
         """
         Method for projecting LIDAR points onto the image plane considering multiple camera views
@@ -592,6 +772,7 @@ class SpecificWorker(GenericWorker):
 
         # swap
         self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
         return self.objects_read
 
     def distance_to_object(self, objects):
@@ -618,6 +799,7 @@ class SpecificWorker(GenericWorker):
                     element.x = centroid[0]
                     element.y = centroid[1]
                     element.z = centroid[2]
+                    print("targets", element.x,element.y,element.z)
             else:
                 print("Warning, no lidar data yet")
 
@@ -693,7 +875,9 @@ class SpecificWorker(GenericWorker):
             The original image, modified to include visualizations of the object and LIDAR data.
         """
         for i in self.lidar_in_image:
-            cv2.circle(image, (int(i[0]), int(i[1])), 1, (0, 255, 0), 1)
+            if (distance := np.sqrt(i[0] ** 2 + i[1] ** 2 + i[2] ** 2)) < self.distance_threshold:
+                color = self.get_colormap_value(distance, self.distance_threshold)
+                cv2.circle(image, (int(i[0]), int(i[1])), 1, (int(color[0]), int(color[1]), int(color[2]), 1))
         # Check if there are any objects to display.
         if len(self.objects) == 0:
             return image
@@ -821,6 +1005,13 @@ class SpecificWorker(GenericWorker):
     #     self.objects_write, self.objects_read = self.objects_read, self.objects_write
     #     return self.objects_read
     #
+
+    def get_colormap_value(self, distance, max_distance):
+        normalized_distance = distance / max_distance  # Normaliza la distancia entre 0 y 1
+        color = np.array(self.cmap(normalized_distance)[0:3])
+
+        return color*255
+
     def get_imagehash_from_roi(self, object):
         color = np.frombuffer(object.image.image, dtype=np.uint8).reshape(object.image.height, object.image.width, 3)
         image = Image.fromarray(color)
