@@ -210,7 +210,7 @@ class SpecificWorker : public GenericWorker
         void draw_target(double x, double y, bool erase=false);
         Eigen::Vector2f robot_current_speed = {0.f, 0.f};
 
-        std::optional<Eigen::Vector2f> check_safety(const vector<std::tuple<float, float>> &points);
+        std::vector<std::pair<Eigen::Vector2f, float>> check_safety(const vector<std::tuple<float, float>> &points);
         bool robot_stopped = false;
 
     Target get_closest_point_inside(const vector<std::tuple<float, float>> &points, const Target &target);

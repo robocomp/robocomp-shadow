@@ -30,7 +30,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 {
 	this->startup_check_flag = startup_check;
 }
-
 /**
 * \brief Default destructor
 */
@@ -38,7 +37,6 @@ SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
 }
-
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
 //	try
@@ -50,7 +48,6 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 //	catch(const std::exception &e) { qFatal("Error reading config params"); }
 	return true;
 }
-
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
@@ -138,49 +135,64 @@ void SpecificWorker::compute()
         target.print();
     }
 
-    //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
-    if(auto new_target = check_safety(enlarged_points); new_target.has_value())
+    // Check bumper
+    std::vector<std::pair<Eigen::Vector2f, float>> displacements = check_safety(enlarged_points);
+    bool safety_break = not displacements.empty();
+
+    // We have four possibilities
+    if(not safety_break and not target.active) {
+        stop_robot();
+        return;
+    }
+    if(not target.active and safety_break)
+    {
+        if (not displacements.empty())    // choose displacement that maximizes sum of distances to obstacles
+        {
+            auto res = std::ranges::max(displacements,
+                                        [](auto &a, auto &b) { return a.second < b.second; });
+            try
+            {
+                qInfo() << "Collision:" << res.first.x() << res.first.y();
+                omnirobot_proxy->setSpeedBase(4 * res.first.y() / 1000, -4 *res.first.x() / 1000, 0);
+                draw_target(res.first.x() * 10, res.first.y() * 10);
+                robot_stopped = false;
+            }
+            catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        }
+    }
+    if(target.active and safety_break)    // target active. Choose displacemnte aligned with target
+    {
+        auto target_in_robot =
+                robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
+                1000;
+        qInfo() << "Dist to target:" << target_in_robot.norm();
+        if (target_in_robot.norm() < 1050)      // TODO: Too high
+        {
+            stop_robot();
+            return;
+        }
+
+        draw_target(target_in_robot(0), target_in_robot(1));
+
+        float adv = target_in_robot(1) * 0.4;
+        float side = target_in_robot(0) * 0.4;
+        float rot = atan2(side, adv);
+        robot_current_speed = {adv, side};
+
         try
         {
-            qInfo() << "Collision:" << new_target.value().x() << new_target.value().y();
-            omnirobot_proxy->setSpeedBase(8*new_target.value().y()/1000, -8*new_target.value().x()/1000, 0);
-            draw_target( new_target.value().x()*10, new_target.value().y()*10);
+            omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
             robot_stopped = false;
         }
         catch (const Ice::Exception &e)
-    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-    else
-    {
-        if (target.active)
-        {
-            auto target_in_robot =
-                    robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
-                    1000;
-            qInfo() << "Dist to target:" << target_in_robot.norm();
-            if (target_in_robot.norm() < 1050)
-            {
-                stop_robot();
-                return;
-            }
-
-            draw_target(target_in_robot(0), target_in_robot(1));
-
-            float adv = target_in_robot(1) * 0.4;
-            float side = target_in_robot(0) * 0.4;
-            float rot = atan2(side, adv);
-            robot_current_speed = {adv, side};
-
-            try
-            {
-                //qInfo() << adv << side << rot;
-                omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
-                robot_stopped = false;
-            }
-            catch (const Ice::Exception &e)
-            { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-        }
+        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
     }
-    // draw
+    if(target.active and not safety_break)
+    {
+        
+    }
+
+    //////////////////////////// draw
     draw_discr_points(discr_points,&viewer->scene);
     draw_enlarged_points(enlarged_points,&viewer->scene);
     // fps.print("FPS:");
@@ -190,14 +202,11 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
 {
     std::vector<std::tuple<float, float>> polar_points;
     const float delta_phi = 2*(M_PI*2/360); // number of degrees
-    //float running_angle = ldata[0].phi +  delta_phi;
     float running_angle = -M_PI + delta_phi;
     float running_min = std::numeric_limits<float>::max();
 
-
     // Group points by discrete angle bins and compute the min dist of the set
     for (const auto& p : ldata)
-    {
         if(p.phi <= running_angle)
         {
             if (p.r < running_min)
@@ -219,7 +228,7 @@ std::vector<std::tuple<float, float>> SpecificWorker::discretize_lidar(const Rob
                 }
             running_min = std::numeric_limits<float>::max();
         }
-    }
+
     // complete the circle
     while(running_angle < M_PI)
     {
@@ -321,11 +330,12 @@ SpecificWorker::Target SpecificWorker::get_closest_point_inside(const std::vecto
     return t;
 }
 //////////////////////////////////////////////////////////////////////////////
-std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
+std::vector<std::pair<Eigen::Vector2f, float>> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
 {
   //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
   // get lidar points closer than safety band. If none return
   std::vector<Eigen::Vector2f> close_points;
+  std::vector<std::pair<Eigen::Vector2f, float>> displacements;
   const float MIN_DIST = 100;
   for(const auto &[ang, dist]: points)
       if(dist < MIN_DIST)
@@ -337,38 +347,25 @@ std::optional<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<st
   double dist = robot_current_speed.norm() * delta_t + 0.5*(MAX_ACC * delta_t * delta_t);
   if(not close_points.empty())
   {
-      std::vector<std::pair<Eigen::Vector2f, float>> displacements;
-      for (const double ang: iter::range(-M_PI, M_PI, 0.3))
-      {
+      for (const double ang: iter::range(-M_PI, M_PI, 0.3)) {
           // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
           Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
-          //if (auto r = std::ranges::find_if(close_points, [t](auto &p)
-          //    { return (p - t).norm() < 50; }); r == close_points.end())
           float acum = 0;
           bool free = true;
-          for(const auto &p: close_points)
-          {
-              float dist = (p-t).norm();
-              if(dist > MIN_DIST)
+          for (const auto &p: close_points) {
+              float dist = (p - t).norm();
+              if (dist > MIN_DIST)
                   acum += dist;
-              else
-              {
+              else {
                   free = false;
                   break;
               }
           }
-          if(free)
+          if (free)
               displacements.emplace_back(t, acum); // add displacement to list
       }
-      if (not displacements.empty())    // choose best displacement from candidates
-      {
-          auto res = std::ranges::max(displacements,
-                       [](auto &a, auto &b){ return a.second < b.second; });
-          return res.first;
-      }
+      return displacements;
   }
-  else
-      return {};
 }
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour)
 {
