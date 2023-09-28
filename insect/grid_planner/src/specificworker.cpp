@@ -77,25 +77,31 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+    auto cstart = std::chrono::high_resolution_clock::now();
     clock.tick();
+    grid.clear();
+    auto points = get_lidar_data();
+    qInfo() << points.size() ;
+    grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, 7000);
+    std::cout << "Time updating grid 1: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
+    grid.update_costs(true);
     if (auto target = target_buffer.try_get(); target.has_value())
     {
 //        if(target.active)
 //        {
-        grid.clear();
-        auto points = get_lidar_data();
-        grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, 3500);
-        grid.update_costs(true);
+
+        std::cout << "Time updating grid 2: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
         QPointF Qtarget(target->x(),target->y());
 
         if (los_path(Qtarget))
         {
             cout << "PATH BLOCKED" << endl;
             auto path = grid.compute_path(QPointF(0, 0), Qtarget);
+            std::cout << "Time updating grid 3: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
             if(not path.empty() and path.size() > 0)
             {
                 auto subtarget = send_path(path, 750, M_PI_4 / 4);
-                    
+                std::cout << "Time updating grid 4: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
                 draw_path(path, &viewer->scene);
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
@@ -139,40 +145,48 @@ void SpecificWorker::compute()
                     gridplanner_pubproxy->setPlan(returning_plan);
                 }
                 catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
-                
+                std::cout << "Time updating grid 5: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
             }
         }
-        else
+        else //LOS TARGET
         {
             t.tick();
             RoboCompGridPlanner::TPlan returning_plan;
-            returning_plan.valid = false;
-            draw_subtarget(Eigen::Vector2f {0.0, 0.0}, &viewer->scene);
+            returning_plan.valid = true;
+            returning_plan.subtarget.x = target->x();
+            returning_plan.subtarget.y = target->y();
+            std::cout << "target x,y:" << target->x() << " "<< target->y() << std::endl;
+            std::cout << "returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
+
+            draw_subtarget(Eigen::Vector2f {target->x(), target->y()}, &viewer->scene);
             try
             {
                 gridplanner_proxy->setPlan(returning_plan);
             }
             catch (const Ice::Exception &e) { std::cout << "Error setting empty plan" << e << std::endl; }
             
-            try
-                {
-                    gridplanner_pubproxy->setPlan(returning_plan);
-                }
-                catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
+//            try
+//                {
+//                    gridplanner_pubproxy->setPlan(returning_plan);
+//                }
+//                catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
                 
         }
 
-        viewer->update();
 
 
+        std::cout << "Time updating grid 6: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
 //        }
     }
     else //NO TARGET
     {
 
     }
+    viewer->update();
     fps.print("FPS:");
+    std::cout << "Time updating grid 7: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
 //    qInfo()<< "Duration_end" << clock.duration();
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -181,7 +195,8 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
     std::vector <Eigen::Vector3f> points;
     try {
     	string lidar_name = "bpearl";
-        auto ldata = lidar3d_proxy->getLidarData(lidar_name, 0, 360, 1);
+//        auto ldata = lidar3d_proxy->getLidarData(lidar_name, 315, 90, 5);
+        auto ldata = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
         //HELIOS
 //        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
 //        {
@@ -198,12 +213,15 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
         for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
                                          {
                                              float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-                                             return p.z < 300
-                                                    and p.z > -200
-                                                    and dist < 5000
-                                                    and dist > 250;
+                                             return p.z < 1000
+                                                    and dist > 100;
                                          }, ldata.points) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+
+
+//        for (const auto &p : ldata.points)
+//            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+
         return points;
     }
     catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
@@ -357,7 +375,7 @@ Eigen::Vector2f SpecificWorker::border_subtarget(RoboCompVisualElements::TObject
 }
 
 bool SpecificWorker::los_path(QPointF f) {
-    int tile_size = 200;
+    int tile_size = 100;
     std::vector<Eigen::Vector2f> path;
 //    cout << "f X" << f.x() << endl;
 //    cout << "f y" << f.y() << endl;

@@ -58,10 +58,10 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector3f> get_lidar_data();
 
         //GRID
-        int z_lidar_height = 700;
+        int z_lidar_height = 0;
         Grid grid;
-        int grid_widht =8000;
-        int grid_length = 8000;
+        int grid_widht = 8000;
+        int grid_length = 10000;
         int back_distance = 2000;
         int tile_size = 100;
 
