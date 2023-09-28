@@ -276,16 +276,6 @@ class SpecificWorker(GenericWorker):
         else:
             rgb, blob, alive_time, period = data
 
-        # results = self.model(rgb)
-        #
-        # annotated_frame = results[0].plot()
-        # cv2.imshow("ann", annotated_frame)
-        # cv2.waitKey(1)
-        # for result in results:
-        #     keypoints = result.keypoints  # Masks object for segmentation masks outputs
-        #     print(keypoints.cpu()[0])
-        #     print(result.names)
-
         # Set ROI dimensions if tracking an object
         if self.tracked_id is not None:
             self.set_roi_dimensions(self.objects_read)
@@ -336,7 +326,7 @@ class SpecificWorker(GenericWorker):
 
                 # Convert image data to numpy array and reshape it.
                 color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
-
+                color = cv2.resize(color,(640,640))
                 # Preprocess the image.
                 blob = self.pre_process(color, (640, 640))
 
@@ -481,6 +471,8 @@ class SpecificWorker(GenericWorker):
             act_object.right = int(box[2])
             act_object.bot = int(box[3])
             act_object.score = score
+            
+
             act_object.image = self.get_bbox_image_data(rgb, box)
             self.objects_write.append(act_object)
         return self.objects_write
@@ -492,6 +484,7 @@ class SpecificWorker(GenericWorker):
         # cv2.waitKey(1)
         bbox_image.image = cropped_image.tobytes()
         bbox_image.height, bbox_image.width, _ = cropped_image.shape
+
         bbox_image.roi = ifaces.RoboCompCamera360RGB.TRoi(xcenter=self.rgb.roi.xcenter,
                                                                 ycenter=self.rgb.roi.ycenter,
                                                                 xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
@@ -627,6 +620,7 @@ class SpecificWorker(GenericWorker):
             tracked_boxes = np.stack(tracked_boxes)
             tracked_boxes[:, 2] += tracked_boxes[:, 0]
             tracked_boxes[:, 3] += tracked_boxes[:, 1]
+            
 
             final_boxes = tracked_boxes
             final_scores = list(tracked_scores)
@@ -652,6 +646,7 @@ class SpecificWorker(GenericWorker):
             ibox.bot = int(box[3])
 
             data.objects.append(ibox)
+
         return data
 
     def show_fps(self, alive_time, period):
