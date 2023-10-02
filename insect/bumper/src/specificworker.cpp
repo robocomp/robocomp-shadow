@@ -139,58 +139,60 @@ void SpecificWorker::compute()
     std::vector<std::pair<Eigen::Vector2f, float>> displacements = check_safety(enlarged_points);
     bool safety_break = not displacements.empty();
 
+    // Check for robot in target
+    auto target_in_robot =
+            robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
+            1000;
+    draw_target(target_in_robot(0), target_in_robot(1));
+    qInfo() << __FUNCTION__ << "Dist to target:" << target_in_robot.norm();
+    if (target.active and target_in_robot.norm() < 1050)      // TODO: Too high
+    {   stop_robot();  qInfo() << "Robot arrived to taarge"; }
+
     // We have four possibilities
-    if(not safety_break and not target.active) {
-        stop_robot();
-        return;
-    }
-    if(not target.active and safety_break)
-    {
-        if (not displacements.empty())    // choose displacement that maximizes sum of distances to obstacles
-        {
-            auto res = std::ranges::max(displacements,
-                                        [](auto &a, auto &b) { return a.second < b.second; });
-            try
-            {
-                qInfo() << "Collision:" << res.first.x() << res.first.y();
-                omnirobot_proxy->setSpeedBase(4 * res.first.y() / 1000, -4 *res.first.x() / 1000, 0);
-                draw_target(res.first.x() * 10, res.first.y() * 10);
-                robot_stopped = false;
-            }
-            catch (const Ice::Exception &e) { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-        }
-    }
-    if(target.active and safety_break)    // target active. Choose displacemnte aligned with target
-    {
-        auto target_in_robot =
-                robot_pose.inverse().matrix() * Eigen::Vector4d(target.x / 1000.f, target.y / 1000.f, 0.f, 1.f) *
-                1000;
-        qInfo() << "Dist to target:" << target_in_robot.norm();
-        if (target_in_robot.norm() < 1050)      // TODO: Too high
-        {
-            stop_robot();
-            return;
-        }
-
-        draw_target(target_in_robot(0), target_in_robot(1));
-
-        float adv = target_in_robot(1) * 0.4;
-        float side = target_in_robot(0) * 0.4;
-        float rot = atan2(side, adv);
-        robot_current_speed = {adv, side};
-
-        try
-        {
-            omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
-            robot_stopped = false;
-        }
-        catch (const Ice::Exception &e)
-        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-    }
-    if(target.active and not safety_break)
-    {
-        
-    }
+//    if(not safety_break and not target.active)
+//    {
+//        stop_robot();
+//    }
+//    if(not target.active and safety_break)
+//    {
+//        if (not displacements.empty())    // choose displacement that maximizes sum of distances to obstacles
+//        {
+//            auto res = std::ranges::max(displacements,
+//                                        [](auto &a, auto &b) { return a.second < b.second; });
+//
+//            qInfo() << "Collision:" << res.first.x() << res.first.y();
+//            target.set(res.first.x(), res.first.y());
+//            //omnirobot_proxy->setSpeedBase(4 * res.first.y() / 1000, -4 *res.first.x() / 1000, 0);
+//            //draw_target(res.first.x() * 10, res.first.y() * 10);
+//            //robot_stopped = false;
+//        } else
+//        {
+//            stop_robot();
+//            qWarning() << __FUNCTION__ << "Collision but no solution found";
+//        }
+//    }
+//    if(target.active and safety_break)    // target active. Choose displacement best aligned with target
+//    {
+//       // auto res = std::ranges::max(displacements,
+//       //            [target](auto &a, auto &b) { return a.first * target.eigen.transpose() <  b.first * target.eigen().transpose(); });
+//
+//        float adv = target_in_robot(1) * 0.4;
+//        float side = target_in_robot(0) * 0.4;
+//        float rot = atan2(side, adv);
+//        robot_current_speed = {adv, side};
+//
+//        try
+//        {
+//            omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
+//            robot_stopped = false;
+//        }
+//        catch (const Ice::Exception &e)
+//        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+//    }
+//    if(target.active and not safety_break)
+//    {
+//
+//    }
 
     //////////////////////////// draw
     draw_discr_points(discr_points,&viewer->scene);
@@ -647,6 +649,7 @@ void SpecificWorker::draw_enlarged_points(const std::vector<std::tuple<float, fl
     {
         auto &[ang1, dist1] = ps[0];
         auto &[ang2, dist2] = ps[1];
+
         QLineF l{QPointF{dist1*sin(ang1), dist1*cos(ang1)}, QPointF{dist2*sin(ang2), dist2*cos(ang2)}};
         auto o = scene->addLine(l, QPen(QColor("magenta"), 5));
         draw_enlarged_lines.push_back(o);
