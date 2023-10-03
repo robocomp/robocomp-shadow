@@ -19,13 +19,16 @@ CODE_TELEGRAM ={
 
 
 DRIVER_REGISTERS = {
+    #"SAVE": bytearray([0x31, 0x00]),                # uint16//0=Do not save parameters to FLASH; 1: Save to FLASH
     "SET_STATUS": bytearray([0x53, 0x00]),          # uint16//SET DRIVER STATUS 0=STOP; 1=START; 2=CLEAN ALARMS
     "GET_STATUS": bytearray([0x54, 0x00]),          # DRIVER STATUS 0=STOP; 1=RUN
     "SET_SPEED": bytearray([0x53, 0x04]),           # int16//TARGET SPEED
     "GET_SPEED": bytearray([0x54, 0x10]),           # int16//CURRENT SPEED
+    "GET_CURRENT": bytearray({0x54, 0x14}),         # int16//CURRENT CURRENT
     "GET_MOTOR_TEMPERATURE": bytearray([0x54, 0x04]),# int16//MOTOR TEMPERATURE
     "GET_DRIVE_TEMPERATURE": bytearray([0x21, 0x35]),# int16//DRIVER TEMPERATURE
-    "MAX_SPEED": bytearray([0x50, 0x1C]),           # uint16//MAXIMUM SPEED
+    #dont work "MAX_SPEED": bytearray([0x50, 0x1C]),           # uint16//MAXIMUM SPEED
+    "MAX_CURRENT": bytearray([0x50, 0x20]),         # uint16//MAXIMUM CURRENT
     "DIRECTION": bytearray([0x50, 0x28]),           # uint16//MOTOR DIRECTION 0=NORMAL; 1=INVERT
     "MAX_ACCELERATION": bytearray([0x51, 0x08]),    # uint16//MAXIMUM ACCELERATION
     "MAX_DECELATION": bytearray([0x51, 0x0C]),      # uint16//MAXIMUM DECELERATION   
@@ -49,7 +52,7 @@ class SVD48V:
         rpmMaxSpeed: The maximum speed in RPM.
     """
 
-    def __init__(self, port="/dev/ttyUSB0", IDs=[1,2], wheelRadius=6, maxSpeed=800, maxAcceleration=1000, maxDeceleration=1500):
+    def __init__(self, port="/dev/ttyUSB0", IDs=[1,2], wheelRadius=6, maxSpeed=800, maxAcceleration=1000, maxDeceleration=1500, maxCurrent=6):
         """
         Initializes an instance of the class.
 
@@ -60,6 +63,7 @@ class SVD48V:
             maxSpeed (int): The maximum speed mm/s. Defaults to 800.
             maxAcceleration (int): The maximum acceleration mm/s2. Defaults to 1000.
             maxDeceleration (int): The maximum deceleration mm/s2. Defaults to 1500.
+            maxCurrent (int): The maximum curren motor in Amperes. Defaults to 6.
         """
         print("Initializing SVD48V")
         self.port = port
@@ -73,7 +77,7 @@ class SVD48V:
 
         self.accuracy_com = {"MSL" : 0.0, "CRC" : 0.0, "CODE" : 0.0, "OK" : 0.0}
         self.time_com = []
-        self.data = {'Speed' : [0.0, 0.0, 0.0], 'Status' : [0,0], 'Temperature' : [0,0,0,0]}
+        self.data = {'Speed' : [0.0, 0.0, 0.0], 'Status' : [0,0], 'Temperature' : [0,0,0,0], "Current": [0,0,0,0]}
 
         self.driver = None
         self.thSelfResetting = None
@@ -119,7 +123,7 @@ class SVD48V:
         for id in self.ids:
             self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
             self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
-            #self.write_register(id, DRIVER_REGISTERS['MAX_SPEED'], [self.rpm_max_speed, self.rpm_max_speed])
+            self.write_register(id, DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent, maxCurrent])
             self.enable_driver()
         
 
@@ -128,11 +132,12 @@ class SVD48V:
         self.threads = [
         threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_STATUS"], "Status")),
         threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_SPEED"], "Speed")),
-        threading.Thread(daemon=True, target=self.update_parameter, args=(10, DRIVER_REGISTERS["GET_MOTOR_TEMPERATURE"], "Temperature"))
+        threading.Thread(daemon=True, target=self.update_parameter, args=(10, DRIVER_REGISTERS["GET_MOTOR_TEMPERATURE"], "Temperature")),
+        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_CURRENT"], "Current"))
         ]
         for thread in self.threads:
             thread.start()
-        
+
         self.show_params(True)
         time.sleep(0.5)
         self.safety = True
@@ -316,7 +321,7 @@ class SVD48V:
             list: A list of the data from the register.
         """
         attempt = 0
-        telegram = self.generate_telegram(id, "READ",add_register, False)
+        telegram = self.generate_telegram(id, "READ",add_register, single)
         while (data := self.process_telegram(telegram, "READ")) is None and attempt < 2:
             print("Restarting Reading")
             time.sleep(0.005)
@@ -362,7 +367,7 @@ class SVD48V:
         crc_result = 0xffff
         for i in range(len(telegram)):
             crc_result = crc_result ^ int(telegram[i])
-            for m in range(8):
+            for _ in range(8):
                 crc_num = (crc_result & 0x0001)
                 xor_flag = 1 if crc_num == 1 else 0
                 crc_result >>= 1
@@ -402,6 +407,7 @@ class SVD48V:
             print("wheelRadius: ", self.wheel_radius)
         print("Driver states: ", self.get_status())   
         print("Speed (m1, m2, m3, m4): ", self.get_speed())
+        print("Current (m1, m2, m3, m4): ", self.get_current())
         print("Motor temperature: ", self.get_temperature())
         print("------------------------------")
 
@@ -432,6 +438,7 @@ class SVD48V:
                     #Confirmamos el estado
                     status = self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False)
                     if 0 in status:
+                        time.sleep(1)
                         print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
                         self.enable_driver()
             else:
@@ -465,6 +472,15 @@ class SVD48V:
             The speed of the motors.
         """
         return np.array(self.data["Speed"])/(self.mms2rpm*10)
+    
+    def get_current(self):
+        """
+        Get the current of the motors.
+
+        Returns:
+            The current of the motors.
+        """
+        return np.array(self.data["Current"])/10
     
     def get_safety(self):
         """
