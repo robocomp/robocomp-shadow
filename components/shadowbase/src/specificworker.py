@@ -75,18 +75,11 @@ class SpecificWorker(GenericWorker):
             port = params["port"]
             self.maxLinSpeed = float(params["maxLinSpeed"])
             self.maxRotSpeed = float(params["maxRotSpeed"])
-            maxWheelSpeed = float(params["maxWheelSpeed"])
-            maxAcceleration = float(params["maxAcceleration"])
-            maxDeceleration = float(params["maxDeceleration"])
+            maxCurrent = int(params["maxCurrent"])
+            maxAcceleration = int(params["maxAcceleration"])
+            maxDeceleration = int(params["maxDeceleration"])
             idDrivers = [int(params["idDriver1"]), int(params["idDriver2"])]
             wheelRadius = float(params["wheelRadius"])
-
-            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxWheelSpeed,
-                                        maxAcceleration, maxDeceleration)  
-
-            if not self.driver.get_enable():
-                print("NO se conecto al driver o fallo uno de ellos , cerrando programa")
-                exit(-1)
 
 
             print("creando matriz de conversion")
@@ -100,11 +93,21 @@ class SpecificWorker(GenericWorker):
             #self.m_wheels_inv = np.linalg.inv(self.m_wheels)
 
             print(self.m_wheels)
-           #print(self.m_wheels_inv)
+            #print(self.m_wheels_inv)
+
+            maxWheelSpeed = max(abs(self.m_wheels@np.array([self.maxLinSpeed, self.maxLinSpeed, self.maxRotSpeed])))
+
+            self.driver = SVD48V.SVD48V(port, idDrivers, wheelRadius, maxWheelSpeed,
+                                        maxAcceleration, maxDeceleration, maxCurrent)  
+
+            if not self.driver.get_enable():
+                print("NO se conecto al driver o fallo uno de ellos , cerrando programa")
+                exit(-1)
+
 
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.driver.show_params)
-            #self.timer.start(0.5)
+            self.timer.start(1000)
 
         except Exception as e:
             print("Error reading config params or start motor")
@@ -146,10 +149,6 @@ class SpecificWorker(GenericWorker):
                     print("No comand, Stoping ")
                     self.OmniRobot_setSpeedBase(0,0,0)
                     self.time_move = float("inf")
-
-            else:
-                pass
-            #self.driver.show_params(False)
         return True
 
     def startup_check(self):
@@ -301,7 +300,7 @@ class SpecificWorker(GenericWorker):
                 if b.step == 1:
                     self.joystickControl = not self.joystickControl
                     if not self.joystickControl:
-                        pass#self.OmniRobot_setSpeedBase(0, 0, 0)
+                        self.OmniRobot_setSpeedBase(0, 0, 0)
                     print("Joystick control: ", self.joystickControl)
             else:
                 pass#print(b.name, "PULASDOR NO AJUSTADO")
