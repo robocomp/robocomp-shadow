@@ -8,14 +8,27 @@ import serial
 ''''ESTRUCTURA DE TELEGRAMAS/DATAGRAMA'''
 CODE_TELEGRAM ={
 #___________________________________________
-#|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8    |
+#|1 |  2 | 3 - 4 | 5 - 6 |    7   |   8   |
 #|ID|CODE|ADD_REG|NUM_REG|CRC_HIGH|CRC_LOW|
 "READ": bytearray([0x03]),
 #______________________________________________________________________
-#|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N    |
+#|1 |  2 | 3 - 4 | 5 - 6 |    7   | 8 - 9| 10-11|...|  N-1   |   N   |
 #|ID|CODE|ADD_REG|NUM_REG|NUM_BYTE|DATA_1|DATA_2|...|CRC_HIGH|CRC_LOW|
-"WRITE": bytearray([0x10])
+"WRITE": bytearray([0x10]),
+#___________________________________________
+#|1 |  2 |    3    |    5   |    7  |
+#|ID|CODE|EXCEPTION|CRC_HIGH|CRC_LOW|
+"ERROR_READ": bytearray([0x86]),
+#____________________________________
+#|1 |  2 |    3    |    5   |    7  |
+#|ID|CODE|EXCEPTION|CRC_HIGH|CRC_LOW|
+"ERROR_WRITE": bytearray([0x90])
 }
+
+class EXCEPTION_TELEGRAM(Exception):
+    pass
+
+error_messages=["", "Invalid function code", "Invalid register address", "Invalid data value"]
 
 
 DRIVER_REGISTERS = {
@@ -272,6 +285,9 @@ class SVD48V:
                         if len(reply) > 1:
                             #Have same number of action?
                             if reply[1] != CODE_TELEGRAM[action_code][0] :
+                                if reply[1] != CODE_TELEGRAM["ERROR_" + action_code][0]:
+                                    self.mutex.release()
+                                    raise EXCEPTION_TELEGRAM(error_messages[reply[2]])
                                 print(f"UNSUITABLE TELEGRAM. RE-{action_code}")
                                 self.accuracy_com["CODE"] += 1
                                 break
@@ -304,8 +320,8 @@ class SVD48V:
                 print(f"{action_code} ATTEMPTS EXHAUSTED ")
         except serial.SerialException:
             sys.exit("FAUL IN PORT. Has the SVD48V possibly been disconnected?")
-        except Exception as e:
-            print(e)
+        except EXCEPTION_TELEGRAM:
+            raise
         return None
 
     def read_register(self, id=0xee, add_register=DRIVER_REGISTERS["GET_STATUS"], single=False):
@@ -322,11 +338,16 @@ class SVD48V:
         """
         attempt = 0
         telegram = self.generate_telegram(id, "READ",add_register, single)
-        while (data := self.process_telegram(telegram, "READ")) is None and attempt < 2:
-            print("Restarting Reading")
-            time.sleep(0.005)
-            attempt+=1
-        return data
+        try:
+            while (data := self.process_telegram(telegram, "READ")) is None and attempt < 2:
+                print("Restarting Reading")
+                time.sleep(0.005)
+                attempt+=1
+            return data
+        except Exception as e:
+            print("######ERROR###### ", e)
+            return None
+    
         
         
     def write_register(self, id=0xee, add_register=DRIVER_REGISTERS["SET_STATUS"], data_tuple=[0,0]):
@@ -347,12 +368,15 @@ class SVD48V:
         if telegram is None:
             print("Wrong number of data items")
             return -2
-        while (data := self.process_telegram(telegram, "WRITE")) is None and attempt < 2:
-            print("Restarting Writing")
-            time.sleep(0.005)
-            attempt+=1
-        return data
-
+        try:
+            while (data := self.process_telegram(telegram, "WRITE")) is None and attempt < 2:
+                print("Restarting Writing")
+                time.sleep(0.005)
+                attempt+=1
+            return data
+        except Exception as e:
+            print("######ERROR###### ", e)
+            return None
 
     def calculate_crc(self, telegram):
         """
@@ -423,7 +447,7 @@ class SVD48V:
         while self.threads_alive:
             data = []
             for id in self.ids:
-                data.extend(self.read_register(id, register, False))
+                data.extend(self.read_register(id, register, False) or [None, None])
             self.data[tag] = data
             time.sleep(period)
 
