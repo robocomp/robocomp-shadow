@@ -1,0 +1,27 @@
+# Endpoints for implements interfaces
+VisualElements.Endpoints=tcp -p 15601
+
+# Proxies for required interfaces
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+# Endpoints for subscriptions interfaces
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 12168
+
+display = true
+depth = false
+yolo_model = yolov8s.trt
+
+# the common directory is /home/robocomp, even if you have a robolab user
+classes-path-file = /home/robocomp/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+
