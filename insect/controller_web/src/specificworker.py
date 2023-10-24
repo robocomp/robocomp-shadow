@@ -47,7 +47,7 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
 
-        self.Period = 33
+        self.Period = 50
 
         if startup_check:
             self.startup_check()
@@ -70,8 +70,96 @@ class SpecificWorker(GenericWorker):
         self.target = -1
         self.fps = 0
 
+        self.act_roi = None
+
         # Iniciar el servidor Flask en un nuevo hilo
         self.app = Flask(__name__)
+
+        self.labels = []
+        self._COLORS = np.array(
+            [
+                0.000, 0.447, 0.741,
+                0.850, 0.325, 0.098,
+                0.929, 0.694, 0.125,
+                0.494, 0.184, 0.556,
+                0.466, 0.674, 0.188,
+                0.301, 0.745, 0.933,
+                0.635, 0.078, 0.184,
+                0.300, 0.300, 0.300,
+                0.600, 0.600, 0.600,
+                1.000, 0.000, 0.000,
+                1.000, 0.500, 0.000,
+                0.749, 0.749, 0.000,
+                0.000, 1.000, 0.000,
+                0.000, 0.000, 1.000,
+                0.667, 0.000, 1.000,
+                0.333, 0.333, 0.000,
+                0.333, 0.667, 0.000,
+                0.333, 1.000, 0.000,
+                0.667, 0.333, 0.000,
+                0.667, 0.667, 0.000,
+                0.667, 1.000, 0.000,
+                1.000, 0.333, 0.000,
+                1.000, 0.667, 0.000,
+                1.000, 1.000, 0.000,
+                0.000, 0.333, 0.500,
+                0.000, 0.667, 0.500,
+                0.000, 1.000, 0.500,
+                0.333, 0.000, 0.500,
+                0.333, 0.333, 0.500,
+                0.333, 0.667, 0.500,
+                0.333, 1.000, 0.500,
+                0.667, 0.000, 0.500,
+                0.667, 0.333, 0.500,
+                0.667, 0.667, 0.500,
+                0.667, 1.000, 0.500,
+                1.000, 0.000, 0.500,
+                1.000, 0.333, 0.500,
+                1.000, 0.667, 0.500,
+                1.000, 1.000, 0.500,
+                0.000, 0.333, 1.000,
+                0.000, 0.667, 1.000,
+                0.000, 1.000, 1.000,
+                0.333, 0.000, 1.000,
+                0.333, 0.333, 1.000,
+                0.333, 0.667, 1.000,
+                0.333, 1.000, 1.000,
+                0.667, 0.000, 1.000,
+                0.667, 0.333, 1.000,
+                0.667, 0.667, 1.000,
+                0.667, 1.000, 1.000,
+                1.000, 0.000, 1.000,
+                1.000, 0.333, 1.000,
+                1.000, 0.667, 1.000,
+                0.333, 0.000, 0.000,
+                0.500, 0.000, 0.000,
+                0.667, 0.000, 0.000,
+                0.833, 0.000, 0.000,
+                1.000, 0.000, 0.000,
+                0.000, 0.167, 0.000,
+                0.000, 0.333, 0.000,
+                0.000, 0.500, 0.000,
+                0.000, 0.667, 0.000,
+                0.000, 0.833, 0.000,
+                0.000, 1.000, 0.000,
+                0.000, 0.000, 0.167,
+                0.000, 0.000, 0.333,
+                0.000, 0.000, 0.500,
+                0.000, 0.000, 0.667,
+                0.000, 0.000, 0.833,
+                0.000, 0.000, 1.000,
+                0.000, 0.000, 0.000,
+                0.143, 0.143, 0.143,
+                0.286, 0.286, 0.286,
+                0.429, 0.429, 0.429,
+                0.571, 0.571, 0.571,
+                0.714, 0.714, 0.714,
+                0.857, 0.857, 0.857,
+                0.000, 0.447, 0.741,
+                0.314, 0.717, 0.741,
+                0.50, 0.5, 0
+            ]
+        ).astype(np.float32).reshape(-1, 3)
 
         @self.app.route('/')
         def index():
@@ -111,7 +199,7 @@ class SpecificWorker(GenericWorker):
             return jsonify({'status': 'success'})
         
         #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.249', 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.153', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
@@ -129,13 +217,13 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         image = None
-
         try:
             image = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
         except:
             print("Camara no responde")
 
         try:
+            self.labels = []
             self.boxes = self.visualelements_proxy.getVisualObjects([])
             boxes = self.adapt_bbox(self.boxes, image)
         except:
@@ -164,8 +252,11 @@ class SpecificWorker(GenericWorker):
 
     def adapt_bbox(self, objects, image):
         boxes = []
-        for obj in objects:
+        labels = []
+        for i, obj in enumerate(objects):
             # Obten la informacion de la ROI
+            if i == 0:
+                self.act_roi = obj.image.roi
             roi = obj.image.roi
             final_xsize = roi.finalxsize
             final_ysize = roi.finalysize
@@ -189,6 +280,8 @@ class SpecificWorker(GenericWorker):
             # Crea una nueva caja redimensionada y añádela a la lista
             new_box = {'x': left, 'y': top, 'width': right - left, 'height': bot - top, 'id': obj.id}
             boxes.append(new_box)
+            self.labels.append({'id': obj.id, 'orientation': obj.person.orientation, 'x': round(obj.x, 0), 'y': round(obj.y, 0), 'z': round(obj.z, 0),
+                           'top': top, 'bot': bot, 'right': right, 'left': left, 'type': obj.type})
 
         return boxes
 
@@ -232,8 +325,9 @@ class SpecificWorker(GenericWorker):
                     boxes_rescale.append(box)
 
                     # Dibujar el bounding box en la imagen redimensionada
-                    frame = cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 255, 0), 2)
+                    # frame = cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 255, 0), 2)
 
+                frame = self.display_data_tracks(frame, [])
                 _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
                 frame = buffer.tobytes()
@@ -248,8 +342,59 @@ class SpecificWorker(GenericWorker):
                         self.bbox_queue.get()
 
                         self.bbox_queue.put(boxes_rescale)
+
             except queue.Empty:
                 continue
+
+    def display_data_tracks(self, img, elements):  # Optimizado
+        """
+        This function overlays bounding boxes and object information on the image for tracked objects.
+
+        Args:
+            img (numpy array): The image to display object data on.
+            elements (list): Tracked objects with bounding box coordinates, scores, and class indices.
+            class_names (list, optional): Names of the classes.
+
+        Returns:
+            img (numpy array): The image with overlaid object data.
+        """
+        if self.act_roi != None:
+            left = self.act_roi.xcenter - (self.act_roi.xsize // 2)
+            right = self.act_roi.xcenter + (self.act_roi.xsize // 2)
+            top = self.act_roi.ycenter - (self.act_roi.ysize // 2)
+            bot = self.act_roi.ycenter + (self.act_roi.ysize // 2)
+            cv2.rectangle(img, (left, top), (right, bot), (255, 0, 0), 2)
+        for label in self.labels:
+            # x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
+            x0, y0, x1, y1 = label['left'], label['top'], label['right'], label['bot']
+
+            cls_ind = label['type']
+            color = (self._COLORS[cls_ind] * 255).astype(np.uint8).tolist()
+            # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
+
+            element_x = label['x']
+            element_y = label['y']
+            element_z = label['z']
+            element_id = label['id']
+            element_orientation = label['orientation']
+
+            text = f'{element_x} - {element_y} - {element_z} - {element_id} - {element_orientation}'
+            txt_color = (0, 0, 0) if np.mean(self._COLORS[cls_ind]) > 0.5 else (255, 255, 255)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+            txt_bk_color = (self._COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
+            cv2.rectangle(
+                img,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                txt_bk_color,
+                -1
+            )
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+
+        return img
 
     def show_fps(self):
         if time.time() - self.last_time > 1:
