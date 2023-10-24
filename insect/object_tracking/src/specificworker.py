@@ -18,7 +18,6 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-import copy
 
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
@@ -31,9 +30,13 @@ import cv2
 from threading import Thread, Event
 import traceback
 import queue
+from collections import deque
 import sys
 import yaml
+import itertools
+# from PIL import Image
 import copy
+# import math
 
 sys.path.append('/home/robocomp/software/JointBDOE')
 
@@ -48,10 +51,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/HashTrack')
 from hash import HashTracker
 from basetrack import TrackState
 import matching
-
 from ultralytics import YOLO
 import torch
-import concurrent.futures
+
 
 
 console = Console(highlight=False)
@@ -68,13 +70,6 @@ _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 't
                  'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
                  'scissors',
                  'teddy bear', 'hair drier', 'toothbrush']
-
-_ROBOLAB_NAMES = ['person', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'bottle', 'wine glass', 'cup',
-                  'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
-                  'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table',
-                  'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
-                  'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
-                  'toothbrush']
 
 _COLORS = np.array(
     [
@@ -170,12 +165,12 @@ class SpecificWorker(GenericWorker):
             self.Period = 1
             self.thread_period = 50
             self.display = False
-
+            
             self.yolo_model_name = 'yolov8n-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
-
+            
             self.model_v8 = YOLO(self.yolo_model_name)
-
+            
             self.device = select_device("0", batch_size=1)
             self.model = attempt_load(
                 "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
@@ -183,16 +178,27 @@ class SpecificWorker(GenericWorker):
             self.stride = int(self.model.stride.max())
             with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
                 self.data = yaml.safe_load(f)  # load data dict
-
+            
             # OJO, comentado en el main
             self.setParams(params)
-
+            
             # read test image to get sizes
             started_camera = False
+            started_lidar = False
+            while not started_lidar:
+                try:
+                    self.lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")          
+                    print("LIDAR timestamp", self.lidar_data.timestamp)  
+                    started_lidar = True
+                except Ice.Exception as e:
+                    traceback.print_exc()
+                    print(e, "Trying again LIDAR...")
+                    time.sleep(2)
+
             while not started_camera:
                 try:
                     self.rgb_original = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
-
+            
                     print("Camera specs:")
                     print(" width:", self.rgb_original.width)
                     print(" height:", self.rgb_original.height)
@@ -200,77 +206,91 @@ class SpecificWorker(GenericWorker):
                     print(" focalx", self.rgb_original.focalx)
                     print(" focaly", self.rgb_original.focaly)
                     print(" period", self.rgb_original.period)
+                    print(" alive time", self.rgb_original.alivetime)
                     print(" ratio {:.2f}".format(self.rgb_original.width/self.rgb_original.height))
-
+            
                     # Image ROI require parameters
-                    self.final_xsize = 640
-                    self.final_ysize = 640
                     self.roi_xsize = self.rgb_original.width // 2
                     self.roi_ysize = self.rgb_original.height
+                    self.final_xsize = self.roi_xsize
+                    self.final_ysize = self.roi_ysize
                     self.roi_xcenter = self.rgb_original.width // 2
                     self.roi_ycenter = self.rgb_original.height // 2
-
+            
                     # Target ROI size
                     self.target_roi_xsize = self.roi_xsize
                     self.target_roi_ysize = self.roi_ysize
                     self.target_roi_xcenter = self.roi_xcenter
                     self.target_roi_ycenter = self.roi_ycenter
-
+            
                     started_camera = True
                 except Ice.Exception as e:
                     traceback.print_exc()
-                    print(e, "Trying again...")
+                    print(e, "Trying again CAMERA...")
                     time.sleep(2)
-
+            
             self.window_name = "Yolo Segmentator"
-
+            
             print("Loaded YOLO model: ", self.yolo_model_name)
-
+            
             # Hz
             self.cont = 0
             self.last_time = time.time()
             self.fps = 0
-
+            
             # interface swap objects
             self.objects_read = []
             self.objects_write = []
-
+            
             # ID to track
             self.tracked_element = None
             self.tracked_id = None
-
+            
             # Last error between the actual and the required ROIs for derivative control
             self.last_ROI_error = 0
-
+            
             # Control gains
             self.k1 = 0.4
             self.k2 = 0.15
-
+            
             # camera read thread
             self.rgb = None
             self.lidar_data = None
-
-            self.rgb_read_queue = queue.Queue(1)
-            self.lidar_read_queue = queue.Queue(1)
-            self.data_processing_read_queue = queue.Queue(1)
+            
+            # self.rgb_read_queue = queue.Queue(1)
+            # self.lidar_read_queue = queue.Queue(1)
+            # self.inference_read_queue = queue.Queue(1)
+            self.rgb_read_queue = deque(maxlen=1)
+            self.lidar_read_queue = deque(maxlen=10)
+            self.inference_read_queue = deque(maxlen=1)
+            # self.rgb_lidar_read_queue = queue.Queue(1)
             self.event = Event()
+            
+            self.last_time_with_data = time.time()
+            
+            self.last_lidar_stamp = time.time()
 
             self.image_read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
                                       name="rgb_read_queue", daemon=True)
             self.image_read_thread.start()
+            
+            self.lidar_read_thread = Thread(target=self.get_lidar_thread, args=[self.event],
+                                      name="lidar_read_queue", daemon=True)
+            self.lidar_read_thread.start()
 
-            # self.lidar_read_thread = Thread(target=self.get_lidar_thread, args=[self.event],
-            #                           name="lidar_read_queue", daemon=True)
-            # self.lidar_read_thread.start()
-
-            self.data_processing_thread = Thread(target=self.processing_thread, args=[self.event],
-                                      name="data_processing_read_queue", daemon=True)
-            self.data_processing_thread.start()
-
-            self.last_time_with_data = time.time()
-
-            # TRACKER
+            # self.image_lidar_read_thread = Thread(target=self.get_rgb_lidar_thread, args=[self.event],
+            #                           name="rgb_lidar_read_queue", daemon=True)
+            # self.image_lidar_read_thread.start()
+            
+            self.inference_execution_thread = Thread(target=self.inference_thread, args=[self.event],
+                                      name="inference_read_queue", daemon=True)
+            self.inference_execution_thread.start()
+            
+            #TRACKER
             self.tracker = HashTracker(frame_rate=20)
+
+            # Best time stamp
+            self.lowest_timestamp = 0
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -281,8 +301,9 @@ class SpecificWorker(GenericWorker):
     def setParams(self, params):
         try:
             self.classes = [0]
-            self.yolo_model = params["yolo_model"]
+            # self.yolo_model = params["yolo_model"]
             self.display = params["display"] == "true" or params["display"] == "True"
+            self.display = true
             self.depth_flag = params["depth"] == "true" or params["depth"] == "True"
             with open(params["classes-path-file"]) as f:
                 [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
@@ -304,28 +325,243 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
-        # Get image with depth
-        # if not (self.rgb_read_queue.empty() and self.lidar_read_queue.empty()):
-        if not self.rgb_read_queue.empty():
-            rgb, rgb_ori, alive_time, period = self.rgb_read_queue.get()
-            lidar_data = []
-            init = time.time()
-            self.inference_over_image(rgb, rgb_ori, lidar_data)
-            print("TIEMPO INFERENCIA:", time.time() - init)
+        if self.inference_read_queue:
+            print("COMPUTE")
+            out_v8, orientation_bboxes, orientations, img0, alive_time, period, roi, depth, lidar_timestamp = self.inference_read_queue.pop()
+            people, objects = self.get_segmentator_data(out_v8, img0, depth)
+            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
+            for i in range(len(matches)):
+                people["orientations"][matches[i][0]] = np.deg2rad(orientations[matches[i][1]][0])
 
-            # If display is enabled, show the tracking results on the image
+            tracks = self.tracker.update(np.array(people["confidences"]),
+                                np.array(people["bboxes"]),
+                                np.array(people["classes"]),
+                                np.array(people["masks"], dtype=object),
+                                np.array(people["hashes"]),
+                                np.array(people["poses"]),
+                                np.array(people["orientations"]))
+
+            self.objects_write = self.to_visualelements_interface(tracks, roi)
+
+            if self.tracked_id is not None:
+                self.set_roi_dimensions(self.objects_write)
+
+            self.objects_write, self.objects_read = self.objects_read, self.objects_write
+
+        #     # If display is enabled, show the tracking results on the image
             if self.display:
-                img = self.display_data_tracks(rgb, self.objects_read)
-                cv2.imshow(self.window_name, img)
+                img = self.display_data_tracks(img0, self.objects_read)
+                img_int = img.astype('float32') / 255.0
+                image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
+                
+                cv2.imshow("ROI", image_comp)
                 cv2.waitKey(1)
 
-            # Show FPS and handle Keyboard Interruption
+            # # Show FPS and handle Keyboard Interruption
             try:
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
-
+        # pass
     ######################################################################################################3
+
+    # def get_rgb_lidar_thread(self, event: Event):
+    #     """
+    #         A method that continuously gets RGB data from a specific camera until an Event is set.
+
+    #         Args:
+    #             camera_name (str): The name of the camera to get RGB data from.
+    #             event (Event): The Event that stops the method from running when set.
+
+    #         """
+    #     while not event.is_set():
+            
+    #         try:
+    #             # start = time.time()
+
+    #             # Get LIDAR image ROI
+    #             lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")
+                
+    #             # Convert it to numpy array
+    #             depth_img = np.zeros((self.roi_ysize, self.roi_xsize, 3), np.float32)
+    #             roi_init_x = self.roi_xcenter - (self.roi_xsize // 2)
+    #             roi_end_x = self.roi_xcenter + (self.roi_xsize // 2)
+    #             roi_init_y = self.roi_ycenter - (self.roi_ysize // 2)
+    #             roi_end_y = self.roi_ycenter + (self.roi_ysize // 2)
+
+    #             XArray_np = np.array(lidar_data.XArray)
+    #             YArray_np = np.array(lidar_data.YArray)
+    #             ZArray_np = np.array(lidar_data.ZArray)
+    #             XPixel_np = np.array(lidar_data.XPixel)
+    #             YPixel_np = np.array(lidar_data.YPixel)
+
+    #             valid_indices = np.where((roi_init_x < XPixel_np) & (XPixel_np < roi_end_x) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
+    #             dx = XPixel_np[valid_indices] - roi_init_x
+    #             dy = YPixel_np[valid_indices] - roi_init_y
+    #             depth_img[dy, dx] = np.column_stack((XArray_np[valid_indices], YArray_np[valid_indices], ZArray_np[valid_indices]))
+    #             self.depth_image_write = depth_img
+    #             self.depth_image_read, self.depth_image_write = self.depth_image_write, self.depth_image_read
+    #         except Ice.Exception as e:
+    #             traceback.print_exc()
+    #             print(e, "Error communicating with Lidar3D")
+    #             return
+
+    #         try:
+    #             start = time.time()
+    #             # Get ROI from the camera.
+    #             self.rgb = self.camera360rgb_proxy.getROI(
+    #                 self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+    #                 self.roi_ysize, self.final_xsize, self.final_ysize
+    #             )
+    #             # Convert image data to numpy array and reshape it.
+    #             color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
+
+    #             # Process image for orientation DNN
+    #             img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
+    #             img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    #             img_ori = np.ascontiguousarray(img_ori)
+    #             img_ori = torch.from_numpy(img_ori).to(self.device)
+    #             img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
+
+    #             if len(img_ori.shape) == 3:
+    #                 img_ori = img_ori[None]  # expand for batch dim
+
+    #             # Calculate time difference.
+    #             delta = int(1000 * time.time() - self.rgb.alivetime)
+    #             # If the current ROI is not the target ROI, call the method to move towards the target ROI.
+    #             if (
+    #                     self.roi_xcenter != self.target_roi_xcenter or
+    #                     self.roi_ycenter != self.target_roi_ycenter or
+    #                     self.roi_xsize != self.target_roi_xsize or
+    #                     self.roi_ysize != self.target_roi_xsize
+    #             ):
+    #                 self.from_act_roi_to_target()
+                
+    #         except Ice.Exception as e:
+    #             traceback.print_exc()
+    #             print(e, "Error communicating with Camera360RGB")
+    #             return
+
+    #         # Prepare the data package to be put into the queue.
+    #         data_package = [color, img_ori, delta, self.rgb.period, self.rgb.roi, self.rgb.alivetime, depth_img, lidar_data.timestamp]
+    #         self.rgb_lidar_read_queue.put(data_package)
+    #         print("IMAGE AND LIDAR TIME", time.time() - start)
+    #         event.wait(1/ 1000)
+    #         # time.sleep(0)
+
+    # def get_rgb_thread(self, camera_name: str, event: Event):
+    #     """
+    #         A method that continuously gets RGB data from a specific camera until an Event is set.
+
+    #         Args:
+    #             camera_name (str): The name of the camera to get RGB data from.
+    #             event (Event): The Event that stops the method from running when set.
+
+    #         """
+    #     while not event.is_set():
+    #         try:
+    #             start = time.time()
+    #             # Get ROI from the camera.
+    #             self.rgb = self.camera360rgb_proxy.getROI(
+    #                 self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+    #                 self.roi_ysize, self.final_xsize, self.final_ysize
+    #             )
+    #             # print("Time getting RGB", time.time() - start)
+    #             # Convert image data to numpy array and reshape it.
+    #             color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
+
+    #             # Process image for orientation DNN
+    #             img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
+    #             img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    #             img_ori = np.ascontiguousarray(img_ori)
+    #             img_ori = torch.from_numpy(img_ori).to(self.device)
+    #             img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
+
+    #             if len(img_ori.shape) == 3:
+    #                 img_ori = img_ori[None]  # expand for batch dim
+
+    #             # Calculate time difference.
+    #             delta = int(1000 * time.time() - self.rgb.alivetime)
+    #             data_package = [color, img_ori, delta, self.rgb.period, self.rgb.roi, self.rgb.alivetime]
+    #             # self.rgb_read_queue.put(data_package)
+    #             # print(self.rgb.alivetime)
+    #             self.rgb_read_queue.append(data_package)
+    #             # self.t3 = time.time() - start
+    #             event.wait(0 / 1000)
+    #             # If the current ROI is not the target ROI, call the method to move towards the target ROI.
+    #             if (
+    #                     self.roi_xcenter != self.target_roi_xcenter or
+    #                     self.roi_ycenter != self.target_roi_ycenter or
+    #                     self.roi_xsize != self.target_roi_xsize or
+    #                     self.roi_ysize != self.target_roi_xsize
+    #             ):
+    #                 self.from_act_roi_to_target()
+
+    #         except Ice.Exception as e:
+    #             traceback.print_exc()
+    #             print(e, "Error communicating with Camera360RGB")
+    #             return
+
+    # def get_lidar_thread(self, event: Event):
+    #     """
+    #     A method that continuously gets 3D LIDAR data from RoboSense Helios LIDAR until an Event is set.
+
+    #     Args:
+    #         event (Event): The Event that stops the method from running when set.
+
+    #     """
+    #     while not event.is_set():
+    #         try:
+    #             start = time.time()
+
+    #             # Get LIDAR image ROI
+    #             lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")
+    #             # print("SYSTEM TIME DIFFERENCE", lidar_data.timestamp - time.time() * 1000)
+    #             if (lidar_data.timestamp - self.last_lidar_stamp) == 0:
+    #                 # print("REPEATED DATA")
+    #                 pass
+    #             else:
+    #                 # print("OK")
+    #                 if self.rgb_read_queue:
+    #                     rgb, rgb_ori, alive_time, period, roi, rgb_timestamp = self.rgb_read_queue.popleft()
+
+    #                     self.last_lidar_stamp = lidar_data.timestamp
+
+    #                     # Convert it to numpy array
+    #                     depth_img = np.zeros((self.roi_ysize, self.roi_xsize, 3), np.float32)
+    #                     roi_init_x = self.roi_xcenter - (self.roi_xsize // 2)
+    #                     roi_end_x = self.roi_xcenter + (self.roi_xsize // 2)
+    #                     roi_init_y = self.roi_ycenter - (self.roi_ysize // 2)
+    #                     roi_end_y = self.roi_ycenter + (self.roi_ysize // 2)
+
+    #                     # print("roi_init_x",roi_init_x)
+    #                     # print("roi_init_y",roi_init_y)
+    #                     # print("roi_end_x",roi_end_x)
+    #                     # print("roi_end_y",roi_end_y)
+
+    #                     XArray_np = np.array(lidar_data.XArray)
+    #                     YArray_np = np.array(lidar_data.YArray)
+    #                     ZArray_np = np.array(lidar_data.ZArray)
+    #                     XPixel_np = np.array(lidar_data.XPixel)
+    #                     YPixel_np = np.array(lidar_data.YPixel)
+
+    #                     valid_indices = np.where((roi_init_x < XPixel_np) & (XPixel_np < roi_end_x) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
+    #                     dx = XPixel_np[valid_indices] - roi_init_x
+    #                     dy = YPixel_np[valid_indices] - roi_init_y
+    #                     depth_img[dy, dx] = np.column_stack((XArray_np[valid_indices], YArray_np[valid_indices], ZArray_np[valid_indices]))
+    #                     self.depth_image_write = depth_img
+    #                     self.depth_image_read, self.depth_image_write = self.depth_image_write, self.depth_image_read
+    #                     # self.t2 = time.time() - start
+    #                     # Insert data in the queue. If the queue is full, remove current data first
+    #                     # if self.lidar_read_queue.full():
+    #                     #     _ = self.lidar_read_queue.get()  # Remover el ítem existente
+    #                     # self.lidar_read_queue.put([depth_img, lidar_data.timestamp])
+    #                     self.lidar_read_queue.append([rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth_img, lidar_data.timestamp])
+    #                     event.wait(32 / 1000)
+    #                     # time.sleep(0)
+    #         except Ice.Exception as e:
+    #             traceback.print_exc()
+    #             print(e, "Error communicating with Lidar3D")
 
     def get_rgb_thread(self, camera_name: str, event: Event):
         """
@@ -338,71 +574,114 @@ class SpecificWorker(GenericWorker):
             """
         while not event.is_set():
             try:
-                # Get ROI from the camera.
-                self.rgb = self.camera360rgb_proxy.getROI(
-                    self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
-                    self.roi_ysize, self.final_xsize, self.final_ysize
-                )
-                # print("ROI DIMENSIONS:", self.roi_xcenter, self.roi_ycenter, self.roi_xsize, self.roi_ysize)
+                if self.lidar_read_queue:
+                    # Get ROI from the camera.
+                    rgb = self.camera360rgb_proxy.getROI(
+                        self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                        self.roi_ysize, self.final_xsize, self.final_ysize
+                    )
+                    chosen_lidar = None
+                    lowest_timestamp = 99999
+                    # lidar_read_queue = copy.deepcopy(self.lidar_read_queue)
 
-                # Convert image data to numpy array and reshape it.
-                color = np.frombuffer(self.rgb.image, dtype=np.uint8).reshape(self.rgb.height, self.rgb.width, 3)
+                    for element in reversed(self.lidar_read_queue):
+                        timestamp_diff = abs(element[-1] - rgb.alivetime)
+                        if timestamp_diff < lowest_timestamp:
+                            lowest_timestamp = timestamp_diff
+                            chosen_lidar = element
+                            # print("TIMESTAMP DIFF:", timestamp_diff)
 
-                # Process image for orientation DNN
-                img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
-                img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-                img_ori = np.ascontiguousarray(img_ori)
-                img_ori = torch.from_numpy(img_ori).to(self.device)
-                img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
+                    # Convert image data to numpy array and reshape it.
+                    color = np.frombuffer(rgb.image, dtype=np.uint8).reshape(rgb.height, rgb.width, 3)
 
-                if len(img_ori.shape) == 3:
-                    img_ori = img_ori[None]  # expand for batch dim
+                    # Process image for orientation DNN
+                    img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
+                    img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+                    img_ori = np.ascontiguousarray(img_ori)
+                    img_ori = torch.from_numpy(img_ori).to(self.device)
+                    img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
 
-                # Calculate time difference.
-                delta = int(1000 * time.time() - self.rgb.alivetime)
+                    if len(img_ori.shape) == 3:
+                        img_ori = img_ori[None]  # expand for batch dim
 
-                # Prepare the data package to be put into the queue.
-                data_package = [color, img_ori, delta, self.rgb.period]
+                    # Calculate time difference.
+                    delta = int(1000 * time.time() - rgb.alivetime)
+                    data_package = [color, img_ori, delta, rgb.period, rgb.roi, rgb.alivetime]
+                    self.rgb_read_queue.append(data_package + chosen_lidar)
+                    # self.t3 = time.time() - start
+                    event.wait(0 / 1000)
+                    # If the current ROI is not the target ROI, call the method to move towards the target ROI.
+                    if (
+                            self.roi_xcenter != self.target_roi_xcenter or
+                            self.roi_ycenter != self.target_roi_ycenter or
+                            self.roi_xsize != self.target_roi_xsize or
+                            self.roi_ysize != self.target_roi_xsize
+                    ):
+                        self.from_act_roi_to_target()
 
-                # If the depth flag is set, insert the depth information into the data package.
-                if self.depth_flag:
-                    data_package.insert(1, self.rgb.depth)
-
-                # Put the data package into the queue.
-                self.rgb_read_queue.put(data_package)
-
-                # If the current ROI is not the target ROI, call the method to move towards the target ROI.
-                if (
-                        self.roi_xcenter != self.target_roi_xcenter or
-                        self.roi_ycenter != self.target_roi_ycenter or
-                        self.roi_xsize != self.target_roi_xsize or
-                        self.roi_ysize != self.target_roi_xsize
-                ):
-                    self.from_act_roi_to_target()
-
-                event.wait(self.thread_period / 1000)
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Error communicating with Camera360RGB")
+                return
 
-    def get_lidar_thread(self, event: Event):           
+    def get_lidar_thread(self, event: Event):
+        """
+        A method that continuously gets 3D LIDAR data from RoboSense Helios LIDAR until an Event is set.
+
+        Args:
+            event (Event): The Event that stops the method from running when set.
+
+        """
         while not event.is_set():
             try:
-                lidar_data = self.lidar3d_proxy.getLidarData("helios", 0, 90, 5)
-                # self.lidar_read_queue.put(lidar_data)
-                
-                event.wait(self.thread_period / 1000)
+                start = time.time()
+
+                # Get LIDAR image ROI
+                lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")
+                if (lidar_data.timestamp - self.last_lidar_stamp) == 0:
+                    # print("REPEATED DATA")
+                    pass
+                else:
+                    self.last_lidar_stamp = lidar_data.timestamp
+
+                    # Convert it to numpy array
+                    depth_img = np.zeros((self.roi_ysize, self.roi_xsize, 3), np.float32)
+                    roi_init_x = self.roi_xcenter - (self.roi_xsize // 2)
+                    roi_end_x = self.roi_xcenter + (self.roi_xsize // 2)
+                    roi_init_y = self.roi_ycenter - (self.roi_ysize // 2)
+                    roi_end_y = self.roi_ycenter + (self.roi_ysize // 2)
+
+                    XArray_np = np.array(lidar_data.XArray)
+                    YArray_np = np.array(lidar_data.YArray)
+                    ZArray_np = np.array(lidar_data.ZArray)
+                    XPixel_np = np.array(lidar_data.XPixel)
+                    YPixel_np = np.array(lidar_data.YPixel)
+
+                    valid_indices = np.where((roi_init_x < XPixel_np) & (XPixel_np < roi_end_x) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
+                    dx = XPixel_np[valid_indices] - roi_init_x
+                    dy = YPixel_np[valid_indices] - roi_init_y
+                    depth_img[dy, dx] = np.column_stack((XArray_np[valid_indices], YArray_np[valid_indices], ZArray_np[valid_indices]))
+
+                    self.lidar_read_queue.append([depth_img, lidar_data.timestamp])
+                    # print("SYSTEM TIME DIFFERENCE", lidar_data.timestamp - time.time() * 1000)
+                    event.wait(0 / 1000)
+
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Error communicating with Lidar3D")
 
+    def get_mask_with_modified_background(self, mask, image):
+        """
+        A method that removes the background of person ROI considering the segmentation mask and fill it with white color
 
-    def get_mask_with_modified_background(self, mask, bbox, image):
+        Args:
+            mask: black and white mask obtained with the segmentation
+            image: RGB image corresponding to person ROI
+        """
         masked_image = mask * image
         is_black_pixel = np.logical_and(masked_image[:, :, 0] == 0, masked_image[:, :, 1] == 0, masked_image[:, :, 2] == 0)
         masked_image[is_black_pixel] = [255, 255, 255]
         return masked_image
-
 
     # Modify actual ROI data to converge in the target ROI dimensions
     def from_act_roi_to_target(self):
@@ -423,14 +702,8 @@ class SpecificWorker(GenericWorker):
         aux_x_diff = x_diff if x_diff < self.rgb_original.width / 2 else self.rgb_original.width - x_diff
         x_der_diff = int(self.k2 * abs(self.last_ROI_error - aux_x_diff))
 
-        # print("")
-        # print("x_diff", x_diff, "target_roi_xcenter", self.target_roi_xcenter, "roi_xcenter", self.roi_xcenter)
-        # print("self.last_ROI_error", self.last_ROI_error, "x_der_diff", x_der_diff)
-
         x_mod_speed = np.clip(int(self.k1 * aux_x_diff), 0, 22) + x_der_diff
         y_mod_speed = np.clip(int(self.k1 * y_diff), 0, 20)
-
-        # print("x_mod_speed", x_mod_speed)
 
         x_size_mod_speed = np.clip(int(0.03 * x_size_diff), 0, 8)
         y_size_mod_speed = np.clip(int(0.03 * y_size_diff), 0, 8)
@@ -459,76 +732,102 @@ class SpecificWorker(GenericWorker):
 
         self.last_ROI_error = aux_x_diff
 
-    # def inference_over_image(self, img0, img_ori, depth):
-    #     # Make inference with both models
-    #     orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
-    #     out_v8 = self.model_v8.predict(img0, show_conf=True)
-
-    #     # YOLO V8 data processing
-    #     t1 = time.time()
-    #     people, objects = self.get_segmentator_data(out_v8, img0, depth)
-    #     print("DATA PROCESSING", time.time() - t1)
-
-    #     matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
-    #     for i in range(len(matches)):
-    #         people["orientations"][matches[i][0]] = np.deg2rad(orientations[matches[i][1]][0])
-    #     return people, objects
-
-    def inference_over_image(self, img0, img_ori, depth):
+    def inference_over_image(self, img0, img_ori):
         # Make inference with both models
+        init1 = time.time()
         orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
+        # print("TIEMPO ORI", time.time() - init1)
+        init2 = time.time()
         out_v8 = self.model_v8.predict(img0, classes=[0], show_conf=True)
-        self.data_processing_read_queue.put([out_v8, orientation_bboxes, orientations, depth, img0])
-       
-    def processing_thread(self, event: Event):
+        # print("TIEMPO V8", time.time() - init2)
+        self.t1 = time.time() - init1
+        return out_v8, orientation_bboxes, orientations
+
+    def inference_thread(self, event: Event):
         while not event.is_set():
-            out_v8, orientation_bboxes, orientations, depth, img0 = self.data_processing_read_queue.get()
-            T2 = time.time()
-            people, objects = self.get_segmentator_data(out_v8, img0, depth)
-            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
-            for i in range(len(matches)):
-                people["orientations"][matches[i][0]] = np.deg2rad(orientations[matches[i][1]][0])
-            print(people["orientations"])
-            print("T2", time.time() - T2)
-            # Set ROI dimensions if tracking an object
+            # Get image with depth
+            # if not (self.rgb_read_queue.empty() and self.lidar_read_queue.empty()):
+            # if not self.rgb_lidar_read_queue.empty():
+            # Used when is only a queue of one value
+            #     rgb, rgb_ori, alive_time, period, roi, rgb_timestamp = self.rgb_read_queue.get()
+            #     depth, depth_timestamp = self.image_lidar_data_read = self.lidar_read_queue.get()
+            #   Used with queues of multiples values
+            if self.rgb_read_queue:
+                rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth, depth_timestamp = self.rgb_read_queue.popleft()
+            # depth, depth_timestamp = self.lidar_read_queue[0]
+            # print("DEPTH TIMESTAMP", depth_timestamp)
+            # chosen_image = None
+            # for element in reversed(self.rgb_read_queue):
+            #     if abs(element[-1] - depth_timestamp) < 50:
+            #         print("Image TIMESTAMP", element[-1])
+            #         print( abs(element[-1] - depth_timestamp))
+            #         chosen_image = element
+            # if chosen_image != None:
+            #     self.rgb_read_queue.remove(chosen_image)
+                # rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth, depth_timestamp = self.rgb_lidar_read_queue.get()
+                out_v8, orientation_bboxes, orientations = self.inference_over_image(rgb, rgb_ori)
+                # # if self.inference_read_queue.full():
+                # #     _ = self.inference_read_queue.get()  # Remover el ítem existente
+                #
+                self.inference_read_queue.append([out_v8, orientation_bboxes, orientations, rgb, alive_time, period, roi, depth, depth_timestamp])
+            event.wait(1 / 1000)
 
-            # self.objects_write = self.create_interface_data(people["bboxes"], people["confidences"], people["classes"], people["masks"], people["orientations"])
+    # def inference_thread(self, event: Event):
+    #     while not event.is_set():
+    #         color = cv2.imread()
+    #         # Process image for orientation DNN
+    #         img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
+    #         img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    #         img_ori = np.ascontiguousarray(img_ori)
+    #         img_ori = torch.from_numpy(img_ori).to(self.device)
+    #         img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
 
-            # self.objects_write = people
+    #         if len(img_ori.shape) == 3:
+    #             img_ori = img_ori[None]  # expand for batch dim
+    #         out_v8, orientation_bboxes, orientations = self.inference_over_image(rgb, rgb_ori)
+    #         # if self.inference_read_queue.full():
+    #         #     _ = self.inference_read_queue.get()  # Remover el ítem existente
+    #         self.inference_read_queue.put([out_v8, orientation_bboxes, orientations, rgb, alive_time, period, roi, depth, depth_timestamp])
+    #         # self.inference_read_queue.put([out_v8, orientation_bboxes, orientations, lidar_data, rgb, alive_time, period, roi])
+    #         time.sleep(0)
+    #         # event.wait(0 / 1000)
 
+    def to_visualelements_interface(self, tracks, roi):
+        """
+        This method generates interface data for visual objects detected in an image.
 
+        Args:
+            boxes (numpy array): Array of bounding boxes for detected objects, each box is an array [x1, y1, x2, y2].
+            scores (numpy array): Array of scores indicating the confidence of each detected object.
+            cls_inds (numpy array): Array of class indices corresponding to the type of each detected object.
 
-            # print("BBOXES", [bbox.tolist() for bbox in people["bboxes"]])
-            # print("BBOXES", people["confidences"])
+        The method filters out detected objects based on whether their class is in a pre-defined list of classes.
+        It then creates an object (act_object) for each of the remaining detections and populates it with information
+        including the bounding box, score, and type of the detected object.
 
-            tracks = self.tracker.update(np.array(people["confidences"]),
-                                np.array([bbox.tolist() for bbox in people["bboxes"]]),
-                                np.array(people["classes"]),
-                                np.array(people["masks"]),
-                                np.array(people["hashes"]),
-                                np.array(people["poses"]),
-                                np.array(people["orientations"]))
-            
-            self.objects_write = self.to_visualelements_interface(tracks)
-
-            if self.tracked_id is not None:
-                self.set_roi_dimensions(self.objects_write)
-
-            self.objects_write, self.objects_read = self.objects_read, self.objects_write   
-
-    def to_visualelements_interface(self, tracks):
-        return [
-            ifaces.RoboCompVisualElements.TObject(
-                image=track.image, id=int(track.track_id), score=track.score,
+        The method also includes the region of interest (ROI) in the RGB image where the object was detected.
+        """
+        objects = []
+        for track in tracks:
+            object_ = ifaces.RoboCompVisualElements.TObject(
+                id=int(track.track_id), score=float(track.score),
                 left=int(track.bbox[0]), top=int(track.bbox[1]),
                 right=int(track.bbox[2]),
                 bot=int(track.bbox[3]), type=track.clase,             
-                person = ifaces.RoboCompPerson.TPerson(orientation = round(float(track.orientation), 2))
-            )
-            for track in tracks
-        ]
+                person = ifaces.RoboCompPerson.TPerson(orientation = round(float(track.orientation), 2)),
+                image=self.mask_to_TImage(track.image, roi))
+            # speed_module = math.sqrt(round(track.speed[0], 2) ** 2 + round(track.speed[1], 2) ** 2)
+            object_.x = round(track.mean[0], 2) if track.kalman_initiated else round(track._pose[0], 2),
+            object_.y = round(track.mean[1], 2) if track.kalman_initiated else round(track._pose[1], 2),
+            object_.z = 0
+            object_.x = object_.x[0]
+            object_.y = object_.y[0]
+            objects.append(object_)
+        return objects
 
-
+    def mask_to_TImage(self, mask, roi):
+        y, x, _ = mask.shape
+        return ifaces.RoboCompCamera360RGB.TImage(image=mask.tobytes(), height=y, width=x, roi=roi)
 
     def associate_orientation_with_segmentation(self, seg_bboxes, ori_bboxes):
         dists = matching.v_iou_distance(seg_bboxes, ori_bboxes)
@@ -554,68 +853,69 @@ class SpecificWorker(GenericWorker):
     def get_segmentator_data(self, results, color_image, depth_image):
         people = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : [], "orientations": [], "hashes" : []}
         objects = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : []}
-
+        roi_ysize, roi_xsize, _ = color_image.shape
         for result in results:
             if result.masks != None and result.boxes != None:
                 masks = result.masks.xy
                 boxes = result.boxes
                 if len(masks) == len(boxes):
                     for i in range(len(boxes)):
-                        element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
-                        element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
-                        if element_class == 0:
-                            image_mask = np.zeros((self.roi_ysize, self.roi_xsize, 1), dtype=np.uint8)
-                            act_mask = masks[i].astype(np.int32)
-                            cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
-                            image_mask_element = image_mask[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
-
-                            color_image_mask = color_image[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
-                            element_mask = self.get_mask_with_modified_background(image_mask_element, element_bbox, color_image_mask)
-                            element_hash = self.get_color_histogram(element_mask)
-                            # height, width, _ = image_mask_element.shape
-                            # depth_image_mask = depth_image[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
-                            # element_pose = self.get_mask_distance(image_mask_element[:height // 5, :], depth_image_mask[:height // 5, :], element_bbox)
-                            people["poses"].append([0,0,0])
-                            people["bboxes"].append(element_bbox)
-                            people["confidences"].append(element_confidence)
-                            people["masks"].append(element_mask)
-                            people["classes"].append(element_class)   
-                            people["hashes"].append(element_hash)  
-                        else:
-                            objects["bboxes"].append(element_bbox)
-                            objects["poses"].append([0,0,0])
-                            objects["confidences"].append(element_confidence)
-                            objects["masks"].append(element_mask)             
-                            objects["classes"].append(element_class)   
+                        if element_confidence > 0.35:
+                            element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
+                            element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
+                            if element_class == 0:
+                                image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
+                                act_mask = masks[i].astype(np.int32)
+                                cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
+                                image_mask_element = image_mask[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
+                                color_image_mask = color_image[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
+                                element_mask = self.get_mask_with_modified_background(image_mask_element, color_image_mask)
+                                element_hash = self.get_color_histogram(element_mask)
+                                height, width, _ = image_mask_element.shape
+                                depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
+                                element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
+                                # print("POSE", element_pose)
+                                people["poses"].append(element_pose)
+                                people["bboxes"].append(element_bbox)
+                                people["confidences"].append(element_confidence)
+                                people["masks"].append(element_mask)
+                                people["classes"].append(element_class)   
+                                people["hashes"].append(element_hash)  
+                            else:
+                                objects["bboxes"].append(element_bbox)
+                                objects["poses"].append(element_pose)
+                                objects["confidences"].append(element_confidence)
+                                objects["masks"].append(element_mask)             
+                                objects["classes"].append(element_class) 
+                            
         people["orientations"] = [-4] * len(people["bboxes"])
         return people, objects
 
-    # def get_segmentator_data(self, results, color_image, depth_image):
-    #     people = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "orientations": []}
-    #     objects = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : []}
+    def get_mask_distance(self, mask, depth_image, bbox):
+        segmentation_points = np.argwhere(np.all(mask == 1, axis=-1))[:, [1, 0]]
 
-    #     for result in results:
-    #         if result.masks != None and result.boxes != None:
-    #             masks = result.masks.xy
-    #             boxes = result.boxes
-    #             if len(masks) == len(boxes):
-    #                 for i in range(len(boxes)):
-    #                     element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
-    #                     element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
-    #                     element_confidence = boxes[i].conf.cpu().numpy()[0]                                               
-    #                     act_mask = masks[i].astype(np.int32)
-    #                     if element_class == 0:
-    #                         people["bboxes"].append(element_bbox)
-    #                         people["confidences"].append(element_confidence)
-    #                         people["masks"].append(act_mask)
-    #                     else:
-    #                         objects["bboxes"].append(element_bbox)
-    #                         objects["confidences"].append(element_confidence)
-    #                         objects["masks"].append(act_mask)             
-    #                         objects["classes"].append(element_class)   
-    #     people["orientations"] = [-4] * len(people["bboxes"])
-    #     return people, objects
+        # Extraer directamente los puntos válidos (no ceros) y sus distancias en un solo paso.
+        # Esto evitará tener que crear y almacenar matrices temporales y booleanas innecesarias.
+        valid_points = depth_image[segmentation_points[:, 1], segmentation_points[:, 0]]
+        valid_points = valid_points[np.any(valid_points != [0, 0, 0], axis=-1)]
+        # print("valid_points",valid_points )
+        if valid_points.size == 0:
+            return [0, 0, 0]
+        distances = np.linalg.norm(valid_points, axis=-1)
+        # Parece que intentas generar bins para un histograma basado en un rango de distancias.
+        # Crear los intervalos directamente con np.histogram puede ser más eficiente.
+        hist, edges = np.histogram(distances, bins=np.arange(np.min(distances), np.max(distances), 300))
+        if hist.size == 0:
+            return [0, 0, 0]
+        # Identificar el intervalo de moda y extraer los índices de las distancias que caen dentro de este intervalo.
+        max_index = np.argmax(hist)
+
+        pos_filtered_distances = np.logical_and(distances >= edges[max_index], distances <= edges[max_index + 1])
+        
+        # Filtrar los puntos válidos y calcular la media en un solo paso.
+        person_dist = np.mean(valid_points[pos_filtered_distances], axis=0)
+        return person_dist.tolist()
 
     def get_color_histogram(self, color):
         color =cv2.cvtColor(color, cv2.COLOR_RGB2HSV)
@@ -633,50 +933,6 @@ class SpecificWorker(GenericWorker):
         orientation_bboxes = scale_coords(processed_image.shape[2:], out[0][:, :4], original_image.shape[:2]).cpu().numpy().astype(int)  # native-space pred
         orientations = (out[0][:, 6:].cpu().numpy() * 360) - 180   # N*1, (0,1)*360 --> (0,360)
         return orientation_bboxes, orientations
-
-    def create_interface_data(self, boxes, scores, cls_inds, mask_rois, orientations): #Optimizado
-        """
-        This method generates interface data for visual objects detected in an image.
-
-        Args:
-            boxes (numpy array): Array of bounding boxes for detected objects, each box is an array [x1, y1, x2, y2].
-            scores (numpy array): Array of scores indicating the confidence of each detected object.
-            cls_inds (numpy array): Array of class indices corresponding to the type of each detected object.
-
-        The method filters out detected objects based on whether their class is in a pre-defined list of classes.
-        It then creates an object (act_object) for each of the remaining detections and populates it with information
-        including the bounding box, score, and type of the detected object.
-
-        The method also includes the region of interest (ROI) in the RGB image where the object was detected.
-        """
-        objects_write = ifaces.RoboCompVisualElements.TObjects()
-
-        # Extracting desired indices, scores, boxes, and classes in one go
-        desired_data = [(i, score, box, cls, roi, orientation) for i, (score, box, cls, roi, orientation) in enumerate(zip(scores, boxes, cls_inds, mask_rois, orientations))]
-        for i, score, box, cls, roi, orientation in desired_data:
-            act_object = ifaces.RoboCompVisualElements.TObject()
-            act_object.type = int(cls)
-            if int(cls) == 0:
-                act_object.person = ifaces.RoboCompPerson.TPerson(orientation = float(orientation))
-            act_object.left = int(box[0])
-            act_object.top = int(box[1])
-            act_object.right = int(box[2])
-            act_object.bot = int(box[3])
-            act_object.score = float(score)
-            act_object.image = self.get_bbox_image_data(roi)
-            objects_write.append(act_object)
-        return objects_write
-
-    def get_bbox_image_data(self, image):
-        bbox_image = ifaces.RoboCompCamera360RGB.TImage()
-        bbox_image.image = image.tobytes()
-        bbox_image.height, bbox_image.width, _ = image.shape
-        bbox_image.roi = ifaces.RoboCompCamera360RGB.TRoi(xcenter=self.rgb.roi.xcenter,
-                                                                ycenter=self.rgb.roi.ycenter,
-                                                                xsize=self.rgb.roi.xsize, ysize=self.rgb.roi.ysize,
-                                                                finalxsize=self.rgb.roi.finalxsize,
-                                                                finalysize=self.rgb.roi.finalysize)
-        return bbox_image
 
     # Calculate image ROI for element centering
     def set_roi_dimensions(self, objects):
@@ -718,42 +974,6 @@ class SpecificWorker(GenericWorker):
 
     ###############################################################
 
-    def track(self, boxes, scores, cls_inds, depth_image):
-        """
-        Function to track objects in the image. If depth information is available, it is used to enhance tracking accuracy.
-
-        Args:
-            boxes (numpy array): Bounding box coordinates for detected objects.
-            scores (numpy array): Confidence scores for detected objects.
-            cls_inds (numpy array): Class indices for detected objects.
-            depth_image (numpy array): Depth image, if available.
-
-        Returns:
-            final_boxes (numpy array): Updated bounding boxes after tracking.
-            final_scores (numpy array): Updated confidence scores after tracking.
-            final_cls_ids (numpy array): Updated class indices after tracking.
-            final_ids (numpy array): Unique track IDs for tracked objects.
-        """
-        online_targets = self.bytetrack_proxy.getTargetswithdepth(scores, boxes, depth_image,
-                                                                  cls_inds) if self.depth_flag else self.bytetrack_proxy.getTargets(
-            scores, boxes, cls_inds)
-
-        targets_data = [(t.tlwh, t.trackid, t.score, t.clase) for t in online_targets if
-                        t.tlwh[2] * t.tlwh[3] > 10 and t.tlwh[2] / t.tlwh[3] <= 1.6]
-
-        if targets_data:
-            tracked_boxes, tracked_ids, tracked_scores, tracked_clases = zip(*targets_data)
-            tracked_boxes = np.stack(tracked_boxes)
-            tracked_boxes[:, 2] += tracked_boxes[:, 0]
-            tracked_boxes[:, 3] += tracked_boxes[:, 1]
-
-            final_boxes = tracked_boxes
-            final_scores = list(tracked_scores)
-            final_ids = list(tracked_ids)
-            final_cls_ids = list(tracked_clases)
-
-        return final_boxes, final_scores, final_cls_ids, final_ids
-
     def show_fps(self, alive_time, period):
         if time.time() - self.last_time > 1:
             self.last_time = time.time()
@@ -782,9 +1002,8 @@ class SpecificWorker(GenericWorker):
             x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
             cls_ind = element.type
             color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
-
             # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
-            text = f'{cls_ind} - {element.id} - {element.person.orientation}'
+            text = f'{element.x} - {element.y} - {element.z} - {element.id} - {element.person.orientation}'
             txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
@@ -830,14 +1049,10 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
-    # =============== Methods for Component SubscribesTo ================
-    # ===================================================================
-
     #
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
-        print("TRAAACK", track.id)
         if track.id == -1:
             self.tracked_element = None
             self.tracked_id = None
