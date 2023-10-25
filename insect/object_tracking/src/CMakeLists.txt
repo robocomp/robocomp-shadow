@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.6)
-PROJECT(  yolov8_360 )
+PROJECT(  object_tracking )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 

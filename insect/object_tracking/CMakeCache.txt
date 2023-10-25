@@ -148,7 +148,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=yolov8_360
+CMAKE_PROJECT_NAME:STATIC=object_tracking
 
 //Path to a program.
 CMAKE_RANLIB:FILEPATH=/usr/bin/ranlib
@@ -219,13 +219,13 @@ RC_COMPONENT_DEVEL_PATH:STRING=/home/robolab/robocomp/components/robocomp-shadow
 RC_COMPONENT_PATH:STRING=/home/robolab/robocomp/components/robocomp-shadow/insect/object_tracking
 
 //Value Computed by CMake
-yolov8_360_BINARY_DIR:STATIC=/home/robolab/robocomp/components/robocomp-shadow/insect/object_tracking/src
+object_tracking_BINARY_DIR:STATIC=/home/robolab/robocomp/components/robocomp-shadow/insect/object_tracking/src
 
 //Value Computed by CMake
-yolov8_360_IS_TOP_LEVEL:STATIC=OFF
+object_tracking_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-yolov8_360_SOURCE_DIR:STATIC=/home/robolab/robocomp/components/robocomp-shadow/insect/object_tracking/src
+object_tracking_SOURCE_DIR:STATIC=/home/robolab/robocomp/components/robocomp-shadow/insect/object_tracking/src
 
 
 ########################

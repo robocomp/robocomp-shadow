@@ -1,4 +1,4 @@
-# yolov8_360_seg
+# object_tracking
 Intro to component here
 
 To install the software for getting orientation: 

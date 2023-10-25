@@ -52,6 +52,42 @@ class TPoints(list):
         super(TPoints, self).insert(index, item)
 
 setattr(RoboCompLidar3D, "TPoints", TPoints)
+class TFloatArray(list):
+    def __init__(self, iterable=list()):
+        super(TFloatArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(TFloatArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TFloatArray", TFloatArray)
+class TIntArray(list):
+    def __init__(self, iterable=list()):
+        super(TIntArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, int)
+        super(TIntArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TIntArray", TIntArray)
 class TConnections(list):
     def __init__(self, iterable=list()):
         super(TConnections, self).__init__(iterable)
