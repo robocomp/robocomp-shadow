@@ -199,7 +199,7 @@ class SpecificWorker(GenericWorker):
             return jsonify({'status': 'success'})
         
         #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.153', 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.249', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
@@ -327,7 +327,7 @@ class SpecificWorker(GenericWorker):
                     # Dibujar el bounding box en la imagen redimensionada
                     # frame = cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 255, 0), 2)
 
-                frame = self.display_data_tracks(frame, [])
+                frame = self.display_data_tracks(frame, [], resolution, original_height, original_width)
                 _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
                 frame = buffer.tobytes()
@@ -346,7 +346,7 @@ class SpecificWorker(GenericWorker):
             except queue.Empty:
                 continue
 
-    def display_data_tracks(self, img, elements):  # Optimizado
+    def display_data_tracks(self, img, elements, resolution, original_height, original_width):  # Optimizado
         """
         This function overlays bounding boxes and object information on the image for tracked objects.
 
@@ -358,15 +358,30 @@ class SpecificWorker(GenericWorker):
         Returns:
             img (numpy array): The image with overlaid object data.
         """
+        reescale_x = resolution[0] / original_width
+        reescale_y = resolution[1] / original_height
+        print(resolution[0],original_width)
+        print(resolution[1],original_height)
+        print("reescale",reescale_x,reescale_y)
+
         if self.act_roi != None:
-            left = self.act_roi.xcenter - (self.act_roi.xsize // 2)
-            right = self.act_roi.xcenter + (self.act_roi.xsize // 2)
-            top = self.act_roi.ycenter - (self.act_roi.ysize // 2)
-            bot = self.act_roi.ycenter + (self.act_roi.ysize // 2)
+            left = round((self.act_roi.xcenter - (self.act_roi.xsize // 2))*reescale_x)
+            right = round((self.act_roi.xcenter + (self.act_roi.xsize // 2))*reescale_x)
+            top = round((self.act_roi.ycenter - (self.act_roi.ysize // 2))*reescale_y)
+            bot = round((self.act_roi.ycenter + (self.act_roi.ysize // 2))*reescale_y)
+            print(left,right,top,bot)
             cv2.rectangle(img, (left, top), (right, bot), (255, 0, 0), 2)
+
         for label in self.labels:
             # x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
             x0, y0, x1, y1 = label['left'], label['top'], label['right'], label['bot']
+
+            x0 = round(x0 * reescale_x)
+            y0 = round(y0 * reescale_y)
+            x1 = round(x1 * reescale_x)
+            y1 = round(y1 * reescale_y)
+            
+            print("x0,y0,x1,y1",x0,y0,x1,y1)
 
             cls_ind = label['type']
             color = (self._COLORS[cls_ind] * 255).astype(np.uint8).tolist()
@@ -383,6 +398,7 @@ class SpecificWorker(GenericWorker):
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
 
+            # Show the humans boundin boxes
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
             txt_bk_color = (self._COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
             cv2.rectangle(
