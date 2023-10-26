@@ -7,8 +7,11 @@ import time
 import math
 import cv2
 
+# Class for defining a new object track 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
+
+    # Variables for converting track speed obtained with Kalman Filter to m/s
     last_multipredict_execution = time.time()
     last_multipredict_diff = 0
     def __init__(self, bbox, pose, score, clase, image, hash, orientation, kalman_enabled=True):
@@ -17,8 +20,7 @@ class STrack(BaseTrack):
         self._pose = np.asarray([pose[0], pose[1]], dtype=np.float)
         self.pose_z = pose[2]
 
-        self.last_pose = [math.inf, math.inf]
-        self.speed_pose = [0, 0]
+        # self.last_pose = [math.inf, math.inf]
 
         self.kalman_filter = None
         self.mean, self.covariance = None, None
@@ -89,8 +91,8 @@ class STrack(BaseTrack):
                 self.kalman_initiated = True
         self.tracklet_len = 0
         self.state = TrackState.Tracked
-        if frame_id == 1:
-            self.is_activated = True
+        # if frame_id == 1:
+        self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
         
@@ -103,16 +105,16 @@ class STrack(BaseTrack):
                     self.last_kalman_update = time.time()
                     self.kalman_initiated = True                    
                 else:
-                    self.last_pose = [self.mean[0], self.mean[1]]
+                    # self.last_pose = [self.mean[0], self.mean[1]]
                     self.mean, self.covariance = self.kalman_filter.update(
                         self.mean, self.covariance, new_track._pose)
                     
                     self.difference_between_updates = time.time() - self.last_kalman_update
                     self.last_kalman_update = time.time()
-        self.last_pose = self._pose
+        # self.last_pose = self._pose
         self._pose = new_track._pose
         self.pose_z = new_track.pose_z
-        self.last_pose_update = time.time()
+        # self.last_pose_update = time.time()
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
@@ -157,7 +159,7 @@ class STrack(BaseTrack):
                     self.last_kalman_update = time.time()
                     self.kalman_initiated = True
                 else:
-                    self.last_pose = [self.mean[0], self.mean[1]]
+                    # self.last_pose = [self.mean[0], self.mean[1]]
                     self.difference_between_updates = time.time() - self.last_kalman_update
                     if (time.time() - self.last_kalman_update) > self.store_speed_period:
                         speed_vector = np.array([self.mean[2], self.mean[3]]) / self.difference_between_updates
@@ -167,27 +169,8 @@ class STrack(BaseTrack):
                     self.mean, self.covariance = self.kalman_filter.update(
                         self.mean, self.covariance, new_track._pose)
                     
-
-                # if not self.kalman_initiated:
-                #     self.mean, self.covariance = self.kalman_filter.initiate(new_track._pose)
-                #     self.last_kalman_update = time.time()
-                #     self.kalman_initiated = True
-                # else:
-                #     self.last_pose = [self.mean[0], self.mean[1]]
-                #     # pose_diff = math.sqrt((self.mean[0] - new_track._pose[0]) ** 2 + (self.mean[1] - new_track._pose[1]) ** 2)
-                #     # if pose_diff < 0.25:
-                #         self.difference_between_updates = time.time() - self.last_kalman_update
-                #         if (time.time() - self.last_kalman_update) > self.store_speed_period:
-                #             speed_vector = np.array([self.mean[2], self.mean[3]]) / self.difference_between_updates
-                #             self.speed_memory.append(speed_vector)
-                #             self.speed = np.mean(self.speed_memory, axis=0)
-                #             self.last_kalman_update = time.time()
-                #         self.mean, self.covariance = self.kalman_filter.update(
-                #             self.mean, self.covariance, new_track._pose)
-        
-
         self._pose = new_track._pose
-        self.last_pose_update = time.time()
+        # self.last_pose_update = time.time()
         self.state = TrackState.Tracked
         self.is_activated = True
         self.image = new_track.image
@@ -233,17 +216,13 @@ class HashTracker(object):
         self.kalman_filter = KalmanFilter()
 
         # Metrics weights
-        # self.k_hash = 0.3
-        # self.k_iou = 0.0
-        # self.k_pose = 0.7
-        self.k_hash = 1.0
+        self.k_hash = 0.0
         self.k_iou = 0.0
-        self.k_pose = 0.0
+        self.k_pose = 1.0
 
-
-        self.k_hash_following = 0.2
-        self.k_iou_following = 0.45
-        self.k_pose_following = 0.35
+        self.k_hash_following = 1.0
+        self.k_iou_following = 0.0
+        self.k_pose_following = 0.0
 
         # For specific element mode
         self.chosen_track = -1
@@ -336,9 +315,9 @@ class HashTracker(object):
             pos_match, filtered_memory = matching.get_max_similarity_detection(dists_hash, self.chosen_strack.hash_memory)
             if pos_match != -1:
                 self.followed_person_lost = False
-                self.k_hash_following = 0.2
-                self.k_iou_following = 0.45
-                self.k_pose_following = 0.35
+                self.k_hash_following = 0.0
+                self.k_iou_following = 0.5
+                self.k_pose_following = 0.5
                 self.chosen_strack.update(detections[pos_match], self.frame_id)
                 detections.remove(detections[pos_match])
 
@@ -373,9 +352,6 @@ class HashTracker(object):
         dists_iou = self.k_iou * matching.iou_distance(strack_pool, detections)
         dists_pose = self.k_pose * matching.pose_distance(strack_pool, detections)
 
-        # print(dists_hash) 
-        # print(dists_iou)
-        # print(dists_pose)
         combinated_dists = dists_hash + dists_iou + dists_pose
         dists = matching.fuse_score(combinated_dists, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
@@ -462,12 +438,12 @@ class HashTracker(object):
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        print("REMOVING DUPLICATED")
+        # print("REMOVING DUPLICATED")
         _, self.lost_stracks = self.remove_duplicate_stracks([self.chosen_strack], self.lost_stracks, True)
-        print("LOST:", self.lost_stracks)
+        # print("LOST:", self.lost_stracks)
         self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         output_stracks = [track for track in self.tracked_stracks]
-        output_stracks.extend(self.lost_stracks)
+        # output_stracks.extend(self.lost_stracks)
         if followed_person_found:
             output_stracks.append(self.chosen_strack)
 
@@ -479,6 +455,7 @@ class HashTracker(object):
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
+
         remain_inds = scores > self.track_thresh
         inds_low = scores > 0.1
         inds_high = scores < self.track_thresh
@@ -514,22 +491,17 @@ class HashTracker(object):
                 unconfirmed.append(track)
             else:
                 tracked_stracks.append(track)
-
+        # print(2)
         ''' Step 2: First association, with high score detection boxes'''
         strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
-        # Predict the current location with KF
         if self.enable_kalman:
             STrack.multi_predict(strack_pool)
-
-        dists_hash = self.k_hash * matching.hash_distance(strack_pool, detections)
-        dists_iou = self.k_iou * matching.iou_distance(strack_pool, detections)
-        dists_pose = self.k_pose * matching.pose_distance(strack_pool, detections)
-
-        combinated_dists = dists_hash + dists_iou + dists_pose
-        dists = matching.fuse_score(combinated_dists, detections)
+        dists = matching.pose_distance(strack_pool, detections)
+        #print("DISTS", dists)
+        dists = matching.fuse_score(dists, detections)
+        #print("DISTS AFTER FUSING", dists)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
-              
-                
+
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
@@ -539,7 +511,7 @@ class HashTracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
-
+        # print(3)
         ''' Step 3: Second association, with low score detection boxes'''
         # association the untrack to the low score detections
         if len(poses_second) > 0:
@@ -548,15 +520,9 @@ class HashTracker(object):
                           (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_second, poses_second, scores_second, clases_second, images_second, hash_second, orientation_second)]
         else:
             detections_second = []
-
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-
-        dists_hash = self.k_hash * matching.hash_distance(r_tracked_stracks, detections_second)
-        dists_iou = self.k_iou * matching.iou_distance(r_tracked_stracks, detections_second)
-        dists_pose = self.k_pose * matching.pose_distance(r_tracked_stracks, detections_second)
-        combinated_dists = dists_hash + dists_iou + dists_pose
-
-        matches, u_track, u_detection_second = matching.linear_assignment(combinated_dists, thresh=0.5)
+        dists = matching.pose_distance(r_tracked_stracks, detections_second)
+        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
             det = detections_second[idet]
@@ -566,6 +532,7 @@ class HashTracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+
         for it in u_track:
             track = r_tracked_stracks[it]
             if not track.state == TrackState.Lost:
@@ -574,14 +541,10 @@ class HashTracker(object):
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
         detections = [detections[i] for i in u_detection]
-
-        dists_hash = self.k_hash * matching.hash_distance(unconfirmed, detections)
-        dists_iou = self.k_iou * matching.iou_distance(unconfirmed, detections)
-        dists_pose = self.k_pose * matching.pose_distance(unconfirmed, detections)
-        combinated_dists = dists_hash + dists_iou + dists_pose
-
-        dists = matching.fuse_score(combinated_dists, detections)
+        dists = matching.pose_distance(unconfirmed, detections)
+        dists = matching.fuse_score(dists, detections)
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+        # print("matches, u_unconfirmed, u_detection", matches, u_unconfirmed, u_detection)
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_id)
             activated_starcks.append(unconfirmed[itracked])
@@ -589,32 +552,192 @@ class HashTracker(object):
             track = unconfirmed[it]
             track.mark_removed()
             removed_stracks.append(track)
-
+        # print(4)
         """ Step 4: Init new stracks"""
         for inew in u_detection:
+            # print("NEW STRACK")
             track = detections[inew]
             if track.score < self.det_thresh:
+                # print("Bajo umbral")
                 continue
-            track.activate(self.kalman_filter, self.frame_id)
+            track.activate(self.kalman_filter,self.frame_id)
             activated_starcks.append(track)
+
         """ Step 5: Update state"""
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
                 track.mark_removed()
                 removed_stracks.append(track)
 
+        # print('Ramained match {} s'.format(t4-t3))
+
         self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
         self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
         self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
-        # self.tracked_stracks = self.check_distance_between_people(self.tracked_stracks)
+        # print("tracked_stracks", self.tracked_stracks)
         self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
+        # print("self.lost_stracks", self.lost_stracks)
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-        output_stracks.extend(self.lost_stracks)
+        # output_stracks.extend(self.lost_stracks)
+        # print("output_stracks", output_stracks)
         return output_stracks
+
+    # def update_original(self, scores, bboxes, clases, images, hash, poses, orientation):
+    #     self.frame_id += 1
+    #     activated_starcks = []
+    #     refind_stracks = []
+    #     lost_stracks = []
+    #     removed_stracks = []
+    #     remain_inds = scores > self.track_thresh
+    #     inds_low = scores > 0.1
+    #     inds_high = scores < self.track_thresh
+    #
+    #     inds_second = np.logical_and(inds_low, inds_high)
+    #     bboxes_keep = bboxes[remain_inds]
+    #     bboxes_second = bboxes[inds_second]
+    #     poses_second = poses[inds_second]
+    #     poses_keep = poses[remain_inds]
+    #     scores_keep = scores[remain_inds]
+    #     scores_second = scores[inds_second]
+    #     clases_keep = clases[remain_inds]
+    #     clases_second = clases[inds_second]
+    #     images_keep = images[remain_inds]
+    #     images_second = images[inds_second]
+    #     hash_keep = hash[remain_inds]
+    #     hash_second = hash[inds_second]
+    #     orientation_keep = orientation[remain_inds]
+    #     orientation_second = orientation[inds_second]
+    #
+    #     if len(bboxes_keep) > 0:
+    #         '''Detections'''
+    #         detections = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+    #                       (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_keep, poses_keep, scores_keep, clases_keep, images_keep, hash_keep, orientation_keep)]
+    #     else:
+    #         detections = []
+    #
+    #     ''' Add newly detected tracklets to tracked_stracks'''
+    #     unconfirmed = []
+    #     tracked_stracks = []  # type: list[STrack]
+    #     for track in self.tracked_stracks:
+    #         if not track.is_activated:
+    #             unconfirmed.append(track)
+    #         else:
+    #             tracked_stracks.append(track)
+    #     print("STEP 2")
+    #     ''' Step 2: First association, with high score detection boxes'''
+    #     strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
+    #     # Predict the current location with KF
+    #     if self.enable_kalman:
+    #         STrack.multi_predict(strack_pool)
+    #
+    #     print("poses_keep", poses_keep)
+    #
+    #     print("STAAAAAAAAART")
+    #     print("strack_pool", strack_pool)
+    #     print("detections", detections)
+    #
+    #     'Metric Matrix Calculation'
+    #     dists_hash = self.k_hash * matching.hash_distance(strack_pool, detections)
+    #     dists_iou = self.k_iou * matching.iou_distance(strack_pool, detections)
+    #     dists_pose = self.k_pose * matching.pose_distance(strack_pool, detections)
+    #
+    #     print("DISTS POSE", dists_pose)
+    #
+    #     'Matrix Combination'
+    #     combinated_dists = dists_hash + dists_iou + dists_pose
+    #     dists = matching.fuse_score(combinated_dists, detections)
+    #     matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
+    #
+    #     for itracked, idet in matches:
+    #         track = strack_pool[itracked]
+    #         det = detections[idet]
+    #         if track.state == TrackState.Tracked:
+    #             track.update(detections[idet], self.frame_id)
+    #             activated_starcks.append(track)
+    #         else:
+    #             track.re_activate(det, self.frame_id, new_id=False)
+    #             refind_stracks.append(track)
+    #     print("STEP 3")
+    #     ''' Step 3: Second association, with low score detection boxes'''
+    #     # association the untrack to the low score detections
+    #     if len(poses_second) > 0:
+    #         '''Detections'''
+    #         detections_second = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+    #                       (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_second, poses_second, scores_second, clases_second, images_second, hash_second, orientation_second)]
+    #     else:
+    #         detections_second = []
+    #
+    #     r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+    #
+    #     dists_hash = self.k_hash * matching.hash_distance(r_tracked_stracks, detections_second)
+    #     dists_iou = self.k_iou * matching.iou_distance(r_tracked_stracks, detections_second)
+    #     dists_pose = self.k_pose * matching.pose_distance(r_tracked_stracks, detections_second)
+    #     combinated_dists = dists_hash + dists_iou + dists_pose
+    #
+    #     matches, u_track, u_detection_second = matching.linear_assignment(combinated_dists, thresh=0.5)
+    #     for itracked, idet in matches:
+    #         track = r_tracked_stracks[itracked]
+    #         det = detections_second[idet]
+    #         if track.state == TrackState.Tracked:
+    #             track.update(det, self.frame_id)
+    #             activated_starcks.append(track)
+    #         else:
+    #             track.re_activate(det, self.frame_id, new_id=False)
+    #             refind_stracks.append(track)
+    #     for it in u_track:
+    #         track = r_tracked_stracks[it]
+    #         if not track.state == TrackState.Lost:
+    #             track.mark_lost()
+    #             lost_stracks.append(track)
+    #
+    #     '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+    #     # detections = [detections[i] for i in u_detection]
+    #     #
+    #     # dists_hash = self.k_hash * matching.hash_distance(unconfirmed, detections)
+    #     # dists_iou = self.k_iou * matching.iou_distance(unconfirmed, detections)
+    #     # dists_pose = self.k_pose * matching.pose_distance(unconfirmed, detections)
+    #     # combinated_dists = dists_hash + dists_iou + dists_pose
+    #     #
+    #     # dists = matching.fuse_score(combinated_dists, detections)
+    #     # matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+    #     # for itracked, idet in matches:
+    #     #     unconfirmed[itracked].update(detections[idet], self.frame_id)
+    #     #     activated_starcks.append(unconfirmed[itracked])
+    #     # for it in u_unconfirmed:
+    #     #     track = unconfirmed[it]
+    #     #     track.mark_removed()
+    #     #     removed_stracks.append(track)
+    #     # print("STEP 2")
+    #     """ Step 4: Init new stracks"""
+    #     for inew in u_detection:
+    #         track = detections[inew]
+    #         if track.score < self.det_thresh:
+    #             continue
+    #         track.activate(self.kalman_filter, self.frame_id)
+    #         activated_starcks.append(track)
+    #     """ Step 5: Update state"""
+    #     for track in self.lost_stracks:
+    #         if self.frame_id - track.end_frame > self.max_time_lost:
+    #             track.mark_removed()
+    #             removed_stracks.append(track)
+    #
+    #     self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
+    #     self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
+    #     self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
+    #     # self.tracked_stracks = self.check_distance_between_people(self.tracked_stracks)
+    #     self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
+    #     self.lost_stracks.extend(lost_stracks)
+    #     self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
+    #     self.removed_stracks.extend(removed_stracks)
+    #     self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+    #     output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+    #     output_stracks.extend(self.lost_stracks)
+    #     return output_stracks
 
     def joint_stracks(self, tlista, tlistb):
         exists = {}
@@ -641,12 +764,13 @@ class HashTracker(object):
         return list(stracks.values())
 
     def remove_duplicate_stracks(self, stracksa, stracksb, following=False):
-        pdist_hash = self.k_hash * matching.hash_distance(stracksa, stracksb)
-        pdist_iou = self.k_iou * matching.iou_distance(stracksa, stracksb)
         if not following:
             pdist_pose = self.k_pose * matching.pose_distance(stracksa, stracksb)
             pdist_hash = self.k_hash * matching.hash_distance(stracksa, stracksb)
             pdist_iou = self.k_iou * matching.iou_distance(stracksa, stracksb)
+            # print("pdist_pose", pdist_pose)
+            # print("pdist_hash", pdist_pose)
+            # print("pdist_iou", pdist_pose)
             # pairs = np.where((pdist_iou < self.k_iou * 0.15) & (pdist_pose < self.k_pose * 0.3))
             pairs = np.where((pdist_iou < self.k_iou * 0.15) & (pdist_hash < self.k_hash * 0.4) & (pdist_pose < self.k_pose * 0.3))
         else:
