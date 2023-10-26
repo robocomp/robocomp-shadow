@@ -360,9 +360,9 @@ class SpecificWorker(GenericWorker):
         """
         reescale_x = resolution[0] / original_width
         reescale_y = resolution[1] / original_height
-        print(resolution[0],original_width)
-        print(resolution[1],original_height)
-        print("reescale",reescale_x,reescale_y)
+        # print(resolution[0],original_width)
+        # print(resolution[1],original_height)
+        # print("reescale",reescale_x,reescale_y)
 
         if self.act_roi != None:
             left = round((self.act_roi.xcenter - (self.act_roi.xsize // 2))*reescale_x)
@@ -381,7 +381,7 @@ class SpecificWorker(GenericWorker):
             x1 = round(x1 * reescale_x)
             y1 = round(y1 * reescale_y)
             
-            print("x0,y0,x1,y1",x0,y0,x1,y1)
+            # print("x0,y0,x1,y1",x0,y0,x1,y1)
 
             cls_ind = label['type']
             color = (self._COLORS[cls_ind] * 255).astype(np.uint8).tolist()
@@ -399,8 +399,13 @@ class SpecificWorker(GenericWorker):
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
 
             # Show the humans boundin boxes
-            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
             txt_bk_color = (self._COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
+
+            # Change the target bounding box color
+            if self.target == element_id:
+                color = txt_bk_color = (0,255,0) 
+            
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
             cv2.rectangle(
                 img,
                 (x0, y0 + 1),
