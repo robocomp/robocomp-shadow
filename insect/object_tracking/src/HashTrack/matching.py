@@ -39,7 +39,7 @@ def _indices_to_matches(cost_matrix, indices, thresh):
 
 
 def linear_assignment(cost_matrix, thresh):
-    
+    # print("COST MATRIX", cost_matrix)
     if cost_matrix.size == 0:
         return np.empty((0, 2), dtype=int), tuple(range(cost_matrix.shape[0])), tuple(range(cost_matrix.shape[1]))
     matches, unmatched_a, unmatched_b = [], [], []
@@ -189,6 +189,7 @@ def ious(atlbrs, btlbrs):
 
     return ious
 
+# Calculates pose difference metric matix
 def pose_distance(atracks, btracks):
     """
     Compute cost based on world pose
@@ -203,26 +204,53 @@ def pose_distance(atracks, btracks):
     else:
         atlbrs = [track.get_pose for track in atracks]
         btlbrs = [track.get_pose for track in btracks]
+    # print("atlbrs", atlbrs)
+    # print("btlbrs", btlbrs)
     _poses = poses(atlbrs, btlbrs)
     cost_matrix = _poses
     # print("POSE COST MATRIX", cost_matrix)
     cost_matrix = check_for_classes(atracks, btracks, cost_matrix)
     return cost_matrix
 
+# def poses(atlbrs, btlbrs):
+#     k=4
+#     d=1.5
+#     poses = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float)
+#     if poses.size == 0:
+#         return poses
+#     a_array = np.ascontiguousarray(atlbrs, dtype=np.float)
+#     b_array = np.ascontiguousarray(btlbrs, dtype=np.float)
+#     poses_matrix = np.linalg.norm(a_array[:, np.newaxis, :] - b_array[np.newaxis, :, :], axis=2)
+#
+#     # Aplicar la función sigmoide invertida
+#     sigmoid_matrix = 1 / (1 + np.exp(k * (poses_matrix - d)))
+#
+#     return sigmoid_matrix
+
 def poses(atlbrs, btlbrs):
-    poses = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float)
+    # Sigmoid data d=distance k= transition constant
+    d = 850
+    k = 3
+    # Inicializar matriz de ceros
+    poses = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float64)
     if poses.size == 0:
         return poses
-    a_array = np.ascontiguousarray(atlbrs, dtype=np.float)
-    b_array = np.ascontiguousarray(btlbrs, dtype=np.float)
+    # Convertir matrices de entrada a formato contiguo y tipo float64
+    a_array = np.ascontiguousarray(atlbrs, dtype=np.float64)
+    b_array = np.ascontiguousarray(btlbrs, dtype=np.float64)
+    # print("a_array", a_array)
+    # print("b_array", b_array)
+    # Calcular distancias euclidianas entre puntos
     poses_matrix = np.linalg.norm(a_array[:, np.newaxis, :] - b_array[np.newaxis, :, :], axis=2)
-    # max_pose = np.max(poses_matrix)
-    # min_pose = np.min(poses_matrix)
-    # if max_pose != 0:
-    #     return poses_matrix * ((max_pose-min_pose)/max_pose)
-    # else:
-    #     return poses_matrix
-    return poses_matrix / 5.73
+    # print("poses_matrix", poses_matrix)
+    # Limitar el rango de valores para evitar desbordamiento en np.exp()
+    max_exp_arg = 10  # Valor arbitrario; puedes ajustarlo según tus necesidades
+    exp_arg = np.clip(k * (poses_matrix - d), -max_exp_arg, max_exp_arg)
+
+    # Aplicar la función sigmoide invertida
+    sigmoid_matrix = 1 / (1 + np.exp(exp_arg))
+
+    return 1 - sigmoid_matrix
 
 def check_for_classes(atracks, btracks, cost_matrix):
     """
