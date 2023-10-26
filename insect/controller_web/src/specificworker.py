@@ -391,7 +391,7 @@ class SpecificWorker(GenericWorker):
             element_y = label['y']
             element_z = label['z']
             element_id = label['id']
-            element_orientation = label['orientation']
+            element_orientation = round(label['orientation'],2)
 
             text = f'{element_x} - {element_y} - {element_z} - {element_id} - {element_orientation}'
             txt_color = (0, 0, 0) if np.mean(self._COLORS[cls_ind]) > 0.5 else (255, 255, 255)
@@ -403,7 +403,7 @@ class SpecificWorker(GenericWorker):
 
             # Change the target bounding box color
             if self.target == element_id:
-                color = txt_bk_color = (0,255,0) 
+                color = txt_bk_color = (49,86,28) # Dark green
             
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
             cv2.rectangle(
