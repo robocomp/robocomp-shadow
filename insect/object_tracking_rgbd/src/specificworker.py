@@ -19,8 +19,9 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from PySide2.QtCore import QTimer
-from PySide2.QtWidgets import QApplication
+from PySide2.QtCore import Qt
+# from PySide2.QtCore import QTimer
+# from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -37,6 +38,8 @@ import itertools
 # from PIL import Image
 import copy
 # import math
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 sys.path.append('/home/robocomp/software/JointBDOE')
 
@@ -162,7 +165,7 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 1
+            self.Period = 50
             self.thread_period = 50
             self.display = False
             
@@ -184,25 +187,15 @@ class SpecificWorker(GenericWorker):
             
             # read test image to get sizes
             started_camera = False
-            started_lidar = False
-            while not started_lidar:
-                try:
-                    self.lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")          
-                    print("LIDAR timestamp", self.lidar_data.timestamp)  
-                    started_lidar = True
-                except Ice.Exception as e:
-                    traceback.print_exc()
-                    print(e, "Trying again LIDAR...")
-                    time.sleep(2)
 
             while not started_camera:
                 try:
-                    self.rgb_original = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                    self.rgb_original = self.camera360rgbd_proxy.getROI(-1, -1, -1, -1, -1, -1)
             
                     print("Camera specs:")
                     print(" width:", self.rgb_original.width)
                     print(" height:", self.rgb_original.height)
-                    print(" depth", self.rgb_original.depth)
+                    print(" depth", self.rgb_original.rgbchannels)
                     print(" focalx", self.rgb_original.focalx)
                     print(" focaly", self.rgb_original.focaly)
                     print(" period", self.rgb_original.period)
@@ -233,6 +226,17 @@ class SpecificWorker(GenericWorker):
             
             print("Loaded YOLO model: ", self.yolo_model_name)
             
+            self.fig = plt.figure()
+            self.ax = self.fig.add_subplot(1,1,1)
+            self.ax.set_xlabel('Tiempo')
+            self.ax.set_ylabel('Valor')
+
+
+            self.ani = FuncAnimation(self.fig, self.update_plot, frames=range(50), interval=50)
+            
+            # Mostrar la ventana
+            self.fig.show()
+
             # Hz
             self.cont = 0
             self.last_time = time.time()
@@ -266,19 +270,16 @@ class SpecificWorker(GenericWorker):
             self.event = Event()
             
             self.last_time_with_data = time.time()
-            
             self.last_lidar_stamp = time.time()
+
             self.image_read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
                                       name="rgb_read_queue", daemon=True)
             self.image_read_thread.start()
-            
-            # self.lidar_read_thread = Thread(target=self.get_lidar_thread, args=[self.event],
-            #                           name="lidar_read_queue", daemon=True)
-            # self.lidar_read_thread.start()
-            
+                        
             self.inference_execution_thread = Thread(target=self.inference_thread, args=[self.event],
                                       name="inference_read_queue", daemon=True)
             self.inference_execution_thread.start()
+            
             
             #TRACKER
             self.tracker = HashTracker(frame_rate=20)
@@ -318,6 +319,16 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
+        # data_360 = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
+        # color = np.frombuffer(data_360.rgb, dtype=np.uint8).reshape(data_360.height, data_360.width, 3)
+        # depth = np.frombuffer(data_360.depth, dtype=np.float32).reshape(data_360.height, data_360.width, 3)
+        # img_int = color.astype('float32') / 255.0
+        # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
+        
+        # cv2.imshow("ROI", image_comp)
+        # cv2.waitKey(1)
+        # print("Compute execution...")
+
         if self.inference_read_queue:
             out_v8, orientation_bboxes, orientations, img0, alive_time, period, roi, depth = self.inference_read_queue.pop()
             people, objects = self.get_segmentator_data(out_v8, img0, depth)
@@ -342,21 +353,22 @@ class SpecificWorker(GenericWorker):
 
             self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
-        #     # If display is enabled, show the tracking results on the image
-            if self.display:
-                img = self.display_data_tracks(img0, self.objects_read)
-                img_int = img.astype('float32') / 255.0
-                image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
+                # If display is enabled, show the tracking results on the image
+            # if self.display:
+            #     img = self.display_data_tracks(img0, self.objects_read)
+            #     img_int = img.astype('float32') / 255.0
+            #     image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 
-                cv2.imshow("ROI", image_comp)
-                cv2.waitKey(1)
+            #     cv2.imshow("ROI", image_comp)
+            #     cv2.waitKey(1)
 
-            # # Show FPS and handle Keyboard Interruption
+            # Show FPS and handle Keyboard Interruption
             try:
+                
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
-        # pass
+
     ######################################################################################################3
 
     def get_rgb_thread(self, camera_name: str, event: Event):
@@ -378,149 +390,53 @@ class SpecificWorker(GenericWorker):
                     roi_ycenter = self.roi_ycenter
                     roi_xsize = self.roi_xsize
                     roi_ysize = self.roi_ysize
+                    
                     roi_data = {"roi_xcenter" : self.roi_xcenter, "roi_ycenter" : self.roi_ycenter, "roi_xsize" : self.roi_xsize, "roi_ysize" : self.roi_ysize}
-                    # print("EXPENDD 1", time.time() - start)
-                    # rgb = self.camera360rgb_proxy.getROI(
-                    #     roi_data["roi_xcenter"], roi_data["roi_ycenter"], roi_data["roi_xsize"],
-                    #     roi_data["roi_ysize"], roi_data["roi_xsize"], roi_data["roi_ysize"]
-                    # )
-                    while len(self.rgb_read_queue) < self.rgb_queue_len:
-                        self.rgb_read_queue.append( self.camera360rgb_proxy.getROI(
+                    image = self.camera360rgbd_proxy.getROI(
                             roi_data["roi_xcenter"], roi_data["roi_ycenter"], roi_data["roi_xsize"],
                             roi_data["roi_ysize"], roi_data["roi_xsize"], roi_data["roi_ysize"]
-                        ))
+                        )
+                    roi_data = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image.roi.xcenter, ycenter=image.roi.ycenter, xsize=image.roi.xsize, ysize=image.roi.ysize, finalxsize=image.roi.finalxsize, finalysize=image.roi.finalysize)
 
-                    print("EXPENDD 2")
+                    color = np.frombuffer(image.rgb, dtype=np.uint8).reshape(image.height, image.width, 3)
+                    depth = np.frombuffer(image.depth, dtype=np.float32).reshape(image.height, image.width, 3)
 
-                    # self.lidar_read_queue.append(self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios"))
-                    # chosen_lidar = self.lidar_read_queue.pop()
-                    chosen_lidar = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")
-                    rgb = self.rgb_read_queue.popleft()
-                    lowest_timestamp = 99999
+                    # Process image for orientation DNN
+                    img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
+                    img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+                    img_ori = np.ascontiguousarray(img_ori)
+                    img_ori = torch.from_numpy(img_ori).to(self.device)
+                    img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
 
-                    # for element in self.lidar_read_queue:
-                    #     timestamp_diff = abs((rgb.alivetime) - element.timestamp)
-                    #     # print("TIMESTAMPS l, rgb, diff", element.timestamp , rgb.alivetime, abs(element.timestamp - rgb.alivetime) )
-                    #     if timestamp_diff < lowest_timestamp:
-                            
-                    #         lowest_timestamp = timestamp_diff
-                    #         chosen_lidar = element
+                    if len(img_ori.shape) == 3:
+                        img_ori = img_ori[None]  # expand for batch dim
 
-                            # print("TIMESTAMP DIFF:", timestamp_diff)
-                    if chosen_lidar != None:
-                        print("CHOOSEN TIme, lowest", chosen_lidar.timestamp, rgb.alivetime)
-                        print("Different", chosen_lidar.timestamp - rgb.alivetime)
-                        # print("EXPENDD 3", time.time() - start)
-                        # Convert image data to numpy array and reshape it.
-                        color = np.frombuffer(rgb.image, dtype=np.uint8).reshape(rgb.height, rgb.width, 3)
+                    # Calculate time difference.
+                    delta = int(1000 * time.time() - image.alivetime)
 
-                        # Process image for orientation DNN
-                        img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
-                        img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-                        img_ori = np.ascontiguousarray(img_ori)
-                        img_ori = torch.from_numpy(img_ori).to(self.device)
-                        img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
-
-                        if len(img_ori.shape) == 3:
-                            img_ori = img_ori[None]  # expand for batch dim
-
-                        # Calculate time difference.
-                        delta = int(1000 * time.time() - rgb.alivetime)
-                        # print("EXPENDD 4", time.time() - start)
-                        # LIDAR processing
-                        # Convert it to numpy array
-                        depth_img = np.zeros((roi_data["roi_ysize"], roi_data["roi_xsize"], 3), np.float32)
-                        roi_init_x = roi_data["roi_xcenter"] - (roi_data["roi_xsize"] // 2)
-                        roi_end_x = roi_data["roi_xcenter"] + (roi_data["roi_xsize"] // 2)
-                        roi_init_y = roi_data["roi_ycenter"] - (roi_data["roi_ysize"] // 2)
-                        roi_end_y = roi_data["roi_ycenter"] + (roi_data["roi_ysize"] // 2)
-
-                        # print(self.target_roi_xcenter, self.target_roi_ycenter)
-                        # print(self.target_roi_xsize, self.target_roi_ysize)
-                        # print(roi_init_x, roi_end_x)
-                        # print(roi_init_y, roi_end_y)
-
-                        XArray_np = np.array(chosen_lidar.XArray)
-                        YArray_np = np.array(chosen_lidar.YArray)
-                        ZArray_np = np.array(chosen_lidar.ZArray)
-                        XPixel_np = np.array(chosen_lidar.XPixel)
-                        YPixel_np = np.array(chosen_lidar.YPixel)
-
-                        valid_indices = np.where((roi_init_x < XPixel_np) & (XPixel_np < roi_end_x) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
-                        dx = XPixel_np[valid_indices] - roi_init_x
-                        dy = YPixel_np[valid_indices] - roi_init_y
-
-                        # In case roi end x > original image x size
-                        if (self.rgb_original.width - roi_end_x) < 0:
-                            valid_indices_aux = np.where((XPixel_np < (roi_end_x - self.rgb_original.width)) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
-                            dx_aux = XPixel_np[valid_indices_aux] + (roi_data["roi_xsize"] - (roi_end_x - self.rgb_original.width)) -1
-                            # + roi_init_x - (self.rgb_original.width - roi_end_x)
-                            dy_aux = YPixel_np[valid_indices_aux] - roi_init_y
-                            valid_indices = np.concatenate((valid_indices[0], valid_indices_aux[0]))
-                            dx = np.concatenate((dx, dx_aux))
-                            dy = np.concatenate((dy, dy_aux))
-
-                        elif roi_init_x < 0:
-                            valid_indices_aux = np.where((XPixel_np > (self.rgb_original.width - 1 + roi_init_x)) & (roi_init_y < YPixel_np) & (YPixel_np < roi_end_y))
-                            dx_aux = XPixel_np[valid_indices_aux] - min(XPixel_np[valid_indices_aux])
-                            # + roi_init_x - (self.rgb_original.width - roi_end_x)
-                            dy_aux = YPixel_np[valid_indices_aux] - roi_init_y
-                            valid_indices = np.concatenate((valid_indices[0], valid_indices_aux[0]))
-                            dx = np.concatenate((dx, dx_aux))
-                            dy = np.concatenate((dy, dy_aux))
-
-                        depth_img[dy, dx] = np.column_stack((XArray_np[valid_indices], YArray_np[valid_indices], ZArray_np[valid_indices]))
-
-                        # print(depth_img.shape, color.shape)
-                        # print("EXPENDD 5", time.time() - start)
-                        data_package = [color, img_ori, delta, rgb.period, rgb.roi, rgb.alivetime, depth_img]
-                        self.lidar_read_queue.append(data_package)
-                        # self.t3 = time.time() - start
-                        event.wait(1 / 1000)
-                        # If the current ROI is not the target ROI, call the method to move towards the target ROI.
-                        if (
-                                roi_xcenter != self.target_roi_xcenter or
-                                roi_ycenter != self.target_roi_ycenter or
-                                roi_xsize != self.target_roi_xsize or
-                                roi_ysize != self.target_roi_xsize
-                        ):
-                            self.from_act_roi_to_target()
-                        # print("EXPENDD 6", time.time() - start)
+                    data_package = [color, img_ori, delta, image.period, roi_data, image.alivetime, depth]
+                    self.rgb_read_queue.append(data_package)
+                    # self.t3 = time.time() - start
+                    event.wait(self.thread_period / 1000)
+                    # If the current ROI is not the target ROI, call the method to move towards the target ROI.
+                    if (
+                            roi_xcenter != self.target_roi_xcenter or
+                            roi_ycenter != self.target_roi_ycenter or
+                            roi_xsize != self.target_roi_xsize or
+                            roi_ysize != self.target_roi_xsize
+                    ):
+                        self.from_act_roi_to_target()
+                    # print("EXPENDD 6", time.time() - start)
 
             except Ice.Exception as e:
                 traceback.print_exc()
-                print(e, "Error communicating with Camera360RGB")
+                print(e, "Error communicating with Camera360RGBD")
                 return
 
-    def get_lidar_thread(self, event: Event):
-        """
-        A method that continuously gets 3D LIDAR data from RoboSense Helios LIDAR until an Event is set.
-
-        Args:
-            event (Event): The Event that stops the method from running when set.
-
-        """
-        while not event.is_set():
-            start = time.time()
-            try:
-            
-                # Get LIDAR image ROI
-                lidar_data = self.lidar3d_proxy.getLidarDataArrayProyectedInImage("helios")
-                if (lidar_data.timestamp - self.last_lidar_stamp) == 0:
-                    pass
-                else:
-                    self.last_lidar_stamp = lidar_data.timestamp
-                    self.lidar_read_queue.append(lidar_data)
-                    event.wait(30 / 1000)
-
-            except Ice.Exception as e:
-                traceback.print_exc()
-                print(e, "Error communicating with Lidar3D")
-            # print("LIDAR:", time.time() - start)
     def inference_thread(self, event: Event):
         while not event.is_set():
-            if self.lidar_read_queue:
-                rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth = self.lidar_read_queue.pop()
+            if self.rgb_read_queue:
+                rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth = self.rgb_read_queue.pop()
                 out_v8, orientation_bboxes, orientations = self.inference_over_image(rgb, rgb_ori)
                 self.inference_read_queue.append([out_v8, orientation_bboxes, orientations, rgb, alive_time, period, roi, depth])
             event.wait(10 / 1000)
@@ -595,7 +511,7 @@ class SpecificWorker(GenericWorker):
         # init2 = time.time()
         out_v8 = self.model_v8.predict(img0, classes=[0], show_conf=True)
         # print("TIEMPO V8", time.time() - init2)
-        # self.t1 = time.time() - init1
+        # print("TIEMPO INFERENCIA", time.time() - init1)
         return out_v8, orientation_bboxes, orientations
 
     def to_visualelements_interface(self, tracks, roi):
@@ -690,7 +606,6 @@ class SpecificWorker(GenericWorker):
                                 height, width, _ = image_mask_element.shape
                                 depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
                                 element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
-                                # print("POSE", element_pose)
                                 people["poses"].append(element_pose)
                                 people["bboxes"].append(element_bbox)
                                 people["confidences"].append(element_confidence)
@@ -881,6 +796,7 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
+        self.tracker.set_chosen_track(track.id)
         if track.id == -1:
             self.tracked_element = None
             self.tracked_id = None
@@ -895,8 +811,24 @@ class SpecificWorker(GenericWorker):
                 self.target_roi_xcenter_list = queue.Queue(10)
                 self.tracked_element = track_obj
                 self.tracked_id = track.id
+                
                 return
+    def update_plot(self,frame):
+        pass
+        # self.ax.clear()  # Limpia el plot actual
+         
+        # # Limit x and y lists to 20 items
+        # self.xs = self.xs[-20:]
+        # for i in self.id_list:
+        #     self.ys[i] = self.ys[i][-20:]
+        #     self.ax.plot(self.xs,self.ys[i], marker='o', linestyle='-')
+        # self.ax.set_xlabel('Tiempo')
+        # self.ax.set_ylabel('Valor')
 
+        # plt.xticks(rotation=45, ha='right')
+        # plt.subplots_adjust(bottom=0.30)
+
+        # return self.ax,
     ######################
     # From the RoboCompByteTrack you can call this methods:
     # self.bytetrack_proxy.allTargets(...)
