@@ -1,0 +1,25 @@
+# Endpoints for implements interfaces
+VisualElements.Endpoints=tcp -p 16449
+
+
+# Endpoints for subscriptions interfaces
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 16803
+
+
+# Proxies for required interfaces
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 12235
+Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 18203
+
+
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+

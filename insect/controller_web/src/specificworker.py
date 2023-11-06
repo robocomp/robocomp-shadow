@@ -199,7 +199,7 @@ class SpecificWorker(GenericWorker):
             return jsonify({'status': 'success'})
         
         #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.249', 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.114', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
