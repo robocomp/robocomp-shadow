@@ -130,6 +130,24 @@ class TConnections(list):
         super(TConnections, self).insert(index, item)
 
 setattr(RoboCompPerson, "TConnections", TConnections)
+class TMetrics(list):
+    def __init__(self, iterable=list()):
+        super(TMetrics, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(TMetrics, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(TMetrics, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(TMetrics, self).insert(index, item)
+
+setattr(RoboCompVisualElements, "TMetrics", TMetrics)
 class TObjects(list):
     def __init__(self, iterable=list()):
         super(TObjects, self).__init__(iterable)

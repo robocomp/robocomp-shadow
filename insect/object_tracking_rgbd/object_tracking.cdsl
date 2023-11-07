@@ -12,6 +12,5 @@ Component object_tracking
         subscribesTo SegmentatorTrackingPub;
     };
     language python;
-    gui Qt(QWidget);
 };
 

@@ -264,6 +264,7 @@ class SpecificWorker(GenericWorker):
             roi_ycenter = roi.ycenter
             roi_xsize = roi.xsize
             roi_ysize = roi.ysize
+            print(obj.metrics)
 
             # Calcula el factor de escala y offset
             x_roi_offset = roi_xcenter - roi_xsize / 2
