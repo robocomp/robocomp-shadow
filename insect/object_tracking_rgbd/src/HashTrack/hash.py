@@ -54,7 +54,7 @@ class STrack(BaseTrack):
 
         self.orientation = orientation
 
-
+        self.metrics = []
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -100,7 +100,6 @@ class STrack(BaseTrack):
         self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
-        
 
     def re_activate(self, new_track, frame_id, new_id=False):
         if not any(math.isnan(element) or math.isinf(element) or element == 0 for element in new_track._pose):          
@@ -235,256 +234,230 @@ class HashTracker(object):
         self.time_person_is_lost = 0
         self.followed_person_lost = False
 
-        # self.fig = plt.figure()
-        # self.ax = self.fig.add_subplot(1,1,1)
-        # self.ax.set_xlabel('Tiempo')
-        # self.ax.set_ylabel('Valor')
-        self.xs = []
-        self.ys = [[] for _ in range(10)]
-        self.id_list = []
- 
-
-        # self.ani = FuncAnimation(self.fig, self.update_plot, frames=range(50), interval=500)
-        
-        # # Mostrar la ventana
-        # self.fig.show()
-
     def set_chosen_track(self, track_id):
         self.chosen_track = track_id
 
     def update(self, scores, bboxes, clases, images, hash, poses, orientations):
         # Cleaning not followed tracks
+        # if self.chosen_track != -1:
+        #     track_to_remove = None
+        #     for i, track in enumerate(self.tracked_stracks):
+        #         if track.track_id == self.chosen_track:
+        #             self.chosen_strack = track
+        #             track_to_remove = i
+        #             break
+        #     if track_to_remove != None and len(self.chosen_strack.hash_memory) > 0:
+        #         self.tracked_stracks.remove(self.tracked_stracks[track_to_remove])
+        #     elif self.chosen_strack == None:
+        #         return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
+        #     elif len(self.chosen_strack.hash_memory) == 0:
+        #         return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
+        #     return self.update_element_following(scores, bboxes, clases, images, hash, poses, orientations)
+        # else:
+        #     return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
+
         if self.chosen_track != -1:
-            track_to_remove = None
-            for i, track in enumerate(self.tracked_stracks):
-                if track.track_id == self.chosen_track:
-                    self.chosen_strack = track
-                    track_to_remove = i
-                    break
-            if track_to_remove != None and len(self.chosen_strack.hash_memory) > 0:
-                self.tracked_stracks.remove(self.tracked_stracks[track_to_remove])
-            elif self.chosen_strack == None:
-                return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
-            elif len(self.chosen_strack.hash_memory) == 0:
-                return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
-            return self.update_element_following(scores, bboxes, clases, images, hash, poses, orientations)
+            return self.update_original_following(scores, bboxes, clases, images, hash, poses, orientations)
         else:
             return self.update_original(scores, bboxes, clases, images, hash, poses, orientations)
 
-    def update_element_following(self, scores, bboxes, clases, images, hash, poses, orientation):
-        self.frame_id += 1
-        activated_starcks = []
-        refind_stracks = []
-        lost_stracks = []
-        removed_stracks = []
-        remain_inds = scores > self.track_thresh
-        inds_low = scores > 0.1
-        inds_high = scores < self.track_thresh
+    # def update_element_following(self, scores, bboxes, clases, images, hash, poses, orientation):
+    #     self.frame_id += 1
+    #     activated_starcks = []
+    #     refind_stracks = []
+    #     lost_stracks = []
+    #     removed_stracks = []
+    #     remain_inds = scores > self.track_thresh
+    #     inds_low = scores > 0.1
+    #     inds_high = scores < self.track_thresh
 
-        inds_second = np.logical_and(inds_low, inds_high)
-        bboxes_keep = bboxes[remain_inds]
-        bboxes_second = bboxes[inds_second]
-        poses_second = poses[inds_second]
-        poses_keep = poses[remain_inds]
-        scores_keep = scores[remain_inds]
-        scores_second = scores[inds_second]
-        clases_keep = clases[remain_inds]
-        clases_second = clases[inds_second]
-        images_keep = images[remain_inds]
-        images_second = images[inds_second]
-        hash_keep = hash[remain_inds]
-        hash_second = hash[inds_second]
-        orientation_keep = orientation[remain_inds]
-        orientation_second = orientation[inds_second]
+    #     inds_second = np.logical_and(inds_low, inds_high)
+    #     bboxes_keep = bboxes[remain_inds]
+    #     bboxes_second = bboxes[inds_second]
+    #     poses_second = poses[inds_second]
+    #     poses_keep = poses[remain_inds]
+    #     scores_keep = scores[remain_inds]
+    #     scores_second = scores[inds_second]
+    #     clases_keep = clases[remain_inds]
+    #     clases_second = clases[inds_second]
+    #     images_keep = images[remain_inds]
+    #     images_second = images[inds_second]
+    #     hash_keep = hash[remain_inds]
+    #     hash_second = hash[inds_second]
+    #     orientation_keep = orientation[remain_inds]
+    #     orientation_second = orientation[inds_second]
 
+    #     metrics = []
 
+    #     if len(bboxes) > 0:
+    #         '''Detections'''
+    #         detections = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+    #                       (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_keep, poses_keep, scores_keep, clases_keep, images_keep, hash_keep, orientation_keep)]
+    #     else:
+    #         detections = []
 
-        if len(bboxes) > 0:
-            '''Detections'''
-            detections = [STrack(bbox, pose, s, clases, image, hash, orientation) for
-                          (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_keep, poses_keep, scores_keep, clases_keep, images_keep, hash_keep, orientation_keep)]
-        else:
-            detections = []
+    #     ''' Add newly detected tracklets to tracked_stracks'''
+    #     unconfirmed = []
+    #     tracked_stracks = []  # type: list[STrack]
+    #     for track in self.tracked_stracks:
+    #         if not track.is_activated:
+    #             unconfirmed.append(track)
+    #         else:
+    #             tracked_stracks.append(track)
+    #     strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
+    #     strack_pool.append(self.chosen_strack)
 
-        ''' Add newly detected tracklets to tracked_stracks'''
-        unconfirmed = []
-        tracked_stracks = []  # type: list[STrack]
-        for track in self.tracked_stracks:
-            if not track.is_activated:
-                unconfirmed.append(track)
-            else:
-                tracked_stracks.append(track)
-        strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
-        strack_pool.append(self.chosen_strack)
+    #     if self.enable_kalman:
+    #         STrack.multi_predict(strack_pool)
 
-        if self.enable_kalman:
-            STrack.multi_predict(strack_pool)
+    #     ######### ASSOCIATION OF FOLLOWED PERSON #########
 
-        ######### ASSOCIATION OF FOLLOWED PERSON #########
+    #     ''' Step 2: First association, with high score detection boxes'''
+    #     # # Predict the current location with KF
+    #     followed_person_found = True
+    #     if detections:
+    #         dists_hash = self.k_hash_following * matching.hash_distance_following([self.chosen_strack], detections)
+    #         dists_iou = self.k_iou_following * matching.iou_distance([self.chosen_strack], detections)
+    #         dists_pose = self.k_pose_following * matching.pose_distance([self.chosen_strack], detections)
 
-        ''' Step 2: First association, with high score detection boxes'''
-        # # Predict the current location with KF
-        followed_person_found = True
-        if detections:
-            dists_hash = self.k_hash_following * matching.hash_distance_following([self.chosen_strack], detections)
-            dists_iou = self.k_iou_following * matching.iou_distance([self.chosen_strack], detections)
-            dists_pose = self.k_pose_following * matching.pose_distance([self.chosen_strack], detections)
+    #         # for i in range(len(dists_pose[0])):
+    #         #     dists_hash[:, i] += dists_iou[0][i] + dists_pose[0][i]
+    #         # For associating with detections score
+    #         pos_match, filtered_memory = matching.get_max_similarity_detection(dists_hash, self.chosen_strack.hash_memory)
+    #         if pos_match != -1:
+    #             self.followed_person_lost = False
+    #             self.k_hash_following = 1.0
+    #             self.k_iou_following = 0.0
+    #             self.k_pose_following = 0.0
+    #             self.chosen_strack.update(detections[pos_match], self.frame_id)
+    #             detections.remove(detections[pos_match])
 
-            # for i in range(len(dists_pose[0])):
-            #     dists_hash[:, i] += dists_iou[0][i] + dists_pose[0][i]
-            # For associating with detections score
-            pos_match, filtered_memory = matching.get_max_similarity_detection(dists_hash, self.chosen_strack.hash_memory)
-            if pos_match != -1:
-                self.followed_person_lost = False
-                self.k_hash_following = 1.0
-                self.k_iou_following = 0.0
-                self.k_pose_following = 0.0
-                self.chosen_strack.update(detections[pos_match], self.frame_id)
-                detections.remove(detections[pos_match])
-
-            ##### IF FOLLOWED PERSON IS NOT FOUND, ADJUST METRICs weights for using only visual appearance
-            else:
-                if not self.followed_person_lost:
-                    self.time_person_is_lost = time.time()
-                    self.followed_person_lost = True
+    #         ##### IF FOLLOWED PERSON IS NOT FOUND, ADJUST METRICs weights for using only visual appearance
+    #         else:
+    #             if not self.followed_person_lost:
+    #                 self.time_person_is_lost = time.time()
+    #                 self.followed_person_lost = True
                     
-                else:
-                    if time.time() - self.time_person_is_lost > self.time_without_seeing_followed_limit:
-                        followed_person_found = False
-                        self.chosen_strack.kalman_initiated = False
+    #             else:
+    #                 if time.time() - self.time_person_is_lost > self.time_without_seeing_followed_limit:
+    #                     followed_person_found = False
+    #                     self.chosen_strack.kalman_initiated = False
 
-                # self.chosen_strack.kalman_initiated = False
-                self.k_hash_following = 0.9
-                self.k_iou_following = 0.0
-                self.k_pose_following = 0.1
-        else:
-            if not self.followed_person_lost:
-                # print("PERSON LOST FOR FIRST TIME")
-                self.time_person_is_lost = time.time()
-                self.followed_person_lost = True
-            else:
-                if time.time() - self.time_person_is_lost > self.time_without_seeing_followed_limit:
-                    # print("PERSON DEFINETLY LOST")
-                    followed_person_found = False
-                    self.chosen_strack.kalman_initiated = False
+    #             # self.chosen_strack.kalman_initiated = False
+    #             self.k_hash_following = 0.9
+    #             self.k_iou_following = 0.0
+    #             self.k_pose_following = 0.1
+    #     else:
+    #         if not self.followed_person_lost:
+    #             # print("PERSON LOST FOR FIRST TIME")
+    #             self.time_person_is_lost = time.time()
+    #             self.followed_person_lost = True
+    #         else:
+    #             if time.time() - self.time_person_is_lost > self.time_without_seeing_followed_limit:
+    #                 # print("PERSON DEFINETLY LOST")
+    #                 followed_person_found = False
+    #                 self.chosen_strack.kalman_initiated = False
 
-        strack_pool.remove(self.chosen_strack)
-        # dists_hash = self.k_hash * matching.hash_distance(strack_pool, detections)
-        # dists_iou = self.k_iou * matching.iou_distance(strack_pool, detections)
-        dists_pose = self.k_pose * matching.pose_distance(strack_pool, detections)
+    #     strack_pool.remove(self.chosen_strack)
+    #     # dists_hash = self.k_hash * matching.hash_distance(strack_pool, detections)
+    #     # dists_iou = self.k_iou * matching.iou_distance(strack_pool, detections)
+    #     dists_pose = self.k_pose * matching.pose_distance(strack_pool, detections)
 
-        # combinated_dists = dists_hash + dists_iou + dists_pose
-        dists = matching.fuse_score(dists_pose, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
-        for itracked, idet in matches:
-            track = strack_pool[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
+    #     # combinated_dists = dists_hash + dists_iou + dists_pose
+    #     dists = matching.fuse_score(dists_pose, detections)
+    #     matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
+    #     for itracked, idet in matches:
+    #         track = strack_pool[itracked]
+    #         det = detections[idet]
+    #         if track.state == TrackState.Tracked:
+    #             track.update(detections[idet], self.frame_id)
+    #             activated_starcks.append(track)
+    #         else:
+    #             track.re_activate(det, self.frame_id, new_id=False)
+    #             refind_stracks.append(track)
 
-        ''' Step 3: Second association, with low score detection boxes'''
-        # association the untrack to the low score detections
-        if len(poses_second) > 0:
-            '''Detections'''
-            detections_second = [STrack(bbox, pose, s, clases, image, hash, orientation) for
-                          (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_second, poses_second, scores_second, clases_second, images_second, hash_second, orientation_second)]
-        else:
-            detections_second = []
+    #     ''' Step 3: Second association, with low score detection boxes'''
+    #     # association the untrack to the low score detections
+    #     if len(poses_second) > 0:
+    #         '''Detections'''
+    #         detections_second = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+    #                       (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_second, poses_second, scores_second, clases_second, images_second, hash_second, orientation_second)]
+    #     else:
+    #         detections_second = []
 
-        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+    #     r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
 
-        # dists_hash = self.k_hash * matching.hash_distance(r_tracked_stracks, detections_second)
-        # dists_iou = self.k_iou * matching.iou_distance(r_tracked_stracks, detections_second)
-        dists_pose = self.k_pose * matching.pose_distance(r_tracked_stracks, detections_second)
-        # combinated_dists = dists_hash + dists_iou + dists_pose
+    #     # dists_hash = self.k_hash * matching.hash_distance(r_tracked_stracks, detections_second)
+    #     # dists_iou = self.k_iou * matching.iou_distance(r_tracked_stracks, detections_second)
+    #     dists_pose = self.k_pose * matching.pose_distance(r_tracked_stracks, detections_second)
+    #     # combinated_dists = dists_hash + dists_iou + dists_pose
 
-        matches, u_track, u_detection_second = matching.linear_assignment(dists_pose, thresh=0.5)
-        for itracked, idet in matches:
-            track = r_tracked_stracks[itracked]
-            det = detections_second[idet]
-            if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-        for it in u_track:
-            track = r_tracked_stracks[it]
-            if not track.state == TrackState.Lost:
-                track.mark_lost()
-                lost_stracks.append(track)
+    #     matches, u_track, u_detection_second = matching.linear_assignment(dists_pose, thresh=0.5)
+    #     for itracked, idet in matches:
+    #         track = r_tracked_stracks[itracked]
+    #         det = detections_second[idet]
+    #         if track.state == TrackState.Tracked:
+    #             track.update(det, self.frame_id)
+    #             activated_starcks.append(track)
+    #         else:
+    #             track.re_activate(det, self.frame_id, new_id=False)
+    #             refind_stracks.append(track)
+    #     for it in u_track:
+    #         track = r_tracked_stracks[it]
+    #         if not track.state == TrackState.Lost:
+    #             track.mark_lost()
+    #             lost_stracks.append(track)
 
-        '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
-        detections = [detections[i] for i in u_detection]
+    #     '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+    #     detections = [detections[i] for i in u_detection]
 
-        # dists_hash = self.k_hash * matching.hash_distance(unconfirmed, detections)
-        # dists_iou = self.k_iou * matching.iou_distance(unconfirmed, detections)
-        dists_pose = self.k_pose * matching.pose_distance(unconfirmed, detections)
-        # combinated_dists = dists_hash + dists_iou + dists_pose
-        # combinated_dists = dists_pose
+    #     # dists_hash = self.k_hash * matching.hash_distance(unconfirmed, detections)
+    #     # dists_iou = self.k_iou * matching.iou_distance(unconfirmed, detections)
+    #     dists_pose = self.k_pose * matching.pose_distance(unconfirmed, detections)
+    #     # combinated_dists = dists_hash + dists_iou + dists_pose
+    #     # combinated_dists = dists_pose
 
-        dists = matching.fuse_score(dists_pose, detections)
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_id)
-            activated_starcks.append(unconfirmed[itracked])
-        for it in u_unconfirmed:
-            track = unconfirmed[it]
-            track.mark_removed()
-            removed_stracks.append(track)
+    #     dists = matching.fuse_score(dists_pose, detections)
+    #     matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+    #     for itracked, idet in matches:
+    #         unconfirmed[itracked].update(detections[idet], self.frame_id)
+    #         activated_starcks.append(unconfirmed[itracked])
+    #     for it in u_unconfirmed:
+    #         track = unconfirmed[it]
+    #         track.mark_removed()
+    #         removed_stracks.append(track)
 
-        """ Step 4: Init new stracks"""
-        for inew in u_detection:
-            track = detections[inew]
-            if track.score < self.det_thresh:
-                continue
-            track.activate(self.kalman_filter, self.frame_id)
-            activated_starcks.append(track)
-        """ Step 5: Update state"""
-        for track in self.lost_stracks:
-            if self.frame_id - track.end_frame > self.max_time_lost:
-                track.mark_removed()
-                removed_stracks.append(track)
+    #     """ Step 4: Init new stracks"""
+    #     for inew in u_detection:
+    #         track = detections[inew]
+    #         if track.score < self.det_thresh:
+    #             continue
+    #         track.activate(self.kalman_filter, self.frame_id)
+    #         activated_starcks.append(track)
+    #     """ Step 5: Update state"""
+    #     for track in self.lost_stracks:
+    #         if self.frame_id - track.end_frame > self.max_time_lost:
+    #             track.mark_removed()
+    #             removed_stracks.append(track)
 
-        self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
-        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
-        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
-        self.tracked_stracks = self.check_distance_between_people(self.tracked_stracks)
-        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
-        self.lost_stracks.extend(lost_stracks)
-        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
-        self.removed_stracks.extend(removed_stracks)
-        # print("REMOVING DUPLICATED")
-        _, self.lost_stracks = self.remove_duplicate_stracks([self.chosen_strack], self.lost_stracks, True)
-        # print("LOST:", self.lost_stracks)
-        self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
-        output_stracks = [track for track in self.tracked_stracks]
+    #     self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
+    #     self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
+    #     self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
+    #     self.tracked_stracks = self.check_distance_between_people(self.tracked_stracks)
+    #     self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
+    #     self.lost_stracks.extend(lost_stracks)
+    #     self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
+    #     self.removed_stracks.extend(removed_stracks)
+    #     # print("REMOVING DUPLICATED")
+    #     _, self.lost_stracks = self.remove_duplicate_stracks([self.chosen_strack], self.lost_stracks, True)
+    #     # print("LOST:", self.lost_stracks)
+    #     self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+    #     output_stracks = [track for track in self.tracked_stracks]
 
-        if followed_person_found:
-            output_stracks.append(self.chosen_strack)
+    #     if followed_person_found:
+    #         output_stracks.append(self.chosen_strack)
 
-        return output_stracks
-
-    def update_plot(self,frame):
-        pass
-        # self.ax.clear()  # Limpia el plot actual
-         
-        # # Limit x and y lists to 20 items
-        # self.xs = self.xs[-20:]
-        # for i in self.id_list:
-        #     self.ys[i] = self.ys[i][-20:]
-        #     self.ax.plot(self.xs,self.ys[i], marker='o', linestyle='-')
-        # self.ax.set_xlabel('Tiempo')
-        # self.ax.set_ylabel('Valor')
-
-        # plt.xticks(rotation=45, ha='right')
-        # plt.subplots_adjust(bottom=0.30)
-
-        # return self.ax,
+    #     return output_stracks
 
     def update_original(self, scores, bboxes, clases, images, hash, poses, orientation):
         self.frame_id += 1
@@ -513,8 +486,6 @@ class HashTracker(object):
         orientation_keep = orientation[remain_inds]
         orientation_second = orientation[inds_second]
 
-        track_ids_list = []
-
         if len(bboxes_keep) > 0:
             '''Detections'''
             detections = [STrack(bbox, pose, s, clases, image, hash, orientation) for
@@ -526,7 +497,6 @@ class HashTracker(object):
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
         for track in self.tracked_stracks:
-            track_ids_list.append(track.track_id)
             if not track.is_activated:
                 unconfirmed.append(track)
             else:
@@ -536,19 +506,23 @@ class HashTracker(object):
         strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
         if self.enable_kalman:
             STrack.multi_predict(strack_pool)
-        dists = matching.pose_distance(strack_pool, detections)
-        print("STRACK POOL", strack_pool)
-        dists = matching.fuse_score(dists, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.match_thresh)
-        ys = [[] for _ in range(10)]
-        print("DISTS", dists)
-        print("MATCHES", matches)
-        for match in matches:
-            ys[track_ids_list[match[0]]].append(dists[match[0]][match[1]])
-            print("MATCHED dist", track_ids_list[match[0]], dists[match[0]][match[1]])
+        dists_pose = matching.pose_distance(strack_pool, detections)
+        dists_hash = matching.hash_distance(strack_pool, detections)
+        # print("STRACK POOL", strack_pool)
+        # print("detections", detections)
+        # print("DISTS", dists_hash)
+        # dists = matching.fuse_score(dists, detections) # CUIDAAAAAAAO
+        matches, u_track, u_detection = matching.linear_assignment(dists_pose, thresh=self.match_thresh)
+        
+        # print("MATCHES", matches)
+
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
+            track.metrics.clear()
+            track.metrics.append(dists_pose[itracked][idet])
+            track.metrics.append(dists_hash[itracked][idet])
+            # print("TRACK:", track.track_id, track.metrics)
             det = detections[idet]
             if track.state == TrackState.Tracked:
                 track.update(detections[idet], self.frame_id)
@@ -566,10 +540,15 @@ class HashTracker(object):
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.pose_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
+        dists_pose = matching.pose_distance(r_tracked_stracks, detections_second)
+        dists_hash = matching.hash_distance(r_tracked_stracks, detections_second)
+        # dists = matching.pose_distance(r_tracked_stracks, detections_second)
+        matches, u_track, u_detection_second = matching.linear_assignment(dists_pose, thresh=0.5)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
+            track.metrics.clear()
+            track.metrics.append(dists_pose[itracked][idet])
+            track.metrics.append(dists_hash[itracked][idet])
             det = detections_second[idet]
             if track.state == TrackState.Tracked:
                 track.update(det, self.frame_id)
@@ -603,7 +582,6 @@ class HashTracker(object):
             # print("NEW STRACK")
             track = detections[inew]
             if track.score < self.det_thresh:
-                # print("Bajo umbral")
                 continue
             track.activate(self.kalman_filter,self.frame_id)
             activated_starcks.append(track)
@@ -630,9 +608,162 @@ class HashTracker(object):
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         # output_stracks.extend(self.lost_stracks)
         # print("output_stracks", output_stracks)
-        self.id_list = track_ids_list
-        self.ys = ys
-        self.xs.append(datetime.now().strftime('%H:%M:%S'))
+
+        return output_stracks
+
+    def update_original_following(self, scores, bboxes, clases, images, hash, poses, orientation):
+        self.frame_id += 1
+        activated_starcks = []
+        refind_stracks = []
+        lost_stracks = []
+        removed_stracks = []
+
+        remain_inds = scores > self.track_thresh
+        inds_low = scores > 0.1
+        inds_high = scores < self.track_thresh
+
+        inds_second = np.logical_and(inds_low, inds_high)
+        bboxes_keep = bboxes[remain_inds]
+        bboxes_second = bboxes[inds_second]
+        poses_second = poses[inds_second]
+        poses_keep = poses[remain_inds]
+        scores_keep = scores[remain_inds]
+        scores_second = scores[inds_second]
+        clases_keep = clases[remain_inds]
+        clases_second = clases[inds_second]
+        images_keep = images[remain_inds]
+        images_second = images[inds_second]
+        hash_keep = hash[remain_inds]
+        hash_second = hash[inds_second]
+        orientation_keep = orientation[remain_inds]
+        orientation_second = orientation[inds_second]
+
+        chosen_track_pos = -1
+        associated_det_pose = -1
+
+        if len(bboxes_keep) > 0:
+            '''Detections'''
+            detections = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+                          (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_keep, poses_keep, scores_keep, clases_keep, images_keep, hash_keep, orientation_keep)]
+        else:
+            detections = []
+
+        ''' Add newly detected tracklets to tracked_stracks'''
+        unconfirmed = []
+        tracked_stracks = []  # type: list[STrack]
+        for i, track in enumerate(self.tracked_stracks):
+            if track.track_id == self.chosen_track:
+                chosen_track_pos = i
+            if not track.is_activated:
+                unconfirmed.append(track)
+            else:
+                tracked_stracks.append(track)
+        # print(2)
+        ''' Step 2: First association, with high score detection boxes'''
+        strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
+        if self.enable_kalman:
+            STrack.multi_predict(strack_pool)
+        dists_pose = matching.pose_distance(strack_pool, detections)
+        dists_hash = matching.hash_distance(strack_pool, detections)
+        matches, u_track, u_detection = matching.linear_assignment(dists_pose, thresh=self.match_thresh)
+
+        # print("STRACK POOL", strack_pool)
+        # print("detections", detections)
+        # print("DISTS", dists_hash)
+        # print("MATCHES", matches)
+
+        for itracked, idet in matches:
+            track = strack_pool[itracked]
+            track.metrics.clear()
+            track.metrics.append(dists_pose[chosen_track_pos][idet])
+            track.metrics.append(dists_hash[chosen_track_pos][idet])
+            # print("TRACK:", track.track_id, track.metrics)
+            det = detections[idet]
+            if track.state == TrackState.Tracked:
+                track.update(detections[idet], self.frame_id)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+        # print(3)
+        ''' Step 3: Second association, with low score detection boxes'''
+        # association the untrack to the low score detections
+        if len(poses_second) > 0:
+            '''Detections'''
+            detections_second = [STrack(bbox, pose, s, clases, image, hash, orientation) for
+                          (bbox, pose, s, clases, image, hash, orientation) in zip(bboxes_second, poses_second, scores_second, clases_second, images_second, hash_second, orientation_second)]
+        else:
+            detections_second = []
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        dists_pose = matching.pose_distance(r_tracked_stracks, detections_second)
+        dists_hash = matching.hash_distance(r_tracked_stracks, detections_second)
+        # dists = matching.pose_distance(r_tracked_stracks, detections_second)
+        matches, u_track, u_detection_second = matching.linear_assignment(dists_pose, thresh=0.5)
+        for itracked, idet in matches:
+            track = r_tracked_stracks[itracked]
+            track.metrics.clear()
+            track.metrics.append(dists_pose[itracked][idet])
+            track.metrics.append(dists_hash[itracked][idet])
+            det = detections_second[idet]
+            if track.state == TrackState.Tracked:
+                track.update(det, self.frame_id)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+
+        for it in u_track:
+            track = r_tracked_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
+
+        '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+        detections = [detections[i] for i in u_detection]
+        dists = matching.pose_distance(unconfirmed, detections)
+        dists = matching.fuse_score(dists, detections)
+        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+        # print("matches, u_unconfirmed, u_detection", matches, u_unconfirmed, u_detection)
+        for itracked, idet in matches:
+            unconfirmed[itracked].update(detections[idet], self.frame_id)
+            activated_starcks.append(unconfirmed[itracked])
+        for it in u_unconfirmed:
+            track = unconfirmed[it]
+            track.mark_removed()
+            removed_stracks.append(track)
+        # print(4)
+        """ Step 4: Init new stracks"""
+        for inew in u_detection:
+            # print("NEW STRACK")
+            track = detections[inew]
+            if track.score < self.det_thresh:
+                continue
+            track.activate(self.kalman_filter,self.frame_id)
+            activated_starcks.append(track)
+
+        """ Step 5: Update state"""
+        for track in self.lost_stracks:
+            if self.frame_id - track.end_frame > self.max_time_lost:
+                track.mark_removed()
+                removed_stracks.append(track)
+
+        # print('Ramained match {} s'.format(t4-t3))
+
+        self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
+        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, activated_starcks)
+        self.tracked_stracks = self.joint_stracks(self.tracked_stracks, refind_stracks)
+        # print("tracked_stracks", self.tracked_stracks)
+        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.lost_stracks.extend(lost_stracks)
+        self.lost_stracks = self.sub_stracks(self.lost_stracks, self.removed_stracks)
+        # print("self.lost_stracks", self.lost_stracks)
+        self.removed_stracks.extend(removed_stracks)
+        self.tracked_stracks, self.lost_stracks = self.remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        # get scores of lost tracks
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        # output_stracks.extend(self.lost_stracks)
+        # print("output_stracks", output_stracks)
+
         return output_stracks
 
     # def update_original(self, scores, bboxes, clases, images, hash, poses, orientation):

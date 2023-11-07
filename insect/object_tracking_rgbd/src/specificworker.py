@@ -38,8 +38,6 @@ import itertools
 # from PIL import Image
 import copy
 # import math
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 
 sys.path.append('/home/robocomp/software/JointBDOE')
 
@@ -225,17 +223,6 @@ class SpecificWorker(GenericWorker):
             self.window_name = "Yolo Segmentator"
             
             print("Loaded YOLO model: ", self.yolo_model_name)
-            
-            self.fig = plt.figure()
-            self.ax = self.fig.add_subplot(1,1,1)
-            self.ax.set_xlabel('Tiempo')
-            self.ax.set_ylabel('Valor')
-
-
-            self.ani = FuncAnimation(self.fig, self.update_plot, frames=range(50), interval=50)
-            
-            # Mostrar la ventana
-            self.fig.show()
 
             # Hz
             self.cont = 0
@@ -354,13 +341,13 @@ class SpecificWorker(GenericWorker):
             self.objects_write, self.objects_read = self.objects_read, self.objects_write
 
                 # If display is enabled, show the tracking results on the image
-            # if self.display:
-            #     img = self.display_data_tracks(img0, self.objects_read)
-            #     img_int = img.astype('float32') / 255.0
-            #     image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
+            if self.display:
+                img = self.display_data_tracks(img0, self.objects_read)
+                img_int = img.astype('float32') / 255.0
+                image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 
-            #     cv2.imshow("ROI", image_comp)
-            #     cv2.waitKey(1)
+                cv2.imshow("ROI", image_comp)
+                cv2.waitKey(1)
 
             # Show FPS and handle Keyboard Interruption
             try:
@@ -452,6 +439,7 @@ class SpecificWorker(GenericWorker):
         masked_image = mask * image
         is_black_pixel = np.logical_and(masked_image[:, :, 0] == 0, masked_image[:, :, 1] == 0, masked_image[:, :, 2] == 0)
         masked_image[is_black_pixel] = [255, 255, 255]
+
         return masked_image
 
     # Modify actual ROI data to converge in the target ROI dimensions
@@ -544,6 +532,7 @@ class SpecificWorker(GenericWorker):
             object_.z = 0
             object_.x = object_.x[0]
             object_.y = object_.y[0]
+            object_.metrics = ifaces.RoboCompVisualElements.TMetrics(track.metrics)
             # print("OBJECT X", object_.x)
             # print("OBJECT Y", object_.y)
             objects.append(object_)
@@ -605,18 +594,22 @@ class SpecificWorker(GenericWorker):
                                 # print(element_hash)
                                 height, width, _ = image_mask_element.shape
                                 depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
+
+                                cv2.imshow("depth_image_mask", depth_image_mask)
+                                cv2.waitKey(1)
                                 element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
+                                # print("POSE", element_pose)
                                 people["poses"].append(element_pose)
                                 people["bboxes"].append(element_bbox)
                                 people["confidences"].append(element_confidence)
-                                people["masks"].append(element_mask)
+                                people["masks"].append(color_image_mask)
                                 people["classes"].append(element_class)   
                                 people["hashes"].append(element_hash)  
                             else:
                                 objects["bboxes"].append(element_bbox)
                                 objects["poses"].append(element_pose)
                                 objects["confidences"].append(element_confidence)
-                                objects["masks"].append(element_mask)             
+                                objects["masks"].append(color_image_mask)             
                                 objects["classes"].append(element_class) 
                             
         people["orientations"] = [-4] * len(people["bboxes"])
@@ -642,7 +635,6 @@ class SpecificWorker(GenericWorker):
         max_index = np.argmax(hist)
 
         pos_filtered_distances = np.logical_and(distances >= edges[max_index], distances <= edges[max_index + 1])
-        
         # Filtrar los puntos válidos y calcular la media en un solo paso.
         person_dist = np.mean(valid_points[pos_filtered_distances], axis=0)
         return person_dist.tolist()
