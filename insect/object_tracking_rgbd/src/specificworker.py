@@ -167,7 +167,7 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 50
             self.display = False
             
-            self.yolo_model_name = 'yolov8n-seg.engine'
+            self.yolo_model_name = 'yolov8s-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
             
             self.model_v8 = YOLO(self.yolo_model_name)
@@ -595,8 +595,8 @@ class SpecificWorker(GenericWorker):
                                 height, width, _ = image_mask_element.shape
                                 depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
 
-                                cv2.imshow("depth_image_mask", depth_image_mask)
-                                cv2.waitKey(1)
+                                # cv2.imshow("depth_image_mask", depth_image_mask)
+                                # cv2.waitKey(1)
                                 element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
                                 # print("POSE", element_pose)
                                 people["poses"].append(element_pose)

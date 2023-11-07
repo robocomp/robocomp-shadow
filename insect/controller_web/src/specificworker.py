@@ -234,7 +234,7 @@ class SpecificWorker(GenericWorker):
                 target = b
                 
         try:
-            if self.target != -1:
+            if target != -1:
                 self.segmentatortrackingpub_proxy.setTrack((target))
             else:
                 target = ifaces.RoboCompVisualElements.TObject()

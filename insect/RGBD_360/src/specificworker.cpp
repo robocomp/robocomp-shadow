@@ -95,11 +95,11 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-    auto start_clean = std::chrono::high_resolution_clock::now();
+
     auto cstart = std::chrono::high_resolution_clock::now();
     RoboCompLidar3D::TDataImage lidar_data;
     RoboCompCamera360RGB::TImage cam_data;
-        std::cout << "1" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+        // std::cout << "1" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
     // Get lidar data
     try
@@ -117,7 +117,7 @@ void SpecificWorker::compute()
     }
     catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
 
-    std::cout << "2" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+    // std::cout << "2" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
 
     capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
@@ -126,7 +126,7 @@ void SpecificWorker::compute()
     int chosen_rgb, chosen_lidar;
     bool exists_data = false;
     auto cstart2 = std::chrono::high_resolution_clock::now();
-    std::cout << "3" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+    // std::cout << "3" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
 //    std::cout << "CAMERA QUEUE SIZE " << camera_queue.size() << std::endl;
 //    std::cout << "LIDAR QUEUE SIZE " << lidar_queue.size() << std::endl;
@@ -157,15 +157,16 @@ void SpecificWorker::compute()
 //        std::cout << "Min timestamp: " << timestamp_diff << " " << chosen_rgb << " " << chosen_lidar << std::endl;
         RoboCompLidar3D::TDataImage chosen_lidar_data = lidar_queue.at(chosen_lidar);
         RoboCompCamera360RGB::TImage chosen_rgb_data = camera_queue.at(chosen_rgb);
-        std::cout << "4 " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+        // std::cout << "4 " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
-        std::cout << "5" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+        // std::cout << "5" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
         // Generate rgb image
         cv::Mat rgb_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_8UC3, &chosen_rgb_data.image[0]);
         // Generate depth image
         cv::Mat depth_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_32FC3, cv::Scalar(0,0,0));
         // Obtener puntero al inicio de la matriz
+        auto start_clean = std::chrono::high_resolution_clock::now();
         cv::Vec3f* ptr = depth_image.ptr<cv::Vec3f>();
 
         for (auto&& [px, py, x, y, z] : iter::zip(chosen_lidar_data.XPixel, chosen_lidar_data.YPixel, chosen_lidar_data.XArray, chosen_lidar_data.YArray, chosen_lidar_data.ZArray))
@@ -175,7 +176,7 @@ void SpecificWorker::compute()
             pixel[1] = y;
             pixel[2] = z;
         }
-        std::cout << "6" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+        // std::cout << "6" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
     //    cv::imshow("rgb_image", rgb_image);
     //    cv::imshow("depth_image", depth_image);
@@ -190,7 +191,7 @@ void SpecificWorker::compute()
 
         lidar_queue.clean_old(chosen_lidar);
         camera_queue.clean_old(chosen_rgb);
-        std::cout << "7" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+        // std::cout << "7" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
     }
     std::cout << "Compute time " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - cstart).count() << " milli" << std::endl<<std::flush;
 }
@@ -282,7 +283,30 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
         }
 
         cv::resize(dst_rgb, rdst_rgb, cv::Size(roiwidth, roiheight), cv::INTER_LINEAR);
-        cv::resize(dst_depth, rdst_depth, cv::Size(roiwidth, roiheight), cv::INTER_LINEAR);
+        // cv::resize(dst_depth, rdst_depth, cv::Size(roiwidth, roiheight), cv::INTER_NEAREST);
+        auto start_clean = std::chrono::high_resolution_clock::now();
+
+        float x_ratio = float(dst_depth.cols) / roiwidth;
+        float y_ratio = float(dst_depth.rows) / roiheight;
+        
+        // Crear una imagen de destino con las nuevas dimensiones
+        cv::Mat dst = cv::Mat::zeros(roiheight, roiwidth, dst_depth.type());
+        
+        // Escalar y asignar los valores
+        for (int y = 0; y < dst_depth.rows; ++y) {
+            for (int x = 0; x < dst_depth.cols; ++x) {
+                int newX = cvRound(x * x_ratio);
+                int newY = cvRound(y * y_ratio);
+                
+                // Asumiendo que la imagen es de tres canales (color)
+                cv::Vec3f value = dst_depth.at<cv::Vec3f>(y, x);
+                if (cv::norm(value) != 0) { // Si el vector del pixel de la fuente es diferente de cero, copiamos el valor
+                    dst.at<cv::Vec3f>(newY, newX) = value;
+                }
+            }
+        }
+
+        std::cout << "For time " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
 //        if (pars.compressed)
 //        {
@@ -296,14 +320,14 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 //            res.compressed = false;
 //        }
         res.rgb.assign(rdst_rgb.data, rdst_rgb.data + (rdst_rgb.total() * rdst_rgb.elemSize()));
-        res.depth.assign(rdst_depth.data, rdst_depth.data + (rdst_depth.total() * rdst_depth.elemSize()));
+        res.depth.assign(dst.data, dst.data + (dst.total() * dst.elemSize()));
         res.rgbcompressed = false;
         res.depthcompressed = false;
         res.period = fps.get_period();
         res.alivetime = capture_time;
 
         res.rgbchannels = rdst_rgb.channels();
-        res.depthchannels = rdst_depth.channels();
+        res.depthchannels = dst.channels();
         res.height = rdst_rgb.rows;
         res.width = rdst_rgb.cols;
         res.roi = RoboCompCamera360RGBD::TRoi{.xcenter=cx, .ycenter=cy, .xsize=sx, .ysize=sy, .finalxsize=res.width, .finalysize=res.height};
