@@ -1,0 +1,11 @@
+import "VisualElements.idsl";
+
+Component model
+{
+    Communications
+    {
+        requires VisualElements;
+    };
+    language python;
+};
+
