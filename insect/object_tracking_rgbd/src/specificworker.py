@@ -167,7 +167,7 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 50
             self.display = False
             
-            self.yolo_model_name = 'yolov8s-seg.engine'
+            self.yolo_model_name = 'yolov8n-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
             
             self.model_v8 = YOLO(self.yolo_model_name)
@@ -317,7 +317,7 @@ class SpecificWorker(GenericWorker):
         # print("Compute execution...")
 
         if self.inference_read_queue:
-            out_v8, orientation_bboxes, orientations, img0, alive_time, period, roi, depth = self.inference_read_queue.pop()
+            out_v8, orientation_bboxes, orientations, img0, delta, alive_time, period, roi, depth = self.inference_read_queue.pop()
             people, objects = self.get_segmentator_data(out_v8, img0, depth)
             matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
             for i in range(len(matches)):
@@ -333,8 +333,8 @@ class SpecificWorker(GenericWorker):
 
             # print("TRACKS", tracks)
 
-            self.objects_write = self.to_visualelements_interface(tracks, roi)
-
+            self.objects_write = self.to_visualelements_interface(tracks, roi, alive_time)
+            print("TIMESTAMPS:", self.objects_write.timestampimage, self.objects_write.timestampgenerated, "DIFFERENCE", self.objects_write.timestampimage - self.objects_write.timestampgenerated)
             if self.tracked_id is not None:
                 self.set_roi_dimensions(self.objects_write)
 
@@ -342,7 +342,7 @@ class SpecificWorker(GenericWorker):
 
                 # If display is enabled, show the tracking results on the image
             if self.display:
-                img = self.display_data_tracks(img0, self.objects_read)
+                img = self.display_data_tracks(img0, self.objects_read.objects)
                 img_int = img.astype('float32') / 255.0
                 image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 
@@ -423,9 +423,9 @@ class SpecificWorker(GenericWorker):
     def inference_thread(self, event: Event):
         while not event.is_set():
             if self.rgb_read_queue:
-                rgb, rgb_ori, alive_time, period, roi, rgb_timestamp, depth = self.rgb_read_queue.pop()
+                rgb, rgb_ori, delta, period, roi, alivetime, depth = self.rgb_read_queue.pop()
                 out_v8, orientation_bboxes, orientations = self.inference_over_image(rgb, rgb_ori)
-                self.inference_read_queue.append([out_v8, orientation_bboxes, orientations, rgb, alive_time, period, roi, depth])
+                self.inference_read_queue.append([out_v8, orientation_bboxes, orientations, rgb, delta, alivetime, period, roi, depth])
             event.wait(10 / 1000)
 
     def get_mask_with_modified_background(self, mask, image):
@@ -502,7 +502,7 @@ class SpecificWorker(GenericWorker):
         # print("TIEMPO INFERENCIA", time.time() - init1)
         return out_v8, orientation_bboxes, orientations
 
-    def to_visualelements_interface(self, tracks, roi):
+    def to_visualelements_interface(self, tracks, roi, image_timestamp):
         """
         This method generates interface data for visual objects detected in an image.
 
@@ -536,7 +536,8 @@ class SpecificWorker(GenericWorker):
             # print("OBJECT X", object_.x)
             # print("OBJECT Y", object_.y)
             objects.append(object_)
-        return objects
+        visual_elements = ifaces.RoboCompVisualElements.TObjects(timestampimage=image_timestamp, timestampgenerated=time.time() * 1000, period=self.Period, objects=objects)
+        return visual_elements
 
     def mask_to_TImage(self, mask, roi):
         y, x, _ = mask.shape
@@ -680,7 +681,7 @@ class SpecificWorker(GenericWorker):
             The method goes through the list of objects and when it finds the object that matches the tracked_id,
             it calculates the desired ROI based on the object's position and size. The ROI is then stored in the class's attributes.
             """
-        for object in objects:
+        for object in objects.objects:
             if object.id == self.tracked_id:
                 roi = object.image.roi
                 x_roi_offset = roi.xcenter - roi.xsize / 2

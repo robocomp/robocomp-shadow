@@ -88,24 +88,24 @@ class TMetrics(list):
         super(TMetrics, self).insert(index, item)
 
 setattr(RoboCompVisualElements, "TMetrics", TMetrics)
-class TObjects(list):
+class TObjectList(list):
     def __init__(self, iterable=list()):
-        super(TObjects, self).__init__(iterable)
+        super(TObjectList, self).__init__(iterable)
 
     def append(self, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).append(item)
+        super(TObjectList, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
             assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).extend(iterable)
+        super(TObjectList, self).extend(iterable)
 
     def insert(self, index, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).insert(index, item)
+        super(TObjectList, self).insert(index, item)
 
-setattr(RoboCompVisualElements, "TObjects", TObjects)
+setattr(RoboCompVisualElements, "TObjectList", TObjectList)
 
 import visualelementsI
 import segmentatortrackingpubI

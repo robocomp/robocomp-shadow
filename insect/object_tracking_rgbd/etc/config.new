@@ -1,14 +1,14 @@
 # Endpoints for implements interfaces
-VisualElements.Endpoints=tcp -p 15853
+VisualElements.Endpoints=tcp -p 12498
 
 
 # Endpoints for subscriptions interfaces
-SegmentatorTrackingPubTopic.Endpoints=tcp -p 12370
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 10417
 
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 14221
-Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 15483
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 14940
+Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 15230
 
 
 
