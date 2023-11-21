@@ -4,8 +4,8 @@ CommonBehavior.Endpoints=tcp -p 10000
 Camera360RGBD.Endpoints=tcp -p 10099
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
+Camera360RGBProxy = camera360rgb:tcp -h 192.168.50.240 -p 10097
+Lidar3DProxy = lidar3d:tcp -h 192.168.50.240 -p 11990
 
 
 

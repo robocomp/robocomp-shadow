@@ -120,8 +120,7 @@ void SpecificWorker::compute()
     // std::cout << "2" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
 
-    capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
-
+    // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
     int timestamp_diff = 999999999;
     int chosen_rgb, chosen_lidar;
     bool exists_data = false;
@@ -187,6 +186,7 @@ void SpecificWorker::compute()
         swap_mutex.lock();
             rgb_image.copyTo(rgb_frame_write);
             depth_image.copyTo(depth_frame_write);
+            capture_time = chosen_rgb_data.alivetime;
         swap_mutex.unlock();
 
         lidar_queue.clean_old(chosen_lidar);
