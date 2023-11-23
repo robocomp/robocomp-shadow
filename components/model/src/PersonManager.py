@@ -13,7 +13,7 @@ class PersonManager:
         self.M = 15 #Número de frames pre-inserción persona.
         self.N = 10  # Número de muestras a mantener
 
-        self.last_seen = {}  # Nuevo: Registro del último momento en que se vio a cada persona
+        self.last_seen = {}  # Nuevo: Registro del  último momento en que se vio a cada persona
         self.disappearance_time = 4.5  # Tiempo en segundos para considerar desaparecida a una persona
 
     def add_person(self, person_name, position, orientation, size):

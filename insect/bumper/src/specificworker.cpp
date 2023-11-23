@@ -203,7 +203,7 @@ void SpecificWorker::compute()
         target.print("FINAL");
         float adv = target.y;
         float side = target.x;
-        float rot = 0;
+        float rot = atan2( target.x, target.y) * 1.3;  // dumps rotation for small resultant force;
         robot_current_speed = {adv, side};
         try
         {

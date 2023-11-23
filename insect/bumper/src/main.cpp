@@ -133,11 +133,29 @@ int ::bumper::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
+	RoboCompPerson::PersonPrxPtr person_proxy;
 
 	string proxy, tmp;
 	initialize();
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "Camera360RGBProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Camera360RGBProxy\n";
+		}
+		camera360rgb_proxy = Ice::uncheckedCast<RoboCompCamera360RGB::Camera360RGBPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Camera360RGB: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("Camera360RGBProxy initialized Ok!");
+
 
 	try
 	{
@@ -171,6 +189,22 @@ int ::bumper::run(int argc, char* argv[])
 	rInfo("OmniRobotProxy initialized Ok!");
 
 
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "PersonProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy PersonProxy\n";
+		}
+		person_proxy = Ice::uncheckedCast<RoboCompPerson::PersonPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Person: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("PersonProxy initialized Ok!");
+
+
 	IceStorm::TopicManagerPrxPtr topicManager;
 	try
 	{
@@ -188,7 +222,7 @@ int ::bumper::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(lidar3d_proxy,omnirobot_proxy);
+	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy,person_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

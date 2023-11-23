@@ -167,7 +167,7 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 50
             self.display = False
             
-            self.yolo_model_name = 'yolov8n-seg.engine'
+            self.yolo_model_name = 'yolov8x-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
             
             self.model_v8 = YOLO(self.yolo_model_name)
@@ -235,7 +235,7 @@ class SpecificWorker(GenericWorker):
             
             # ID to track
             self.tracked_element = None
-            self.tracked_id = None
+            self.tracked_id = -1
             
             # Last error between the actual and the required ROIs for derivative control
             self.last_ROI_error = 0
@@ -266,7 +266,8 @@ class SpecificWorker(GenericWorker):
             self.inference_execution_thread = Thread(target=self.inference_thread, args=[self.event],
                                       name="inference_read_queue", daemon=True)
             self.inference_execution_thread.start()
-            
+
+            self.inference_started = False
             
             #TRACKER
             self.tracker = HashTracker(frame_rate=20)
@@ -306,17 +307,9 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
-        # data_360 = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
-        # color = np.frombuffer(data_360.rgb, dtype=np.uint8).reshape(data_360.height, data_360.width, 3)
-        # depth = np.frombuffer(data_360.depth, dtype=np.float32).reshape(data_360.height, data_360.width, 3)
-        # img_int = color.astype('float32') / 255.0
-        # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
-        
-        # cv2.imshow("ROI", image_comp)
-        # cv2.waitKey(1)
-        # print("Compute execution...")
-
+        print("compute")
         if self.inference_read_queue:
+            print("self.tracked_id", self.tracked_id)
             out_v8, orientation_bboxes, orientations, img0, delta, alive_time, period, roi, depth = self.inference_read_queue.pop()
             people, objects = self.get_segmentator_data(out_v8, img0, depth)
             matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
@@ -335,11 +328,11 @@ class SpecificWorker(GenericWorker):
 
             self.objects_write = self.to_visualelements_interface(tracks, roi, alive_time)
             print("TIMESTAMPS:", self.objects_write.timestampimage, self.objects_write.timestampgenerated, "DIFFERENCE", self.objects_write.timestampimage - self.objects_write.timestampgenerated)
-            if self.tracked_id is not None:
+            if self.tracked_id != -1:
                 self.set_roi_dimensions(self.objects_write)
 
             self.objects_write, self.objects_read = self.objects_read, self.objects_write
-
+            self.inference_started = True
                 # If display is enabled, show the tracking results on the image
             if self.display:
                 img = self.display_data_tracks(img0, self.objects_read.objects)
@@ -351,7 +344,6 @@ class SpecificWorker(GenericWorker):
 
             # Show FPS and handle Keyboard Interruption
             try:
-                
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
@@ -536,7 +528,7 @@ class SpecificWorker(GenericWorker):
             # print("OBJECT X", object_.x)
             # print("OBJECT Y", object_.y)
             objects.append(object_)
-        visual_elements = ifaces.RoboCompVisualElements.TObjects(timestampimage=image_timestamp, timestampgenerated=time.time() * 1000, period=self.Period, objects=objects)
+        visual_elements = ifaces.RoboCompVisualElements.TObjects(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=objects)
         return visual_elements
 
     def mask_to_TImage(self, mask, roi):
@@ -702,7 +694,7 @@ class SpecificWorker(GenericWorker):
                 return
         
         self.tracked_element = None
-        self.tracked_id = None
+        self.tracked_id = -1
         self.target_roi_xcenter = self.rgb_original.width // 2
         self.target_roi_ycenter = self.rgb_original.height // 2
         self.target_roi_xsize = self.rgb_original.width // 2
@@ -780,7 +772,9 @@ class SpecificWorker(GenericWorker):
     #
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     #
-    def VisualElements_getVisualObjects(self, objects):
+    def VisualElements_getVisualObjects(self):
+        if not self.inference_started:
+            return ifaces.RoboCompVisualObjects.TObjects()
         return self.objects_read
     # ===================================================================
     # ===================================================================
@@ -789,22 +783,26 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
+        print("######################")
+        print("######################")
+        print("######################")
+        print("######################")
         self.tracker.set_chosen_track(track.id)
         if track.id == -1:
             self.tracked_element = None
-            self.tracked_id = None
+            self.tracked_id = -1
             self.target_roi_xcenter = self.rgb_original.width // 2
             self.target_roi_ycenter = self.rgb_original.height // 2
             self.target_roi_xsize = self.rgb_original.width // 2
             self.target_roi_ysize = self.rgb_original.height
             return
 
-        for track_obj in self.objects_read:
+        for track_obj in self.objects_read.objects:
             if track_obj.id == track.id:
                 self.target_roi_xcenter_list = queue.Queue(10)
                 self.tracked_element = track_obj
                 self.tracked_id = track.id
-                
+
                 return
     def update_plot(self,frame):
         pass
@@ -822,6 +820,20 @@ class SpecificWorker(GenericWorker):
         # plt.subplots_adjust(bottom=0.30)
 
         # return self.ax,
+
+    #
+    # IMPLEMENTATION of setVisualObjects method from VisualElements interface
+    #
+    def VisualElements_setVisualObjects(self, objects):
+    
+        #
+        # write your CODE here
+        #
+        pass
+
+
+    # ===================================================================
+    # ===================================================================
     ######################
     # From the RoboCompByteTrack you can call this methods:
     # self.bytetrack_proxy.allTargets(...)
