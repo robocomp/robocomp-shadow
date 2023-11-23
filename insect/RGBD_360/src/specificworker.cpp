@@ -186,14 +186,14 @@ void SpecificWorker::compute()
         swap_mutex.lock();
             rgb_image.copyTo(rgb_frame_write);
             depth_image.copyTo(depth_frame_write);
-            capture_time = chosen_rgb_data.alivetime;
+//            capture_time = chosen_rgb_data.alivetime;
         swap_mutex.unlock();
 
         lidar_queue.clean_old(chosen_lidar);
         camera_queue.clean_old(chosen_rgb);
         // std::cout << "7" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
     }
-    std::cout << "Compute time " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - cstart).count() << " milli" << std::endl<<std::flush;
+    //std::cout << "Compute time " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - cstart).count() << " milli" << std::endl<<std::flush;
 }
 
 int SpecificWorker::startup_check()
@@ -306,7 +306,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
             }
         }
 
-        std::cout << "For time " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
+       // std::cout << "For time " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
 
 //        if (pars.compressed)
 //        {
@@ -324,7 +324,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
         res.rgbcompressed = false;
         res.depthcompressed = false;
         res.period = fps.get_period();
-        res.alivetime = capture_time;
+        res.alivetime = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
 
         res.rgbchannels = rdst_rgb.channels();
         res.depthchannels = dst.channels();
@@ -332,7 +332,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
         res.width = rdst_rgb.cols;
         res.roi = RoboCompCamera360RGBD::TRoi{.xcenter=cx, .ycenter=cy, .xsize=sx, .ysize=sy, .finalxsize=res.width, .finalysize=res.height};
     }
-    std::cout << "Time expended " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() << " milli" << std::endl<<std::flush;
+    //std::cout << "Time expended " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() << " milli" << std::endl<<std::flush;
 
     return res;
 

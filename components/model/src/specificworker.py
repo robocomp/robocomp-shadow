@@ -68,7 +68,7 @@ class TObject:
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 30
+        self.Period = 50
 
         if startup_check:
             self.startup_check()
@@ -98,13 +98,16 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        t1= time.time()
+        t1 = time.time()
         try:
-            self.objects = self.visualelements_proxy.getVisualObjects(self.objects)
+            t2 = time.time()
+            self.visual_element = self.visualelements_proxy.getVisualObjects()
+
+            print(time.time() * 1000 - self.visual_element.timestampgenerated)
         except:
             print("Proxy error")
-        t2= time.time()
-        self.update_simulation(self.objects, 1)
+
+        self.update_simulation(self.visual_element.objects, 1)
         t3 = time.time()
         p.stepSimulation()
         t4 = time.time()
@@ -200,11 +203,12 @@ class SpecificWorker(GenericWorker):
     ######################
     # From the RoboCompVisualElements you can call this methods:
     # self.visualelements_proxy.getVisualObjects(...)
+    # self.visualelements_proxy.setVisualObjects(...)
 
     ######################
     # From the RoboCompVisualElements you can use this types:
     # RoboCompVisualElements.TRoi
     # RoboCompVisualElements.TObject
-
+    # RoboCompVisualElements.TObjects
 
 

@@ -155,6 +155,7 @@ void SpecificWorker::compute()
         Eigen::Vector2f gains{0.8, 0.8};
         force = force.cwiseProduct(gains);
         float rot = atan2(force.x(), force.y()) * sigmoid(force.norm()) - 0.9*current_servo_angle;  // dumps rotation for small resultant force
+        std::cout<<"ROT" << rot << std::endl;
         float adv = force.y() ;
         float side = force.x() ;
         omnirobot_proxy->setSpeedBase(side, adv, rot);

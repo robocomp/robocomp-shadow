@@ -74,7 +74,7 @@ setInterval(function() {
             });
         }
     });
-}, 1000);
+}, 50);
 
 // Manejar el evento de clic
 // Manejar el evento de clic

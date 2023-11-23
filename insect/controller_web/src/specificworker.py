@@ -195,11 +195,11 @@ class SpecificWorker(GenericWorker):
             for b in self.boxes:
                 if b.id == box.get('id'):
                     self.target = b.id
-
+            print("########### CHOSEN ID :", self.target)
             return jsonify({'status': 'success'})
         
         #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.114', 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.240', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
@@ -224,22 +224,19 @@ class SpecificWorker(GenericWorker):
 
         try:
             self.labels = []
-            self.boxes = self.visualelements_proxy.getVisualObjects([])
+            self.visual_elements = self.visualelements_proxy.getVisualObjects()
+            self.boxes = self.visual_elements.objects
             boxes = self.adapt_bbox(self.boxes, image)
         except:
             print("No Objects")
 
+        target = ifaces.RoboCompVisualElements.TObject()
+        target.id = self.target
         for b in self.boxes:
             if b.id == self.target:
                 target = b
-                
         try:
-            if target != -1:
-                self.segmentatortrackingpub_proxy.setTrack((target))
-            else:
-                target = ifaces.RoboCompVisualElements.TObject()
-                target.id = -1
-                self.segmentatortrackingpub_proxy.setTrack(target)
+            self.segmentatortrackingpub_proxy.setTrack(target)
 
         except Ice.Exception as e:
             traceback.print_exc()
