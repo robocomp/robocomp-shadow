@@ -1,0 +1,15 @@
+import "VisualElements.idsl";
+import "SegmentatorTrackingPub.idsl";
+
+Component object_tracking
+{
+    Communications
+    {
+        requires VisualElements, VisualElements;
+        implements VisualElements;
+        subscribesTo SegmentatorTrackingPub;
+    };
+    language python;
+};
+
+
