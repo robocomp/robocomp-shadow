@@ -1,0 +1,10 @@
+import "VisualElements.idsl";
+Component model_pybullet
+{
+    Communications
+    {
+    };
+    language python;
+
+};
+
