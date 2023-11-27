@@ -31,6 +31,11 @@ import SVD48V
 
 console = Console(highlight=False)
 
+try:
+    import setproctitle
+    setproctitle.setproctitle(os.path.basename(os.getcwd()))
+except:
+    pass
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
