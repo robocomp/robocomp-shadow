@@ -24,13 +24,13 @@ from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-
 import pybullet as p
 import time
 import pybullet_data
 import math
 from PersonManager import PersonManager
-
+import numpy as np
+import lap
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
@@ -108,6 +108,9 @@ class SpecificWorker(GenericWorker):
             print("Proxy error")
 
         self.update_simulation(self.visual_element.objects, 1)
+
+        #self.process_errors(self.visual_element.objects, self.VisualObjectsSynth)
+
         t3 = time.time()
         p.stepSimulation()
         t4 = time.time()
@@ -115,13 +118,7 @@ class SpecificWorker(GenericWorker):
 
         return True
 
-    def startup_check(self):
-        print(f"Testing RoboCompVisualElements.TRoi from ifaces.RoboCompVisualElements")
-        test = ifaces.RoboCompVisualElements.TRoi()
-        print(f"Testing RoboCompVisualElements.TObject from ifaces.RoboCompVisualElements")
-        test = ifaces.RoboCompVisualElements.TObject()
-        QTimer.singleShot(200, QApplication.instance().quit)
-
+    ######################### UTILS #################################
     def update_simulation(self, received_objects, k):
 
         received_ids = set(obj.id for obj in received_objects)
@@ -177,6 +174,55 @@ class SpecificWorker(GenericWorker):
             if simulated_obj.id not in received_ids:
                 self.person_manager.apply_last_velocity(simulated_obj.id)
 
+    ######################### UPDATE 2 #################################
+    # We assume that real_objects do not have usable ids
+    # there are phantom objects in the pred_synth_objects lists, marked with a flag,
+    # that are not yet accepted to the model
+    def process_errors(self, real_objects, pred_synth_objects):
+        # compute differences between real_objects and pred_synth_objects
+
+        # start comparing real_objects and pred_synth_objects using the Hungarian algorithm
+        # using the simplest metric: 3d distance  ||(x,y,z) - (x',y',z')||
+        rows = len(real_objects)
+        cols = len(pred_synth_objects)
+        cost_mat = np.zeros((rows,cols))
+        for i in range(rows):
+            for j in range(cols):
+                cost_mat[i, j] = np.linalg.norm(real_objects[i].x - pred_synth_objects[j].x, real_objects[i].y - pred_synth_objects[j].y, real_objects[i].z - pred_synth_objects[j].z)
+        cost, assigned_rows, assigned_cols = lap.lapjv(cost_mat, extend_cost=True, cost_limit=500) # mm away from each other
+        # y is a size-cols array specifying to which real_object each synth_object is assigned or -1 if it is not assigned
+        # cost_limit: double An upper limit for a cost of a single assignment.Default: `np.inf`.
+        # details of lap in https: // github.com / gatagat / lap / blob / master / lap / _lapjv.pyx
+
+        # MATCH stage
+        # create a new list with the matched matched_pred_synth_objects and their corresponding real object
+        # create a new list of unmatched_pred_synth_objects to be processed later
+        matched_pred_synth_objects = []
+        unmatched_pred_synth_objects = []
+        for j in range(cols):
+            if assigned_cols[j] != -1:
+                matched_pred_synth_objects.append([pred_synth_objects[j], real_objects[assigned_cols[j]]])
+            else:
+                unmatched_pred_synth_objects.append(pred_synth_objects[j])
+        # update model with the computed errors
+        # if the matched object is a phantom object, add 1 to the hit counter. If the hit counter is > M, add the object to the model_insertion_list
+        # create a new list of real_objects with the remaining UNMATCHED: unmatched_real_objects
+        unmatched_real_objects = []
+        for i in range(rows):
+            if assigned_rows[i] == -1:
+                unmatched_real_objects.append(real_objects[assigned_rows[i]])
+
+        # ADD NEW OBJECTS stage
+        # for each unmatched_real_object, add a new phantom object to the phantom_insertion_list
+        # and initialize its hit counter to 1
+
+        # REMOVE OLD OBJECTS stage
+        # for each unmatched_pred_synth_object, if it is not a phantom object, add 1 to its miss counter.
+            # If the miss counter is > M, add to the removal list
+        # for each unmatched_pred_synth_object, if it is a phantom object, add object to the removal list
+
+        # UPDATE PyBullet model processing the matched_pred_synth_objects, phantomn_insertion_list and removal_list
+        pass
 
     def calculate_velocity(self, simulated_obj, received_obj, k):
         # Calcula la diferencia de posición en cada eje
@@ -190,7 +236,6 @@ class SpecificWorker(GenericWorker):
         velocity_z = k * dz
 
         return [velocity_x, velocity_y, velocity_z]
-
 
     def rotation_z_to_quaternion(self, theta):
         # Calcular los componentes del cuaternión
@@ -211,4 +256,10 @@ class SpecificWorker(GenericWorker):
     # RoboCompVisualElements.TObject
     # RoboCompVisualElements.TObjects
 
-
+    ######################
+     def startup_check(self):
+            print(f"Testing RoboCompVisualElements.TRoi from ifaces.RoboCompVisualElements")
+            test = ifaces.RoboCompVisualElements.TRoi()
+            print(f"Testing RoboCompVisualElements.TObject from ifaces.RoboCompVisualElements")
+            test = ifaces.RoboCompVisualElements.TObject()
+            QTimer.singleShot(200, QApplication.instance().quit)
