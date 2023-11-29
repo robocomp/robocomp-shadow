@@ -86,6 +86,7 @@ using TJoints = ::std::map<int, KeyPoint>;
 struct TPerson
 {
     int id;
+    float orientation;
     ::RoboCompPerson::TJoints joints;
     long long int timestamp;
 
@@ -93,9 +94,9 @@ struct TPerson
      * Obtains a tuple containing all of the struct's data members.
      * @return The data members in a tuple.
      */
-    std::tuple<const int&, const ::RoboCompPerson::TJoints&, const long long int&> ice_tuple() const
+    std::tuple<const int&, const float&, const ::RoboCompPerson::TJoints&, const long long int&> ice_tuple() const
     {
-        return std::tie(id, joints, timestamp);
+        return std::tie(id, orientation, joints, timestamp);
     }
 };
 
@@ -328,7 +329,7 @@ template<>
 struct StreamableTraits<::RoboCompPerson::TPerson>
 {
     static const StreamHelperCategory helper = StreamHelperCategoryStruct;
-    static const int minWireSize = 13;
+    static const int minWireSize = 17;
     static const bool fixedLength = false;
 };
 
@@ -337,7 +338,7 @@ struct StreamReader<::RoboCompPerson::TPerson, S>
 {
     static void read(S* istr, ::RoboCompPerson::TPerson& v)
     {
-        istr->readAll(v.id, v.joints, v.timestamp);
+        istr->readAll(v.id, v.orientation, v.joints, v.timestamp);
     }
 };
 
@@ -443,6 +444,7 @@ typedef ::std::map< ::Ice::Int, KeyPoint> TJoints;
 struct TPerson
 {
     ::Ice::Int id;
+    ::Ice::Float orientation;
     ::RoboCompPerson::TJoints joints;
     ::Ice::Long timestamp;
 };
@@ -831,7 +833,7 @@ template<>
 struct StreamableTraits< ::RoboCompPerson::TPerson>
 {
     static const StreamHelperCategory helper = StreamHelperCategoryStruct;
-    static const int minWireSize = 13;
+    static const int minWireSize = 17;
     static const bool fixedLength = false;
 };
 
@@ -841,6 +843,7 @@ struct StreamWriter< ::RoboCompPerson::TPerson, S>
     static void write(S* ostr, const ::RoboCompPerson::TPerson& v)
     {
         ostr->write(v.id);
+        ostr->write(v.orientation);
         ostr->write(v.joints);
         ostr->write(v.timestamp);
     }
@@ -852,6 +855,7 @@ struct StreamReader< ::RoboCompPerson::TPerson, S>
     static void read(S* istr, ::RoboCompPerson::TPerson& v)
     {
         istr->read(v.id);
+        istr->read(v.orientation);
         istr->read(v.joints);
         istr->read(v.timestamp);
     }

@@ -257,7 +257,7 @@ class SpecificWorker(GenericWorker):
     # RoboCompVisualElements.TObjects
 
     ######################
-     def startup_check(self):
+    def startup_check(self):
             print(f"Testing RoboCompVisualElements.TRoi from ifaces.RoboCompVisualElements")
             test = ifaces.RoboCompVisualElements.TRoi()
             print(f"Testing RoboCompVisualElements.TObject from ifaces.RoboCompVisualElements")

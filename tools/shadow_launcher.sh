@@ -35,16 +35,23 @@ qdbus org.kde.yakuake /yakuake/tabs setTabTitle 7 "Controller"
 
 SESSION_ID_8=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 TERMINAL_ID_8=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 8)
-qdbus org.kde.yakuake /yakuake/tabs setTabTitle 8 "Bumper"
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 8 "Grid"
 
 SESSION_ID_9=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 TERMINAL_ID_9=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 9)
-qdbus org.kde.yakuake /yakuake/tabs setTabTitle 9 "Plot"
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 9 "DWA"
 
 SESSION_ID_10=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
-TERMINAL_ID_10=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 9)
-qdbus org.kde.yakuake /yakuake/tabs setTabTitle 10 "Model"
+TERMINAL_ID_10=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 10)
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 10 "Bumper"
 
+SESSION_ID_11=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+TERMINAL_ID_11=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 11)
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 11 "Plot"
+
+SESSION_ID_12=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+TERMINAL_ID_12=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 12)
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 12 "Model"
 
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 python3"
@@ -62,7 +69,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "bin/Webots2Roboc
 # Camera
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "cd ~/robocomp/components/robocomp-robolab/components/hardware/camera/ricoh_omni"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "bin/RicohOmni etc/config"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "bin/RicohOmni etc/config_wb"
 
 sleep 3
 
@@ -79,7 +86,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "bin/Lidar3D etc/
 
 #360RGBD
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cd ~/robocomp/components/robocomp-shadow/insect/RGBD_360"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cd ~s/robocomp/components/robocomp-shadow/insect/RGBD_360"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "bin/RGBD_360 etc/config_wb"
 
 #object
@@ -92,18 +99,27 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "src/object_track
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "cd ~/robocomp/components/robocomp-shadow/insect/controller_web"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "src/controller.py etc/config"
 
+#Grid
+
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cd ~/robocomp/components/robocomp-shadow/insect/grid_planner"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "bin/grid_planner etc/config"
+
+#DWA
+
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "cd ~/robocomp/components/robocomp-shadow/insect/dwa"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "src/dwa.py etc/config"
+
 #Bumper
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cd ~/robocomp/components/robocomp-shadow/insect/bumper"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "bin/bumper etc/config"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cd ~/robocomp/components/robocomp-shadow/insect/bumper"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/bumper etc/config"
 
 #Plot
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "cd ~/robocomp/components/robocomp-shadow/components/objects_plot"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "src/objectsplot.py etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "cd ~/robocomp/components/robocomp-shadow/components/objects_plot"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "src/objectsplot.py etc/config_wb"
 
 #Model
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cd ~/robocomp/components/robocomp-shadow/components/model"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "src/model.py etc/config_wb"
-
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "cd ~/robocomp/components/robocomp-shadow/components/model"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "src/model.py etc/config_wb"
 
 

@@ -56,16 +56,7 @@ class SpecificWorker : public GenericWorker
 		~SpecificWorker();
 		bool setParams(RoboCompCommonBehavior::ParameterList params);
 
-		void OmniRobot_correctOdometer(int x, int z, float alpha);
-		void OmniRobot_getBasePose(int &x, int &z, float &alpha);
-		void OmniRobot_getBaseState(RoboCompGenericBase::TBaseState &state);
-		void OmniRobot_resetOdometer();
-		void OmniRobot_setOdometer(RoboCompGenericBase::TBaseState state);
-		void OmniRobot_setOdometerPose(int x, int z, float alpha);
-		void OmniRobot_setSpeedBase(float advx, float advz, float rot);
-		void OmniRobot_stopBase();
-
-		void SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TObject target);
+		void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
 
 	public slots:
 		void compute();

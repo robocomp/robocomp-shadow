@@ -62,8 +62,8 @@ class SpecificWorker : public GenericWorker
         Grid grid;
         int grid_widht = 8000;
         int grid_length = 10000;
-        int back_distance = 2000;
-        int tile_size = 100;
+        int back_distance = 3000;
+        int tile_size = 50;
 
         float xMin = -grid_widht / 2;
         float xMax = grid_widht / 2;
@@ -95,11 +95,17 @@ class SpecificWorker : public GenericWorker
 
         // Path
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
+        std::vector<Eigen::Vector2f> last_path;
+
+        // Frechet distance calculus
+        float euclideanDistance(const Eigen::Vector2f& a, const Eigen::Vector2f& b);
+        float frechetDistanceUtil(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2, int i, int j, std::vector<std::vector<float>>& dp);
+        float frechetDistance(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2);
 
     RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
                                           float threshold_dist, float threshold_angle);
     void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
-
+    std::optional<Eigen::Vector2f> closest_point_to_target(const QPointF &p);
     bool los_path(QPointF f);
 
     Eigen::Vector2f  border_subtarget(RoboCompVisualElements::TObject target);

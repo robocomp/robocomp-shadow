@@ -211,7 +211,7 @@ class HashTracker(object):
         self.match_thresh = 0.99
         self.match_thresh_following = 0.99
         self.frame_id = 0
-        self.track_thresh = 0.7
+        self.track_thresh = 0.5
         self.det_thresh = self.track_thresh + 0.1
         self.track_buffer = buffer_
         self.buffer_size = int(frame_rate / 30.0 * self.track_buffer)

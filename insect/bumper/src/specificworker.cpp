@@ -107,7 +107,7 @@ void SpecificWorker::compute()
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud<pcl::PointXYZ>);
     for (const auto &[i, p]: ldata.points | iter::enumerate)
     {   // TODO: Check this
-        if (p.r > 100 and p.z < 1000)
+        if (abs(p.x) > 300 and abs(p.y) > 300 and p.z < 1000)
             above_floor_points.emplace_back(p);
         pcl_cloud_source->push_back(pcl::PointXYZ{p.x/1000.f, p.y/1000.f, p.z/1000.f});
     }
@@ -452,17 +452,18 @@ void SpecificWorker::repulsion_force(const RoboCompLidar3D::TData &ldata)
 SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
 {
     Band adjusted;
+    float safety_distance = 200;
 
     // Si x es positivo, aumentamos la distancia frontal y disminuimos la trasera.
     // Si x es negativo, hacemos lo contrario.
     if (velocity.x() >= 0.0f)
     {
-        adjusted.right_distance = std::max(velocity.x()*5,600.0f);
-        adjusted.left_distance = -600.0f;
+        adjusted.right_distance = std::max(velocity.x() / 1000,safety_distance);
+        adjusted.left_distance = -safety_distance;
     } else //if(velocity.x() <= -600.0f)
     {
-        adjusted.right_distance = 600.0f;
-        adjusted.left_distance = std::min(velocity.x()*5,-600.0f);
+        adjusted.right_distance = safety_distance;
+        adjusted.left_distance = std::min(velocity.x() / 1000,-safety_distance);
     }
 //    else
 //    {
@@ -474,12 +475,12 @@ SpecificWorker::Band SpecificWorker::adjustSafetyZone(Eigen::Vector3f velocity)
     // Si y es negativo, hacemos lo contrario.
     if (velocity.y() >= 0.0f)
     {
-        adjusted.frontal_distance = std::max(velocity.y()*5,600.0f);
-        adjusted.back_distance = -600.0f;
+        adjusted.frontal_distance = std::max(velocity.y() / 1000,safety_distance);
+        adjusted.back_distance = -safety_distance;
     } else //if(velocity.y() <= -600.0f)
     {
-        adjusted.frontal_distance = 600.0f;
-        adjusted.back_distance = std::min(velocity.y()*5,-600.0f);
+        adjusted.frontal_distance = safety_distance;
+        adjusted.back_distance = std::min(velocity.y() / 1000,-safety_distance);
     }
 //    else
 //    {
@@ -805,50 +806,12 @@ void SpecificWorker::self_adjust_period(int new_period)
 }
 
 //////////////////////////// Interfaces //////////////////////////////////////////
-void SpecificWorker::OmniRobot_correctOdometer(int x, int z, float alpha)
+void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 {
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_getBasePose(int &x, int &z, float &alpha)
-{
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_getBaseState(RoboCompGenericBase::TBaseState &state)
-{
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_resetOdometer()
-{
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_setOdometer(RoboCompGenericBase::TBaseState state)
-{
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_setOdometerPose(int x, int z, float alpha)
-{
-//implementCODE
-
-}
-void SpecificWorker::OmniRobot_setSpeedBase(float advx, float advz, float rot)
-{
-//     Todo: Check range of input values. adv x comes as advance
-    buffer_dwa.put(std::make_tuple(advz, advx, rot, false));
-}
-void SpecificWorker::OmniRobot_stopBase()
-{
-//implementCODE
-
-}
-//SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
-void SpecificWorker::SegmentatorTrackingPub_setTrack(RoboCompVisualElements::TObject target)
-{
-    buffer_dwa.put(std::make_tuple(target.x, target.y, 0, false)); // not rebug
+    if(plan.valid) // Possible failure variable
+    {
+        buffer_dwa.put(std::make_tuple(plan.subtarget.x, plan.subtarget.y, 0, false));
+    }
 }
 void SpecificWorker::new_mouse_coordinates(QPointF p)
 {

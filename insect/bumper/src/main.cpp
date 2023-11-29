@@ -81,11 +81,9 @@
 #include "specificmonitor.h"
 #include "commonbehaviorI.h"
 
-#include <omnirobotI.h>
-#include <segmentatortrackingpubI.h>
+#include <gridplannerI.h>
 
 #include <GenericBase.h>
-#include <VisualElements.h>
 
 
 
@@ -205,23 +203,6 @@ int ::bumper::run(int argc, char* argv[])
 	rInfo("PersonProxy initialized Ok!");
 
 
-	IceStorm::TopicManagerPrxPtr topicManager;
-	try
-	{
-		topicManager = topicManager = Ice::checkedCast<IceStorm::TopicManagerPrx>(communicator()->propertyToProxy("TopicManager.Proxy"));
-		if (!topicManager)
-		{
-		    cout << "[" << PROGRAM_NAME << "]: TopicManager.Proxy not defined in config file."<<endl;
-		    cout << "	 Config line example: TopicManager.Proxy=IceStorm/TopicManager:default -p 9999"<<endl;
-	        return EXIT_FAILURE;
-		}
-	}
-	catch (const Ice::Exception &ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception: 'rcnode' not running: " << ex << endl;
-		return EXIT_FAILURE;
-	}
-
 	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy,person_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
@@ -264,65 +245,18 @@ int ::bumper::run(int argc, char* argv[])
 		try
 		{
 			// Server adapter creation and publication
-			if (not GenericMonitor::configGetString(communicator(), prefix, "OmniRobot.Endpoints", tmp, ""))
+			if (not GenericMonitor::configGetString(communicator(), prefix, "GridPlanner.Endpoints", tmp, ""))
 			{
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy OmniRobot";
+				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridPlanner";
 			}
-			Ice::ObjectAdapterPtr adapterOmniRobot = communicator()->createObjectAdapterWithEndpoints("OmniRobot", tmp);
-			auto omnirobot = std::make_shared<OmniRobotI>(worker);
-			adapterOmniRobot->add(omnirobot, Ice::stringToIdentity("omnirobot"));
-			adapterOmniRobot->activate();
-			cout << "[" << PROGRAM_NAME << "]: OmniRobot adapter created in port " << tmp << endl;
+			Ice::ObjectAdapterPtr adapterGridPlanner = communicator()->createObjectAdapterWithEndpoints("GridPlanner", tmp);
+			auto gridplanner = std::make_shared<GridPlannerI>(worker);
+			adapterGridPlanner->add(gridplanner, Ice::stringToIdentity("gridplanner"));
+			adapterGridPlanner->activate();
+			cout << "[" << PROGRAM_NAME << "]: GridPlanner adapter created in port " << tmp << endl;
 		}
 		catch (const IceStorm::TopicExists&){
-			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for OmniRobot\n";
-		}
-
-
-		// Server adapter creation and publication
-		std::shared_ptr<IceStorm::TopicPrx> segmentatortrackingpub_topic;
-		Ice::ObjectPrxPtr segmentatortrackingpub;
-		try
-		{
-			if (not GenericMonitor::configGetString(communicator(), prefix, "SegmentatorTrackingPubTopic.Endpoints", tmp, ""))
-			{
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy SegmentatorTrackingPubProxy";
-			}
-			Ice::ObjectAdapterPtr SegmentatorTrackingPub_adapter = communicator()->createObjectAdapterWithEndpoints("segmentatortrackingpub", tmp);
-			RoboCompSegmentatorTrackingPub::SegmentatorTrackingPubPtr segmentatortrackingpubI_ =  std::make_shared <SegmentatorTrackingPubI>(worker);
-			auto segmentatortrackingpub = SegmentatorTrackingPub_adapter->addWithUUID(segmentatortrackingpubI_)->ice_oneway();
-			if(!segmentatortrackingpub_topic)
-			{
-				try {
-					segmentatortrackingpub_topic = topicManager->create("SegmentatorTrackingPub");
-				}
-				catch (const IceStorm::TopicExists&) {
-					//Another client created the topic
-					try{
-						cout << "[" << PROGRAM_NAME << "]: Probably other client already opened the topic. Trying to connect.\n";
-						segmentatortrackingpub_topic = topicManager->retrieve("SegmentatorTrackingPub");
-					}
-					catch(const IceStorm::NoSuchTopic&)
-					{
-						cout << "[" << PROGRAM_NAME << "]: Topic doesn't exists and couldn't be created.\n";
-						//Error. Topic does not exist
-					}
-				}
-				catch(const IceUtil::NullHandleException&)
-				{
-					cout << "[" << PROGRAM_NAME << "]: ERROR TopicManager is Null. Check that your configuration file contains an entry like:\n"<<
-					"\t\tTopicManager.Proxy=IceStorm/TopicManager:default -p <port>\n";
-					return EXIT_FAILURE;
-				}
-				IceStorm::QoS qos;
-				segmentatortrackingpub_topic->subscribeAndGetPublisher(qos, segmentatortrackingpub);
-			}
-			SegmentatorTrackingPub_adapter->activate();
-		}
-		catch(const IceStorm::NoSuchTopic&)
-		{
-			cout << "[" << PROGRAM_NAME << "]: Error creating SegmentatorTrackingPub topic.\n";
-			//Error. Topic does not exist
+			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for GridPlanner\n";
 		}
 
 
@@ -337,16 +271,6 @@ int ::bumper::run(int argc, char* argv[])
 		#endif
 		// Run QT Application Event Loop
 		a.exec();
-
-		try
-		{
-			std::cout << "Unsubscribing topic: segmentatortrackingpub " <<std::endl;
-			segmentatortrackingpub_topic->unsubscribe( segmentatortrackingpub );
-		}
-		catch(const Ice::Exception& ex)
-		{
-			std::cout << "ERROR Unsubscribing topic: segmentatortrackingpub " << ex.what()<<std::endl;
-		}
 
 
 		status = EXIT_SUCCESS;

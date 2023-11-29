@@ -1,16 +1,15 @@
 import "Lidar3D.idsl";
-import "OmniRobot.idsl";
-import "SegmentatorTrackingPub.idsl";
 import "Camera360RGB.idsl";
 import "Person.idsl";
+import "GridPlanner.idsl";
+import "OmniRobot.idsl";
 
 Component bumper
 {
     Communications
     {
-	implements OmniRobot;
-        requires Lidar3D, OmniRobot, Camera360RGB, Person;
-        subscribesTo SegmentatorTrackingPub;
+	    implements GridPlanner;
+        requires Lidar3D, Camera360RGB, Person, OmniRobot;
     };
     language Cpp11;
     gui Qt(QWidget);

@@ -229,7 +229,8 @@ def pose_distance(atracks, btracks):
 
 def poses(atlbrs, btlbrs):
     # Sigmoid data d=distance k= transition constant
-    d = 850
+    # d = 850
+    d = 3000
     k = 3
     # Inicializar matriz de ceros
     poses = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float64)
@@ -250,7 +251,7 @@ def poses(atlbrs, btlbrs):
     # # Aplicar la función sigmoide invertida
     # sigmoid_matrix = 1 / (1 + np.exp(exp_arg))
 
-    return np.clip(poses_matrix, 0, 1000) / 1000
+    return np.clip(poses_matrix, 0, d) / d
 
     # return 1 - sigmoid_matrix
 

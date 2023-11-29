@@ -613,7 +613,35 @@ class SpecificWorker(GenericWorker):
         else:
             self.grid_target = None
 
- ######################
+    ######################
+    # From the RoboCompLidar3D you can call this methods:
+    # self.lidar3d_proxy.getLidarData(...)
+    # self.lidar3d_proxy.getLidarDataArrayProyectedInImage(...)
+    # self.lidar3d_proxy.getLidarDataProyectedInImage(...)
+    # self.lidar3d_proxy.getLidarDataWithThreshold2d(...)
+
+    ######################
+    # From the RoboCompLidar3D you can use this types:
+    # RoboCompLidar3D.TPoint
+    # RoboCompLidar3D.TDataImage
+    # RoboCompLidar3D.TData
+
+    ######################
+    # From the RoboCompOmniRobot you can call this methods:
+    # self.omnirobot_proxy.correctOdometer(...)
+    # self.omnirobot_proxy.getBasePose(...)
+    # self.omnirobot_proxy.getBaseState(...)
+    # self.omnirobot_proxy.resetOdometer(...)
+    # self.omnirobot_proxy.setOdometer(...)
+    # self.omnirobot_proxy.setOdometerPose(...)
+    # self.omnirobot_proxy.setSpeedBase(...)
+    # self.omnirobot_proxy.stopBase(...)
+
+    ######################
+    # From the RoboCompOmniRobot you can use this types:
+    # RoboCompOmniRobot.TMechParams
+
+    ######################
     # From the RoboCompGridPlanner you can use this types:
     # RoboCompGridPlanner.TPoint
     # RoboCompGridPlanner.TPlan

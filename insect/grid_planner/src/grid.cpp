@@ -860,6 +860,8 @@ std::optional<QPointF> Grid::closest_free_4x4(const QPointF &p)
         return (L1.size() == 16);
     });
 }
+
+
 std::tuple<bool, QVector2D> Grid::vectorToClosestObstacle(QPointF center)
 {
     auto k = pointToKey(center.x(), center.y());

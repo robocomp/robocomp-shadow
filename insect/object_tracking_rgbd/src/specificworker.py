@@ -307,9 +307,7 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
-        print("compute")
         if self.inference_read_queue:
-            print("self.tracked_id", self.tracked_id)
             out_v8, orientation_bboxes, orientations, img0, delta, alive_time, period, roi, depth = self.inference_read_queue.pop()
             people, objects = self.get_segmentator_data(out_v8, img0, depth)
             matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
@@ -774,7 +772,7 @@ class SpecificWorker(GenericWorker):
     #
     def VisualElements_getVisualObjects(self):
         if not self.inference_started:
-            return ifaces.RoboCompVisualObjects.TObjects()
+            return ifaces.RoboCompVisualElements.TObjects()
         return self.objects_read
     # ===================================================================
     # ===================================================================
@@ -783,10 +781,6 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
-        print("######################")
-        print("######################")
-        print("######################")
-        print("######################")
         self.tracker.set_chosen_track(track.id)
         if track.id == -1:
             self.tracked_element = None

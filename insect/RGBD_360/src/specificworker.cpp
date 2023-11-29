@@ -136,7 +136,7 @@ void SpecificWorker::compute()
             int act_timestamp_diff = abs(rgb.alivetime - lidar.timestamp);
 
 //            std::cout << "timestamp diff: " << act_timestamp_diff << std::endl;
-            if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 30000)
+            if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 300000)
             {
                 timestamp_diff = act_timestamp_diff;
                 chosen_rgb = i;

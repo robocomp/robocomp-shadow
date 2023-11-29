@@ -1,6 +1,6 @@
 # dwa
+Intro to component here
 
-YOu need to copy Person.ice from interfaces because robocompdsl does not generate it
 
 ## Configuration parameters
 As any other component, *dwa* needs a configuration file to start. In
