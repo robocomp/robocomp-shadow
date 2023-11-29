@@ -260,6 +260,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
             rgb_img(cv::Rect(MAX_WIDTH - 1 - abs (cx - (int) (sx / 2)), cy - (int) (sy / 2), abs (cx - (int) (sx / 2)), sy)).copyTo(x_out_image_left_rgb);
             rgb_img(cv::Rect(0, cy - (int) (sy / 2),  cx + (int) (sx / 2), sy)).copyTo(x_out_image_right_rgb);
             cv::hconcat(x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb);
+
             depth_img(cv::Rect(MAX_WIDTH - 1 - abs (cx - (int) (sx / 2)), cy - (int) (sy / 2), abs (cx - (int) (sx / 2)), sy)).copyTo(x_out_image_left_depth);
             depth_img(cv::Rect(0, cy - (int) (sy / 2),  cx + (int) (sx / 2), sy)).copyTo(x_out_image_right_depth);
             cv::hconcat(x_out_image_left_depth, x_out_image_right_depth, dst_depth);
@@ -288,15 +289,17 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 
         float x_ratio = float(dst_depth.cols) / roiwidth;
         float y_ratio = float(dst_depth.rows) / roiheight;
-        
+
+        std::cout << "RATIOS " << x_ratio << " " << y_ratio << std::endl;
+
         // Crear una imagen de destino con las nuevas dimensiones
         cv::Mat dst = cv::Mat::zeros(roiheight, roiwidth, dst_depth.type());
         
         // Escalar y asignar los valores
         for (int y = 0; y < dst_depth.rows; ++y) {
             for (int x = 0; x < dst_depth.cols; ++x) {
-                int newX = cvRound(x * x_ratio);
-                int newY = cvRound(y * y_ratio);
+                int newX = cvRound(x / x_ratio);
+                int newY = cvRound(y / y_ratio);
                 
                 // Asumiendo que la imagen es de tres canales (color)
                 cv::Vec3f value = dst_depth.at<cv::Vec3f>(y, x);
