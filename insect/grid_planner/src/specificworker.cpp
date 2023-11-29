@@ -83,25 +83,41 @@ void SpecificWorker::compute()
     auto points = get_lidar_data();
     qInfo() << points.size() ;
     grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, 7000);
-    std::cout << "Time updating grid 1: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
+//    std::cout << "Time updating grid 1: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
     grid.update_costs(true);
     if (auto target = target_buffer.try_get(); target.has_value())
     {
 //        if(target.active)
 //        {
 
-        std::cout << "Time updating grid 2: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
-        QPointF Qtarget(target->x(),target->y());
+//        std::cout << "Time updating grid 2: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
+        QPointF init_Qtarget(target->x(),target->y());
+        auto closest_point = closest_point_to_target(init_Qtarget);
+        QPointF Qtarget(closest_point->x(),closest_point->y());
 
         if (los_path(Qtarget))
         {
             cout << "PATH BLOCKED" << endl;
-            auto path = grid.compute_path(QPointF(0, 0), Qtarget);
-            std::cout << "Time updating grid 3: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
+            bool path_found = false;
+            std::vector<Eigen::Vector2f> path;
+//            while(not path_found)
+//            {
+//                path = grid.compute_path(QPointF(0, 0), Qtarget);
+//                auto frechet_distance = frechetDistance(path, last_path);
+//                std::cout << "FRECHET DISTANCE: " << frechet_distance << std::endl;
+//
+//                if(frechet_distance < 500)
+//                {
+//                    std::cout << "ENTRAAAAAAAAAAAAaaa" << std::endl;
+//                    path_found = true;
+//                }
+//            }
+            path = grid.compute_path(QPointF(0, 0), Qtarget);
+//            std::cout << "Time updating grid 3: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
             if(not path.empty() and path.size() > 0)
             {
-                auto subtarget = send_path(path, 750, M_PI_4 / 4);
-                std::cout << "Time updating grid 4: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
+                auto subtarget = send_path(path, 650, M_PI_4 / 6);
+//                std::cout << "Time updating grid 4: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
                 draw_path(path, &viewer->scene);
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
@@ -109,12 +125,12 @@ void SpecificWorker::compute()
                 RoboCompGridPlanner::TPlan returning_plan;
                 returning_plan.subtarget = subtarget;
                 returning_plan.valid = true;
-                
+                last_path = path;
                 for (auto &&p : iter::sliding_window(path, 1)){
                     auto point = RoboCompGridPlanner::TPoint(p[0][0], p[0][1]);
                     returning_plan.path.push_back(point);
                 }
-                
+
                 try
                 {
                     gridplanner_proxy->setPlan(returning_plan);
@@ -127,7 +143,6 @@ void SpecificWorker::compute()
                    gridplanner_pubproxy->setPlan(returning_plan);
                 }
                 catch (const Ice::Exception &e) { std::cout << "Error publishing valid plan" << e << std::endl; }
-
             }
             else
             {
@@ -153,12 +168,14 @@ void SpecificWorker::compute()
             t.tick();
             RoboCompGridPlanner::TPlan returning_plan;
             returning_plan.valid = true;
-            returning_plan.subtarget.x = target->x();
-            returning_plan.subtarget.y = target->y();
-            std::cout << "target x,y:" << target->x() << " "<< target->y() << std::endl;
+//            returning_plan.subtarget.x = target->x();
+//            returning_plan.subtarget.y = target->y();
+            returning_plan.subtarget.x = Qtarget.x();
+            returning_plan.subtarget.y = Qtarget.y();
+            std::cout << "target x,y:" << Qtarget.x() << " "<< Qtarget.y() << std::endl;
             std::cout << "returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
 
-            draw_subtarget(Eigen::Vector2f {target->x(), target->y()}, &viewer->scene);
+            draw_subtarget(Eigen::Vector2f {Qtarget.x(), Qtarget.y()}, &viewer->scene);
             try
             {
                 gridplanner_proxy->setPlan(returning_plan);
@@ -195,8 +212,9 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
     std::vector <Eigen::Vector3f> points;
     try {
     	string lidar_name = "bpearl";
-//        auto ldata = lidar3d_proxy->getLidarData(lidar_name, 315, 90, 5);
-        auto ldata = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
+       auto ldata = lidar3d_proxy->getLidarData(lidar_name, 315, 90, 5);
+        // auto ldata = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
+        std::cout << "LIDAR LENGHT: " << ldata.points.size() << std::endl;
         //HELIOS
 //        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
 //        {
@@ -214,7 +232,7 @@ std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
                                          {
                                              float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
                                              return p.z < 1000
-                                                    and dist > 100;
+                                                    and dist > 50 and p.z > 100;
                                          }, ldata.points) | iter::enumerate)
             points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
 
@@ -263,6 +281,7 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
         subtarget.x = p[2].x();
         subtarget.y = p[2].y();
     }
+
 //    qInfo()<< "t.duration"<<t.duration();
 //    if((Eigen::Vector2f{last_subtarget.x,last_subtarget.y}-Eigen::Vector2f{subtarget.x,subtarget.y}).norm()< 600 or t.duration() > 500)
 //    {
@@ -306,6 +325,48 @@ void SpecificWorker::draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene
     subtarget = ptr;
 }
 
+float SpecificWorker::euclideanDistance(const Eigen::Vector2f& a, const Eigen::Vector2f& b)
+{
+    return (a - b).norm();
+}
+
+float SpecificWorker::frechetDistanceUtil(const std::vector<Eigen::Vector2f>& path1,
+                          const std::vector<Eigen::Vector2f>& path2,
+                          int i, int j,
+                          std::vector<std::vector<float>>& dp)
+{
+    if (i == 0 && j == 0) {
+        return euclideanDistance(path1[0], path2[0]);
+    }
+
+    if (i < 0 || j < 0) {
+        return std::numeric_limits<float>::max();
+    }
+
+    if (dp[i][j] != -1) {
+        return dp[i][j];
+    }
+
+    float cost = euclideanDistance(path1[i], path2[j]);
+    float minPrevious = std::min({frechetDistanceUtil(path1, path2, i - 1, j, dp),
+                                  frechetDistanceUtil(path1, path2, i - 1, j - 1, dp),
+                                  frechetDistanceUtil(path1, path2, i, j - 1, dp)});
+
+    dp[i][j] = std::max(cost, minPrevious);
+    return dp[i][j];
+}
+
+float SpecificWorker::frechetDistance(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2)
+{
+    if(path1.empty() or path2.empty())
+    {
+        std::cout << "Empty path found." << std::endl;
+        return -1;
+    }
+    std::vector<std::vector<float>> dp(path1.size(), std::vector<float>(path2.size(), -1));
+    return frechetDistanceUtil(path1, path2, path1.size() - 1, path2.size() - 1, dp);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
@@ -322,7 +383,7 @@ int SpecificWorker::startup_check()
 //SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
 void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
 {
-    qInfo()<< "TARGET " << target.x << target.y;
+//    qInfo()<< "TARGET " << target.x << target.y;
     if (target.x < xMax and target.x > xMin and target.y > yMin and target.y < yMax)
         target_buffer.put(Eigen::Vector2f{target.x, target.y});
     else{
@@ -396,6 +457,22 @@ bool SpecificWorker::los_path(QPointF f) {
     return  grid.is_path_blocked(path);
 }
 
+std::optional<Eigen::Vector2f> SpecificWorker::closest_point_to_target(const QPointF &p)
+{
+    for (double t = 1.0; t >= 0.0; t -= 0.001)
+    {
+        auto act_point = Eigen::Vector2f(p.x() * t, p.y() * t);
+        auto point_as_key = grid.pointToKey(act_point);
+        auto free_neighboors = grid.neighboors_8(point_as_key);
+//        std::cout << "exists_los " << exists_los << " " << p.x() * t << " " << p.y() * t << std::endl;
+        if(free_neighboors.empty())
+        {
+            return act_point;
+        }
+    }
+    return {};
+}
+
 /**************************************/
 // From the RoboCompGridPlanner you can call this methods:
 // this->gridplanner_proxy->setPlan(...)
@@ -406,16 +483,24 @@ bool SpecificWorker::los_path(QPointF f) {
 // RoboCompGridPlanner::TPlan
 
 /**************************************/
-// From the RoboCompGridPlanner you can publish calling this methods:
-// this->gridplanner_pubproxy->setPlan(...)
-
-/**************************************/
 // From the RoboCompLidar3D you can call this methods:
 // this->lidar3d_proxy->getLidarData(...)
+// this->lidar3d_proxy->getLidarDataArrayProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
 
 /**************************************/
 // From the RoboCompLidar3D you can use this types:
 // RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
 
+/**************************************/
+// From the RoboCompGridPlanner you can publish calling this methods:
+// this->gridplanner_pubproxy->setPlan(...)
 
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TPlan
 

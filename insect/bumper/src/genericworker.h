@@ -33,11 +33,10 @@
 
 #include <Camera360RGB.h>
 #include <GenericBase.h>
+#include <GridPlanner.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
 #include <Person.h>
-#include <SegmentatorTrackingPub.h>
-#include <VisualElements.h>
 
 
 #define CHECK_PERIOD 5000
@@ -65,15 +64,7 @@ public:
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 	RoboCompPerson::PersonPrxPtr person_proxy;
 
-	virtual void OmniRobot_correctOdometer(int x, int z, float alpha) = 0;
-	virtual void OmniRobot_getBasePose(int &x, int &z, float &alpha) = 0;
-	virtual void OmniRobot_getBaseState(RoboCompGenericBase::TBaseState &state) = 0;
-	virtual void OmniRobot_resetOdometer() = 0;
-	virtual void OmniRobot_setOdometer(RoboCompGenericBase::TBaseState state) = 0;
-	virtual void OmniRobot_setOdometerPose(int x, int z, float alpha) = 0;
-	virtual void OmniRobot_setSpeedBase(float advx, float advz, float rot) = 0;
-	virtual void OmniRobot_stopBase() = 0;
-	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target) = 0;
+	virtual void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan) = 0;
 
 protected:
 
