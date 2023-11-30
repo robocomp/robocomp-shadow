@@ -4,7 +4,7 @@ CommonBehavior.Endpoints=tcp -p 10567
 GridPlanner.Endpoints=tcp -p 16804
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11991
 PersonProxy = person:tcp -h localhost -p 0
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 0
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004

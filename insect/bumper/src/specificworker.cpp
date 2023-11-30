@@ -107,7 +107,7 @@ void SpecificWorker::compute()
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud<pcl::PointXYZ>);
     for (const auto &[i, p]: ldata.points | iter::enumerate)
     {   // TODO: Check this
-        if (abs(p.x) > 300 and abs(p.y) > 300 and p.z < 1000)
+//        if (abs(p.x) > 300 and abs(p.y) > 300 and p.z < 1000)
             above_floor_points.emplace_back(p);
         pcl_cloud_source->push_back(pcl::PointXYZ{p.x/1000.f, p.y/1000.f, p.z/1000.f});
     }
@@ -130,7 +130,7 @@ void SpecificWorker::compute()
     {
         const auto &[side, adv, rot, debug] = ext.value();
         target_ext.set(side, adv, rot, true);
-        target_ext = get_closest_point_inside(enlarged_points, target_ext);
+//        target_ext = get_closest_point_inside(enlarged_points, target_ext);
         fastgicp.reset();
         target_original = target_ext;
         draw_target_original(target_ext);
@@ -146,7 +146,7 @@ void SpecificWorker::compute()
 
         // Check if the robot is at target
         qInfo() << __FUNCTION__ << "Dist to target:" << target_in_robot.norm();
-        if (target_in_robot.norm() < 1050)
+        if (target_in_robot.norm() < 600)
         {
             stop_robot("Robot arrived to target");
             target_ext.debug = false;
@@ -156,8 +156,12 @@ void SpecificWorker::compute()
     }
 
     /// Check bumper for a security breach
-    std::vector<std::pair<Eigen::Vector2f, float>> displacements = check_safety(enlarged_points);
+    std::vector<Eigen::Vector2f> displacements = check_safety(enlarged_points);
+    std::cout << "displacement_size" << displacements.size() << std::endl;
+
+    draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
+//    security_breach = false;
     if(not security_breach) draw_target_breach(target, true);
 
     //////////////////////////////////
@@ -165,14 +169,16 @@ void SpecificWorker::compute()
     //////////////////////////////////
     if(target_ext.active and security_breach)    // target active. Choose displacement best aligned with target
     {
+        std::cout << "1"<<std::endl;
         if (not displacements.empty())
         {
+            std::cout << "2"<<std::endl;
             auto res = std::ranges::max(displacements, [t = target_ext](auto &a, auto &b)
             {
                 auto tv = t.eigen().transpose();
-                return tv * a.first < tv * b.first;
+                return tv * a < tv * b; //return closest displacement to target using scalar product. (-1,1) 1=target aligned
             });
-            target.set(res.first.x(), res.first.y(), 0.f);
+            target.set(res.x(), res.y(), 0.f);
         }
     }
     if(not security_breach and not target_ext.active)
@@ -181,33 +187,37 @@ void SpecificWorker::compute()
     }
     if(not target_ext.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
     {
+        std::cout << "3"<<std::endl;
        if (not displacements.empty())
        {
-           auto res = std::ranges::max(displacements,
-                                       [](auto &a, auto &b) { return a.second < b.second; });
-           {
-               target.set(res.first.x(), res.first.y(), 0.f);
-               draw_target_breach(target);
-           }
+            std::cout << "4"<<std::endl;
+//           auto res = std::ranges::max(displacements,
+//                                       [](auto &a, auto &b) { return a.second < b.second; });
 
+            target.set(displacements[0].x(), displacements[0].y(), 0.f);
+            draw_target_breach(target);
        } else  {  stop_robot("Collision but no solution found");  }
     }
     if(target_ext.active and not security_breach)
     {
+
+        std::cout << "5"<<std::endl;
        target = target_ext;
     }
 
     if(target.active)
     {
+        std::cout << "6"<<std::endl;
         draw_target(target_ext);
         target.print("FINAL");
         float adv = target.y;
         float side = target.x;
-        float rot = atan2( target.x, target.y) * 1.3;  // dumps rotation for small resultant force;
+        float rot = atan2( target.x, target.y);  // dumps rotation for small resultant force;
         robot_current_speed = {adv, side};
         try
         {
-            omnirobot_proxy->setSpeedBase(adv / 1000, -side / 1000, -rot);
+            std::cout << "7"<<std::endl;
+//            omnirobot_proxy->setSpeedBase(adv , -side , -rot);
             robot_stopped = false;
             target.active = false;
         }
@@ -351,15 +361,17 @@ SpecificWorker::Target SpecificWorker::get_closest_point_inside(const std::vecto
         if(std::get<1>(*r) < target.dist)
             t.set(std::get<0>(*r), std::get<1>(*r));
     return t;
+
 }
 //////////////////////////////////////////////////////////////////////////////
-std::vector<std::pair<Eigen::Vector2f, float>> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
+
+std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
 {
   //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
   // get lidar points closer than safety band. If none return
   // TODO: AVOID FORCE INVERSION
   std::vector<Eigen::Vector2f> close_points;
-  std::vector<std::pair<Eigen::Vector2f, float>> displacements;
+  std::vector<Eigen::Vector2f> displacements, final_displacement;
 
   // lambda to compute if a point is inside the belt
   auto point_in_belt = [this](auto ang, auto dist)
@@ -375,32 +387,51 @@ std::vector<std::pair<Eigen::Vector2f, float>> SpecificWorker::check_safety(cons
       if(point_in_belt(ang, dist)) close_points.emplace_back(dist*sin(ang), dist*cos(ang));
 
   // max dist to reach from current situation
-  const float delta_t = 1; //200ms
-  const float MAX_ACC = 500; // mm/sg2
-  double dist = robot_current_speed.norm() * delta_t + 0.5*(MAX_ACC * delta_t * delta_t);
+  const float delta_t = 1; // 0.050; //200ms
+  const float MAX_ACC = 200; // mm/sg2
+//  double dist = robot_current_speed.norm() * delta_t + (MAX_ACC * delta_t * delta_t);
+  double dist = (MAX_ACC * delta_t * delta_t);
+
+    //qInfo() << "Dist" << dist << robot_current_speed.norm();
+
   if(not close_points.empty())
   {
-      for (const double ang: iter::range(-M_PI, M_PI, 0.3))
+      for (const double ang: iter::range(-M_PI, M_PI, BELT_ANGULAR_STEP))
       {
           // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
           Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
-          float acum = 0;
           bool free = true;
           for (const auto &p: close_points)
           {
-              float dist = (p - t).norm();
-              if(not point_in_belt(ang, dist))  // the point went out
-                  acum += dist;
-              else
+              float dist_p = (p - t).norm();
+              qInfo() << "COORDS" << dist << ang << t.x() << t.y() << dist_p ;
+              if(point_in_belt(atan2((p-t).x(),(p-t).y()), dist_p))
               {
                   free = false;
                   break;
               }
           }
           if (free)
-              displacements.emplace_back(t, acum); // add displacement to list
+              displacements.emplace_back(t); // add displacement to list
       }
-      return displacements;
+
+      for (const auto &d : displacements)
+      {
+          bool success = true;
+          for(const auto &[ang, dist]: points)
+          {
+              Eigen::Vector2f p_cart{dist*sin(ang), dist*cos(ang)};
+              auto traslated = p_cart - d;
+
+              if(point_in_belt(atan2(traslated.x(),traslated.y()), traslated.norm())){
+                  success = false;
+                  break;
+              }
+          }
+          if (success)
+              final_displacement.emplace_back(d);
+      }
+      return final_displacement;
   }
   else return {};
 }
@@ -526,7 +557,8 @@ void SpecificWorker::read_lidar()
             // Use with simulated lidar in webots using "pearl" name
             // auto data = lidar3d_proxy->getLidarData("pearl", 0, 360, 8);
 
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
+//            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
+            auto data = lidar3d_proxy->getLidarData("bpearl", -90, 360, 1);
             //std::cout << data.points.size() << " " << data.period << std::endl;
             //std::ranges::for_each(data.points, [](auto& c){c.phi = -c.phi; return c;});
             std::ranges::sort(data.points, {}, &RoboCompLidar3D::TPoint::phi);
@@ -538,7 +570,7 @@ void SpecificWorker::read_lidar()
 std::vector<std::tuple<float,float>> SpecificWorker::create_edge_points()
 {
 	std::vector<std::tuple<float, float>> dists;
-	for (const double ang: iter::range(-M_PI, M_PI, 0.3))
+	for (const double ang: iter::range(-M_PI, M_PI, BELT_ANGULAR_STEP))
         {
 		bool found = false;
         // iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
@@ -782,6 +814,31 @@ void SpecificWorker::draw_target_breach(const Target &t, bool erase)
         ball->setPos(t.x, t.y);
     }
 }
+
+void SpecificWorker::draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem *> draw_displacements;
+    for(const auto &p : draw_displacements)
+    {
+        scene->removeItem(p);
+        delete p;
+    }
+    draw_displacements.clear();
+
+    for(auto &d  : displacement_points)
+    {
+        d *= 5;
+        QLineF l{0,0, d.x(),d.y()};
+        auto o = scene->addLine(l, QPen(QColor("blue"), 8));
+        auto o_p = scene->addEllipse(-50,-50,100,100 , QPen(QColor("blue"), 8));
+        o_p->setPos(d.x(),d.y());
+        draw_displacements.push_back(o);
+        draw_displacements.push_back(o_p);
+    }
+
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
