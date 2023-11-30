@@ -68,7 +68,7 @@ class SpecificWorker : public GenericWorker
 		bool startup_check_flag;
 		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
         int BAND_WIDTH = 50;			// distance to the obstacle that repels the object
-
+        double BELT_ANGULAR_STEP = 0.3;
         // Structs
         struct Band
         {
@@ -160,8 +160,8 @@ class SpecificWorker : public GenericWorker
 		DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
         // Robot speed gains
-        float x_gain = 20;
-        float y_gain = 8;
+        float x_gain = 10;
+        float y_gain = 4;
         bool robot_stop = false;
 		const float max_adv = 500;
 		const float max_side = 500;
@@ -207,13 +207,11 @@ class SpecificWorker : public GenericWorker
         bool inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour);
         void repulsion_force(const RoboCompLidar3D::TData &ldata);
         void stop_robot(const std::string_view txt);
-        std::vector<std::pair<Eigen::Vector2f, float>> check_safety(const vector<std::tuple<float, float>> &points);
+        std::vector<Eigen::Vector2f> check_safety(const vector<std::tuple<float, float>> &points);
         Target get_closest_point_inside(const vector<std::tuple<float, float>> &points, const Target &target);
 
 
-
-
-
+    void draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene);
 };
 
 #endif
