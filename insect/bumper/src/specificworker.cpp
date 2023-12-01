@@ -435,6 +435,8 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std:
   }
   else return {};
 }
+
+
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour)
 {
     auto r =  std::upper_bound(contour.cbegin(), contour.cend(), target.ang,
