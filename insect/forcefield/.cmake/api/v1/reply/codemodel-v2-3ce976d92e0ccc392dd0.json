@@ -1,0 +1,96 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Release-34c71776ed784388d362.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"build" : "src",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-src-Release-0e45e8f54f9fe6eb1f95.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1
+					],
+					"name" : "forcefield",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 1,
+					"id" : "ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src::@145eef247bfb46b6828c",
+					"jsonFile" : "target-ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src-Release-0978032c9afadb1805d5.json",
+					"name" : "ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "forcefield::@145eef247bfb46b6828c",
+					"jsonFile" : "target-forcefield-Release-bdbe305881443aec8ab4.json",
+					"name" : "forcefield",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "forcefield_autogen::@145eef247bfb46b6828c",
+					"jsonFile" : "target-forcefield_autogen-Release-e79305a56d7aeda4b3d6.json",
+					"name" : "forcefield_autogen",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield",
+		"source" : "/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 5
+	}
+}
