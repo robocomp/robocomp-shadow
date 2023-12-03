@@ -100,21 +100,23 @@ namespace rc
         // compute mean point
         Eigen::Vector2f room_center;
         room_center = accumulate(floor_line_cart.begin(), floor_line_cart.end(), room_center) / (float)floor_line_cart.size();
-        //std::cout << "Center " << room_center << std::endl;
+        // std::cout << "Center " << room_center << std::endl;
 
         // estimate size
         Eigen::Vector3f estimated_size = estimate_room_sizes(room_center, floor_line_cart);
-        //std::cout << estimated_size << std::endl;
+        // std::cout << "Size " << estimated_size.x() << " " << estimated_size.y() << std::endl;
 
         // compute lines
         //std::vector<std::pair<int, QLineF>> elines = hough_transform(floor_line_cart);
         Lines elines = get_hough_lines(floor_line_cart);
+        draw_lines_on_2D_tab(elines, viewer);
 
         // compute parallel lines of minimum length and separation
         Par_lines par_lines = get_parallel_lines(elines, estimated_size.head(2));
 
         // compute corners
         Corners corners = get_corners(elines);
+        draw_corners_on_2D_tab(corners, {Eigen::Vector2f{0,0}}, viewer);
 
         // compute double corners
         Double_corners double_corners = get_triple_corners(estimated_size.head(2), corners);
@@ -145,7 +147,7 @@ namespace rc
     {
         std::vector<cv::Vec2f> floor_line_cv;
         for(const auto &p : floor_line_cart)
-            if(not p.isZero() and p.norm() < 3000.f)
+            if(not p.isZero() and p.norm() < 8000.f)
                 floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
 
         double rhoMin = -5000.0, rhoMax = 5000.0, rhoStep = 20;

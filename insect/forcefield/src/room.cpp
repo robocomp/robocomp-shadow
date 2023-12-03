@@ -162,14 +162,19 @@ namespace rc
 
     void Room::print()
     {
-        std::cout << "Room: " << std::endl;
-        std::cout << "  size: [" << rsize.width() << ", " << rsize.height() << "]" << std::endl;;
-        std::cout << "  center: [" << center.x() << ", " << center.y() << "]" << std::endl;;
-        std::cout << "  rot: " << rot << std::endl;
-        auto rcorners = get_eigen_corners_in_robot_coor();
-        std::cout << "  corners: [" << rcorners << "]" << std::endl;
-        auto corners = get_corners();
-        std::cout << "  corners: [" << corners << "]" << std::endl;
+        if(is_initialized)
+        {
+            std::cout << "Room: " << std::endl;
+            std::cout << "  size: [" << rsize.width() << ", " << rsize.height() << "]" << std::endl;;
+            std::cout << "  center: [" << center.x() << ", " << center.y() << "]" << std::endl;;
+            std::cout << "  rot: " << rot << std::endl;
+            auto rcorners = get_eigen_corners_in_robot_coor();
+            std::cout << "  corners: [" << rcorners << "]" << std::endl;
+            auto corners = get_corners();
+            std::cout << "  corners: [" << corners << "]" << std::endl;
+        }
+        else
+            std::cout << "Room not initialized" << std::endl;
     }
 
     Eigen::Vector2f Room::to_local_coor(const Eigen::Vector2f &p)

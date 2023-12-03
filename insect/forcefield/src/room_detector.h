@@ -43,7 +43,7 @@ namespace rc
             Double_corners get_triple_corners(const Eigen::Vector2f &estimated_size, const Corners &corners);
             void filter_lines_by_length(const Lines &lines, std::vector <Eigen::Vector2f> &floor_line_cart);
 
-        // aux
+            // aux
             float euc_distance_between_points(const QPointF &p1, const QPointF &p2) const;
             QPointF get_most_distant_point(const QPointF &p, const QPointF &p1, const QPointF &p2) const;
 
@@ -65,8 +65,6 @@ namespace rc
             QCustomPlot *custom_plot;
             QCPGraph *triple_sig, *corners_sig, *par_lines_sig;
             void draw_timeseries(float triple_val, float corners_val, float par_lines_val);
-
-
     };
 
 } // rc

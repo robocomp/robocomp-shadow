@@ -25,18 +25,18 @@ class DoorDetector
             Eigen::Vector2f center_floor;
             std::vector<Eigen::Vector3f> points;  //floor and high
             Eigen::Vector2f p0, p1, middle;
-            int idx0, idx1;
+            int idx_in_peaks_0, idx_in_peaks_1;
             const float height = 1000.f;
-            Door(){ p0 = p1 = middle = Eigen::Vector2f{0.f,0.f}; idx0 = idx1 = -1;}
-            Door(Eigen::Vector2f &&p0_, Eigen::Vector2f &&p1_) : p0(p0_), p1(p1_)
+            Door(){ p0 = p1 = middle = Eigen::Vector2f{0.f,0.f}; idx_in_peaks_0 = idx_in_peaks_1 = -1;}
+            Door(Eigen::Vector2f &&p0_, Eigen::Vector2f &&p1_, int idx0, int idx1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx0), idx_in_peaks_1(idx1)
             {
                 middle = (p0 + p1) / 2.f;
-                idx0 = idx1 = -1;
+                idx_in_peaks_0 = idx_in_peaks_1 = -1;
             };
-            Door(const Eigen::Vector2f &p0_, const Eigen::Vector2f &p1_) : p0(p0_), p1(p1_)
+            Door(const Eigen::Vector2f &p0_, const Eigen::Vector2f &p1_, int idx0, int idx1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx0), idx_in_peaks_1(idx1)
             {
                 middle = (p0 + p1) / 2.f;
-                idx0 = idx1 = -1;
+                idx_in_peaks_0 = idx_in_peaks_1 = -1;
             };
             bool operator==(const Door &d) const
             {
@@ -84,15 +84,18 @@ class DoorDetector
         };
         
         using Doors = std::vector<Door>;
+        using Doors_list = std::vector<Doors>;
         using Lines = std::vector<std::vector<Eigen::Vector2f>>;
-        //std::vector<Door> detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer=nullptr);
+        using Peaks = std::vector<uint>;
+        using Peaks_list = std::vector<std::vector<uint>>;  // indices of peaks in each line
+        std::vector<Eigen::Vector2f> current_line; // to hold the current line being processed (lowest line for now)
 
-        std::vector<Eigen::Vector2f> filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const std::vector<DoorDetector::Door> &doors);
+        std::vector<Eigen::Vector2f> filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const Doors &doors);
         Doors detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *viewer);
         Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
-        Lines extract_peaks(const Lines &lines);
-        std::vector<Doors> get_doors(const Lines &peaks);
-        Doors filter_doors(const std::vector<Doors> &doors_list);
+        Peaks_list extract_peaks(const Lines &lines);
+        Doors_list get_doors(const Peaks_list &peaks, const Lines &lines);
+        Doors filter_doors(const Doors_list &doors_list);
         void draw_doors(const Doors &doors, const Door &door_target, QGraphicsScene *scene, QColor color=QColor("blue"));
     private:
             std::vector<std::pair<float, float>> height_ranges;
