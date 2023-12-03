@@ -1,0 +1,17 @@
+import "Camera360RGB.idsl";
+import "JoystickAdapter.idsl";
+import "OmniRobot.idsl";
+import "YoloObjects.idsl";
+import "Lidar3D.idsl";
+
+Component forcefield
+{
+    Communications
+    {
+        requires Camera360RGB, OmniRobot, YoloObjects, Lidar3D;
+        subscribesTo JoystickAdapter;
+    };
+    language Cpp11;
+    gui Qt(QWidget);
+};
+

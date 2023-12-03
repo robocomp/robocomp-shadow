@@ -101,6 +101,7 @@ void SpecificWorker::compute()
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
+    qInfo() << ldata.points.size();
 
     /// filter out floor points and inbody points
     RoboCompLidar3D::TPoints above_floor_points;
@@ -157,7 +158,7 @@ void SpecificWorker::compute()
 
     /// Check bumper for a security breach
     std::vector<Eigen::Vector2f> displacements = check_safety(enlarged_points);
-    std::cout << "displacement_size" << displacements.size() << std::endl;
+    //std::cout << "displacement_size" << displacements.size() << std::endl;
 
     draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
