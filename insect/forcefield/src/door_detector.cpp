@@ -19,8 +19,9 @@ DoorDetector::Doors
 DoorDetector::detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *scene)
 {
     auto lines = extract_lines(points, height_ranges);
+    current_line = lines.front();
     auto peaks = extract_peaks(lines);
-    auto doors = get_doors(peaks);
+    auto doors = get_doors(peaks, lines);
     auto final_doors = filter_doors(doors);
 
     draw_doors(final_doors, Door(), scene);
@@ -38,24 +39,23 @@ DoorDetector::Lines DoorDetector::extract_lines(const RoboCompLidar3D::TPoints &
     }
     return lines;
 }
-DoorDetector::Lines DoorDetector::extract_peaks(const DoorDetector::Lines &lines)
+DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &lines)
 {
-    Lines peaks(lines.size());
+    Peaks_list peaks_list(lines.size());
     const float THRES_PEAK = 1000;
 
     for(const auto &[i, line] : lines | iter::enumerate)
-        for (const auto &both: iter::sliding_window(line, 2))
+        for (const auto &[j, both]: iter::sliding_window(line, 2) | iter::enumerate)
             if (fabs(both[1].norm() - both[0].norm()) > THRES_PEAK)
             {
-                if (both[0].norm() < both[1].norm()) peaks[i].push_back(both[0]);
-                else peaks[i].push_back(both[1]);
+                if (both[0].norm() < both[1].norm()) peaks_list[i].push_back(j);
+                else peaks_list[i].push_back(j+1);
             }
-
-    return peaks;
+    return peaks_list;
 }
-std::vector<DoorDetector::Doors> DoorDetector::get_doors(const DoorDetector::Lines &peaks)
+DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list &peaks_list, const DoorDetector::Lines &lines)
 {
-    std::vector<Doors> doors_list(peaks.size());
+    std::vector<Doors> doors_list(peaks_list.size());
     const float THRES_DOOR = 500;
     const float MAX_DOOR_WIDTH = 1400;
     const float MIN_DOOR_WIDTH = 500;
@@ -68,13 +68,14 @@ std::vector<DoorDetector::Doors> DoorDetector::get_doors(const DoorDetector::Lin
                     (old.p0-d.p1).norm() < THRES_DOOR;});
     };
 
-    for(const auto &[i, peak] : peaks | iter::enumerate)
-        for(auto &par : peak | iter::combinations(2))
-            if((par[0]-par[1]).norm() < MAX_DOOR_WIDTH and (par[0]-par[1]).norm() > MIN_DOOR_WIDTH)
+    for(const auto &[i, peaks] : peaks_list | iter::enumerate)
+        for(auto &par : peaks | iter::combinations(2))
+            if((lines[i][par[0]]-lines[i][par[1]]).norm() < MAX_DOOR_WIDTH and (lines[i][par[0]]-lines[i][par[1]]).norm() > MIN_DOOR_WIDTH)
+            //if((par[0]-par[1]).norm() < MAX_DOOR_WIDTH and (par[0]-par[1]).norm() > MIN_DOOR_WIDTH)
             {
-                auto door = Door{par[0], par[1]};
+                auto door = Door{lines[i][par[0]], lines[i][par[1]], (int)par[0], (int)par[1]};
                 if(not near_door(doors_list[i], door))
-                    doors_list[i].emplace_back(par[0], par[1]);
+                    doors_list[i].emplace_back(std::move(door));
             }
     return doors_list;
 }
@@ -130,23 +131,24 @@ void DoorDetector::draw_doors(const Doors &doors, const Door &door_target, QGrap
         borrar.push_back(line);
     }
 }
-
-std::vector<Eigen::Vector2f> DoorDetector::filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const std::vector<DoorDetector::Door> &doors)
+std::vector<Eigen::Vector2f> DoorDetector::filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const Doors &doors)
 {
     std::vector<Eigen::Vector2f> inside_points(floor_line_cart);
-    std::vector<std::pair<u_long, Eigen::Vector2f>> ignore;
-    //qInfo() << __FUNCTION__ << "Before" << inside_points.size();
+    std::vector<Eigen::Vector2f> remove_points;
     for (const auto &door: doors)       // all in robot's reference system
     {
         QLineF door_line(door.p0.x(), door.p0.y(), door.p1.x(), door.p1.y());
-        for (auto &&i: iter::range(std::min(door.idx0, door.idx1), std::max(door.idx0, door.idx1)))
+        for (auto &&i: iter::range(std::min(door.idx_in_peaks_0, door.idx_in_peaks_1), std::max(door.idx_in_peaks_0, door.idx_in_peaks_1)))
         {
-            QLineF r_to_p(0.f, 0.f, floor_line_cart[i].x(), floor_line_cart[i].y());
+            QLineF robot_to_point(0.f, 0.f, floor_line_cart[i].x(), floor_line_cart[i].y());
             QPointF point;
-            if (auto res = r_to_p.intersects(door_line, &point); res == QLineF::BoundedIntersection)
-                inside_points[i] = Eigen::Vector2f(point.x(), point.y());
+            if (auto res = robot_to_point.intersects(door_line, &point); res == QLineF::BoundedIntersection)
+                remove_points.emplace_back(point.x(), point.y());
         }
     }
-    //qInfo() << __FUNCTION__ << "After" << inside_points.size();
+    qInfo() << __FUNCTION__ << "Before" << floor_line_cart.size() << "After" << inside_points.size() << "Removed" << remove_points.size();
+    // remove from inside_points all points in remove_points
+    for (const auto &p: remove_points)
+        inside_points.erase(std::remove_if(inside_points.begin(), inside_points.end(), [&p](auto &i){return (i-p).norm() < 100;}), inside_points.end());
     return inside_points;
 }

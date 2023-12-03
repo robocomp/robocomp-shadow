@@ -121,24 +121,27 @@ void SpecificWorker::compute()
 
     /// Door detector
     auto doors = door_detector.detect(ldata.points, &viewer->scene);
+    //qInfo() << doors.size();
 
     //auto pdoor = rc::PreObject::add_doors(doors);
     //preobjects.insert(preobjects.end(), pdoor.begin(), pdoor.end());
 
     /// Room detector
-    //std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(current_line, doors);
-    //auto current_room = room_detector.detect({filtered_line}, viewer);   // inside, index has to be 0
+    std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(door_detector.current_line, doors);
+    //draw_floor_line({filtered_line}, {0});
+    auto current_room = room_detector.detect({filtered_line}, viewer);   // inside, index has to be 0
+    current_room.print();
 
     // refresh current_target
-    if (auto it = std::find_if(preobjects.begin(), preobjects.end(), [r = robot](auto &a)
-        { return a.type == r.get_current_target().type; }); it != preobjects.end())
-    {
-        if((it->get_robot_coordinates() - robot.get_current_target().get_robot_coordinates()).norm() < 300)
-            robot.set_current_target(*it);
-    }
-
-    // Move robot
-    robot.goto_target(current_line);
+//    if (auto it = std::find_if(preobjects.begin(), preobjects.end(), [r = robot](auto &a)
+//        { return a.type == r.get_current_target().type; }); it != preobjects.end())
+//    {
+//        if((it->get_robot_coordinates() - robot.get_current_target().get_robot_coordinates()).norm() < 300)
+//            robot.set_current_target(*it);
+//    }
+//
+//    // Move robot
+//    robot.goto_target(current_line);
 
     ///////// DRAWING  //////////////////////
  //   {
@@ -196,70 +199,45 @@ void SpecificWorker::read_lidar()
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));}
 }
-RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_objects(cv::Mat rgb)
-{
-    RoboCompYoloObjects::TObjects objects;
-    RoboCompYoloObjects::TData yolo_objects;
-    try
-    { yolo_objects = yoloobjects_proxy->getYoloObjects(); }
-    catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return objects;}
+//RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_objects(cv::Mat rgb)
+//{
+//    RoboCompYoloObjects::TObjects objects;
+//    RoboCompYoloObjects::TData yolo_objects;
+//    try
+//    { yolo_objects = yoloobjects_proxy->getYoloObjects(); }
+//    catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return objects;}
+//
+//    // remove unwanted types
+//    yolo_objects.objects.erase(std::remove_if(yolo_objects.objects.begin(), yolo_objects.objects.end(), [names = yolo_object_names](auto p)
+//    { return names[p.type] != "person" and
+//             names[p.type] != "chair" and
+//             names[p.type] != "potted plant" and
+//             names[p.type] != "toilet" and
+//             names[p.type] != "sink" and
+//             names[p.type] != "refrigerator" and
+//             names[p.type] != "tv"; }), yolo_objects.objects.end());
+//    // draw boxes
+//    for(auto &&o: yolo_objects.objects | iter::filter([th = consts.yolo_threshold](auto &o){return o.score > th;}))
+//    {
+//        objects.push_back(o);
+//        auto tl = round(0.002 * (rgb.cols + rgb.rows) / 2) + 1; // line / fontthickness
+//        const auto &c = COLORS.row(o.type);
+//        cv::Scalar color(c.x(), c.y(), c.z()); // box color
+//        cv::Point c1(o.left, o.top);
+//        cv::Point c2(o.right, o.bot);
+//        cv::rectangle(rgb, c1, c2, color, tl, cv::LINE_AA);
+//        int tf = (int) std::max(tl - 1, 1.0);  // font thickness
+//        int baseline = 0;
+//        std::string label = yolo_object_names.at(o.type) + " " + std::to_string((int) (o.score * 100)) + "%";
+//        auto t_size = cv::getTextSize(label, 0, tl / 3.f, tf, &baseline);
+//        c2 = {c1.x + t_size.width, c1.y - t_size.height - 3};
+//        cv::rectangle(rgb, c1, c2, color, -1, cv::LINE_AA);  // filled
+//        cv::putText(rgb, label, cv::Size(c1.x, c1.y - 2), 0, tl / 3, cv::Scalar(225, 255, 255), tf, cv::LINE_AA);
+//    }
+//    return objects;
+//}
 
-    // remove unwanted types
-    yolo_objects.objects.erase(std::remove_if(yolo_objects.objects.begin(), yolo_objects.objects.end(), [names = yolo_object_names](auto p)
-    { return names[p.type] != "person" and
-             names[p.type] != "chair" and
-             names[p.type] != "potted plant" and
-             names[p.type] != "toilet" and
-             names[p.type] != "sink" and
-             names[p.type] != "refrigerator" and
-             names[p.type] != "tv"; }), yolo_objects.objects.end());
-    // draw boxes
-    for(auto &&o: yolo_objects.objects | iter::filter([th = consts.yolo_threshold](auto &o){return o.score > th;}))
-    {
-        objects.push_back(o);
-        auto tl = round(0.002 * (rgb.cols + rgb.rows) / 2) + 1; // line / fontthickness
-        const auto &c = COLORS.row(o.type);
-        cv::Scalar color(c.x(), c.y(), c.z()); // box color
-        cv::Point c1(o.left, o.top);
-        cv::Point c2(o.right, o.bot);
-        cv::rectangle(rgb, c1, c2, color, tl, cv::LINE_AA);
-        int tf = (int) std::max(tl - 1, 1.0);  // font thickness
-        int baseline = 0;
-        std::string label = yolo_object_names.at(o.type) + " " + std::to_string((int) (o.score * 100)) + "%";
-        auto t_size = cv::getTextSize(label, 0, tl / 3.f, tf, &baseline);
-        c2 = {c1.x + t_size.width, c1.y - t_size.height - 3};
-        cv::rectangle(rgb, c1, c2, color, -1, cv::LINE_AA);  // filled
-        cv::putText(rgb, label, cv::Size(c1.x, c1.y - 2), 0, tl / 3, cv::Scalar(225, 255, 255), tf, cv::LINE_AA);
-    }
-    return objects;
-}
 
-// control
-Eigen::Vector2f SpecificWorker::compute_repulsion_forces(vector<Eigen::Vector2f> &floor_line)
-{
-    // update threshold with speed
-    //    if( fabs(robot.current_adv_speed) > 10.f)
-    //        consts.dynamic_threshold = consts.quadratic_dynamic_threshold_coefficient * (robot.current_adv_speed * robot.current_adv_speed);
-    //    else
-    //        consts.dynamic_threshold = robot.width;
-    //qInfo() << __FUNCTION__ << consts.dynamic_threshold << robot.current_adv_speed  << "[" << target_coordinates.x() << target_coordinates.y()  << "]";
-
-    //  computation in meters to reduce the size of the numbers
-    Eigen::Vector2f res = {0.f, 0.f};
-    float threshold = consts.dynamic_threshold/1000.f;   // to meters
-    float max_dist = consts.max_distance_for_repulsion/1000.f;
-    for(const auto &ray: floor_line)
-    {
-        const float &dist = (ray/1000.f).norm();
-        if (dist <= threshold)
-            res += consts.nu * (1.0 / dist - 1.0 / max_dist) * (1.0 / (dist * dist)) * (-(ray/1000.f) / dist);  // as in original paper
-    }
-    return res*1000.f; //mm
-}
-void SpecificWorker::set_target_force(const Eigen::Vector3f &vec)
-{
-    target_coordinates = vec * 1000;  //to mm/sg
-}
 void SpecificWorker::move_robot(Eigen::Vector2f force)
 {
     //auto sigmoid = [](auto x){ return std::clamp(x / 1000.f, 0.f, 1.f);};
@@ -340,18 +318,23 @@ void SpecificWorker::draw_floor_line(const std::vector<std::vector<Eigen::Vector
 {
     static std::vector<QGraphicsItem *> items;
     for(const auto &item: items)
+    {
         viewer->scene.removeItem(item);
+        delete item;
+    }
     items.clear();
 
     if(list.size() > lines.size()) {qWarning()<< "Requested list bigger than data. Returning"; return;}
     std::vector<vector<Eigen::Vector2f>> copy_of_line(list.size());
+
     for(auto &&[i, e]: list|iter::enumerate)
         copy_of_line[i] =  lines[e];
 
+    QColor color("magenta");
     for(auto &&[k, line]: copy_of_line | iter::enumerate)
     {
         //qInfo() << __FUNCTION__ << k << (int)COLORS.row(k).x() << (int)COLORS.row(k).y() << (int)COLORS.row(k).z();
-        QColor color((int)COLORS.row(k).x(), (int)COLORS.row(k).y(), (int)COLORS.row(k).z());
+        //QColor color((int)COLORS.row(k).x(), (int)COLORS.row(k).y(), (int)COLORS.row(k).z());
         QBrush brush(color);
         for(const auto &p: line)
         {
