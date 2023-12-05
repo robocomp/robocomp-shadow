@@ -5,7 +5,7 @@ Component move_bt_rooms
 {
     Communications
     {
-	implements OmniRobot;
+	    implements OmniRobot;
         requires Lidar3D, OmniRobot;
     };
     language Cpp11;
