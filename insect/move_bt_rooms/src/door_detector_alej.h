@@ -12,12 +12,13 @@
 class Door_detector
 {
     public:
-
         struct Door
         {
             Eigen::Vector2f punto_medio;
             Eigen::Vector2f punto1;
             Eigen::Vector2f punto2;
+            Eigen::Vector2f pre_middle_point;
+            Eigen::Vector2f post_middle_point;
             float dist_pmedio;
         };
 
