@@ -16,10 +16,8 @@ DoorDetector::DoorDetector()
     //    height_ranges = {{0, 350}, {1000, 2000}, {2000, 3000}, {3000, 4000}};
 }
 DoorDetector::Doors
-DoorDetector::detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *scene)
+DoorDetector::detect(const Lines &lines, QGraphicsScene *scene)
 {
-    auto lines = extract_lines(points, height_ranges);
-    current_line = lines.front();
     auto peaks = extract_peaks(lines);
     auto doors = get_doors(peaks, lines);
     auto final_doors = filter_doors(doors);
@@ -27,18 +25,7 @@ DoorDetector::detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *sce
     draw_doors(final_doors, Door(), scene);
     return final_doors;
 }
-
-DoorDetector::Lines DoorDetector::extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges)
-{
-    Lines lines(ranges.size());
-    for(const auto &p: points)
-    {
-        for(const auto &[i, r] : ranges | iter::enumerate)
-            if(p.z > r.first and p.z < r.second)
-                lines[i].emplace_back(p.x, p.y);
-    }
-    return lines;
-}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////7
 DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &lines)
 {
     Peaks_list peaks_list(lines.size());

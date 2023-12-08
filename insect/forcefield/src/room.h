@@ -19,9 +19,9 @@ namespace rc
     class Room
     {
     public:
-        void update(const QSizeF &new_size, const Eigen::Vector2f &center_, float rot_);
-        void update(const QSizeF &new_size, const Eigen::Vector2f &center_);
-        void update(const QPointF &p1, const QPointF &p2, const QPointF &p3);
+//        void update(const QSizeF &new_size, const Eigen::Vector2f &center_, float rot_);
+//        void update(const QSizeF &new_size, const Eigen::Vector2f &center_);
+//        void update(const QPointF &p1, const QPointF &p2, const QPointF &p3);
         Eigen::Vector2f get_closest_corner(const Eigen::Vector2f &c);
         Eigen::Vector2f get_closest_corner_in_robot_coor(const Eigen::Vector2f &c);
         Eigen::Matrix<float, 4, 2> get_eigen_corners_in_robot_coor2();

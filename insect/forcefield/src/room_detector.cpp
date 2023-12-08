@@ -35,7 +35,7 @@ namespace rc
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
             current_room.rect = cv::minAreaRect(poly);
             current_room.is_initialized = true;
-            triple_val = 300; corners_val = 0; par_lines_val = 0;
+            //triple_val = 300; corners_val = 0; par_lines_val = 0;
         }
         // if there is a room and detected corners that match some of the model, compute a resulting force and torque to rotate the model
         else if (not corners.empty() and corners.size() > 1 and current_room.is_initialized)
@@ -67,7 +67,6 @@ namespace rc
             triple_val = 0; corners_val = 300; par_lines_val = 0;
         }
 
-        //current_room.print();
         current_room.draw_on_2D_tab(current_room, "yellow", viewer);
         if(draw_lines)
             draw_timeseries(triple_val, corners_val, par_lines_val);
@@ -106,13 +105,13 @@ namespace rc
         draw_lines_on_2D_tab(elines, viewer);
         draw_triple_corners_on_2D_tab(all_corners, "green", viewer);
         qInfo() << "Room detector: ";
-        qInfo() << "    points:" << floor_line_cart.size();
-        qInfo() << "    center:" << room_center.x() << room_center.y();
-        qInfo() << "    size:" << estimated_size.x() << estimated_size.y() << estimated_size.z();
+        qInfo() << "    num. points:" << floor_line_cart.size();
+        qInfo() << "    center: [" << room_center.x() << "," << room_center.y() << "]";
+        qInfo() << "    size: [" << estimated_size.x() << "," << estimated_size.y() << "]";
         qInfo() << "    num. lines:" << elines.size();
-        qInfo() << "    num. par lines:" << par_lines.size();
+        qInfo() << "    num. parallel lines:" << par_lines.size();
         qInfo() << "    num. corners:" << corners.size();
-        qInfo() << "    num. double corners:" << all_corners.size();
+        qInfo() << "    num. triple corners:" << all_corners.size();
 
         return std::make_tuple(elines, par_lines, corners, all_corners);
     }
@@ -126,7 +125,7 @@ namespace rc
         Eigen::Matrix2f cov = (zero_mean_points.adjoint() * zero_mean_points) / float(zero_mean_points.rows() - 1);
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix2f> eigensolver;
         eigensolver.compute(cov);
-        Eigen::Vector2f values = eigensolver.eigenvalues().real().cwiseSqrt(); ///1000.f;  //TODO: CHECK this with sqrt
+        Eigen::Vector2f values = eigensolver.eigenvalues().real().cwiseSqrt()*2.f;
         Eigen::Index i;
         values.maxCoeff(&i);
         Eigen::Vector2f max_vector = eigensolver.eigenvectors().real().col(i);
