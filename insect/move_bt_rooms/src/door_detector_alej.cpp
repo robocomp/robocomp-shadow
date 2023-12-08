@@ -16,7 +16,7 @@ std::vector<Door_detector::Door> Door_detector::detector(const std::vector<Eigen
     }
 
     //usamos la derivada de curret line
-    const float umbral = 500;
+    const float umbral = 800;
     std::vector <std::tuple<int, bool>> peaks;
     for (auto &&[i, d] : derivada | iter::enumerate)
         if(d > umbral)
@@ -40,6 +40,13 @@ std::vector<Door_detector::Door> Door_detector::detector(const std::vector<Eigen
             door_aux.punto_medio= ((v1+v2)/2);
             door_aux.punto1=v1;
             door_aux.punto2=v2;
+            door_aux.dist_pmedio= std::sqrt(std::pow(door_aux.punto_medio.x(), 2) + std::pow(door_aux.punto_medio.y(), 2));
+            Eigen::Vector2f normalPoint;
+            normalPoint.x() = -(v2.y()-v1.y());
+            normalPoint.y() = (v2.x()-v1.x());
+            normalPoint /= normalPoint.norm();
+            door_aux.pre_middle_point = -1000*normalPoint+door_aux.punto_medio;
+            door_aux.post_middle_point = 1000*normalPoint+door_aux.punto_medio;
             //qInfo() << __FUNCTION__ << v1.y() << v1.x() << v2.x() << v2.y();
             doors.emplace_back(std::move(door_aux));
         }
@@ -69,6 +76,13 @@ void Door_detector::draw(AbstractGraphicViewer *viewer, vector<Door_detector::Do
         item = viewer->scene.addEllipse(-100, -100, 200, 200, QPen(QColor("green"), 20));
         item->setPos(d.punto2.x(), d.punto2.y());
         items.push_back(item);
+        item = viewer->scene.addEllipse(-100, -100, 200, 200, QPen(QColor("red"), 20));
+        item->setPos(d.pre_middle_point.x(), d.pre_middle_point.y());
+        items.push_back(item);
+        item = viewer->scene.addEllipse(-100, -100, 200, 200, QPen(QColor("red"), 20));
+        item->setPos(d.post_middle_point.x(), d.post_middle_point.y());
+        items.push_back(item);
+
     }
     qInfo() << "-----------";
 }

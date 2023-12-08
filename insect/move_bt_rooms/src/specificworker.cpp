@@ -74,76 +74,86 @@ void SpecificWorker::initialize(int period)
     viewer->show();
     std::cout << "Started viewer" << std::endl;
 
-    this->factory.registerNodeType<LookForNewDoor>("LookForNewDoor");
-    this->factory.registerNodeType<GoThroughDoor>("GoThroughDoor");
+//    BT::NodeConfiguration config;
+//    config.blackboard = BT::Blackboard::create();
+//    config.blackboard->set("doors", this->detector);
+//    LookForNewDoor lookForNewDoorNode("LookForNewDoor", config);
+//    factory.registerSimpleAction("OpenWorker", [&](BT::TreeNode&){ return this->getLidar2D(); } );
+//    this->factory.registerNodeType<GoMiddleOfTheRoom>("GoMiddleOfTheRoom",this, std::bind(&RoboCompLidar3D::Lidar3DPrx::getLidarDataWithThreshold2d, this->lidar3d_proxy));
+
+    this->dataPtr = std::make_shared<Data>();
+    this->factory.registerNodeType<LookForNewDoor>("LookForNewDoor",this->dataPtr);
+    this->factory.registerNodeType<GoThroughDoor>("GoThroughDoor", this->dataPtr);
     this->factory.registerNodeType<GoMiddleOfTheRoom>("GoMiddleOfTheRoom");
+
     std::cout << "Node registered" << std::endl;
 
-//    // TreeNodes are destroyed
+    // TreeNodes are destroyed
     try
     {
         //Executing in /bin
-        this->tree = factory.createTreeFromFile("src/my_tree.xml");
+        this->tree = factory.createTreeFromFile("./src/my_tree.xml");
 //        auto tree = factory.createTreeFromFile("/home/robolab/robocomp/components/robocomp-shadow/insect/move_bt_rooms/src/my_tree.xml");
 
     } catch (const std::exception& e) {
         std::cerr << "Error al crear el árbol de comportamiento: " << e.what() << std::endl;
     }
-//    // of the Sequence return SUCCESS.
 }
 
 void SpecificWorker::compute()
 {
 
-//    auto lidar_points = this->lidar3d_proxy->getLidarDataWithThreshold2d("helios",8000).points;
-//
-//    std::ranges::sort(lidar_points, {}, &RoboCompLidar3D::TPoint::phi);
-//
-//    this->current_phi = trunc((lidar_points[0].phi * 180) / M_PI);
-//    this->aux_point = lidar_points[0];
-//
-//    std::vector<Eigen::Vector2f> lidar2D;
-//
-//    for(auto &&point: lidar_points)
-//    {
-//       if (point.z > 500.0 && point.z < 700.0)
-//       {
-//            int check_phi = std::trunc((point.phi * 180) / M_PI);
-////        std::cout << "Point phi" << check_phi << std::endl;
-//
-//            if(this->current_phi != check_phi)
-//            {
-//                lidar2D.push_back(Eigen::Vector2f{this->aux_point.x,this->aux_point.y});
-//                this->aux_point = point;
-//                this->current_phi = check_phi;
-//            }
-//            else
-//            if(point.distance2d < this->aux_point.distance2d)
-//            {
-//                this->aux_point = point;
-//            }
-//        }
-//    }
-//
-//    //Insert last point to the filtered lidar
-//    lidar2D.push_back(Eigen::Vector2f{this->aux_point.x,this->aux_point.y});
-//
-//    draw_floor_line(lidar2D);
-//
-//    // Transform vector3f
-//    std::vector<Door_detector::Door> detected_doors = detector.detector(lidar2D);
-//    detector.draw(viewer,detected_doors);
+    auto lidar_points = this->lidar3d_proxy->getLidarDataWithThreshold2d("helios",8000).points;
 
-//    draw_floor_line(lidar2D);
-//    std::cout << "Doors" << detected_doors.size() << std::endl;
+    std::ranges::sort(lidar_points, {}, &RoboCompLidar3D::TPoint::phi);
 
-//    std::cout << detected_doors.size() << std::endl;
-//    for (const DoorDetector::Door& door: detectedDoors)
-//    {
-//        std::
-//    }
+    this->current_phi = trunc((lidar_points[0].phi * 180) / M_PI);
+    this->aux_point = lidar_points[0];
+
+    std::vector<Eigen::Vector2f> lidar2D;
+
+    for(auto &&point: lidar_points)
+    {
+       if (point.z > 500.0 && point.z < 700.0)
+       {
+            int check_phi = std::trunc((point.phi * 180) / M_PI);
+
+            if(this->current_phi != check_phi)
+            {
+                lidar2D.push_back(Eigen::Vector2f{this->aux_point.x,this->aux_point.y});
+                this->aux_point = point;
+                this->current_phi = check_phi;
+            }
+            else
+            if(point.distance2d < this->aux_point.distance2d)
+            {
+                this->aux_point = point;
+            }
+        }
+    }
+
+    //Insert last point to the filtered lidar
+    lidar2D.push_back(Eigen::Vector2f{this->aux_point.x,this->aux_point.y});
+
+    draw_floor_line(lidar2D);
+
+    //Get doors from lidar2D
+    this->dataPtr->detected_doors = detector.detector(lidar2D);
+
+//    std::cout << __FUNCTION__ << "ROT_POINT:" << this->dataPtr->rot_point << std::endl;
+    try
+    {
+        omnirobot_proxy->setSpeedBase(this->dataPtr->advy_point,-this->dataPtr->advx_point,-this->dataPtr->rot_point);
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+
+    detector.draw(viewer,this->dataPtr->detected_doors);
+
+    draw_floor_line(lidar2D);
+    std::cout << __FUNCTION__ << "Doors" << this->dataPtr->detected_doors.size() << std::endl;
+
     this->tree.tickWhileRunning();
-
 }
 
 int SpecificWorker::startup_check()
