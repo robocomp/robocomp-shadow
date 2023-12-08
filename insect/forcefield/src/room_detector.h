@@ -48,7 +48,6 @@ namespace rc
             QPointF get_most_distant_point(const QPointF &p, const QPointF &p1, const QPointF &p2) const;
 
             // draw
-            //void draw_on_2D_tab(const std::vector<Eigen::Vector2f> &lines, QString color, int size, bool clean, AbstractGraphicViewer *viewer);
             void draw_par_lines_on_2D_tab(const Par_lines &par_lines, AbstractGraphicViewer *viewer);
             void draw_lines_on_2D_tab(const Lines &lines, AbstractGraphicViewer *viewer);
             void draw_corners_on_2D_tab(const Corners &corners, const std::vector<Eigen::Vector2f> &model_corners, AbstractGraphicViewer *viewer);

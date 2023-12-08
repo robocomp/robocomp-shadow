@@ -9,52 +9,49 @@
 
 namespace rc
 {
-    void Room::update(const QPointF &p1, const QPointF &p2, const QPointF &p3)
-    {
-        rect = cv::RotatedRect(cv::Point2f(p1.x(), p1.y()), cv::Point2f(p2.x(), p2.y()), cv::Point2f(p3.x(), p3.y()));
-    }
-
-    void Room::update(const QSizeF &new_size, const Eigen::Vector2f &center_, float rot_)
-    {
-        rect = cv::RotatedRect(cv::Point2f(center_.x(), center.y()), cv::Size2f(new_size.width(), new_size.height()), qRadiansToDegrees(rot_));
-        center = center_;
-        rot = rot_;
-        if (size_dist(new_size, tmp_size) < 500)
-            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
-        else
-        {
-            tmp_size = new_size;
-            csign = -csign;
-            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
-        }
-        double res = 1.0 / (1.0 + exp(-size_confidence));
-        if (res > 0.9 or res < 0.1)
-            rsize = tmp_size;
-
-        this->is_initialized = true;
-    }
-
-    void Room::update(const QSizeF &new_size, const Eigen::Vector2f &center_)
-    {
-        center = center_;
-        if (size_dist(new_size, tmp_size) < 500)
-            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
-        else
-        {
-            tmp_size = new_size;
-            csign = -csign;
-            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
-        }
-        double res = 1.0 / (1.0 + exp(-size_confidence));
-        if (res > 0.9 or res < 0.1)
-            rsize = tmp_size;
-    }
+//    void Room::update(const QPointF &p1, const QPointF &p2, const QPointF &p3)
+//    {
+//        rect = cv::RotatedRect(cv::Point2f(p1.x(), p1.y()), cv::Point2f(p2.x(), p2.y()), cv::Point2f(p3.x(), p3.y()));
+//    }
+//    void Room::update(const QSizeF &new_size, const Eigen::Vector2f &center_, float rot_)
+//    {
+//        rect = cv::RotatedRect(cv::Point2f(center_.x(), center.y()), cv::Size2f(new_size.width(), new_size.height()), qRadiansToDegrees(rot_));
+//        center = center_;
+//        rot = rot_;
+//        if (size_dist(new_size, tmp_size) < 500)
+//            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
+//        else
+//        {
+//            tmp_size = new_size;
+//            csign = -csign;
+//            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
+//        }
+//        double res = 1.0 / (1.0 + exp(-size_confidence));
+//        if (res > 0.9 or res < 0.1)
+//            rsize = tmp_size;
+//
+//        this->is_initialized = true;
+//    }
+//    void Room::update(const QSizeF &new_size, const Eigen::Vector2f &center_)
+//    {
+//        center = center_;
+//        if (size_dist(new_size, tmp_size) < 500)
+//            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
+//        else
+//        {
+//            tmp_size = new_size;
+//            csign = -csign;
+//            size_confidence = std::clamp(size_confidence + csign * delta, -10.f, 10.f);
+//        }
+//        double res = 1.0 / (1.0 + exp(-size_confidence));
+//        if (res > 0.9 or res < 0.1)
+//            rsize = tmp_size;
+//    }
 
     float Room::size_dist(const QSizeF &p1, const QSizeF &p2) const
     {
         return sqrt((p1.width() - p2.width()) * (p1.width() - p2.width()) + (p1.height() - p2.height()) * (p1.height() - p2.height()));
     }
-
     std::vector<Eigen::Vector3f> Room::get_3d_corners_in_robot_coor()
     {
         cv::Point2f pts[4];
@@ -65,7 +62,6 @@ namespace rc
                                               Eigen::Vector3f(pts[3].x, pts[3].y, 0.f)};
         return rcorners;
     }
-
     Eigen::Matrix<float, 4, 2> Room::get_eigen_corners_in_robot_coor()
     {
         Eigen::Matrix<float, 2, 2> rt_from_robot;
@@ -73,7 +69,6 @@ namespace rc
         Eigen::Matrix<float, 4, 2> rcorners = ((rt_from_robot * get_corners().transpose()).colwise() + center).transpose();
         return rcorners;
     }
-
     Eigen::Matrix<float, 4, 2> Room::get_eigen_corners_in_robot_coor2()
     {
         cv::Point2f pts[4];
@@ -83,7 +78,6 @@ namespace rc
                 Eigen::Vector2f(pts[2].x, pts[2].y), Eigen::Vector2f(pts[3].x, pts[3].y);
         return rcorners;
     }
-
     Eigen::Matrix<float, 4, 2> Room::get_corners()
     {
         Eigen::Matrix<float, 4, 2> corners;
@@ -95,7 +89,6 @@ namespace rc
         corners.row(3) = Eigen::Vector2f(-sw, -sh);
         return corners;
     }
-
     Eigen::Vector2f Room::get_closest_corner_in_robot_coor2(const Eigen::Vector2f &c) const
     {
         cv::Point2f pts[4];
@@ -105,7 +98,6 @@ namespace rc
             cs.emplace_back(Eigen::Vector2f(pts[i].x, pts[i].y));
         return *std::ranges::min_element(cs, [c](auto &a, auto &b) { return (a - c).norm() < (b - c).norm(); });
     }
-
     Eigen::Vector2f Room::get_closest_corner_in_robot_coor(const Eigen::Vector2f &c)
     {
         auto corners = get_eigen_corners_in_robot_coor();
@@ -113,7 +105,6 @@ namespace rc
         (corners.rowwise() - c.transpose()).rowwise().squaredNorm().minCoeff(&index);
         return corners.row(index);
     }
-
     Eigen::Vector2f Room::to_room_coor(const Eigen::Vector2f &p) const
     {
         Eigen::Rotation2Df rt_from_robot(rot);
@@ -122,7 +113,6 @@ namespace rc
         Eigen::Vector2f res = rt_from_robot.inverse() * (p - center);
         return res;
     }
-
     Eigen::Vector2f Room::get_closest_corner(const Eigen::Vector2f &c)
     {
         // c should be in rooms's coordinates
@@ -131,7 +121,6 @@ namespace rc
         (corners.rowwise() - c.transpose()).rowwise().squaredNorm().minCoeff(&index);
         return corners.row(index);
     }
-
     std::pair<float, QLineF> Room::get_closest_side(const QLineF &l)
     {
         //auto sides = get_sides_in_robot_coor();
@@ -159,23 +148,22 @@ namespace rc
 
         return *std::ranges::min_element(distances, [](auto &a, auto &b) { return fabs(std::get<float>(a)) < fabs(std::get<float>(b)); });
     }
-
     void Room::print()
     {
         if(is_initialized)
         {
             std::cout << "Room: " << std::endl;
-            std::cout << "  size: [" << rect.size.width << ", " << rect.size.height << "]" << std::endl;;
-            std::cout << "  center: [" << rect.center << ", " << rect.center << "]" << std::endl;;
-            std::cout << "  rot (deg-rad): " << rect.angle << " " << qDegreesToRadians(rect.angle) << std::endl;
+            std::cout << "  center: " << rect.center << std::endl;
+            std::cout << "  size: " << rect.size << std::endl;
+            std::cout << "  rot: " << rect.angle << "º, " << qDegreesToRadians(rect.angle) << " rads" << std::endl;
             cv::Point2f vertices[4]; rect.points(vertices);
             for(const auto &[i, c]: vertices | iter::enumerate)
                 std::cout << "  corner " << i << ": [" << c.x << ", " << c.y << "]" << std::endl;
+            std::cout << std::endl;
         }
         else
             std::cout << "Room not initialized" << std::endl;
     }
-
     Eigen::Vector2f Room::to_local_coor(const Eigen::Vector2f &p)
     {
         //Eigen::Rotation2Df rt_from_robot(rot);
@@ -183,29 +171,24 @@ namespace rc
         rt_from_robot << cos(rot), -sin(rot), sin(rot), cos(rot);
         return rt_from_robot.transpose() * (p - center);
     }
-
     float Room::euc_distance_between_points(const QPointF &p1, const QPointF &p2) const
     {
         return sqrt((p1.x() - p2.x()) * (p1.x() - p2.x()) + (p1.y() - p2.y()) * (p1.y() - p2.y()));
     }
-
     float Room::euc_distance_between_points(const cv::Point2f &p1, const QPointF &p2) const
     {
         return sqrt((p1.x - p2.x()) * (p1.x - p2.x()) + (p1.y - p2.y()) * (p1.y - p2.y()));
     }
-
     QPointF Room::to_qpoint(const cv::Point2f &p) const
     {
         return QPointF{p.x, p.y};
     }
-
     void Room::rotate(float delta)
     {
         delta = std::clamp(delta, -5.f, 5.f);
         rot += delta;
         //qInfo() << __FUNCTION__ << delta << rot;
     }
-
     void Room::draw_on_2D_tab(const Room &room, const QString &color, AbstractGraphicViewer *viewer)
     {
         static std::vector<QGraphicsItem *> items;
@@ -235,7 +218,6 @@ namespace rc
             items.push_back(it);
         }
     }
-
     std::vector<QLineF> Room::get_room_lines_qt() const
     {
         std::vector<QLineF> lines;

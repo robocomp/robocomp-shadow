@@ -44,8 +44,10 @@
 class SpecificWorker : public GenericWorker
 {
     Q_OBJECT
-    using v2f = Eigen::Vector2f;
     public:
+        using Line = std::vector<Eigen::Vector2f>;
+        using Lines = std::vector<Line>;
+
         SpecificWorker(TuplePrx tprx, bool startup_check);
         ~SpecificWorker();
         bool setParams(RoboCompCommonBehavior::ParameterList params);
@@ -57,51 +59,39 @@ class SpecificWorker : public GenericWorker
         void initialize(int period);
 
     private:
+        bool startup_check_flag;
         struct Constants
         {
-
+            std::string lidar_name = "bpearl";
         };
         Constants consts;
-        bool startup_check_flag;
 
         // world representation
         AbstractGraphicViewer *viewer;
-
         // draw
         void draw_lidar(const RoboCompLidar3D::TData &data);
-
         // joy
         void set_target_force(const Eigen::Vector3f &vec);
         Eigen::Vector3f target_coordinates{0.f, 0.f, 0.f};  //third component for pure  rotations
-
-
         // Clock
         rc::Timer<> clock;
-
-        // Second compute timer
-        QTimer timer2;
-
         //distance_lines
         std::vector<Eigen::Vector2f> current_line;
-
         // QCustomPlot
         QCustomPlot custom_plot;
         QCPGraph *side_acc, *adv_acc, *track_err;
         void draw_timeseries(float side, float adv, float track);
-
         // Door detector
         DoorDetector door_detector;
-
         // Room detector
         rc::Room_Detector room_detector;
-
         // DoubleBuffer variable
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
-
         // Lidar
         void read_lidar();
         std::thread read_lidar_th;
-
+        // Lines extractor
+        Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 };
 
 #endif

@@ -101,54 +101,22 @@ void SpecificWorker::compute()
 {
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
-    auto ldata = res_.value();
-    //qInfo() << ldata.points.size();
-    draw_lidar(ldata);
+    if (res_.has_value() == false) {  return; }
 
-    ///////////  EARLY DETECTORS  /////////////
-    //preobjects.clear();
+    auto ldata = res_.value();
+    draw_lidar(ldata);
+    std::vector<std::pair<float, float>> height_ranges{{0, 350}};
+    Lines lines = extract_lines(ldata.points, height_ranges);
 
     /// Door detector
-    auto doors = door_detector.detect(ldata.points, &viewer->scene);
-    //qInfo() << doors.size();
-
-    //auto pdoor = rc::PreObject::add_doors(doors);
-    //preobjects.insert(preobjects.end(), pdoor.begin(), pdoor.end());
-
-    /// Room detector
+    auto doors = door_detector.detect(lines, &viewer->scene);
     //std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(door_detector.current_line, doors);
     //draw_floor_line({filtered_line}, {0});
-    auto current_room = room_detector.detect({door_detector.current_line}, viewer);
+
+    /// Room detector
+    auto current_room = room_detector.detect({lines.front()}, viewer);  // TODO: use upper lines in Helios
     current_room.print();
 
-    // refresh current_target
-//    if (auto it = std::find_if(preobjects.begin(), preobjects.end(), [r = robot](auto &a)
-//        { return a.type == r.get_current_target().type; }); it != preobjects.end())
-//    {
-//        if((it->get_robot_coordinates() - robot.get_current_target().get_robot_coordinates()).norm() < 300)
-//            robot.set_current_target(*it);
-//    }
-//
-//    // Move robot
-//    robot.goto_target(current_line);
-
-    ///////// DRAWING  //////////////////////
- //   {
-//        for (const auto &d: doors)
-//            top_camera.project_polygon_3d(d.points, robot.get_tf_base_to_cam(), top_rgb_frame, cv::Scalar(255, 0, 0), "door");
-//        top_camera.project_floor(current_room.get_3d_corners_in_robot_coor(), robot.get_tf_base_to_cam(),
-//                                      top_rgb_frame, cv::Scalar(0, 255, 0));
-////        top_camera.project_walls(current_room.get_3d_corners_in_robot_coor(), robot.get_tf_base_to_cam(),
-////                                 top_rgb_frame, cv::Scalar(0, 255, 0));
-//
-//        /// draw top image
-//        cv::imshow("top", top_rgb_frame); cv::waitKey(1);
-//        /// draw yolo_objects on 2D view
-//        draw_objects_on_2dview(preobjects, rc::PreObject());
-//    }
-
-    //qInfo() << t2-t1 << t3-t2 << t4-t3 << t5-t4 << t6-t5 << t8-t7 << t8-t1;
 //    static float side_ant = 0, adv_ant = 0;
 //    draw_timeseries(side-side_ant, adv-adv_ant, track_err);
 //    side_ant = side; adv_ant = adv;
@@ -156,6 +124,16 @@ void SpecificWorker::compute()
 
 }
 
+////////////////////////////////////////////////////////////////////////////////
+SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges)
+{
+    Lines lines(ranges.size());
+    for(const auto &p: points)
+        for(const auto &[i, r] : ranges | iter::enumerate)
+            if(p.z > r.first and p.z < r.second)
+                lines[i].emplace_back(p.x, p.y);
+    return lines;
+}
 //////////////////// LIDAR /////////////////////////////////////////////////
 void SpecificWorker::read_lidar()
 {
@@ -163,7 +141,7 @@ void SpecificWorker::read_lidar()
     {
         try
         {
-            auto data = lidar3d_proxy->getLidarData("bpearl", -90, 360, 1);
+            auto data = lidar3d_proxy->getLidarData(consts.lidar_name, -90, 360, 1);
             buffer_lidar_data.put(std::move(data));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }

@@ -91,7 +91,7 @@ class DoorDetector
 
     public:
         DoorDetector();
-        Doors detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *scene);
+        Doors detect(const Lines &lines, QGraphicsScene *scene);
         Line current_line;
 
     private:
