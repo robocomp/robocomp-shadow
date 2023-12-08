@@ -65,12 +65,8 @@ void SpecificWorker::initialize(int period)
         // graphics
         viewer = new AbstractGraphicViewer(this->beta_frame,  QRectF(-2500, -2500, 5000, 5000), true);
         this->resize(900,900);
-        viewer->add_robot(robot.width, robot.length);
+        viewer->add_robot(400, 400);
 
-        // initialize robot
-        robot.initialize(omnirobot_proxy, viewer);
-        //robot.add_camera(tf, {"z"}, jointmotorsimple_proxy);
-        //robot.create_bumper();  // create bumper
 
         //QCustomPlot
         custom_plot.setParent(this->customplot);
@@ -90,9 +86,6 @@ void SpecificWorker::initialize(int period)
         // room_detector
         room_detector.init(&custom_plot);
 
-        // rep state machine
-        sm_search_and_approach.init(this->graph_frame);
-
         // A thread is created
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
         std::cout << "Started lidar reader" << std::endl;
@@ -100,9 +93,6 @@ void SpecificWorker::initialize(int period)
         // timers
         Period = 50;
         timer.start(Period);
-        //connect(&timer2, SIGNAL(timeout()), this, SLOT(compute2()));
-        connect(&timer2, SIGNAL(timeout()), this, SLOT(compute_explore_rooms()));
-        //timer2.start(200);
         std::cout << "Worker initialized OK" << std::endl;
 	}
 }
@@ -127,9 +117,9 @@ void SpecificWorker::compute()
     //preobjects.insert(preobjects.end(), pdoor.begin(), pdoor.end());
 
     /// Room detector
-    std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(door_detector.current_line, doors);
+    //std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(door_detector.current_line, doors);
     //draw_floor_line({filtered_line}, {0});
-    auto current_room = room_detector.detect({filtered_line}, viewer);   // inside, index has to be 0
+    auto current_room = room_detector.detect({door_detector.current_line}, viewer);
     current_room.print();
 
     // refresh current_target
@@ -166,27 +156,7 @@ void SpecificWorker::compute()
 
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////
-// mission: explore and build space
-void SpecificWorker::compute_explore_rooms()
-{
-    // state machine to activate basic behaviours. Returns a  target_coordinates vector
-    auto state = sm_search_and_approach.update(robot, preobjects, yolo_object_names);
-}
-// mission: follow person
-void SpecificWorker::compute_follow_human()
-{
-    for(auto &&o: preobjects)
-        o.print();
-
-    for(const auto &o: preobjects)
-        if(o.type == 0) // human
-            robot.set_current_target(o);
-
-}
-//////////////////// ELEMENTS OF CONTROL/////////////////////////////////////////////////
-// perception
-// Thread to read the lidar
+//////////////////// LIDAR /////////////////////////////////////////////////
 void SpecificWorker::read_lidar()
 {
     while(true)
@@ -198,104 +168,6 @@ void SpecificWorker::read_lidar()
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));}
-}
-//RoboCompYoloObjects::TObjects SpecificWorker::yolo_detect_objects(cv::Mat rgb)
-//{
-//    RoboCompYoloObjects::TObjects objects;
-//    RoboCompYoloObjects::TData yolo_objects;
-//    try
-//    { yolo_objects = yoloobjects_proxy->getYoloObjects(); }
-//    catch(const Ice::Exception &e){ std::cout << e.what() << std::endl; return objects;}
-//
-//    // remove unwanted types
-//    yolo_objects.objects.erase(std::remove_if(yolo_objects.objects.begin(), yolo_objects.objects.end(), [names = yolo_object_names](auto p)
-//    { return names[p.type] != "person" and
-//             names[p.type] != "chair" and
-//             names[p.type] != "potted plant" and
-//             names[p.type] != "toilet" and
-//             names[p.type] != "sink" and
-//             names[p.type] != "refrigerator" and
-//             names[p.type] != "tv"; }), yolo_objects.objects.end());
-//    // draw boxes
-//    for(auto &&o: yolo_objects.objects | iter::filter([th = consts.yolo_threshold](auto &o){return o.score > th;}))
-//    {
-//        objects.push_back(o);
-//        auto tl = round(0.002 * (rgb.cols + rgb.rows) / 2) + 1; // line / fontthickness
-//        const auto &c = COLORS.row(o.type);
-//        cv::Scalar color(c.x(), c.y(), c.z()); // box color
-//        cv::Point c1(o.left, o.top);
-//        cv::Point c2(o.right, o.bot);
-//        cv::rectangle(rgb, c1, c2, color, tl, cv::LINE_AA);
-//        int tf = (int) std::max(tl - 1, 1.0);  // font thickness
-//        int baseline = 0;
-//        std::string label = yolo_object_names.at(o.type) + " " + std::to_string((int) (o.score * 100)) + "%";
-//        auto t_size = cv::getTextSize(label, 0, tl / 3.f, tf, &baseline);
-//        c2 = {c1.x + t_size.width, c1.y - t_size.height - 3};
-//        cv::rectangle(rgb, c1, c2, color, -1, cv::LINE_AA);  // filled
-//        cv::putText(rgb, label, cv::Size(c1.x, c1.y - 2), 0, tl / 3, cv::Scalar(225, 255, 255), tf, cv::LINE_AA);
-//    }
-//    return objects;
-//}
-
-
-void SpecificWorker::move_robot(Eigen::Vector2f force)
-{
-    //auto sigmoid = [](auto x){ return std::clamp(x / 1000.f, 0.f, 1.f);};
-    try
-    {
-        Eigen::Vector2f gains{0.8, 0.8};
-        force = force.cwiseProduct(gains);
-        float rot = atan2(force.x(), force.y())  - 0.9*current_servo_angle;  // dumps rotation for small resultant force
-        float adv = force.y() ;
-        float side = force.x() ;
-        qInfo() << __FUNCTION__ << side << adv << rot;
-        omnirobot_proxy->setSpeedBase(side, adv, rot);
-    }
-    catch (const Ice::Exception &e){ std::cout << e.what() << std::endl;}
-}
-
-///////////////////// Aux //////////////////////////////////////////////////////////////////
-float SpecificWorker::closest_distance_ahead(const std::vector<Eigen::Vector2f> &line)
-{
-    // minimum distance in central sector
-    if(line.empty()) { qWarning() << __FUNCTION__ << "Empty line vector"; return 0.f;}
-    size_t offset = 3*line.size()/7;
-    auto res = std::min_element(line.begin()+offset, line.end()-offset, [](auto &a, auto &b){ return a.norm() < b.norm();});
-    return res->norm();
-
-}
-//// IOU auxiliary function
-float SpecificWorker::iou(const RoboCompYoloObjects::TBox &a, const RoboCompYoloObjects::TBox &b)
-{
-    // coordinates of the area of intersection.
-    float ix1 = std::max(a.left, b.left);
-    float iy1 = std::max(a.top, b.top);
-    float ix2 = std::min(a.right, b.right);
-    float iy2 = std::min(a.bot, b.bot);
-
-    // Intersection height and width.
-    float i_height = std::max(iy2 - iy1 + 1, 0.f);
-    float i_width = std::max(ix2 - ix1 + 1, 0.f);
-
-    float area_of_intersection = i_height * i_width;
-
-    // Ground Truth dimensions.
-    float a_height = a.bot - a.top + 1;
-    float a_width = a.right - a.left + 1;
-
-    // Prediction dimensions.
-    float b_height = b.bot - b.top + 1;
-    float b_width = b.right - b.left + 1;
-
-    float area_of_union = a_height * a_width + b_height * b_width - area_of_intersection;
-    return area_of_intersection / area_of_union;
-}
-float SpecificWorker::gaussian(float x)
-{
-    const double xset = consts.xset_gaussian;
-    const double yset = consts.yset_gaussian;
-    const double s = -xset*xset/log(yset);
-    return exp(-x*x/s);
 }
 
 /////////////////// Draw  /////////////////////////////////////////////////////////////
@@ -314,63 +186,7 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data)
         items.push_back(item);
     }
 }
-void SpecificWorker::draw_floor_line(const std::vector<std::vector<Eigen::Vector2f>> &lines, std::initializer_list<int> list)
-{
-    static std::vector<QGraphicsItem *> items;
-    for(const auto &item: items)
-    {
-        viewer->scene.removeItem(item);
-        delete item;
-    }
-    items.clear();
 
-    if(list.size() > lines.size()) {qWarning()<< "Requested list bigger than data. Returning"; return;}
-    std::vector<vector<Eigen::Vector2f>> copy_of_line(list.size());
-
-    for(auto &&[i, e]: list|iter::enumerate)
-        copy_of_line[i] =  lines[e];
-
-    QColor color("magenta");
-    for(auto &&[k, line]: copy_of_line | iter::enumerate)
-    {
-        //qInfo() << __FUNCTION__ << k << (int)COLORS.row(k).x() << (int)COLORS.row(k).y() << (int)COLORS.row(k).z();
-        //QColor color((int)COLORS.row(k).x(), (int)COLORS.row(k).y(), (int)COLORS.row(k).z());
-        QBrush brush(color);
-        for(const auto &p: line)
-        {
-            auto item = viewer->scene.addEllipse(-20, -20, 40, 40, color, brush);
-            item->setPos(p.x(), p.y());
-            items.push_back(item);
-        }
-    }
-}
-void SpecificWorker::draw_objects_on_2dview(const std::vector<rc::PreObject> &objects, const rc::PreObject &selected)
-{
-    static std::vector<QGraphicsItem *> items;
-    for(const auto &i: items)
-        viewer->scene.removeItem(i);
-    items.clear();
-
-    // draw selected
-//    auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(QColor("green"), 20));
-//    Eigen::Vector2f corrected = (m * Eigen::Vector3f(selected.x, selected.y, selected.z)).head(2);
-//    item->setPos(corrected.x(), corrected.y());
-//    items.push_back(item);
-
-    // draw rest
-    for(const auto &o: objects)
-    {
-        const auto &c = COLORS.row(o.type);
-        QColor color(c.z(), c.y(), c.x());  //BGR
-        auto item = viewer->scene.addRect(-200, -200, 400, 400, QPen(color, 20));
-
-        Eigen::Vector2f corrected = (robot.get_tf_cam_to_base() * Eigen::Vector3f(o.x, o.y, o.z)).head(2);
-        item->setPos(corrected.x(), corrected.y());
-        items.push_back(item);
-        //Eigen::Vector3f yolo = robot.get_tf_cam_to_base() * Eigen::Vector3f(o.x, o.y, o.z);
-        //qInfo() << __FUNCTION__ << corrected.x() << corrected.y() << yolo.x() << yolo.y();
-    }
-}
 void SpecificWorker::draw_timeseries(float side, float adv, float track)
 {
     static int cont = 0;
@@ -381,9 +197,9 @@ void SpecificWorker::draw_timeseries(float side, float adv, float track)
     custom_plot.replot();
 }
 
-///
+//////////////////////////////////////////////////////////////////////////////
 // SUBSCRIPTION to sendData method from JoystickAdapter interface
-///
+/////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)
 {
     Eigen::Vector2f target_force{0.f, 0.f};

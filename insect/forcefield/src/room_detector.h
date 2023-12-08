@@ -19,7 +19,6 @@
 #include <qcustomplot/qcustomplot.h>
 #include <ranges>
 
-
 namespace rc
 {
     class Room_Detector
@@ -27,8 +26,9 @@ namespace rc
         using Lines = std::vector<std::pair<int, QLineF>>;
         using Par_lines = std::vector<std::pair<QLineF, QLineF>>;
         using Corners =  std::vector<std::tuple<int, QPointF>>;
-        using Double_corners = std::vector<std::tuple<QPointF, QPointF, QPointF, QPointF>>;
-        using Features = std::tuple<Lines, Par_lines, Corners, Double_corners>;
+        using All_Corners = std::vector<std::tuple<QPointF, QPointF, QPointF, QPointF>>;
+        using Features = std::tuple<Lines, Par_lines, Corners, All_Corners>;
+
 
         public:
             void init(QCustomPlot *customPlot_);
@@ -40,7 +40,7 @@ namespace rc
             Lines get_hough_lines(std::vector<Eigen::Vector2f> &floor_line_cart) const;
             Par_lines get_parallel_lines(const  Lines &lines, const Eigen::Vector2f &estimated_size);
             Corners get_corners(Lines &elines);
-            Double_corners get_triple_corners(const Eigen::Vector2f &estimated_size, const Corners &corners);
+            All_Corners get_rooms(const Eigen::Vector2f &estimated_size, const Corners &corners);
             void filter_lines_by_length(const Lines &lines, std::vector <Eigen::Vector2f> &floor_line_cart);
 
             // aux
@@ -52,7 +52,7 @@ namespace rc
             void draw_par_lines_on_2D_tab(const Par_lines &par_lines, AbstractGraphicViewer *viewer);
             void draw_lines_on_2D_tab(const Lines &lines, AbstractGraphicViewer *viewer);
             void draw_corners_on_2D_tab(const Corners &corners, const std::vector<Eigen::Vector2f> &model_corners, AbstractGraphicViewer *viewer);
-            void draw_triple_corners_on_2D_tab(const Double_corners &double_corners, QString color, AbstractGraphicViewer *viewer);
+            void draw_triple_corners_on_2D_tab(const All_Corners &double_corners, QString color, AbstractGraphicViewer *viewer);
 
             // local data
             Room current_room;

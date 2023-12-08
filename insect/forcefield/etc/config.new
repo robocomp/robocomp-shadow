@@ -8,7 +8,6 @@ JoystickAdapterTopic.Endpoints=tcp -p 0
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 0
 Lidar3DProxy = lidar3d:tcp -h localhost -p 0
 OmniRobotProxy = omnirobot:tcp -h localhost -p 0
-YoloObjectsProxy = yoloobjects:tcp -h localhost -p 0
 
 
 # This property is used by the clients to connect to IceStorm.

@@ -24,23 +24,23 @@ namespace rc
     Room Room_Detector::detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer, bool draw_lines)
     {
         // compute features
-        const auto &[_, par_lines, corners, triple_corners] =  compute_features(lines, viewer);
+        const auto &[_, par_lines, corners, all_corners] =  compute_features(lines, viewer);
 
         // Start with more complex features and go downwards
         float triple_val=0, corners_val=0, par_lines_val=0;   // for qcustomplot
-
-        if (not triple_corners.empty())
+        if (not all_corners.empty())    // if there are room candidates, take the first room // TODO:: order by votes
         {
-            const auto &[c1, c2, c3, c4] = triple_corners.front();
+            const auto &[c1, c2, c3, c4] = all_corners.front();
             std::vector<cv::Point2f> poly{cv::Point2f(c1.x(), c1.y()), cv::Point2f(c2.x(), c2.y()),
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
             current_room.rect = cv::minAreaRect(poly);
             current_room.is_initialized = true;
             triple_val = 300; corners_val = 0; par_lines_val = 0;
         }
+        // if there is a room and detected corners that match some of the model, compute a resulting force and torque to rotate the model
         else if (not corners.empty() and corners.size() > 1 and current_room.is_initialized)
         {
-            float torque = 0;
+            double torque = 0.0;
             std::vector<Eigen::Vector2f> model_corners;
             for(const auto &[i, c]: corners | iter::enumerate)
             {
@@ -55,9 +55,9 @@ namespace rc
                 torque += sdist;
             }
             // rotate de rectangle proportional to resulting torque
-            float k = 0.01;
-            float ang = std::clamp(k*torque, -10.f, 10.f);
-            current_room.rect.angle += ang;
+            double k = 0.01;
+            double ang = std::clamp(k*torque, -10.0, 10.0);
+            current_room.rect.angle += (float)ang;
             if(fabs(ang) < 2)   // translate
             {
                 Eigen::Vector2f tr = to_eigen(std::get<1>(corners[0]))-model_corners[0];
@@ -66,25 +66,6 @@ namespace rc
             draw_corners_on_2D_tab(corners, model_corners, viewer);
             triple_val = 0; corners_val = 300; par_lines_val = 0;
         }
-//        else if(not par_lines.empty()  and current_room.is_initialized)
-//        {
-//            std::vector<float> ang_dist, min_angles;
-//            for (const auto &[l1, l2]: par_lines)
-//            {
-//                // compute angle between model lines and l1,l2
-//                for (auto model_lines = current_room.get_room_lines_qt(); auto &ml: model_lines)
-//                    ang_dist.emplace_back(fabs(ml.angleTo(l1)));
-//                min_angles.emplace_back(std::ranges::min(ang_dist));
-//            }
-//            // rotate the model
-//            float min_ang = std::ranges::min(min_angles);
-//            float k = 0.01;
-//            float ang = std::clamp(k * min_ang, -10.f, 10.f);
-//            current_room.rect.angle += ang;
-//            triple_val = 0;
-//            corners_val = 0;
-//            par_lines_val = 300;
-//        }
 
         //current_room.print();
         current_room.draw_on_2D_tab(current_room, "yellow", viewer);
@@ -98,7 +79,7 @@ namespace rc
         std::vector<Eigen::Vector2f> floor_line_cart = lines[0];
 
         // compute mean point
-        Eigen::Vector2f room_center;
+        Eigen::Vector2f room_center = Eigen::Vector2f::Zero();
         room_center = accumulate(floor_line_cart.begin(), floor_line_cart.end(), room_center) / (float)floor_line_cart.size();
         // std::cout << "Center " << room_center << std::endl;
 
@@ -118,14 +99,22 @@ namespace rc
         Corners corners = get_corners(elines);
         draw_corners_on_2D_tab(corners, {Eigen::Vector2f{0,0}}, viewer);
 
-        // compute double corners
-        Double_corners double_corners = get_triple_corners(estimated_size.head(2), corners);
+        // compute room candidates by finding triplets of corners in opposite directions and separation within room_size estimations
+        All_Corners all_corners = get_rooms(estimated_size.head(2), corners);
 
         // draw
         draw_lines_on_2D_tab(elines, viewer);
-        draw_triple_corners_on_2D_tab(double_corners, "green", viewer);
+        draw_triple_corners_on_2D_tab(all_corners, "green", viewer);
+        qInfo() << "Room detector: ";
+        qInfo() << "    points:" << floor_line_cart.size();
+        qInfo() << "    center:" << room_center.x() << room_center.y();
+        qInfo() << "    size:" << estimated_size.x() << estimated_size.y() << estimated_size.z();
+        qInfo() << "    num. lines:" << elines.size();
+        qInfo() << "    num. par lines:" << par_lines.size();
+        qInfo() << "    num. corners:" << corners.size();
+        qInfo() << "    num. double corners:" << all_corners.size();
 
-        return std::make_tuple(elines, par_lines, corners, double_corners);
+        return std::make_tuple(elines, par_lines, corners, all_corners);
     }
      ////////////////////////////////////////////////
     Eigen::Vector3f Room_Detector::estimate_room_sizes(const Eigen::Vector2f &room_center, std::vector<Eigen::Vector2f> &floor_line_cart) const
@@ -137,7 +126,7 @@ namespace rc
         Eigen::Matrix2f cov = (zero_mean_points.adjoint() * zero_mean_points) / float(zero_mean_points.rows() - 1);
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix2f> eigensolver;
         eigensolver.compute(cov);
-        Eigen::Vector2f values = eigensolver.eigenvalues().real()/1000.f;  //TODO: CHECK this with sqrt
+        Eigen::Vector2f values = eigensolver.eigenvalues().real().cwiseSqrt(); ///1000.f;  //TODO: CHECK this with sqrt
         Eigen::Index i;
         values.maxCoeff(&i);
         Eigen::Vector2f max_vector = eigensolver.eigenvectors().real().col(i);
@@ -148,7 +137,7 @@ namespace rc
         std::vector<cv::Vec2f> floor_line_cv;
         for(const auto &p : floor_line_cart)
             if(not p.isZero() and p.norm() < 8000.f)
-                floor_line_cv.emplace_back(cv::Vec2f(p.x(), p.y()));
+                floor_line_cv.emplace_back(p.x(), p.y());
 
         double rhoMin = -5000.0, rhoMax = 5000.0, rhoStep = 20;
         double thetaMin = 0, thetaMax = CV_PI, thetaStep = CV_PI / 180.0f;
@@ -156,38 +145,42 @@ namespace rc
         HoughLinesPointSet(floor_line_cv, lines, 10, 25, rhoMin, rhoMax, rhoStep, thetaMin, thetaMax, thetaStep);
         std::vector<cv::Vec3d> lines3d;
         if(lines.empty())
-            return  std::vector<std::pair<int, QLineF>>();
+            return  {};
 
-        lines.copyTo(lines3d);
+        lines.copyTo(lines3d);  // copy-convert to cv::Vec3d  (votes, rho, theta)
 
         // compute lines from Hough params
         std::vector<std::pair<int, QLineF>> elines;
-        for(auto &l: std::ranges::filter_view(lines3d, [](auto a){return a[0]>10;}))
+        // filter lines with more than 10 votes
+        const double min_votes = 10;  //TODO: take this cons to a CONSTS member
+        for(auto &l: std::ranges::filter_view(lines3d, [min = min_votes](auto &l){return l[0]>min;}))
         {
-            float rho = l[1], theta = l[2];
+            // compute QlineF from rho, theta
+            double rho = l[1], theta = l[2];
             double a = cos(theta), b = sin(theta);
             double x0 = a * rho, y0 = b * rho;
             QPointF p1(x0 + 5000 * (-b), y0 + 5000 * (a));
             QPointF p2(x0 - 5000 * (-b), y0 - 5000 * (a));
-            elines.emplace_back(std::make_pair(l[0], QLineF(p1, p2)));
+            elines.emplace_back(l[0], QLineF(p1, p2));    // votes, line
         }
 
         // Non-Maximum Suppression of close parallel lines
+        const double delta = 0.3;  // degrees
+        const double min_dist = 300;  // mm
         std::vector<QLineF> to_delete;
         for(auto &&comb: iter::combinations(elines, 2))
         {
             auto &[votes_1, line1] = comb[0];
             auto &[votes_2, line2] = comb[1];
-            float angle = qDegreesToRadians(qMin(line1.angleTo(line2), line2.angleTo(line1)));
-            float dist = (line1.center() - line2.center()).manhattanLength();
-            float delta = 0.3;
-            if((fabs(angle)<delta or (fabs(angle)-M_PI)< delta) and dist < 300)
+            double angle = qDegreesToRadians(qMin(line1.angleTo(line2), line2.angleTo(line1)));
+            double dist = (line1.center() - line2.center()).manhattanLength();
+            if((fabs(angle)<delta or (fabs(angle)-M_PI)< delta) and dist < min_dist)
             {
                 if (votes_1 >= votes_2) to_delete.push_back(line2);
                 else to_delete.push_back(line1);
             }
         }
-        //qInfo() << __FUNCTION__ << elines.size() << tgammaf(elines.size()+1)/(2*tgamma((elines.size()-2)+1)) << to_delete.size();
+        // erase lines that are parallel and too close
         elines.erase(remove_if(elines.begin(), elines.end(), [to_delete](auto l){ return std::ranges::find(to_delete, std::get<1>(l)) != to_delete.end();}), elines.end());
         return elines;
     }
@@ -223,11 +216,11 @@ namespace rc
         {
             const auto &[v1, line1] = line_pairs[0];
             const auto &[v2, line2] = line_pairs[1];
-            float ang = fabs(line1.angleTo(line2));
+            double ang = fabs(line1.angleTo(line2));
             const float delta = 10;  //degrees
             if((ang > -delta and ang < delta) or ( ang > 180-delta and ang < 180+delta))
             if( euc_distance_between_points(line1.center(), line2.center()) > estimated_size.minCoeff()/2.0)
-            par_lines.push_back(std::make_pair(line1,  line2));
+            par_lines.emplace_back(line1,  line2);
         }
     return par_lines;
     }
@@ -238,7 +231,7 @@ namespace rc
         {
             auto &[votes_1, line1] = comb[0];
             auto &[votes_2, line2] = comb[1];
-            float angle = fabs(qDegreesToRadians(line1.angleTo(line2)));
+            double angle = fabs(qDegreesToRadians(line1.angleTo(line2)));
             if(angle> M_PI) angle -= M_PI;
             if(angle< -M_PI) angle += M_PI;
             float delta = 0.2;
@@ -257,41 +250,31 @@ namespace rc
                 filtered_corners.push_back(c[0]);
         return corners;
     }
-    Room_Detector::Double_corners Room_Detector::get_triple_corners(const Eigen::Vector2f &estimated_size, const Corners &corners)
+    Room_Detector::All_Corners Room_Detector::get_rooms(const Eigen::Vector2f &estimated_size, const Corners &corners)
     {
-        Double_corners double_corners; //
-        // if in opposite directions and separation within room_size estimations
+        All_Corners all_corners;
+        // find pairs of corners in opposite directions and separation within room_size estimations
+        float min_dist = estimated_size.minCoeff() / 2; // threshold for distance between corners based on room half size
         for(auto &&comb: iter::combinations(corners, 3))
         {
             const auto &[votes1, p1] = comb[0];
             const auto &[votes2, p2] = comb[1];
             const auto &[votes3, p3] = comb[2];
             std::vector<float> ds{euc_distance_between_points(p1, p2), euc_distance_between_points(p1, p3), euc_distance_between_points(p2, p3)};
-            float min_dist = estimated_size.minCoeff() / 2;
+            // if all pairs meet the distance criteria of being more than min_dist apart
             if (std::ranges::all_of(ds, [min_dist](auto &a) { return a > min_dist; }))
             {
-                auto res = std::ranges::max_element(ds);
-                int pos = std::distance(ds.begin(), res);
+                auto res = std::ranges::max_element(ds); // find the longest distance
+                long pos = std::distance(ds.begin(), res);  //
                 QPointF p4;
+                // compute the fourth point
                 if (pos == 0){ auto l = QLineF(p3, (p1 + p2) / 2).unitVector(); l.setLength(euc_distance_between_points(p1, p2)); p4 = l.pointAt(1);};
                 if (pos == 1){ auto l = QLineF(p2, (p1 + p3) / 2).unitVector(); l.setLength(euc_distance_between_points(p1, p3)); p4 = l.pointAt(1);};
                 if (pos == 2){ auto l = QLineF(p1, (p2 + p3) / 2).unitVector(); l.setLength(euc_distance_between_points(p2, p3)); p4 = l.pointAt(1);};
-                double_corners.push_back(std::make_tuple(p1, p2, p4, p3));
+                all_corners.emplace_back(p1, p2, p3, p4);
             }
         }
-//
-//            if( angle > 90-10 and angle < 90+10 and euc_distance_between_points(l11.p1(), l21.p1()) > estimated_size.minCoeff() / 2.0)
-//            {
-//                // get one side of each cornet that cross at 90 degrees
-//                QPointF third_point;
-//                if(fabs(l11.angleTo(l21) < 90+10  and fabs(l11.angleTo(l21) > 90-10)))
-//                    l11.intersect(l21, &third_point);
-//                else
-//                    l11.intersect(l22, &third_point);
-//                double_corners.push_back(std::make_tuple(l11.p1(), l21.p1(), third_point));
-//            }
-        //}
-        return double_corners;
+        return all_corners;
     }
 
      ////////// DRAW
@@ -358,7 +341,7 @@ namespace rc
             items.push_back(l);
         }
     }
-    void Room_Detector::draw_triple_corners_on_2D_tab(const Double_corners &double_corners, QString color,
+    void Room_Detector::draw_triple_corners_on_2D_tab(const All_Corners &all_corners, QString color,
                                                       AbstractGraphicViewer *viewer)
     {
         static std::vector<QGraphicsItem*> lines_vec;
@@ -369,7 +352,7 @@ namespace rc
         }
         lines_vec.clear();
 
-        for(const auto &[first, second, third, forth] : double_corners)
+        for(const auto &[first, second, third, forth] : all_corners)
         {
             QPolygonF poly;
             poly << first << second << third;
@@ -515,4 +498,25 @@ namespace rc
 //            qInfo() << __FUNCTION__  << "Angle from corners" << rot.smallestAngle();
 //            current_room.rect.angle = qRadiansToDegrees(rot.angle());
 //            draw_corners_on_2D_tab(corners, model_corners, viewer);
+//        }
+
+/////////  code to move the room pulling from parallel lines
+//        else if(not par_lines.empty()  and current_room.is_initialized)
+//        {
+//            std::vector<float> ang_dist, min_angles;
+//            for (const auto &[l1, l2]: par_lines)
+//            {
+//                // compute angle between model lines and l1,l2
+//                for (auto model_lines = current_room.get_room_lines_qt(); auto &ml: model_lines)
+//                    ang_dist.emplace_back(fabs(ml.angleTo(l1)));
+//                min_angles.emplace_back(std::ranges::min(ang_dist));
+//            }
+//            // rotate the model
+//            float min_ang = std::ranges::min(min_angles);
+//            float k = 0.01;
+//            float ang = std::clamp(k * min_ang, -10.f, 10.f);
+//            current_room.rect.angle += ang;
+//            triple_val = 0;
+//            corners_val = 0;
+//            par_lines_val = 300;
 //        }

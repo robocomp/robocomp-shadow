@@ -1,6 +1,6 @@
-/snap/clion/250/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles" -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield -B /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield
+/snap/clion/259/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Release -G "Unix Makefiles" -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield -B /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield
 CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
-  Compatibility with CMake < 2.8.12 will be removed from a future version of
+  Compatibility with CMake < 3.5 will be removed from a future version of
   CMake.
 
   Update the VERSION argument <min> value or use a ...<max> suffix to tell
@@ -8,43 +8,11 @@ CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
 
 
 CMake Warning at src/CMakeLists.txt:5 (MESSAGE):
-  ROBOCOMP variable not set.  Using the default value:
-  /home/robocomp/robocomp
+  ROBOCOMP variable not set.  Using the default value: /opt/robocomp
 
 
--- COMPILING WITH QT6
--- opencv_calib3dopencv_coreopencv_dnnopencv_features2dopencv_flannopencv_highguiopencv_imgcodecsopencv_imgprocopencv_mlopencv_objdetectopencv_photoopencv_stitchingopencv_videoopencv_videoioopencv_alphamatopencv_arucoopencv_barcodeopencv_bgsegmopencv_bioinspiredopencv_ccalibopencv_datasetsopencv_dnn_objdetectopencv_dnn_superresopencv_dpmopencv_faceopencv_freetypeopencv_fuzzyopencv_hdfopencv_hfsopencv_img_hashopencv_intensity_transformopencv_line_descriptoropencv_mccopencv_optflowopencv_phase_unwrappingopencv_plotopencv_qualityopencv_rapidopencv_regopencv_rgbdopencv_saliencyopencv_shapeopencv_stereoopencv_structured_lightopencv_superresopencv_surface_matchingopencv_textopencv_trackingopencv_videostabopencv_vizopencv_wechat_qrcodeopencv_ximgprocopencv_xobjdetectopencv_xphoto
--- Ice version: 3.7.6
--- Found the following Ice libraries:
---   Ice++11 (required)
---   IceStorm++11 (required)
--- Found Ice: /usr/bin/slice2cpp (found version "3.7.6") 
--- RoboComp root is now set to /home/robocomp/robocomp//
--- 
--- Ice version: 3.7.6
--- Found the following Ice libraries:
---   Ice (required)
---   IceStorm (required)
--- The following Ice libraries were not found:
---   IceUtil (optional)
--- Found Ice: /usr/bin/slice2cpp (found version "3.7.6") 
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice from /home/robocomp/robocomp//interfaces/IDSLs/CommonBehavior.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice from /home/robocomp/robocomp//interfaces/IDSLs/Camera360RGB.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice from /home/robocomp/robocomp//interfaces/IDSLs/CameraRGBDSimple.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice from /home/robocomp/robocomp//interfaces/IDSLs/GenericBase.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice from /home/robocomp/robocomp//interfaces/IDSLs/JoystickAdapter.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice from /home/robocomp/robocomp//interfaces/IDSLs/Lidar3D.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice from /home/robocomp/robocomp//interfaces/IDSLs/OmniRobot.idsl
--- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice from /home/robocomp/robocomp//interfaces/IDSLs/YoloObjects.idsl
--- BU ice=>h/cpp: Adding rule to generate CommonBehavior.h and CommonBehavior.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice
--- BU ice=>h/cpp: Adding rule to generate Camera360RGB.h and Camera360RGB.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice
--- BU ice=>h/cpp: Adding rule to generate CameraRGBDSimple.h and CameraRGBDSimple.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice
--- BU ice=>h/cpp: Adding rule to generate GenericBase.h and GenericBase.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice
--- BU ice=>h/cpp: Adding rule to generate JoystickAdapter.h and JoystickAdapter.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice
--- BU ice=>h/cpp: Adding rule to generate Lidar3D.h and Lidar3D.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice
--- BU ice=>h/cpp: Adding rule to generate OmniRobot.h and OmniRobot.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice
--- BU ice=>h/cpp: Adding rule to generate YoloObjects.h and YoloObjects.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice
--- Generating header file from mainUI.ui
--- Configuring done (0.4s)
--- Generating done (0.0s)
--- Build files have been written to: /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield
+CMake Error at src/CMakeLists.txt:10 (MESSAGE):
+  Couldn't find RoboComp in /opt/robocomp/! Exiting...
+
+
+-- Configuring incomplete, errors occurred!

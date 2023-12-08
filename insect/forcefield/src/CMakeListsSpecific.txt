@@ -2,16 +2,10 @@
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
-  dynamic_window.cpp
-  robot.cpp
-  camera.cpp
-  sm_search_and_approach.cpp
   $ENV{ROBOCOMP}/classes/qcustomplot/qcustomplot.cpp
   door_detector.cpp
   room_detector.cpp
   room.cpp
-  preobject.cpp
-  graph.cpp
 )
 
 # Headers set

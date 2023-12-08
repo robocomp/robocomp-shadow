@@ -5,15 +5,10 @@
 #include "room.h"
 #include <cppitertools/range.hpp>
 #include <cppitertools/sliding_window.hpp>
+#include <cppitertools/enumerate.hpp>
 
 namespace rc
 {
-    float Room::size_dist(const QSizeF &p1, const QSizeF &p2) const
-    {
-        return sqrt((p1.width() - p2.width()) * (p1.width() - p2.width()) + (p1.height() - p2.height()) * (p1.height() - p2.height()));
-
-    }
-
     void Room::update(const QPointF &p1, const QPointF &p2, const QPointF &p3)
     {
         rect = cv::RotatedRect(cv::Point2f(p1.x(), p1.y()), cv::Point2f(p2.x(), p2.y()), cv::Point2f(p3.x(), p3.y()));
@@ -53,6 +48,11 @@ namespace rc
         double res = 1.0 / (1.0 + exp(-size_confidence));
         if (res > 0.9 or res < 0.1)
             rsize = tmp_size;
+    }
+
+    float Room::size_dist(const QSizeF &p1, const QSizeF &p2) const
+    {
+        return sqrt((p1.width() - p2.width()) * (p1.width() - p2.width()) + (p1.height() - p2.height()) * (p1.height() - p2.height()));
     }
 
     std::vector<Eigen::Vector3f> Room::get_3d_corners_in_robot_coor()
@@ -165,13 +165,12 @@ namespace rc
         if(is_initialized)
         {
             std::cout << "Room: " << std::endl;
-            std::cout << "  size: [" << rsize.width() << ", " << rsize.height() << "]" << std::endl;;
-            std::cout << "  center: [" << center.x() << ", " << center.y() << "]" << std::endl;;
-            std::cout << "  rot: " << rot << std::endl;
-            auto rcorners = get_eigen_corners_in_robot_coor();
-            std::cout << "  corners: [" << rcorners << "]" << std::endl;
-            auto corners = get_corners();
-            std::cout << "  corners: [" << corners << "]" << std::endl;
+            std::cout << "  size: [" << rect.size.width << ", " << rect.size.height << "]" << std::endl;;
+            std::cout << "  center: [" << rect.center << ", " << rect.center << "]" << std::endl;;
+            std::cout << "  rot (deg-rad): " << rect.angle << " " << qDegreesToRadians(rect.angle) << std::endl;
+            cv::Point2f vertices[4]; rect.points(vertices);
+            for(const auto &[i, c]: vertices | iter::enumerate)
+                std::cout << "  corner " << i << ": [" << c.x << ", " << c.y << "]" << std::endl;
         }
         else
             std::cout << "Room not initialized" << std::endl;

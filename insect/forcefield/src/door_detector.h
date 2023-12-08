@@ -17,89 +17,97 @@
 
 class DoorDetector
 {
+    struct Door
+    {
+        Eigen::Vector2f p0, p1, middle;
+        int idx_in_peaks_0, idx_in_peaks_1;
+        const float THRESHOLD = 500; //door equality
+
+        Door(){ p0 = p1 = middle = Eigen::Vector2f::Zero();};
+        Door(const Eigen::Vector2f &p0_,
+             const Eigen::Vector2f &p1_,
+             int idx_0, int idx_1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx_0), idx_in_peaks_1(idx_1)
+        {
+            middle = (p0 + p1)/2.f;
+        };
+        bool operator==(const Door &d) const
+        {
+            return (d.middle - middle).norm() < THRESHOLD;
+        };
+        Door& operator=(const Door &d)
+        {
+            p0 = d.p0;
+            p1 = d.p1;
+            middle = d.middle;
+            return *this;
+        };
+        void print()
+        {
+            qInfo() << "Door:";
+            qInfo() << "    left:" << p0.x() << p0.y();
+            qInfo() << "    right:" << p1.x() << p1.y();
+        };
+        float dist_to_robot() const
+        { return middle.norm();}
+        float angle_to_robot() const
+        { return (float)atan2(middle.x(), middle.y());}
+        Eigen::Vector2f point_perpendicular_to_door_at(float dist=1000.f) const // mm
+        {
+            // Calculate the direction vector from p1 to p2 and rotate it by 90 degrees
+            Eigen::Vector2f d_perp{-(p0.y() - p1.y()), p0.x() - p1.x()};
+            // Normalize the perpendicular vector to get the unit vector
+            Eigen::Vector2f u_perp = d_perp.normalized();
+            // Calculate the points P1 and P2 at a distance of 1 meter from M along the perpendicular
+            Eigen::Vector2f a, b;
+            a = middle + (u_perp * dist); // 1 meter in the direction of u_perp
+            b = middle - (u_perp * dist); // 1 meter in the opposite direction of u_perp
+            return a.norm() < b.norm() ? a : b;
+        }
+        float perp_dist_to_robot() const
+        {
+            auto p = point_perpendicular_to_door_at();
+            return p.norm();
+        }
+        float perp_angle_to_robot() const
+        {
+            auto p = point_perpendicular_to_door_at();
+            return atan2(p.x(), p.y());
+        }
+    };
+
+    using Doors = std::vector<Door>;
+    using Doors_list = std::vector<Doors>;
+    using Line = std::vector<Eigen::Vector2f>;
+    using Lines = std::vector<Line>;
+    using Peaks_list = std::vector<std::vector<int>>;
+
+    struct Constants
+    {
+        const float SAME_DOOR = 500;   // same door threshold (mm)
+        const float MAX_DOOR_WIDTH = 1400;  // mm
+        const float MIN_DOOR_WIDTH = 500;   // mm
+    };
+    Constants consts;
+
     public:
         DoorDetector();
-        struct Door
-        {
-            const float THRESHOLD = 500; //door equality
-            Eigen::Vector2f center_floor;
-            std::vector<Eigen::Vector3f> points;  //floor and high
-            Eigen::Vector2f p0, p1, middle;
-            int idx_in_peaks_0, idx_in_peaks_1;
-            const float height = 1000.f;
-            Door(){ p0 = p1 = middle = Eigen::Vector2f{0.f,0.f}; idx_in_peaks_0 = idx_in_peaks_1 = -1;}
-            Door(Eigen::Vector2f &&p0_, Eigen::Vector2f &&p1_, int idx0, int idx1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx0), idx_in_peaks_1(idx1)
-            {
-                middle = (p0 + p1) / 2.f;
-                idx_in_peaks_0 = idx_in_peaks_1 = -1;
-            };
-            Door(const Eigen::Vector2f &p0_, const Eigen::Vector2f &p1_, int idx0, int idx1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx0), idx_in_peaks_1(idx1)
-            {
-                middle = (p0 + p1) / 2.f;
-                idx_in_peaks_0 = idx_in_peaks_1 = -1;
-            };
-            bool operator==(const Door &d) const
-            {
-                return (d.middle-middle).norm() < THRESHOLD;
-            };
-            Door& operator=(const Door &d)
-            {
-                p0 = d.p0;
-                p1 = d.p1;
-                middle = d.middle;
-                return *this;
-            };
-            void print()
-            {
-                qInfo() << "Door:";
-                qInfo() << "    p0:" << p0.x() << p0.y();
-                qInfo() << "    p1:" << p1.x() << p1.y();
-            };
-            float dist_to_robot() const { return middle.norm();}
-            float angle_to_robot() const { return atan2(middle.x(), middle.y());}
-            Eigen::Vector2f point_perpendicular_to_door_at(float dist=1000) const  //mm
-            {
-                // Calculate the direction vector from p1 to p2 and rotate it by 90 degrees
-                Eigen::Vector2f d_perp{ - (p0.y() - p1.y()), p0.x() - p1.x()};
-                Eigen::Vector2f d_perp_n = d_perp.normalized();
+        Doors detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *scene);
+        Line current_line;
 
-                // Calculate the points P1 and P2 at a distance of +-1 meter along the perpendicular
-                Eigen::Vector2f a, b;
-                a = middle + d_perp_n * dist;
-                b = middle - d_perp_n * dist;
-                return a.norm() < b.norm() ? a : b;
-            }
-            float perp_dist_to_robot() const { return point_perpendicular_to_door_at().norm(); }
-            float perp_angle_to_robot() const
-            {
-                auto p = point_perpendicular_to_door_at();
-                return atan2(p.x(), p.y());
-            }
-            float door_angle_to_robot() const
-            {
-                Eigen::Vector2f d_perp{ - (p0.y() - p1.y()), p0.x() - p1.x()};
-                Eigen::Vector2f d_perp_n = d_perp.normalized();
-                return atan2(d_perp_n.x(), d_perp_n.y());
-            }
-        };
-        
-        using Doors = std::vector<Door>;
-        using Doors_list = std::vector<Doors>;
-        using Lines = std::vector<std::vector<Eigen::Vector2f>>;
-        using Peaks = std::vector<uint>;
-        using Peaks_list = std::vector<std::vector<uint>>;  // indices of peaks in each line
-        std::vector<Eigen::Vector2f> current_line; // to hold the current line being processed (lowest line for now)
-
-        std::vector<Eigen::Vector2f> filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const Doors &doors);
-        Doors detect(const RoboCompLidar3D::TPoints &points, QGraphicsScene *viewer);
-        Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
+    private:
+        std::vector<std::vector<Eigen::Vector2f>> extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
         Peaks_list extract_peaks(const Lines &lines);
         Doors_list get_doors(const Peaks_list &peaks, const Lines &lines);
-        Doors filter_doors(const Doors_list &doors_list);
-        void draw_doors(const Doors &doors, const Door &door_target, QGraphicsScene *scene, QColor color=QColor("blue"));
-    private:
-            std::vector<std::pair<float, float>> height_ranges;
+        Doors filter_doors(const Doors_list &doors);
+        void draw_doors(const Doors &doors, const Door &current_door, QGraphicsScene *scene, QColor=QColor("blue"));
+        Line filter_out_points_beyond_doors(const Line&floor_line_cart, const Doors &doors);
 
+        std::vector<std::pair<float, float>> height_ranges;
+
+        const float der_threshold = 800.f;
+        const float max_door_width = 1100;
+        const float min_door_width = 700; // mm
+        const float max_door_separation = 100; //mm
 };
 
 

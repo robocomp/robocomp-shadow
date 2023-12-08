@@ -44,10 +44,10 @@ cmake_force:
 SHELL = /bin/sh
 
 # The CMake executable.
-CMAKE_COMMAND = /snap/clion/250/bin/cmake/linux/x64/bin/cmake
+CMAKE_COMMAND = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake
 
 # The command to remove a file.
-RM = /snap/clion/250/bin/cmake/linux/x64/bin/cmake -E rm -f
+RM = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E rm -f
 
 # Escaping for special characters.
 EQUALS = =
@@ -83,57 +83,43 @@ src/Camera360RGB.cpp:
 src/Camera360RGB.h: src/Camera360RGB.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate src/Camera360RGB.h
 
-src/CameraRGBDSimple.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "BU ice=>h/cpp: Generating CameraRGBDSimple.h and CameraRGBDSimple.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
-
-src/CameraRGBDSimple.h: src/CameraRGBDSimple.cpp
-	@$(CMAKE_COMMAND) -E touch_nocreate src/CameraRGBDSimple.h
-
 src/GenericBase.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "BU ice=>h/cpp: Generating GenericBase.h and GenericBase.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "BU ice=>h/cpp: Generating GenericBase.h and GenericBase.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
 
 src/GenericBase.h: src/GenericBase.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate src/GenericBase.h
 
 src/JoystickAdapter.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "BU ice=>h/cpp: Generating JoystickAdapter.h and JoystickAdapter.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "BU ice=>h/cpp: Generating JoystickAdapter.h and JoystickAdapter.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
 
 src/JoystickAdapter.h: src/JoystickAdapter.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate src/JoystickAdapter.h
 
 src/Lidar3D.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "BU ice=>h/cpp: Generating Lidar3D.h and Lidar3D.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "BU ice=>h/cpp: Generating Lidar3D.h and Lidar3D.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
 
 src/Lidar3D.h: src/Lidar3D.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate src/Lidar3D.h
 
 src/OmniRobot.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "BU ice=>h/cpp: Generating OmniRobot.h and OmniRobot.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "BU ice=>h/cpp: Generating OmniRobot.h and OmniRobot.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
 
 src/OmniRobot.h: src/OmniRobot.cpp
 	@$(CMAKE_COMMAND) -E touch_nocreate src/OmniRobot.h
 
-src/YoloObjects.cpp:
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "BU ice=>h/cpp: Generating YoloObjects.h and YoloObjects.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && slice2cpp --underscore /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice -I/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ --output-dir .
-
-src/YoloObjects.h: src/YoloObjects.cpp
-	@$(CMAKE_COMMAND) -E touch_nocreate src/YoloObjects.h
-
 src/ui_mainUI.h: src/mainUI.ui
 src/ui_mainUI.h: /usr/lib/qt6/libexec/uic
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Generating ui_mainUI.h"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Generating ui_mainUI.h"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/lib/qt6/libexec/uic -o /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/ui_mainUI.h /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/mainUI.ui
 
 src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o: src/forcefield_autogen/mocs_compilation.cpp
 src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o -MF CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o.d -o CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/forcefield_autogen/mocs_compilation.cpp
 
 src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.i: cmake_force
@@ -147,7 +133,7 @@ src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.s: cmake_f
 src/CMakeFiles/forcefield.dir/specificworker.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/specificworker.cpp.o: src/specificworker.cpp
 src/CMakeFiles/forcefield.dir/specificworker.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object src/CMakeFiles/forcefield.dir/specificworker.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object src/CMakeFiles/forcefield.dir/specificworker.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/specificworker.cpp.o -MF CMakeFiles/forcefield.dir/specificworker.cpp.o.d -o CMakeFiles/forcefield.dir/specificworker.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/specificworker.cpp
 
 src/CMakeFiles/forcefield.dir/specificworker.cpp.i: cmake_force
@@ -161,7 +147,7 @@ src/CMakeFiles/forcefield.dir/specificworker.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o: src/specificmonitor.cpp
 src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o -MF CMakeFiles/forcefield.dir/specificmonitor.cpp.o.d -o CMakeFiles/forcefield.dir/specificmonitor.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/specificmonitor.cpp
 
 src/CMakeFiles/forcefield.dir/specificmonitor.cpp.i: cmake_force
@@ -172,66 +158,10 @@ src/CMakeFiles/forcefield.dir/specificmonitor.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/specificmonitor.cpp.s"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/specificmonitor.cpp -o CMakeFiles/forcefield.dir/specificmonitor.cpp.s
 
-src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o: src/dynamic_window.cpp
-src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o -MF CMakeFiles/forcefield.dir/dynamic_window.cpp.o.d -o CMakeFiles/forcefield.dir/dynamic_window.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/dynamic_window.cpp
-
-src/CMakeFiles/forcefield.dir/dynamic_window.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/dynamic_window.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/dynamic_window.cpp > CMakeFiles/forcefield.dir/dynamic_window.cpp.i
-
-src/CMakeFiles/forcefield.dir/dynamic_window.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/dynamic_window.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/dynamic_window.cpp -o CMakeFiles/forcefield.dir/dynamic_window.cpp.s
-
-src/CMakeFiles/forcefield.dir/robot.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/robot.cpp.o: src/robot.cpp
-src/CMakeFiles/forcefield.dir/robot.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object src/CMakeFiles/forcefield.dir/robot.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/robot.cpp.o -MF CMakeFiles/forcefield.dir/robot.cpp.o.d -o CMakeFiles/forcefield.dir/robot.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/robot.cpp
-
-src/CMakeFiles/forcefield.dir/robot.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/robot.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/robot.cpp > CMakeFiles/forcefield.dir/robot.cpp.i
-
-src/CMakeFiles/forcefield.dir/robot.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/robot.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/robot.cpp -o CMakeFiles/forcefield.dir/robot.cpp.s
-
-src/CMakeFiles/forcefield.dir/camera.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/camera.cpp.o: src/camera.cpp
-src/CMakeFiles/forcefield.dir/camera.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object src/CMakeFiles/forcefield.dir/camera.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/camera.cpp.o -MF CMakeFiles/forcefield.dir/camera.cpp.o.d -o CMakeFiles/forcefield.dir/camera.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/camera.cpp
-
-src/CMakeFiles/forcefield.dir/camera.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/camera.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/camera.cpp > CMakeFiles/forcefield.dir/camera.cpp.i
-
-src/CMakeFiles/forcefield.dir/camera.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/camera.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/camera.cpp -o CMakeFiles/forcefield.dir/camera.cpp.s
-
-src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o: src/sm_search_and_approach.cpp
-src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o -MF CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o.d -o CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/sm_search_and_approach.cpp
-
-src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/sm_search_and_approach.cpp > CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.i
-
-src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/sm_search_and_approach.cpp -o CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.s
-
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o: /home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o -MF CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o.d -o CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o -c /home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp
 
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.i: cmake_force
@@ -245,7 +175,7 @@ src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustom
 src/CMakeFiles/forcefield.dir/door_detector.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/door_detector.cpp.o: src/door_detector.cpp
 src/CMakeFiles/forcefield.dir/door_detector.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object src/CMakeFiles/forcefield.dir/door_detector.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object src/CMakeFiles/forcefield.dir/door_detector.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/door_detector.cpp.o -MF CMakeFiles/forcefield.dir/door_detector.cpp.o.d -o CMakeFiles/forcefield.dir/door_detector.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/door_detector.cpp
 
 src/CMakeFiles/forcefield.dir/door_detector.cpp.i: cmake_force
@@ -259,7 +189,7 @@ src/CMakeFiles/forcefield.dir/door_detector.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/room_detector.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/room_detector.cpp.o: src/room_detector.cpp
 src/CMakeFiles/forcefield.dir/room_detector.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object src/CMakeFiles/forcefield.dir/room_detector.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object src/CMakeFiles/forcefield.dir/room_detector.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/room_detector.cpp.o -MF CMakeFiles/forcefield.dir/room_detector.cpp.o.d -o CMakeFiles/forcefield.dir/room_detector.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/room_detector.cpp
 
 src/CMakeFiles/forcefield.dir/room_detector.cpp.i: cmake_force
@@ -273,7 +203,7 @@ src/CMakeFiles/forcefield.dir/room_detector.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/room.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/room.cpp.o: src/room.cpp
 src/CMakeFiles/forcefield.dir/room.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object src/CMakeFiles/forcefield.dir/room.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object src/CMakeFiles/forcefield.dir/room.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/room.cpp.o -MF CMakeFiles/forcefield.dir/room.cpp.o.d -o CMakeFiles/forcefield.dir/room.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/room.cpp
 
 src/CMakeFiles/forcefield.dir/room.cpp.i: cmake_force
@@ -284,38 +214,10 @@ src/CMakeFiles/forcefield.dir/room.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/room.cpp.s"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/room.cpp -o CMakeFiles/forcefield.dir/room.cpp.s
 
-src/CMakeFiles/forcefield.dir/preobject.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/preobject.cpp.o: src/preobject.cpp
-src/CMakeFiles/forcefield.dir/preobject.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object src/CMakeFiles/forcefield.dir/preobject.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/preobject.cpp.o -MF CMakeFiles/forcefield.dir/preobject.cpp.o.d -o CMakeFiles/forcefield.dir/preobject.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/preobject.cpp
-
-src/CMakeFiles/forcefield.dir/preobject.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/preobject.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/preobject.cpp > CMakeFiles/forcefield.dir/preobject.cpp.i
-
-src/CMakeFiles/forcefield.dir/preobject.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/preobject.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/preobject.cpp -o CMakeFiles/forcefield.dir/preobject.cpp.s
-
-src/CMakeFiles/forcefield.dir/graph.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/graph.cpp.o: src/graph.cpp
-src/CMakeFiles/forcefield.dir/graph.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object src/CMakeFiles/forcefield.dir/graph.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/graph.cpp.o -MF CMakeFiles/forcefield.dir/graph.cpp.o.d -o CMakeFiles/forcefield.dir/graph.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/graph.cpp
-
-src/CMakeFiles/forcefield.dir/graph.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/graph.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/graph.cpp > CMakeFiles/forcefield.dir/graph.cpp.i
-
-src/CMakeFiles/forcefield.dir/graph.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/graph.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/graph.cpp -o CMakeFiles/forcefield.dir/graph.cpp.s
-
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o: /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o -MF CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o.d -o CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o -c /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp
 
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.i: cmake_force
@@ -329,7 +231,7 @@ src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_vi
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o: /home/robocomp/robocomp/classes/rapplication/rapplication.cpp
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o -MF CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o.d -o CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o -c /home/robocomp/robocomp/classes/rapplication/rapplication.cpp
 
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.i: cmake_force
@@ -343,7 +245,7 @@ src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rappli
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o: /home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o -MF CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o.d -o CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o -c /home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp
 
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.i: cmake_force
@@ -357,7 +259,7 @@ src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.c
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o: /home/robocomp/robocomp/classes/qlog/qlog.cpp
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o -MF CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o.d -o CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.o -c /home/robocomp/robocomp/classes/qlog/qlog.cpp
 
 src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.i: cmake_force
@@ -371,7 +273,7 @@ src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qlog/qlog.cpp.s: cm
 src/CMakeFiles/forcefield.dir/main.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/main.cpp.o: src/main.cpp
 src/CMakeFiles/forcefield.dir/main.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building CXX object src/CMakeFiles/forcefield.dir/main.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object src/CMakeFiles/forcefield.dir/main.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/main.cpp.o -MF CMakeFiles/forcefield.dir/main.cpp.o.d -o CMakeFiles/forcefield.dir/main.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/main.cpp
 
 src/CMakeFiles/forcefield.dir/main.cpp.i: cmake_force
@@ -385,7 +287,7 @@ src/CMakeFiles/forcefield.dir/main.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o: src/genericmonitor.cpp
 src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building CXX object src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/genericmonitor.cpp.o -MF CMakeFiles/forcefield.dir/genericmonitor.cpp.o.d -o CMakeFiles/forcefield.dir/genericmonitor.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/genericmonitor.cpp
 
 src/CMakeFiles/forcefield.dir/genericmonitor.cpp.i: cmake_force
@@ -399,7 +301,7 @@ src/CMakeFiles/forcefield.dir/genericmonitor.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o: src/commonbehaviorI.cpp
 src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building CXX object src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o -MF CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o.d -o CMakeFiles/forcefield.dir/commonbehaviorI.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/commonbehaviorI.cpp
 
 src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.i: cmake_force
@@ -413,7 +315,7 @@ src/CMakeFiles/forcefield.dir/commonbehaviorI.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/genericworker.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/genericworker.cpp.o: src/genericworker.cpp
 src/CMakeFiles/forcefield.dir/genericworker.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Building CXX object src/CMakeFiles/forcefield.dir/genericworker.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object src/CMakeFiles/forcefield.dir/genericworker.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/genericworker.cpp.o -MF CMakeFiles/forcefield.dir/genericworker.cpp.o.d -o CMakeFiles/forcefield.dir/genericworker.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/genericworker.cpp
 
 src/CMakeFiles/forcefield.dir/genericworker.cpp.i: cmake_force
@@ -427,7 +329,7 @@ src/CMakeFiles/forcefield.dir/genericworker.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o: src/joystickadapterI.cpp
 src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_31) "Building CXX object src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o -MF CMakeFiles/forcefield.dir/joystickadapterI.cpp.o.d -o CMakeFiles/forcefield.dir/joystickadapterI.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/joystickadapterI.cpp
 
 src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.i: cmake_force
@@ -441,7 +343,7 @@ src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o: src/CommonBehavior.cpp
 src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_32) "Building CXX object src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o -MF CMakeFiles/forcefield.dir/CommonBehavior.cpp.o.d -o CMakeFiles/forcefield.dir/CommonBehavior.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.cpp
 
 src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.i: cmake_force
@@ -455,7 +357,7 @@ src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o: src/Camera360RGB.cpp
 src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_33) "Building CXX object src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o -MF CMakeFiles/forcefield.dir/Camera360RGB.cpp.o.d -o CMakeFiles/forcefield.dir/Camera360RGB.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.cpp
 
 src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.i: cmake_force
@@ -466,24 +368,10 @@ src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/Camera360RGB.cpp.s"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.cpp -o CMakeFiles/forcefield.dir/Camera360RGB.cpp.s
 
-src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o: src/CameraRGBDSimple.cpp
-src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Building CXX object src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o -MF CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o.d -o CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.cpp
-
-src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.cpp > CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.i
-
-src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.cpp -o CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.s
-
 src/CMakeFiles/forcefield.dir/GenericBase.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/GenericBase.cpp.o: src/GenericBase.cpp
 src/CMakeFiles/forcefield.dir/GenericBase.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_35) "Building CXX object src/CMakeFiles/forcefield.dir/GenericBase.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object src/CMakeFiles/forcefield.dir/GenericBase.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/GenericBase.cpp.o -MF CMakeFiles/forcefield.dir/GenericBase.cpp.o.d -o CMakeFiles/forcefield.dir/GenericBase.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.cpp
 
 src/CMakeFiles/forcefield.dir/GenericBase.cpp.i: cmake_force
@@ -497,7 +385,7 @@ src/CMakeFiles/forcefield.dir/GenericBase.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o: src/JoystickAdapter.cpp
 src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_36) "Building CXX object src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building CXX object src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o -MF CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o.d -o CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.cpp
 
 src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.i: cmake_force
@@ -511,7 +399,7 @@ src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o: src/Lidar3D.cpp
 src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_37) "Building CXX object src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building CXX object src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o -MF CMakeFiles/forcefield.dir/Lidar3D.cpp.o.d -o CMakeFiles/forcefield.dir/Lidar3D.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.cpp
 
 src/CMakeFiles/forcefield.dir/Lidar3D.cpp.i: cmake_force
@@ -525,7 +413,7 @@ src/CMakeFiles/forcefield.dir/Lidar3D.cpp.s: cmake_force
 src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
 src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o: src/OmniRobot.cpp
 src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_38) "Building CXX object src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building CXX object src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o -MF CMakeFiles/forcefield.dir/OmniRobot.cpp.o.d -o CMakeFiles/forcefield.dir/OmniRobot.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.cpp
 
 src/CMakeFiles/forcefield.dir/OmniRobot.cpp.i: cmake_force
@@ -536,35 +424,15 @@ src/CMakeFiles/forcefield.dir/OmniRobot.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/OmniRobot.cpp.s"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.cpp -o CMakeFiles/forcefield.dir/OmniRobot.cpp.s
 
-src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o: src/CMakeFiles/forcefield.dir/flags.make
-src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o: src/YoloObjects.cpp
-src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o: src/CMakeFiles/forcefield.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_39) "Building CXX object src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o -MF CMakeFiles/forcefield.dir/YoloObjects.cpp.o.d -o CMakeFiles/forcefield.dir/YoloObjects.cpp.o -c /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.cpp
-
-src/CMakeFiles/forcefield.dir/YoloObjects.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/forcefield.dir/YoloObjects.cpp.i"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.cpp > CMakeFiles/forcefield.dir/YoloObjects.cpp.i
-
-src/CMakeFiles/forcefield.dir/YoloObjects.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/forcefield.dir/YoloObjects.cpp.s"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.cpp -o CMakeFiles/forcefield.dir/YoloObjects.cpp.s
-
 # Object files for target forcefield
 forcefield_OBJECTS = \
 "CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o" \
 "CMakeFiles/forcefield.dir/specificworker.cpp.o" \
 "CMakeFiles/forcefield.dir/specificmonitor.cpp.o" \
-"CMakeFiles/forcefield.dir/dynamic_window.cpp.o" \
-"CMakeFiles/forcefield.dir/robot.cpp.o" \
-"CMakeFiles/forcefield.dir/camera.cpp.o" \
-"CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o" \
 "CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o" \
 "CMakeFiles/forcefield.dir/door_detector.cpp.o" \
 "CMakeFiles/forcefield.dir/room_detector.cpp.o" \
 "CMakeFiles/forcefield.dir/room.cpp.o" \
-"CMakeFiles/forcefield.dir/preobject.cpp.o" \
-"CMakeFiles/forcefield.dir/graph.cpp.o" \
 "CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o" \
 "CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o" \
 "CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o" \
@@ -576,12 +444,10 @@ forcefield_OBJECTS = \
 "CMakeFiles/forcefield.dir/joystickadapterI.cpp.o" \
 "CMakeFiles/forcefield.dir/CommonBehavior.cpp.o" \
 "CMakeFiles/forcefield.dir/Camera360RGB.cpp.o" \
-"CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o" \
 "CMakeFiles/forcefield.dir/GenericBase.cpp.o" \
 "CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o" \
 "CMakeFiles/forcefield.dir/Lidar3D.cpp.o" \
-"CMakeFiles/forcefield.dir/OmniRobot.cpp.o" \
-"CMakeFiles/forcefield.dir/YoloObjects.cpp.o"
+"CMakeFiles/forcefield.dir/OmniRobot.cpp.o"
 
 # External object files for target forcefield
 forcefield_EXTERNAL_OBJECTS =
@@ -589,16 +455,10 @@ forcefield_EXTERNAL_OBJECTS =
 bin/forcefield: src/CMakeFiles/forcefield.dir/forcefield_autogen/mocs_compilation.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/specificworker.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/specificmonitor.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/robot.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/camera.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/qcustomplot/qcustomplot.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/door_detector.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/room_detector.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/room.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/preobject.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/graph.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/rapplication/rapplication.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/home/robocomp/robocomp/classes/sigwatch/sigwatch.cpp.o
@@ -610,12 +470,10 @@ bin/forcefield: src/CMakeFiles/forcefield.dir/genericworker.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/joystickadapterI.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/CommonBehavior.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/GenericBase.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/JoystickAdapter.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/Lidar3D.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/OmniRobot.cpp.o
-bin/forcefield: src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o
 bin/forcefield: src/CMakeFiles/forcefield.dir/build.make
 bin/forcefield: /usr/lib/x86_64-linux-gnu/libopencv_stitching.so.4.5.4d
 bin/forcefield: /usr/lib/x86_64-linux-gnu/libopencv_alphamat.so.4.5.4d
@@ -683,7 +541,7 @@ bin/forcefield: /usr/lib/x86_64-linux-gnu/libGLX.so
 bin/forcefield: /usr/lib/x86_64-linux-gnu/libOpenGL.so
 bin/forcefield: /usr/lib/x86_64-linux-gnu/libQt6Core.so.6.2.4
 bin/forcefield: src/CMakeFiles/forcefield.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_40) "Linking CXX executable ../bin/forcefield"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Linking CXX executable ../bin/forcefield"
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/forcefield.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -696,8 +554,6 @@ src/CMakeFiles/forcefield.dir/clean:
 
 src/CMakeFiles/forcefield.dir/depend: src/Camera360RGB.cpp
 src/CMakeFiles/forcefield.dir/depend: src/Camera360RGB.h
-src/CMakeFiles/forcefield.dir/depend: src/CameraRGBDSimple.cpp
-src/CMakeFiles/forcefield.dir/depend: src/CameraRGBDSimple.h
 src/CMakeFiles/forcefield.dir/depend: src/CommonBehavior.cpp
 src/CMakeFiles/forcefield.dir/depend: src/CommonBehavior.h
 src/CMakeFiles/forcefield.dir/depend: src/GenericBase.cpp
@@ -708,8 +564,6 @@ src/CMakeFiles/forcefield.dir/depend: src/Lidar3D.cpp
 src/CMakeFiles/forcefield.dir/depend: src/Lidar3D.h
 src/CMakeFiles/forcefield.dir/depend: src/OmniRobot.cpp
 src/CMakeFiles/forcefield.dir/depend: src/OmniRobot.h
-src/CMakeFiles/forcefield.dir/depend: src/YoloObjects.cpp
-src/CMakeFiles/forcefield.dir/depend: src/YoloObjects.h
 src/CMakeFiles/forcefield.dir/depend: src/ui_mainUI.h
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CMakeFiles/forcefield.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : src/CMakeFiles/forcefield.dir/depend

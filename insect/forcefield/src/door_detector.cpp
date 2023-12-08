@@ -56,22 +56,18 @@ DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &
 DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list &peaks_list, const DoorDetector::Lines &lines)
 {
     std::vector<Doors> doors_list(peaks_list.size());
-    const float THRES_DOOR = 500;
-    const float MAX_DOOR_WIDTH = 1400;
-    const float MIN_DOOR_WIDTH = 500;
-    auto near_door = [THRES_DOOR](auto &doors_list, auto d)
+    auto near_door = [thres = consts.SAME_DOOR](auto &doors_list, auto d)
     {
-        return std::ranges::any_of(doors_list, [d, THRES_DOOR](auto &old)
-            {return (old.p0-d.p0).norm() < THRES_DOOR or
-                    (old.p1-d.p1).norm() < THRES_DOOR or
-                    (old.p1-d.p0).norm() < THRES_DOOR or
-                    (old.p0-d.p1).norm() < THRES_DOOR;});
+        return std::ranges::any_of(doors_list, [d, thres](auto &old)
+            {return (old.p0-d.p0).norm() < thres or
+                    (old.p1-d.p1).norm() < thres or
+                    (old.p1-d.p0).norm() < thres or
+                    (old.p0-d.p1).norm() < thres;});
     };
 
     for(const auto &[i, peaks] : peaks_list | iter::enumerate)
         for(auto &par : peaks | iter::combinations(2))
-            if((lines[i][par[0]]-lines[i][par[1]]).norm() < MAX_DOOR_WIDTH and (lines[i][par[0]]-lines[i][par[1]]).norm() > MIN_DOOR_WIDTH)
-            //if((par[0]-par[1]).norm() < MAX_DOOR_WIDTH and (par[0]-par[1]).norm() > MIN_DOOR_WIDTH)
+            if((lines[i][par[0]]-lines[i][par[1]]).norm() < consts.MAX_DOOR_WIDTH and (lines[i][par[0]]-lines[i][par[1]]).norm() > consts.MIN_DOOR_WIDTH)
             {
                 auto door = Door{lines[i][par[0]], lines[i][par[1]], (int)par[0], (int)par[1]};
                 if(not near_door(doors_list[i], door))
@@ -79,8 +75,7 @@ DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list 
             }
     return doors_list;
 }
-DoorDetector::Doors
-DoorDetector::filter_doors(const std::vector<Doors> &doors_list)
+DoorDetector::Doors DoorDetector::filter_doors(const DoorDetector::Doors_list &doors_list)
 {
     Doors final_doors;
     auto lowest_doors = doors_list[0];
@@ -131,7 +126,7 @@ void DoorDetector::draw_doors(const Doors &doors, const Door &door_target, QGrap
         borrar.push_back(line);
     }
 }
-std::vector<Eigen::Vector2f> DoorDetector::filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const Doors &doors)
+DoorDetector::Line DoorDetector::filter_out_points_beyond_doors(const Line &floor_line_cart, const Doors &doors)
 {
     std::vector<Eigen::Vector2f> inside_points(floor_line_cart);
     std::vector<Eigen::Vector2f> remove_points;
