@@ -44,10 +44,10 @@ cmake_force:
 SHELL = /bin/sh
 
 # The CMake executable.
-CMAKE_COMMAND = /snap/clion/250/bin/cmake/linux/x64/bin/cmake
+CMAKE_COMMAND = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake
 
 # The command to remove a file.
-RM = /snap/clion/250/bin/cmake/linux/x64/bin/cmake -E rm -f
+RM = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E rm -f
 
 # Escaping for special characters.
 EQUALS = =
@@ -67,22 +67,18 @@ include src/CMakeFiles/ICES__home_pbustos_robocomp_components_robocomp-shadow_in
 include src/CMakeFiles/ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src.dir/progress.make
 
 ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src: src/CMakeFiles/ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src.dir/build.make
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/CommonBehavior.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/CommonBehavior.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/Camera360RGB.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/Camera360RGB.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/CameraRGBDSimple.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/CameraRGBDSimple.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CameraRGBDSimple.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/GenericBase.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/GenericBase.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/JoystickAdapter.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/JoystickAdapter.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/Lidar3D.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/Lidar3D.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/OmniRobot.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/OmniRobot.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/YoloObjects.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp//interfaces/IDSLs/YoloObjects.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/YoloObjects.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/CommonBehavior.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/CommonBehavior.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CommonBehavior.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/Camera360RGB.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/Camera360RGB.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Camera360RGB.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/GenericBase.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/GenericBase.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/GenericBase.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/JoystickAdapter.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/JoystickAdapter.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/JoystickAdapter.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/Lidar3D.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/Lidar3D.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/Lidar3D.ice
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold "BU robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/OmniRobot.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice"
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && robocompdsl /home/robocomp/robocomp/interfaces/IDSLs/OmniRobot.idsl /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/OmniRobot.ice
 .PHONY : ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_forcefield_src
 
 # Rule to build all files generated by this target.

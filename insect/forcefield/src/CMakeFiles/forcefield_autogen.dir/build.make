@@ -44,10 +44,10 @@ cmake_force:
 SHELL = /bin/sh
 
 # The CMake executable.
-CMAKE_COMMAND = /snap/clion/250/bin/cmake/linux/x64/bin/cmake
+CMAKE_COMMAND = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake
 
 # The command to remove a file.
-RM = /snap/clion/250/bin/cmake/linux/x64/bin/cmake -E rm -f
+RM = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E rm -f
 
 # Escaping for special characters.
 EQUALS = =
@@ -68,7 +68,7 @@ include src/CMakeFiles/forcefield_autogen.dir/progress.make
 
 src/CMakeFiles/forcefield_autogen:
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Automatic MOC and UIC for target forcefield"
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /snap/clion/250/bin/cmake/linux/x64/bin/cmake -E cmake_autogen /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CMakeFiles/forcefield_autogen.dir/AutogenInfo.json Release
+	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src && /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E cmake_autogen /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield/src/CMakeFiles/forcefield_autogen.dir/AutogenInfo.json ""
 
 forcefield_autogen: src/CMakeFiles/forcefield_autogen
 forcefield_autogen: src/CMakeFiles/forcefield_autogen.dir/build.make

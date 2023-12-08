@@ -32,19 +32,17 @@
 #include <CommonBehavior.h>
 
 #include <Camera360RGB.h>
-#include <CameraRGBDSimple.h>
 #include <GenericBase.h>
 #include <JoystickAdapter.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
-#include <YoloObjects.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompCamera360RGB::Camera360RGBPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompYoloObjects::YoloObjectsPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCamera360RGB::Camera360RGBPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -63,7 +61,6 @@ public:
 	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
-	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 	virtual void JoystickAdapter_sendData (RoboCompJoystickAdapter::TData data) = 0;
 

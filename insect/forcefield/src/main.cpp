@@ -83,7 +83,6 @@
 
 #include <joystickadapterI.h>
 
-#include <CameraRGBDSimple.h>
 #include <GenericBase.h>
 
 
@@ -135,7 +134,6 @@ int ::forcefield::run(int argc, char* argv[])
 	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
-	RoboCompYoloObjects::YoloObjectsPrxPtr yoloobjects_proxy;
 
 	string proxy, tmp;
 	initialize();
@@ -188,22 +186,6 @@ int ::forcefield::run(int argc, char* argv[])
 	rInfo("OmniRobotProxy initialized Ok!");
 
 
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "YoloObjectsProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy YoloObjectsProxy\n";
-		}
-		yoloobjects_proxy = Ice::uncheckedCast<RoboCompYoloObjects::YoloObjectsPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy YoloObjects: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("YoloObjectsProxy initialized Ok!");
-
-
 	IceStorm::TopicManagerPrxPtr topicManager;
 	try
 	{
@@ -221,7 +203,7 @@ int ::forcefield::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy,yoloobjects_proxy);
+	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

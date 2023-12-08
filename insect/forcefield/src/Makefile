@@ -48,10 +48,10 @@ cmake_force:
 SHELL = /bin/sh
 
 # The CMake executable.
-CMAKE_COMMAND = /snap/clion/250/bin/cmake/linux/x64/bin/cmake
+CMAKE_COMMAND = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake
 
 # The command to remove a file.
-RM = /snap/clion/250/bin/cmake/linux/x64/bin/cmake -E rm -f
+RM = /usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E rm -f
 
 # Escaping for special characters.
 EQUALS = =
@@ -68,7 +68,7 @@ CMAKE_BINARY_DIR = /home/pbustos/robocomp/components/robocomp-shadow/insect/forc
 # Special rule for the target edit_cache
 edit_cache:
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "No interactive CMake dialog available..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -E echo No\ interactive\ CMake\ dialog\ available.
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -E echo No\ interactive\ CMake\ dialog\ available.
 .PHONY : edit_cache
 
 # Special rule for the target edit_cache
@@ -78,7 +78,7 @@ edit_cache/fast: edit_cache
 # Special rule for the target rebuild_cache
 rebuild_cache:
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Running CMake to regenerate build system..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake --regenerate-during-build -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR)
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake --regenerate-during-build -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR)
 .PHONY : rebuild_cache
 
 # Special rule for the target rebuild_cache
@@ -97,37 +97,37 @@ list_install_components/fast: list_install_components
 # Special rule for the target install
 install: preinstall
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Install the project..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -P cmake_install.cmake
 .PHONY : install
 
 # Special rule for the target install
 install/fast: preinstall/fast
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Install the project..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -P cmake_install.cmake
 .PHONY : install/fast
 
 # Special rule for the target install/local
 install/local: preinstall
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing only the local directory..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
 .PHONY : install/local
 
 # Special rule for the target install/local
 install/local/fast: preinstall/fast
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing only the local directory..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
 .PHONY : install/local/fast
 
 # Special rule for the target install/strip
 install/strip: preinstall
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing the project stripped..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
 .PHONY : install/strip
 
 # Special rule for the target install/strip
 install/strip/fast: preinstall/fast
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --cyan "Installing the project stripped..."
-	/snap/clion/250/bin/cmake/linux/x64/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+	/usr/local/lib/python3.10/dist-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
 .PHONY : install/strip/fast
 
 # The main all target
@@ -226,30 +226,6 @@ Camera360RGB.s: Camera360RGB.cpp.s
 Camera360RGB.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/Camera360RGB.cpp.s
 .PHONY : Camera360RGB.cpp.s
-
-CameraRGBDSimple.o: CameraRGBDSimple.cpp.o
-.PHONY : CameraRGBDSimple.o
-
-# target to build an object file
-CameraRGBDSimple.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.o
-.PHONY : CameraRGBDSimple.cpp.o
-
-CameraRGBDSimple.i: CameraRGBDSimple.cpp.i
-.PHONY : CameraRGBDSimple.i
-
-# target to preprocess a source file
-CameraRGBDSimple.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.i
-.PHONY : CameraRGBDSimple.cpp.i
-
-CameraRGBDSimple.s: CameraRGBDSimple.cpp.s
-.PHONY : CameraRGBDSimple.s
-
-# target to generate assembly for a file
-CameraRGBDSimple.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/CameraRGBDSimple.cpp.s
-.PHONY : CameraRGBDSimple.cpp.s
 
 CommonBehavior.o: CommonBehavior.cpp.o
 .PHONY : CommonBehavior.o
@@ -371,54 +347,6 @@ OmniRobot.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/OmniRobot.cpp.s
 .PHONY : OmniRobot.cpp.s
 
-YoloObjects.o: YoloObjects.cpp.o
-.PHONY : YoloObjects.o
-
-# target to build an object file
-YoloObjects.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/YoloObjects.cpp.o
-.PHONY : YoloObjects.cpp.o
-
-YoloObjects.i: YoloObjects.cpp.i
-.PHONY : YoloObjects.i
-
-# target to preprocess a source file
-YoloObjects.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/YoloObjects.cpp.i
-.PHONY : YoloObjects.cpp.i
-
-YoloObjects.s: YoloObjects.cpp.s
-.PHONY : YoloObjects.s
-
-# target to generate assembly for a file
-YoloObjects.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/YoloObjects.cpp.s
-.PHONY : YoloObjects.cpp.s
-
-camera.o: camera.cpp.o
-.PHONY : camera.o
-
-# target to build an object file
-camera.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/camera.cpp.o
-.PHONY : camera.cpp.o
-
-camera.i: camera.cpp.i
-.PHONY : camera.i
-
-# target to preprocess a source file
-camera.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/camera.cpp.i
-.PHONY : camera.cpp.i
-
-camera.s: camera.cpp.s
-.PHONY : camera.s
-
-# target to generate assembly for a file
-camera.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/camera.cpp.s
-.PHONY : camera.cpp.s
-
 commonbehaviorI.o: commonbehaviorI.cpp.o
 .PHONY : commonbehaviorI.o
 
@@ -466,30 +394,6 @@ door_detector.s: door_detector.cpp.s
 door_detector.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/door_detector.cpp.s
 .PHONY : door_detector.cpp.s
-
-dynamic_window.o: dynamic_window.cpp.o
-.PHONY : dynamic_window.o
-
-# target to build an object file
-dynamic_window.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/dynamic_window.cpp.o
-.PHONY : dynamic_window.cpp.o
-
-dynamic_window.i: dynamic_window.cpp.i
-.PHONY : dynamic_window.i
-
-# target to preprocess a source file
-dynamic_window.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/dynamic_window.cpp.i
-.PHONY : dynamic_window.cpp.i
-
-dynamic_window.s: dynamic_window.cpp.s
-.PHONY : dynamic_window.s
-
-# target to generate assembly for a file
-dynamic_window.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/dynamic_window.cpp.s
-.PHONY : dynamic_window.cpp.s
 
 forcefield_autogen/mocs_compilation.o: forcefield_autogen/mocs_compilation.cpp.o
 .PHONY : forcefield_autogen/mocs_compilation.o
@@ -562,30 +466,6 @@ genericworker.s: genericworker.cpp.s
 genericworker.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/genericworker.cpp.s
 .PHONY : genericworker.cpp.s
-
-graph.o: graph.cpp.o
-.PHONY : graph.o
-
-# target to build an object file
-graph.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/graph.cpp.o
-.PHONY : graph.cpp.o
-
-graph.i: graph.cpp.i
-.PHONY : graph.i
-
-# target to preprocess a source file
-graph.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/graph.cpp.i
-.PHONY : graph.cpp.i
-
-graph.s: graph.cpp.s
-.PHONY : graph.s
-
-# target to generate assembly for a file
-graph.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/graph.cpp.s
-.PHONY : graph.cpp.s
 
 home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.o: home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp.o
 .PHONY : home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.o
@@ -755,54 +635,6 @@ main.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/main.cpp.s
 .PHONY : main.cpp.s
 
-preobject.o: preobject.cpp.o
-.PHONY : preobject.o
-
-# target to build an object file
-preobject.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/preobject.cpp.o
-.PHONY : preobject.cpp.o
-
-preobject.i: preobject.cpp.i
-.PHONY : preobject.i
-
-# target to preprocess a source file
-preobject.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/preobject.cpp.i
-.PHONY : preobject.cpp.i
-
-preobject.s: preobject.cpp.s
-.PHONY : preobject.s
-
-# target to generate assembly for a file
-preobject.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/preobject.cpp.s
-.PHONY : preobject.cpp.s
-
-robot.o: robot.cpp.o
-.PHONY : robot.o
-
-# target to build an object file
-robot.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/robot.cpp.o
-.PHONY : robot.cpp.o
-
-robot.i: robot.cpp.i
-.PHONY : robot.i
-
-# target to preprocess a source file
-robot.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/robot.cpp.i
-.PHONY : robot.cpp.i
-
-robot.s: robot.cpp.s
-.PHONY : robot.s
-
-# target to generate assembly for a file
-robot.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/robot.cpp.s
-.PHONY : robot.cpp.s
-
 room.o: room.cpp.o
 .PHONY : room.o
 
@@ -850,30 +682,6 @@ room_detector.s: room_detector.cpp.s
 room_detector.cpp.s:
 	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/room_detector.cpp.s
 .PHONY : room_detector.cpp.s
-
-sm_search_and_approach.o: sm_search_and_approach.cpp.o
-.PHONY : sm_search_and_approach.o
-
-# target to build an object file
-sm_search_and_approach.cpp.o:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.o
-.PHONY : sm_search_and_approach.cpp.o
-
-sm_search_and_approach.i: sm_search_and_approach.cpp.i
-.PHONY : sm_search_and_approach.i
-
-# target to preprocess a source file
-sm_search_and_approach.cpp.i:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.i
-.PHONY : sm_search_and_approach.cpp.i
-
-sm_search_and_approach.s: sm_search_and_approach.cpp.s
-.PHONY : sm_search_and_approach.s
-
-# target to generate assembly for a file
-sm_search_and_approach.cpp.s:
-	cd /home/pbustos/robocomp/components/robocomp-shadow/insect/forcefield && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/forcefield.dir/build.make src/CMakeFiles/forcefield.dir/sm_search_and_approach.cpp.s
-.PHONY : sm_search_and_approach.cpp.s
 
 specificmonitor.o: specificmonitor.cpp.o
 .PHONY : specificmonitor.o
@@ -941,9 +749,6 @@ help:
 	@echo "... Camera360RGB.o"
 	@echo "... Camera360RGB.i"
 	@echo "... Camera360RGB.s"
-	@echo "... CameraRGBDSimple.o"
-	@echo "... CameraRGBDSimple.i"
-	@echo "... CameraRGBDSimple.s"
 	@echo "... CommonBehavior.o"
 	@echo "... CommonBehavior.i"
 	@echo "... CommonBehavior.s"
@@ -959,21 +764,12 @@ help:
 	@echo "... OmniRobot.o"
 	@echo "... OmniRobot.i"
 	@echo "... OmniRobot.s"
-	@echo "... YoloObjects.o"
-	@echo "... YoloObjects.i"
-	@echo "... YoloObjects.s"
-	@echo "... camera.o"
-	@echo "... camera.i"
-	@echo "... camera.s"
 	@echo "... commonbehaviorI.o"
 	@echo "... commonbehaviorI.i"
 	@echo "... commonbehaviorI.s"
 	@echo "... door_detector.o"
 	@echo "... door_detector.i"
 	@echo "... door_detector.s"
-	@echo "... dynamic_window.o"
-	@echo "... dynamic_window.i"
-	@echo "... dynamic_window.s"
 	@echo "... forcefield_autogen/mocs_compilation.o"
 	@echo "... forcefield_autogen/mocs_compilation.i"
 	@echo "... forcefield_autogen/mocs_compilation.s"
@@ -983,9 +779,6 @@ help:
 	@echo "... genericworker.o"
 	@echo "... genericworker.i"
 	@echo "... genericworker.s"
-	@echo "... graph.o"
-	@echo "... graph.i"
-	@echo "... graph.s"
 	@echo "... home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.o"
 	@echo "... home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.i"
 	@echo "... home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.s"
@@ -1007,21 +800,12 @@ help:
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
-	@echo "... preobject.o"
-	@echo "... preobject.i"
-	@echo "... preobject.s"
-	@echo "... robot.o"
-	@echo "... robot.i"
-	@echo "... robot.s"
 	@echo "... room.o"
 	@echo "... room.i"
 	@echo "... room.s"
 	@echo "... room_detector.o"
 	@echo "... room_detector.i"
 	@echo "... room_detector.s"
-	@echo "... sm_search_and_approach.o"
-	@echo "... sm_search_and_approach.i"
-	@echo "... sm_search_and_approach.s"
 	@echo "... specificmonitor.o"
 	@echo "... specificmonitor.i"
 	@echo "... specificmonitor.s"
