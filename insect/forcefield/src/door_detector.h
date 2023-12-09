@@ -17,6 +17,8 @@
 
 class DoorDetector
 {
+public:
+    DoorDetector();
     struct Door
     {
         Eigen::Vector2f p0, p1, middle;
@@ -51,7 +53,7 @@ class DoorDetector
         { return middle.norm();}
         float angle_to_robot() const
         { return (float)atan2(middle.x(), middle.y());}
-        Eigen::Vector2f point_perpendicular_to_door_at(float dist=1000.f) const // mm
+        std::pair<Eigen::Vector2f, Eigen::Vector2f> point_perpendicular_to_door_at(float dist=1000.f) const // mm
         {
             // Calculate the direction vector from p1 to p2 and rotate it by 90 degrees
             Eigen::Vector2f d_perp{-(p0.y() - p1.y()), p0.x() - p1.x()};
@@ -61,17 +63,17 @@ class DoorDetector
             Eigen::Vector2f a, b;
             a = middle + (u_perp * dist); // 1 meter in the direction of u_perp
             b = middle - (u_perp * dist); // 1 meter in the opposite direction of u_perp
-            return a.norm() < b.norm() ? a : b;
+            return a.norm() < b.norm() ? std::make_pair(a,b) : std::make_pair(b,a);
         }
         float perp_dist_to_robot() const
         {
             auto p = point_perpendicular_to_door_at();
-            return p.norm();
+            return p.first.norm();
         }
         float perp_angle_to_robot() const
         {
             auto p = point_perpendicular_to_door_at();
-            return atan2(p.x(), p.y());
+            return atan2(p.first.x(), p.first.y());
         }
     };
 
@@ -80,34 +82,21 @@ class DoorDetector
     using Line = std::vector<Eigen::Vector2f>;
     using Lines = std::vector<Line>;
     using Peaks_list = std::vector<std::vector<int>>;
-
     struct Constants
     {
-        const float SAME_DOOR = 500;   // same door threshold (mm)
+        const float SAME_DOOR = 400;   // same door threshold (mm)
         const float MAX_DOOR_WIDTH = 1400;  // mm
-        const float MIN_DOOR_WIDTH = 500;   // mm
+        const float MIN_DOOR_WIDTH = 700;   // mm
     };
     Constants consts;
+    Doors detect(const Lines &lines, QGraphicsScene *scene);
+    Line filter_out_points_beyond_doors(const Line&floor_line, const Doors &doors);
 
-    public:
-        DoorDetector();
-        Doors detect(const Lines &lines, QGraphicsScene *scene);
-        Line current_line;
-
-    private:
-        std::vector<std::vector<Eigen::Vector2f>> extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
-        Peaks_list extract_peaks(const Lines &lines);
-        Doors_list get_doors(const Peaks_list &peaks, const Lines &lines);
-        Doors filter_doors(const Doors_list &doors);
-        void draw_doors(const Doors &doors, const Door &current_door, QGraphicsScene *scene, QColor=QColor("blue"));
-        Line filter_out_points_beyond_doors(const Line&floor_line_cart, const Doors &doors);
-
-        std::vector<std::pair<float, float>> height_ranges;
-
-        const float der_threshold = 800.f;
-        const float max_door_width = 1100;
-        const float min_door_width = 700; // mm
-        const float max_door_separation = 100; //mm
+private:
+    Peaks_list extract_peaks(const Lines &lines);
+    Doors_list get_doors(const Peaks_list &peaks, const Lines &lines);
+    Doors filter_doors(const Doors_list &doors);
+    void draw_doors(const Doors &doors, const Door &current_door, QGraphicsScene *scene, QColor=QColor("green"));
 };
 
 

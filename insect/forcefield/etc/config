@@ -4,7 +4,7 @@ CommonBehavior.Endpoints=tcp -p 10330
 JoystickAdapterTopic.Endpoints=tcp -p 34443
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -p 11991
+Lidar3DProxy = lidar3d:tcp -p 11990
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 YoloObjectsProxy = yoloobjects:tcp -h localhost -p 10054
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
