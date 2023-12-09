@@ -62,7 +62,8 @@ class SpecificWorker : public GenericWorker
         bool startup_check_flag;
         struct Constants
         {
-            std::string lidar_name = "bpearl";
+            std::string lidar_name = "helios";
+            std::vector<std::pair<float, float>> ranges_list = {{1000, 2500}};
         };
         Constants consts;
 
@@ -70,28 +71,32 @@ class SpecificWorker : public GenericWorker
         AbstractGraphicViewer *viewer;
         // draw
         void draw_lidar(const RoboCompLidar3D::TData &data);
-        // joy
-        void set_target_force(const Eigen::Vector3f &vec);
-        Eigen::Vector3f target_coordinates{0.f, 0.f, 0.f};  //third component for pure  rotations
+        void draw_line(const Line &line, QGraphicsScene *scene, QColor color="magenta");
+
         // Clock
         rc::Timer<> clock;
-        //distance_lines
-        std::vector<Eigen::Vector2f> current_line;
+
         // QCustomPlot
         QCustomPlot custom_plot;
         QCPGraph *side_acc, *adv_acc, *track_err;
         void draw_timeseries(float side, float adv, float track);
+
         // Door detector
         DoorDetector door_detector;
+
         // Room detector
         rc::Room_Detector room_detector;
+
         // DoubleBuffer variable
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+
         // Lidar
         void read_lidar();
         std::thread read_lidar_th;
+
         // Lines extractor
         Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
+
 };
 
 #endif

@@ -96,7 +96,7 @@ void SpecificWorker::initialize(int period)
         std::cout << "Worker initialized OK" << std::endl;
 	}
 }
-// cameras, distance-lines, Yolo, eye-tracker, repulsion-forces
+
 void SpecificWorker::compute()
 {
     /// read LiDAR
@@ -104,17 +104,16 @@ void SpecificWorker::compute()
     if (res_.has_value() == false) {  return; }
 
     auto ldata = res_.value();
-    draw_lidar(ldata);
-    std::vector<std::pair<float, float>> height_ranges{{0, 350}};
-    Lines lines = extract_lines(ldata.points, height_ranges);
+    //draw_lidar(ldata);
+    Lines lines = extract_lines(ldata.points, consts.ranges_list);
 
     /// Door detector
     auto doors = door_detector.detect(lines, &viewer->scene);
-    //std::vector<Eigen::Vector2f> filtered_line = door_detector.filter_out_points_beyond_doors(door_detector.current_line, doors);
-    //draw_floor_line({filtered_line}, {0});
+    auto filtered_line = door_detector.filter_out_points_beyond_doors(lines[0], doors);
+    draw_line(filtered_line, &viewer->scene);
 
     /// Room detector
-    auto current_room = room_detector.detect({lines.front()}, viewer);  // TODO: use upper lines in Helios
+    auto current_room = room_detector.detect({filtered_line}, viewer);  // TODO: use upper lines in Helios
     current_room.print();
 
 //    static float side_ant = 0, adv_ant = 0;
@@ -152,8 +151,7 @@ void SpecificWorker::read_lidar()
 void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data)
 {
     static std::vector<QGraphicsItem *> items;
-    for(const auto &i: items)
-        viewer->scene.removeItem(i);
+    for(const auto &i: items){ viewer->scene.removeItem(i); delete i;}
     items.clear();
 
     // draw points
@@ -161,6 +159,19 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data)
     {
         auto item = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
         item->setPos(p.x, p.y);
+        items.push_back(item);
+    }
+}
+void SpecificWorker::draw_line(const Line &line, QGraphicsScene *scene, QColor color)
+{
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ scene->removeItem(i); delete i;};
+    items.clear();
+
+    for(const auto &p: line)
+    {
+        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(color), QBrush(color));
+        item->setPos(p.x(), p.y());
         items.push_back(item);
     }
 }
