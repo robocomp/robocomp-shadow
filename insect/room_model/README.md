@@ -1,5 +1,8 @@
-# object_tracking
-Intro to component here
+# room_model    
+
+Ths component is responsible for creating a model of the robot's world. 
+It subscribes to the *forcefield* component to get estimations of the room parameters.
+The model is created using PyBullet.
 
 
 ## Configuration parameters
