@@ -22,6 +22,13 @@ namespace rc
 //        void update(const QSizeF &new_size, const Eigen::Vector2f &center_, float rot_);
 //        void update(const QSizeF &new_size, const Eigen::Vector2f &center_);
 //        void update(const QPointF &p1, const QPointF &p2, const QPointF &p3);
+        float get_width() const;
+        float get_depth() const;
+        float get_height() const;
+        Eigen::Vector2f get_center() const;
+        float get_center_x() const;
+        float get_center_y() const;
+        float get_rotation() const;
         Eigen::Vector2f get_closest_corner(const Eigen::Vector2f &c);
         Eigen::Vector2f get_closest_corner_in_robot_coor(const Eigen::Vector2f &c);
         Eigen::Matrix<float, 4, 2> get_eigen_corners_in_robot_coor2();

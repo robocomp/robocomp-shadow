@@ -26,6 +26,7 @@ GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 	camera360rgb_proxy = std::get<0>(tprx);
 	lidar3d_proxy = std::get<1>(tprx);
 	omnirobot_proxy = std::get<2>(tprx);
+	visualelementspub_pubproxy = std::get<3>(tprx);
 
 	mutex = new QMutex();
 
