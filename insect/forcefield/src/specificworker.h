@@ -41,6 +41,7 @@
 #include "room.h"
 #include <doublebuffer/DoubleBuffer.h>
 
+
 class SpecificWorker : public GenericWorker
 {
     Q_OBJECT
@@ -97,6 +98,15 @@ class SpecificWorker : public GenericWorker
         // Lines extractor
         Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 
+        virtual void closeEvent(QCloseEvent *event)
+        {
+            QSettings settings("MyCompany", "MyApp");
+            settings.setValue("geometry", saveGeometry());
+            //settings.setValue("windowState", saveState());
+            QWidget::closeEvent(event);
+        };
+
+    void publish_room(rc::Room room, DoorDetector::Doors vector1);
 };
 
 #endif

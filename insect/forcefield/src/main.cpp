@@ -83,7 +83,9 @@
 
 #include <joystickadapterI.h>
 
+#include <Camera360RGB.h>
 #include <GenericBase.h>
+#include <Person.h>
 
 
 
@@ -131,6 +133,7 @@ int ::forcefield::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompVisualElementsPub::VisualElementsPubPrxPtr visualelementspub_pubproxy;
 	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
@@ -202,8 +205,38 @@ int ::forcefield::run(int argc, char* argv[])
 		cout << "[" << PROGRAM_NAME << "]: Exception: 'rcnode' not running: " << ex << endl;
 		return EXIT_FAILURE;
 	}
+	std::shared_ptr<IceStorm::TopicPrx> visualelementspub_topic;
 
-	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy);
+	while (!visualelementspub_topic)
+	{
+		try
+		{
+			visualelementspub_topic = topicManager->retrieve("VisualElementsPub");
+		}
+		catch (const IceStorm::NoSuchTopic&)
+		{
+			cout << "[" << PROGRAM_NAME << "]: ERROR retrieving VisualElementsPub topic. \n";
+			try
+			{
+				visualelementspub_topic = topicManager->create("VisualElementsPub");
+			}
+			catch (const IceStorm::TopicExists&){
+				// Another client created the topic.
+				cout << "[" << PROGRAM_NAME << "]: ERROR publishing the VisualElementsPub topic. It's possible that other component have created\n";
+			}
+		}
+		catch(const IceUtil::NullHandleException&)
+		{
+			cout << "[" << PROGRAM_NAME << "]: ERROR TopicManager is Null. Check that your configuration file contains an entry like:\n"<<
+			"\t\tTopicManager.Proxy=IceStorm/TopicManager:default -p <port>\n";
+			return EXIT_FAILURE;
+		}
+	}
+
+	auto visualelementspub_pub = visualelementspub_topic->getPublisher()->ice_oneway();
+	visualelementspub_pubproxy = Ice::uncheckedCast<RoboCompVisualElementsPub::VisualElementsPubPrx>(visualelementspub_pub);
+
+	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy,visualelementspub_pubproxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

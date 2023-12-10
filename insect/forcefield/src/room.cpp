@@ -229,4 +229,32 @@ namespace rc
         lines.emplace_back(QLineF(pts[3].x, pts[3].y, pts[0].x, pts[0].y));
         return lines;
     }
+    float Room::get_width() const
+    {
+        return rect.size.width;
+    }
+    float Room::get_depth() const
+    {
+        return rect.size.height;
+    }
+    float Room::get_height() const
+    {
+        return 2000.f;  // mm TODO: to be estimated
+    }
+    Eigen::Vector2f Room::get_center() const
+    {
+        return Eigen::Vector2f(rect.center.x, rect.center.y);
+    }
+    float Room::get_center_x() const
+    {
+        return rect.center.x;
+    }
+    float Room::get_center_y() const
+    {
+        return rect.center.y;
+    }
+    float Room::get_rotation() const
+    {
+        return qDegreesToRadians(rect.angle);
+    }
 } //rc

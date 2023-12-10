@@ -62,11 +62,15 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
+        const char* locale = "C";
+        std::locale::global(std::locale(locale));
+
         // graphics
         viewer = new AbstractGraphicViewer(this->beta_frame,  QRectF(-2500, -2500, 5000, 5000), true);
         this->resize(900,900);
         viewer->add_robot(400, 400);
-
+        QSettings settings("MyCompany", "MyApp");
+        restoreGeometry(settings.value("myWidget/geometry").toByteArray());
 
         //QCustomPlot
         custom_plot.setParent(this->customplot);
@@ -81,7 +85,7 @@ void SpecificWorker::initialize(int period)
         adv_acc = custom_plot.addGraph();
         adv_acc->setPen(QColor("green"));
         custom_plot.resize(this->customplot->size());
-        custom_plot.show();
+        //custom_plot.show();
 
         // room_detector
         room_detector.init(&custom_plot);
@@ -116,6 +120,9 @@ void SpecificWorker::compute()
     auto current_room = room_detector.detect({filtered_line}, viewer);  // TODO: use upper lines in Helios
     current_room.print();
 
+    // publish
+    publish_room(current_room, doors);
+
 //    static float side_ant = 0, adv_ant = 0;
 //    draw_timeseries(side-side_ant, adv-adv_ant, track_err);
 //    side_ant = side; adv_ant = adv;
@@ -133,6 +140,27 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
                 lines[i].emplace_back(p.x, p.y);
     return lines;
 }
+void SpecificWorker::publish_room(rc::Room room, DoorDetector::Doors vector1)
+{
+    try
+    {
+        RoboCompVisualElementsPub::TData data;
+        RoboCompVisualElementsPub::TAttributes attr;
+        attr.emplace(std::make_pair("name", "room"));
+        attr.emplace(std::make_pair("width", std::to_string(room.get_width())));
+        attr.emplace(std::make_pair("depth", std::to_string(room.get_depth())));
+        attr.emplace(std::make_pair("height", std::to_string(room.get_height())));
+        attr.emplace(std::make_pair("center_x", std::to_string(room.get_center_x())));
+        attr.emplace(std::make_pair("center_y", std::to_string(room.get_center_y())));
+        attr.emplace(std::make_pair("rotation", std::to_string(room.get_rotation())));
+
+        RoboCompVisualElementsPub::TObject o{.id=0, .type=5, .attributes=attr };
+        data.objects.emplace_back(std::move(o));
+        visualelementspub_pubproxy->setVisualObjects(data);
+    }
+    catch (const Ice::Exception &e) { std::cout << "Error publishing visual objects " << e << std::endl; }
+}
+
 //////////////////// LIDAR /////////////////////////////////////////////////
 void SpecificWorker::read_lidar()
 {
@@ -206,6 +234,7 @@ int SpecificWorker::startup_check()
     QTimer::singleShot(200, qApp, SLOT(quit()));
     return 0;
 }
+
 
 
 //        int row = (o.top + o.bot)/2;
