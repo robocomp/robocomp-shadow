@@ -1,0 +1,12 @@
+import "VisualElementsPub.idsl";
+
+Component room_model
+{
+    Communications
+    {
+        subscribesTo VisualElementsPub;
+    };
+    language python;
+};
+
+

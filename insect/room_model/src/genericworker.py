@@ -41,8 +41,6 @@ class GenericWorker(QtCore.QObject):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
-        self.visualelements_proxy = mprx["VisualElementsProxy"]
-        self.visualelements1_proxy = mprx["VisualElements1Proxy"]
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 30
