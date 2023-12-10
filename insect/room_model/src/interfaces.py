@@ -5,28 +5,67 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
+import RoboCompJoystickAdapter
 Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
 import RoboCompVisualElementsPub
 
-class TObjectList(list):
+class AxisList(list):
     def __init__(self, iterable=list()):
-        super(TObjectList, self).__init__(iterable)
+        super(AxisList, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).insert(index, item)
+
+setattr(RoboCompJoystickAdapter, "AxisList", AxisList)
+class ButtonsList(list):
+    def __init__(self, iterable=list()):
+        super(ButtonsList, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).insert(index, item)
+
+setattr(RoboCompJoystickAdapter, "ButtonsList", ButtonsList)
+class TObjects(list):
+    def __init__(self, iterable=list()):
+        super(TObjects, self).__init__(iterable)
 
     def append(self, item):
         assert isinstance(item, RoboCompVisualElementsPub.TObject)
-        super(TObjectList, self).append(item)
+        super(TObjects, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
             assert isinstance(item, RoboCompVisualElementsPub.TObject)
-        super(TObjectList, self).extend(iterable)
+        super(TObjects, self).extend(iterable)
 
     def insert(self, index, item):
         assert isinstance(item, RoboCompVisualElementsPub.TObject)
-        super(TObjectList, self).insert(index, item)
+        super(TObjects, self).insert(index, item)
 
-setattr(RoboCompVisualElementsPub, "TObjectList", TObjectList)
+setattr(RoboCompVisualElementsPub, "TObjects", TObjects)
 
+import joystickadapterI
 import visualelementspubI
 
 
@@ -93,6 +132,8 @@ class Subscribes:
     def __init__(self, ice_connector, topic_manager, default_handler):
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
+
+        self.JoystickAdapter = self.create_adapter("JoystickAdapterTopic", joystickadapterI.JoystickAdapterI(default_handler))
 
         self.VisualElementsPub = self.create_adapter("VisualElementsPubTopic", visualelementspubI.VisualElementsPubI(default_handler))
 

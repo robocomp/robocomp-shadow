@@ -1,11 +1,30 @@
 import pybullet as pb
 import pybullet_data
+import numpy as np
 
 class Model_Manager:
     def __init__(self):
         self.physics_client_id = pb.connect(pb.GUI)
+        pb.configureDebugVisualizer(pb.COV_ENABLE_GUI, 0)
+        pb.setGravity(0, 0, -9.81)
+
+        # Camera settings for a zenithal view
+        cameraDistance = 4  # Adjust as needed
+        cameraTargetPosition = [0, 0, 0]  # Adjust based on your scene
+        cameraYaw = 180  # Adjust as needed
+        cameraPitch = -95  # -90 degrees for straight down
+
+        # Position the camera
+        pb.resetDebugVisualizerCamera(cameraDistance, cameraYaw, cameraPitch, cameraTargetPosition)
+
+        # Load the plane
+        pb.setAdditionalSearchPath(pybullet_data.getDataPath())
+        pb.loadURDF("plane.urdf")
+
         self.pb = pb
         self.current_room = None
+        self.robot_id = None
+        self.objects_in_the_room = []
 
     def step_simulation(self):
         pb.stepSimulation(physicsClientId=self.physics_client_id)
@@ -134,6 +153,7 @@ class Model_Manager:
 
         self.current_room = {"width": room_width, "depth": room_depth, "height": room_height,
                              "center_x": room_center[0], "center_y": room_center[1], "rotation": room_rotation}
+        self.objects_in_the_room = all_wall_parts_ids
         return all_wall_parts_ids
     def loadURDF(self, urdf_path):
         m = self.pb.loadURDF(fileName=urdf_path)
@@ -145,13 +165,27 @@ class Model_Manager:
                                                       physicsClientId=self.physics_client_id)
         robot_visual_shape_id = self.pb.createVisualShape(self.pb.GEOM_BOX, halfExtents=size,
                                                           physicsClientId=self.physics_client_id)
-
-        robot_body_id = self.pb.createMultiBody(baseMass=20,
-                                                baseCollisionShapeIndex=robot_id,
+        robot_body_id = self.pb.createMultiBody(baseCollisionShapeIndex=robot_id,
                                                 baseVisualShapeIndex=robot_visual_shape_id,
                                                 basePosition=[0, 0, 0],
                                                 physicsClientId=self.physics_client_id)
+        pb.changeVisualShape(robot_body_id, -1, rgbaColor=[0, 1, 1, 1])
+        # add nose
+        nose_size = [0.1 / 2, 0.1 / 2, 1.8 / 2]
+        nose_visual_shape_id = self.pb.createVisualShape(self.pb.GEOM_BOX, halfExtents=nose_size,
+                                                               physicsClientId=self.physics_client_id)
+        nose_id = self.pb.createMultiBody(baseVisualShapeIndex=nose_visual_shape_id,
+                                          basePosition=[0, 0.5/2, 0.1],
+                                          baseOrientation=pb.getQuaternionFromEuler([0, 0, np.pi/2]),
+                                          physicsClientId=self.physics_client_id)
+        pb.changeVisualShape(nose_id, -1, rgbaColor=[1, 0, 0, 1])
+
+        self.robot_id = robot_id
         return robot_id
+    def set_robot_velocity(self, side, adv, rot):
+        for obj in self.objects_in_the_room:
+            pb.resetBaseVelocity(obj, linearVelocity=[side*12, -adv*12, 0])
+
     def get_room(self):
         return self.current_room
 

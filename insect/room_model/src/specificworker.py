@@ -36,6 +36,7 @@ class SpecificWorker(GenericWorker):
         self.real_data.objects = []
         self.synth_data = ifaces.RoboCompVisualElementsPub.TData()
         self.synth_data.objects = []
+        self.joy_data = ifaces.RoboCompJoystickAdapter.TData()
 
         if startup_check:
             self.startup_check()
@@ -82,9 +83,12 @@ class SpecificWorker(GenericWorker):
         # compute synth_objects from model
         self.synth_data = self.compute_synth_data()
 
+        # check efferent motor commands from joystick
+        self.check_efferent_motor_commands(self.joy_data)
+
         self.model_manager.step_simulation()
 
-    ########################################################################
+    ###room_width, room_width,#####################################################################
     def compute_prediction_error(self, real_data, synth_data):
         # compute error between real_objects and synth_objects
         # error is a TObjects from VisualElements. Zero values will be ignored in model
@@ -109,7 +113,6 @@ class SpecificWorker(GenericWorker):
                                                       room_center=centre, room_rotation=rotation, doors_specs={})
         else:
             print("Prediction OK")
-
     def compute_synth_data(self):
         synth_data = ifaces.RoboCompVisualElementsPub.TData()
         synth_data.objects = []
@@ -120,7 +123,18 @@ class SpecificWorker(GenericWorker):
             obj.attributes = self.model_manager.get_room()
             synth_data.objects.append(object)
         return synth_data
-
+    def check_efferent_motor_commands(self, joy_data):
+        # check efferent motor commands from joystick if any, send them to model
+        side = adv = rot = 0
+        if joy_data is not None and joy_data.axes is not None:
+            for axis in joy_data.axes:
+                if "advance" == axis.name:
+                    adv = axis.value
+                if "rotate" == axis.name:
+                    rot = axis.value
+                if "side" == axis.name:
+                    side = axis.value
+            self.model_manager.set_robot_velocity(side, adv, rot)
     #######################################################################3
     def startup_check(self):
         print(f"Testing RoboCompVisualElements.TRoi from ifaces.RoboCompVisualElements")
@@ -141,5 +155,9 @@ class SpecificWorker(GenericWorker):
         #print("Received: ", data)
         self.real_data = data
 
-
+    #
+    # SUBSCRIPTION to sendData method from JoystickAdapter interface
+    #
+    def JoystickAdapter_sendData(self, data):
+        self.joy_data = data
 

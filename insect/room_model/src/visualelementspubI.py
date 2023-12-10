@@ -38,5 +38,5 @@ class VisualElementsPubI(VisualElementsPub):
         self.worker = worker
 
 
-    def setVisualObjects(self, objects, c):
-        return self.worker.VisualElementsPub_setVisualObjects(objects)
+    def setVisualObjects(self, data, c):
+        return self.worker.VisualElementsPub_setVisualObjects(data)
