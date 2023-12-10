@@ -1,5 +1,6 @@
 # Endpoints for subscriptions interfaces
-VisualElementsPubTopic.Endpoints=tcp -p 18108
+JoystickAdapterTopic.Endpoints=tcp -p 17926
+VisualElementsPubTopic.Endpoints=tcp -p 12987
 
 
 

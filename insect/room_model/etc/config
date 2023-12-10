@@ -1,6 +1,8 @@
 
 # Endpoints for subscriptions interfaces
 VisualElementsPubTopic.Endpoints=tcp -p 18108
+JoystickAdapterTopic.Endpoints=tcp -p 17926
+
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

@@ -1,10 +1,11 @@
 import "VisualElementsPub.idsl";
+import "JoystickAdapter.idsl";
 
 Component room_model
 {
     Communications
     {
-        subscribesTo VisualElementsPub;
+        subscribesTo VisualElementsPub, JoystickAdapter;
     };
     language python;
 };
