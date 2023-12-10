@@ -29,14 +29,14 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
+Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
 
-from RoboCompSegmentatorTrackingPub import *
+from RoboCompVisualElementsPub import *
 
-class SegmentatorTrackingPubI(SegmentatorTrackingPub):
+class VisualElementsPubI(VisualElementsPub):
     def __init__(self, worker):
         self.worker = worker
 
 
-    def setTrack(self, target, c):
-        return self.worker.SegmentatorTrackingPub_setTrack(target)
+    def setVisualObjects(self, objects, c):
+        return self.worker.VisualElementsPub_setVisualObjects(objects)
