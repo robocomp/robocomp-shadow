@@ -75,6 +75,32 @@ public:
             auto p = point_perpendicular_to_door_at();
             return atan2(p.first.x(), p.first.y());
         }
+        float width() const
+        {
+            return (p0 - p1).norm();
+        }
+        float height() const
+        {
+            return 2000; // mm TODO: get from lidar
+        }
+        float position_in_wall(const std::vector<Eigen::Vector2f> &corners) const
+        {
+            // we need to compute the distance from the middle of the door to the wall's corner CCW
+            // first we define a lambda to check if two floats have the same sign, so we can compare angles
+            // and separate the case where each point of a door falls in quadrants 2 and 3 (positive and negative angles)
+            // Normally, the point with the smallest angle wrt the robot is the closest one, but if the points fall in
+            // quadrants 2 and 3, the point with the smallest angle is the one with the greatest angle wrt the robot.
+            auto same_sign = [](double a, double b) { return a*b >= 0.0; };
+            // we start by computing the wall's corner with the smallest angle wrt the robot
+            if(corners.empty()) { qWarning() << __FUNCTION__  << "Corner vector empty"; return -1.f;};
+            auto closest_corner = std::ranges::min_element(corners, [same_sign](auto &c1, auto &c2)
+            {  double a1 = atan2(c1.x(), c1.y());
+               double a2 = atan2(c2.x(), c2.y());
+               return same_sign(a1, a2) ? fabs(a1)<fabs(a2) : a1 > a2;
+            });
+            // the distance to this wall's corner is the norm of the vector from the middle of the door to the corner
+            return (middle - *closest_corner).norm();
+        }
     };
 
     using Doors = std::vector<Door>;
