@@ -2,6 +2,7 @@ import pybullet as pb
 import pybullet_data
 import numpy as np
 
+
 class Model_Manager:
     def __init__(self):
         self.physics_client_id = pb.connect(pb.GUI)
@@ -25,10 +26,51 @@ class Model_Manager:
         self.current_room = None
         self.robot_id = None
         self.objects_in_the_room = []
+        self.current_doors = [] # List of dictionaries with the door specs#
 
     def step_simulation(self):
         pb.stepSimulation(physicsClientId=self.physics_client_id)
+    def create_rectangular_room(self, width, depth, height, orientation):
+        """
+        Creates a rectangular room in PyBullet using GEOM_BOX primitives.
 
+        Parameters:
+        width (float): The width of the room.
+        depth (float): The depth of the room.
+        height (float): The height of the room.
+        orientation (float): The orientation (rotation) of the room around the Z-axis in radians.
+        """
+        wall_thickness = 0.1  # Adjust thickness as needed
+
+        # Function to create a single wall
+        def create_wall(position, dimensions):
+            wall_visual_shape = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=dimensions,
+                                                    rgbaColor=[0.8, 0.8, 0.8, 1])
+            wall_collision_shape = pb.createCollisionShape(shapeType=pb.GEOM_BOX, halfExtents=dimensions)
+            wall_body = pb.createMultiBody(baseMass=0, baseVisualShapeIndex=wall_visual_shape,
+                                           baseCollisionShapeIndex=wall_collision_shape,
+                                           basePosition=position,
+                                           baseOrientation=pb.getQuaternionFromEuler([0, 0, orientation]))
+            #pb.resetBasePositionAndOrientation()
+            return wall_body
+
+        # Calculate positions of the walls based on the room's dimensions and orientation
+        print(orientation)
+        cos_theta = np.cos(orientation)
+        sin_theta = np.sin(orientation)
+        front_wall_position = [depth / 2 * cos_theta, depth / 2 * sin_theta, height / 2]
+        back_wall_position = [-depth / 2 * cos_theta, -depth / 2 * sin_theta, height / 2]
+        left_wall_position = [-width / 2 * cos_theta, width / 2 * sin_theta, height / 2]
+        right_wall_position = [width / 2 * cos_theta, width / 2 * sin_theta, height / 2]
+
+        # Create each wall
+        create_wall(front_wall_position, [wall_thickness / 2, depth / 2, height / 2])
+        create_wall(back_wall_position, [wall_thickness / 2, depth / 2, height / 2])
+        create_wall(left_wall_position, [width / 2, wall_thickness / 2, height / 2])
+        create_wall(right_wall_position, [width / 2, wall_thickness / 2, height / 2])
+
+        self.current_room = {"width": width, "depth": depth, "height": height,
+                             "center_x": 0, "center_y": 0, "rotation": orientation}
     def create_wall_with_door(self, wall_length, wall_height, wall_center, wall_orientation, door_width=None,
                               door_height=None, door_position=None, rotated_wall=False):
         """
@@ -135,6 +177,7 @@ class Model_Manager:
             door_spec = doors_specs.get(i)
             if door_spec:  # If there are door specs for the wall
                 door_width, door_height, door_position = door_spec
+                self.current_doors.append({"width": door_width, "height": room_height, "position": door_position})
             else:  # If there is no door in the wall
                 door_width, door_height, door_position = None, None, None
 
@@ -147,7 +190,7 @@ class Model_Manager:
                 door_width=door_width,
                 door_height=door_height,
                 door_position=door_position,
-                rotated_wall=(i==2 or i==3)
+                rotated_wall=(i == 2 or i == 3)
             )
             all_wall_parts_ids.extend(wall_parts_ids)
 
@@ -186,6 +229,9 @@ class Model_Manager:
         for obj in self.objects_in_the_room:
             pb.resetBaseVelocity(obj, linearVelocity=[side*12, -adv*12, 0])
 
-    def get_room(self):
+    def get_room(self): # attributes
         return self.current_room
+    def get_doors(self): # list of attributes
+        return self.current_doors
+
 
