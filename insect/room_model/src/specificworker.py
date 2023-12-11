@@ -101,27 +101,58 @@ class SpecificWorker(GenericWorker):
 
         if len(real_data.objects) > len(synth_data.objects):
             # add new objects to synth_data
-            attr = real_data.objects[0].attributes
-            width = float(attr["width"])/1000
-            depth = float(attr["depth"])/1000
-            height = float(attr["height"])/1000
-            rotation = float(attr["rotation"])
-            centre = [float(attr["center_x"])/1000, float(attr["center_y"])/1000,  0]
-            print("Adding new room:", width, depth, rotation, centre)
+            door_specs = {}
+            k = 0
+            for obj in real_data.objects:
+                if obj.type == 6:   # "door":
+                    door_width = float(obj.attributes["width"])/1000
+                    door_height = float(obj.attributes["height"])/1000
+                    door_pos = float(obj.attributes["position"])/1000
+                    door_specs[k] = (door_width, door_height, door_pos)
+                    print("Adding new door: id ", k, door_width, door_height, door_pos)
+                    k += 1
 
-            self.model_manager.create_room_with_doors(room_width=width, room_depth=depth, room_height=height,
-                                                      room_center=centre, room_rotation=rotation, doors_specs={})
+            for i, obj in enumerate(real_data.objects):
+                if obj.type == 5:   # "room"
+                    attr = obj.attributes
+                    room_width = float(attr["width"])/1000
+                    room_depth = float(attr["depth"])/1000
+                    room_height = float(attr["height"])/1000
+                    room_rotation = float(attr["rotation"])
+                    room_center = [float(attr["center_x"])/1000, float(attr["center_y"])/1000,  0]
+                    print("Adding new room:", room_width, room_depth, room_rotation, room_center)
+                    # self.model_manager.create_room_with_doors(room_width=room_width,
+                    #                                           room_depth=room_depth,
+                    #                                           room_height=room_height,
+                    #                                           room_center=room_center,
+                    #                                           room_rotation=room_rotation,
+                    #                                           doors_specs=door_specs)
+                    self.model_manager.create_rectangular_room(width=room_width,
+                                                               depth=room_depth,
+                                                               height=room_height,
+                                                               orientation=room_rotation)
+
+                    break  # only one room
         else:
             print("Prediction OK")
     def compute_synth_data(self):
         synth_data = ifaces.RoboCompVisualElementsPub.TData()
         synth_data.objects = []
-        floor = self.model_manager.get_room()
-        if floor:
+        room_attr = self.model_manager.get_room()
+        if room_attr:
             obj = ifaces.RoboCompVisualElementsPub.TObject()
-            obj.name = "room"
-            obj.attributes = self.model_manager.get_room()
-            synth_data.objects.append(object)
+            obj.type = 5
+            obj.attributes = room_attr
+            synth_data.objects.append(obj)
+        doors_attr_list = self.model_manager.get_doors()
+        synth_data.objects.append(ifaces.RoboCompVisualElementsPub.TObject())
+        synth_data.objects.append(ifaces.RoboCompVisualElementsPub.TObject())
+
+        # for doors_attr in doors_attr_list:
+        #      obj = ifaces.RoboCompVisualElementsPub.TObject()
+        #      obj.type = 5
+        #      obj.attributes = doors_attr
+        #      synth_data.objects.append(obj)
         return synth_data
     def check_efferent_motor_commands(self, joy_data):
         # check efferent motor commands from joystick if any, send them to model
