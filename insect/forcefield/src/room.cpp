@@ -62,14 +62,7 @@ namespace rc
                                               Eigen::Vector3f(pts[3].x, pts[3].y, 0.f)};
         return rcorners;
     }
-    Eigen::Matrix<float, 4, 2> Room::get_eigen_corners_in_robot_coor()
-    {
-        Eigen::Matrix<float, 2, 2> rt_from_robot;
-        rt_from_robot << cos(rot), -sin(rot), sin(rot), cos(rot);
-        Eigen::Matrix<float, 4, 2> rcorners = ((rt_from_robot * get_corners().transpose()).colwise() + center).transpose();
-        return rcorners;
-    }
-    Eigen::Matrix<float, 4, 2> Room::get_eigen_corners_in_robot_coor2()
+    Eigen::Matrix<float, 4, 2> Room::get_corners_mat() const
     {
         cv::Point2f pts[4];
         rect.points(pts);
@@ -78,15 +71,13 @@ namespace rc
                 Eigen::Vector2f(pts[2].x, pts[2].y), Eigen::Vector2f(pts[3].x, pts[3].y);
         return rcorners;
     }
-    Eigen::Matrix<float, 4, 2> Room::get_corners()
+    std::vector<Eigen::Vector2f> Room::get_corners() const
     {
-        Eigen::Matrix<float, 4, 2> corners;
-        float sw = rsize.width() / 2.f;
-        float sh = rsize.height() / 2.f;
-        corners.row(0) = Eigen::Vector2f(sw, sh);
-        corners.row(1) = Eigen::Vector2f(sw, -sh);
-        corners.row(2) = Eigen::Vector2f(-sw, sh);
-        corners.row(3) = Eigen::Vector2f(-sw, -sh);
+        cv::Point2f pts[4];
+        rect.points(pts);
+        std::vector<Eigen::Vector2f> corners(4);
+        for (auto &&i: iter::range(4))
+            corners[i] = Eigen::Vector2f(pts[i].x, pts[i].y);
         return corners;
     }
     Eigen::Vector2f Room::get_closest_corner_in_robot_coor2(const Eigen::Vector2f &c) const
@@ -100,7 +91,7 @@ namespace rc
     }
     Eigen::Vector2f Room::get_closest_corner_in_robot_coor(const Eigen::Vector2f &c)
     {
-        auto corners = get_eigen_corners_in_robot_coor();
+        auto corners = get_corners_mat();
         Eigen::Index index;
         (corners.rowwise() - c.transpose()).rowwise().squaredNorm().minCoeff(&index);
         return corners.row(index);
@@ -116,7 +107,7 @@ namespace rc
     Eigen::Vector2f Room::get_closest_corner(const Eigen::Vector2f &c)
     {
         // c should be in rooms's coordinates
-        auto corners = get_corners();
+        auto corners = get_corners_mat();
         Eigen::Index index;
         (corners.rowwise() - c.transpose()).rowwise().squaredNorm().minCoeff(&index);
         return corners.row(index);

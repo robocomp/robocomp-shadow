@@ -70,7 +70,7 @@ void SpecificWorker::initialize(int period)
         this->resize(900,900);
         viewer->add_robot(400, 400);
         QSettings settings("MyCompany", "MyApp");
-        restoreGeometry(settings.value("myWidget/geometry").toByteArray());
+        restoreGeometry(settings.value("geometry").toByteArray());
 
         //QCustomPlot
         custom_plot.setParent(this->customplot);
@@ -121,13 +121,14 @@ void SpecificWorker::compute()
     current_room.print();
 
     // publish
-    publish_room(current_room, doors);
+    publish_room_and_doors(current_room, doors);
 
 //    static float side_ant = 0, adv_ant = 0;
 //    draw_timeseries(side-side_ant, adv-adv_ant, track_err);
 //    side_ant = side; adv_ant = adv;
 //    draw_timeseries(robot.get_distance_to_target()/10, robot.get_current_advance_speed(), robot.get_current_side_speed()/10);
 
+    fps.print("room_detector");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -140,11 +141,12 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
                 lines[i].emplace_back(p.x, p.y);
     return lines;
 }
-void SpecificWorker::publish_room(rc::Room room, DoorDetector::Doors vector1)
+void SpecificWorker::publish_room_and_doors(const rc::Room &room, const DoorDetector::Doors &doors)
 {
-    try
+    // Order walls by angle to robot
+    
+    RoboCompVisualElementsPub::TData data;
     {
-        RoboCompVisualElementsPub::TData data;
         RoboCompVisualElementsPub::TAttributes attr;
         attr.emplace(std::make_pair("name", "room"));
         attr.emplace(std::make_pair("width", std::to_string(room.get_width())));
@@ -153,11 +155,23 @@ void SpecificWorker::publish_room(rc::Room room, DoorDetector::Doors vector1)
         attr.emplace(std::make_pair("center_x", std::to_string(room.get_center_x())));
         attr.emplace(std::make_pair("center_y", std::to_string(room.get_center_y())));
         attr.emplace(std::make_pair("rotation", std::to_string(room.get_rotation())));
-
-        RoboCompVisualElementsPub::TObject o{.id=0, .type=5, .attributes=attr };
+        RoboCompVisualElementsPub::TObject o{.id=0, .type=5, .attributes=attr};
         data.objects.emplace_back(std::move(o));
-        visualelementspub_pubproxy->setVisualObjects(data);
     }
+    // doors
+    for(const auto & [i, d]: doors | iter::enumerate)
+    {
+        RoboCompVisualElementsPub::TAttributes attr;
+        attr.emplace(std::make_pair("name", "door"));
+        attr.emplace(std::make_pair("width", std::to_string(d.width())));
+        attr.emplace(std::make_pair("height", std::to_string(d.height())));
+        attr.emplace(std::make_pair("position", std::to_string(d.position_in_wall(room.get_corners()))));
+        RoboCompVisualElementsPub::TObject o{.id=(int)i, .type=6, .attributes=attr };
+        data.objects.emplace_back(std::move(o));
+    }
+
+    try
+    { visualelementspub_pubproxy->setVisualObjects(data);}
     catch (const Ice::Exception &e) { std::cout << "Error publishing visual objects " << e << std::endl; }
 }
 

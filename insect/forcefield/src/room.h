@@ -31,14 +31,13 @@ namespace rc
         float get_rotation() const;
         Eigen::Vector2f get_closest_corner(const Eigen::Vector2f &c);
         Eigen::Vector2f get_closest_corner_in_robot_coor(const Eigen::Vector2f &c);
-        Eigen::Matrix<float, 4, 2> get_eigen_corners_in_robot_coor2();
         Eigen::Vector2f get_closest_corner_in_robot_coor2(const Eigen::Vector2f &c) const;
         std::pair<float, QLineF> get_closest_side(const QLineF &line);
         std::vector<QLineF> get_room_lines_qt() const;
         Eigen::Vector2f to_room_coor(const Eigen::Vector2f &p) const;
-        Eigen::Matrix<float, 4, 2> get_corners();
+        Eigen::Matrix<float, 4, 2> get_corners_mat() const;
+        std::vector<Eigen::Vector2f> get_corners() const;
         std::vector<Eigen::Vector3f> get_3d_corners_in_robot_coor();
-        Eigen::Matrix<float, 4, 2> get_eigen_corners_in_robot_coor();
         Eigen::Vector2f to_local_coor(const Eigen::Vector2f &p);
         void rotate(float delta);  //degrees
         void print();

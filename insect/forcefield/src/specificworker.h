@@ -40,7 +40,7 @@
 #include "room_detector.h"
 #include "room.h"
 #include <doublebuffer/DoubleBuffer.h>
-
+#include <fps/fps.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -102,11 +102,15 @@ class SpecificWorker : public GenericWorker
         {
             QSettings settings("MyCompany", "MyApp");
             settings.setValue("geometry", saveGeometry());
-            //settings.setValue("windowState", saveState());
+            //settings.setValue("windowState", Ui::guiDlg->saveState());
             QWidget::closeEvent(event);
+            qInfo() << "Closing SpecificWorker";
         };
 
-    void publish_room(rc::Room room, DoorDetector::Doors vector1);
+        void publish_room_and_doors(const rc::Room &room, const DoorDetector::Doors &doors);
+
+        // fps
+        FPSCounter fps;
 };
 
 #endif
