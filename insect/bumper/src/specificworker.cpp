@@ -395,7 +395,7 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std:
     // gather all points inside safety belt in close_points
     std::vector<Eigen::Vector2f> close_points;  // cartesian coordinates
     for(const auto &[ang, dist]: points)
-        if(point_in_belt(ang, dist)) close_points.emplace_back(dist*sin(ang), dist*cos(ang));
+        if(point_in_body(ang, dist)) close_points.emplace_back(dist*sin(ang), dist*cos(ang));
     draw_points_in_belt(close_points); // cartesian coordinates
 
     // max dist to reach from current situation
@@ -405,6 +405,8 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std:
     double dist = (MAX_ACC * delta_t * delta_t);
 
     //qInfo() << "Dist" << dist << robot_current_speed.norm();
+
+    // TODO:: iterate over distances also
 
     if(not close_points.empty())
     {
