@@ -61,7 +61,7 @@ void SpecificWorker::initialize(int period)
 		// Viewer
  		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000), false);
         //viewer->draw_contour();
-        viewer->add_robot(460, 480, 0, 100, QColor("Blue"));
+        //viewer->add_robot(460, 480, 0, 100, QColor("Blue"));
         viewer->show();
         std::cout << "Started viewer" << std::endl;
 
@@ -101,7 +101,7 @@ void SpecificWorker::compute()
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
-    qInfo() << ldata.points.size();
+    //qInfo() << ldata.points.size();
 
     /// filter out floor points and inbody points
     RoboCompLidar3D::TPoints above_floor_points;
@@ -162,13 +162,13 @@ void SpecificWorker::compute()
 
     draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
-//    security_breach = false;
     if(not security_breach) draw_target_breach(target, true);
 
     //////////////////////////////////
     /// We have now four possibilities
     //////////////////////////////////
-    if(target_ext.active and security_breach)    // target active. Choose displacement best aligned with target
+    // target active and security breach.  Choose displacement best aligned with target
+    if(target_ext.active and security_breach)
     {
         std::cout << "1"<<std::endl;
         if (not displacements.empty())
@@ -182,39 +182,40 @@ void SpecificWorker::compute()
             target.set(res.x(), res.y(), 0.f);
         }
     }
+    // no target and no security breach. Stop robot
     if(not security_breach and not target_ext.active)
     {
        stop_robot("No target, no breach");
     }
+    // no target and security breach. Choose displacement that maximizes sum of distances to obstacles
     if(not target_ext.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
     {
-        std::cout << "3"<<std::endl;
-       if (not displacements.empty())
-       {
-            std::cout << "4"<<std::endl;
-//           auto res = std::ranges::max(displacements,
-//                                       [](auto &a, auto &b) { return a.second < b.second; });
-
+        //std::cout << "3"<<std::endl;
+        if (not displacements.empty())
+        {
+            //std::cout << "4"<<std::endl;
+            auto res = std::ranges::max(displacements,[](auto &a, auto &b)
+                { return a.norm() < b.norm(); });   // TODO: change to eigen::max
             target.set(displacements[0].x(), displacements[0].y(), 0.f);
             draw_target_breach(target);
-       } else  {  stop_robot("Collision but no solution found");  }
+        } else  {  stop_robot("Collision but no solution found");  }
     }
+    // target and no security breach. Keep going
     if(target_ext.active and not security_breach)
     {
-
-        std::cout << "5"<<std::endl;
-       target = target_ext;
+        //std::cout << "5"<<std::endl;
+        target = target_ext;
     }
 
     if(target.active)
     {
         std::cout << "6"<<std::endl;
         draw_target(target_ext);
-        target.print("FINAL");
+        //target.print("FINAL");
         float adv = target.y;
         float side = target.x;
         float rot = atan2( target.x, target.y);  // dumps rotation for small resultant force;
-        robot_current_speed = {adv, side};
+        //robot_current_speed = {adv, side};
         try
         {
             std::cout << "7"<<std::endl;
@@ -353,7 +354,6 @@ vector<SpecificWorker::Block> SpecificWorker::set_blocks_symbol(const std::vecto
 
     return sblocks;
 }
-
 SpecificWorker::Target SpecificWorker::get_closest_point_inside(const std::vector<std::tuple<float, float>> &points, const Target &target)
 {
     Target t = target;
@@ -364,58 +364,73 @@ SpecificWorker::Target SpecificWorker::get_closest_point_inside(const std::vecto
     return t;
 
 }
+
 //////////////////////////////////////////////////////////////////////////////
-
-std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)
+std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std::tuple<float, float>> &points)  // polar coordinates
 {
-  //compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
-  // get lidar points closer than safety band. If none return
-  // TODO: AVOID FORCE INVERSION
-  std::vector<Eigen::Vector2f> close_points;
-  std::vector<Eigen::Vector2f> displacements, final_displacement;
+    // compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
+    // get lidar points closer than safety band. If none return
+    // TODO: AVOID FORCE INVERSION
+    std::vector<Eigen::Vector2f> displacements, final_displacement;
 
-  // lambda to compute if a point is inside the belt
-  auto point_in_belt = [this](auto ang, auto dist)
+    // lambda to compute if a point is inside the belt
+    auto point_in_belt = [this](auto ang, auto dist)
           {
+              // find the first element in edge_points with angle greater than ang
               auto r = std::upper_bound(edge_points.cbegin(), edge_points.cend(), ang,
                                         [](float value, std::tuple<float, float> p) { return std::get<0>(p) >= value; });
               if (r != edge_points.end() and dist < std::get<1>(*r) and dist > (std::get<1>(*r) - this->BAND_WIDTH) ) return true;
               else return false;
           };
+    // lambda to compute if a point is inside the robot's body
+    auto point_in_body = [this](auto ang, auto dist)
+          {
+              // find the first element in edge_points with angle greater than ang
+              auto r = std::upper_bound(robot_contour.cbegin(), robot_contour.cend(), ang,
+                                        [](float value, QPointF p) { return p.x() >= value; });
+              if (r != robot_contour.end() and dist < r->y()) return true;
+              else return false;
+          };
 
-    // gather all points inside safety belt
+    // gather all points inside safety belt in close_points
+    std::vector<Eigen::Vector2f> close_points;  // cartesian coordinates
     for(const auto &[ang, dist]: points)
-      if(point_in_belt(ang, dist)) close_points.emplace_back(dist*sin(ang), dist*cos(ang));
+        if(point_in_belt(ang, dist)) close_points.emplace_back(dist*sin(ang), dist*cos(ang));
+    draw_points_in_belt(close_points); // cartesian coordinates
 
-  // max dist to reach from current situation
-  const float delta_t = 1; // 0.050; //200ms
-  const float MAX_ACC = 200; // mm/sg2
-//  double dist = robot_current_speed.norm() * delta_t + (MAX_ACC * delta_t * delta_t);
-  double dist = (MAX_ACC * delta_t * delta_t);
+    // max dist to reach from current situation
+    const float delta_t = 1; // 0.050; //200ms
+    const float MAX_ACC = 100; // mm/sg2
+    //  double dist = robot_current_speed.norm() * delta_t + (MAX_ACC * delta_t * delta_t);
+    double dist = (MAX_ACC * delta_t * delta_t);
 
     //qInfo() << "Dist" << dist << robot_current_speed.norm();
 
-  if(not close_points.empty())
-  {
+    if(not close_points.empty())
+    {
       for (const double ang: iter::range(-M_PI, M_PI, BELT_ANGULAR_STEP))
       {
-          // compute coor of conflict points after moving the robot to new pos (d*sin(ang), d*cos(ang))
+          // compute robot's new pos (d*sin(ang), d*cos(ang))
           Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
           bool free = true;
+          // check if all points are outside the belt
           for (const auto &p: close_points)
           {
+              // transform point to new robot position
               float dist_p = (p - t).norm();
-              qInfo() << "COORDS" << dist << ang << t.x() << t.y() << dist_p ;
-              if(point_in_belt(atan2((p-t).x(),(p-t).y()), dist_p))
+              //qInfo() << "COORDS" << dist << ang << t.x() << t.y() << dist_p ;
+              // check if point is inside belt after being moved. If so, break and try next displacement
+              if(point_in_body(atan2((p-t).x(),(p-t).y()), dist_p))
               {
                   free = false;
                   break;
               }
           }
+          // if all points are outside the belt, add displacement to list
           if (free)
               displacements.emplace_back(t); // add displacement to list
       }
-
+      // Check if the selected displacements induce new points inside the belt
       for (const auto &d : displacements)
       {
           bool success = true;
@@ -433,11 +448,9 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const std::vector<std:
               final_displacement.emplace_back(d);
       }
       return final_displacement;
-  }
-  else return {};
+    }
+    else return {};
 }
-
-
 bool SpecificWorker::inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour)
 {
     auto r =  std::upper_bound(contour.cbegin(), contour.cend(), target.ang,
@@ -610,6 +623,7 @@ void SpecificWorker::stop_robot(const std::string_view txt)
         std::cout << "Robot stopped due to " << txt << std::endl;
     }
 };
+
 ///////////////////////////////////////////////////////////////////////////
 void SpecificWorker::draw_ring(const std::vector<std::tuple<float, float>> &dists, QGraphicsScene *scene)
 {
@@ -817,7 +831,6 @@ void SpecificWorker::draw_target_breach(const Target &t, bool erase)
         ball->setPos(t.x, t.y);
     }
 }
-
 void SpecificWorker::draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene)
 {
     static std::vector<QGraphicsItem *> draw_displacements;
@@ -838,10 +851,23 @@ void SpecificWorker::draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> 
         draw_displacements.push_back(o);
         draw_displacements.push_back(o_p);
     }
-
 }
+void SpecificWorker::draw_points_in_belt(const std::vector<Eigen::Vector2f> &points_in_belt) // cartesian coordinates
+{
+    static std::vector<QGraphicsItem *> draw_points;
+    for (const auto &p: draw_points) {
+        viewer->scene.removeItem(p);
+        delete p;
+    }
+    draw_points.clear();
 
-
+    for (const auto &p: points_in_belt)
+    {
+        auto o = viewer->scene.addRect(-10, 10, 20, 20, QPen(QColor("red")), QBrush(QColor("red")));
+        o->setPos(p.x(), p.y());
+        draw_points.push_back(o);
+    }
+}
 //////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
@@ -877,6 +903,8 @@ void SpecificWorker::new_mouse_coordinates(QPointF p)
 {
     buffer_dwa.put(std::make_tuple(p.x(), p.y(), 0, true)); // for debug
 }
+
+
 ////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 //  TODO: Divide into methods draw_polar_graph and draw_cartesian_graph

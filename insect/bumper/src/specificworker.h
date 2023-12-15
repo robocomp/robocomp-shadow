@@ -184,9 +184,11 @@ class SpecificWorker : public GenericWorker
         void draw_target_original(const Target &t, bool erase = false);
         void draw_target(double x, double y, bool erase=false);
         void draw_target_breach(const Target &t, bool erase = false);
+        void draw_points_in_belt(const std::vector<Eigen::Vector2f> &points_in_belt);
 
         // Thread method
         void read_lidar();
+
         Band adjustSafetyZone(Eigen::Vector3f velocity);
         std::vector<Eigen::Vector3f> filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points);
 
@@ -212,6 +214,7 @@ class SpecificWorker : public GenericWorker
 
 
     void draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene);
+
 };
 
 #endif
