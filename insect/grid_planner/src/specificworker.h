@@ -34,6 +34,10 @@
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <fps/fps.h>
 #include <timer/timer.h>
+#include "fastgicp.h"
+#include <pcl/common/io.h>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -51,7 +55,6 @@ class SpecificWorker : public GenericWorker
 
     private:
         bool startup_check_flag;
-        DoubleBuffer<Eigen::Vector2f,Eigen::Vector2f> target_buffer;
 
         //Graphics
         AbstractGraphicViewer *viewer;
@@ -60,13 +63,13 @@ class SpecificWorker : public GenericWorker
         //GRID
         int z_lidar_height = 0;
         Grid grid;
-        int grid_widht = 8000;
-        int grid_length = 10000;
-        int back_distance = 3000;
-        int tile_size = 50;
+        float grid_width = 8000;
+        float grid_length = 8000;
+        float back_distance = 3000;
+        float tile_size = 100;
 
-        float xMin = -grid_widht / 2;
-        float xMax = grid_widht / 2;
+        float xMin = -grid_width / 2;
+        float xMax = grid_width / 2;
         float yMin = -back_distance;
         float yMax = grid_length - back_distance;
 
@@ -77,11 +80,16 @@ class SpecificWorker : public GenericWorker
         rc::Timer<> clock;
         rc::Timer<> t;
 
+        // Lidar Thread
+        DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+        std::thread read_lidar_th;
+        void read_lidar();
+
         // Target
         struct Target
         {
             bool active = false;
-            Eigen::Vector2f point;
+            Eigen::Vector2f point = Eigen::Vector2f(0, 0);
             QPointF qpoint;
             void set(QPointF p)
             {
@@ -89,9 +97,14 @@ class SpecificWorker : public GenericWorker
                 qpoint = p;
                 active = true;
             }
+            Eigen::Vector2f pos() const { return point; }
             void unset() { active = false; }
         };
         Target target;
+        DoubleBuffer<std::tuple<Eigen::Vector2f, bool> , std::tuple<Eigen::Vector2f, bool>> target_buffer;
+
+        // Lidar odometry
+        FastGICP fastgicp;
 
         // Path
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
@@ -101,14 +114,14 @@ class SpecificWorker : public GenericWorker
         float euclideanDistance(const Eigen::Vector2f& a, const Eigen::Vector2f& b);
         float frechetDistanceUtil(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2, int i, int j, std::vector<std::vector<float>>& dp);
         float frechetDistance(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2);
-
-    RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
-                                          float threshold_dist, float threshold_angle);
-    void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
-    std::optional<Eigen::Vector2f> closest_point_to_target(const QPointF &p);
-    bool los_path(QPointF f);
-
-    Eigen::Vector2f  border_subtarget(RoboCompVisualElements::TObject target);
+        RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
+                                              float threshold_dist, float threshold_angle);
+        std::optional<Eigen::Vector2f> closest_point_to_target(const QPointF &p);
+        bool not_line_of_sight_path(const QPointF &f);
+        Eigen::Vector2f  border_subtarget(RoboCompVisualElements::TObject target);
+        void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
+        void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
+        void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
 };
 
 #endif

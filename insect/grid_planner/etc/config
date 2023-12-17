@@ -2,11 +2,8 @@ CommonBehavior.Endpoints=tcp -p 10002
 
 # Endpoints for implements interfaces
 
-
-
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 11113
-
 
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11991
@@ -14,8 +11,6 @@ GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
-
-InnerModelPath = innermodel.xml
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
