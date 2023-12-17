@@ -47,6 +47,7 @@
 #include <chrono>
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <timer/timer.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -67,7 +68,7 @@ class SpecificWorker : public GenericWorker
 	private:
 		bool startup_check_flag;
 		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
-        int BAND_WIDTH = 50;			// distance to the obstacle that repels the object
+        int BAND_WIDTH = 300;			// distance to the obstacle that repels the object
         double BELT_ANGULAR_STEP = 0.3;
         // Structs
         struct Band
@@ -137,9 +138,9 @@ class SpecificWorker : public GenericWorker
             }
         };
 
-   		//int z_lidar_height = 750;
-        std::vector<std::tuple<float,float>> create_edge_points();
-		std::vector<std::tuple<float, float>> edge_points;
+   		// Outer rig
+        std::vector<Eigen::Vector2f> create_edge_points();  // creates the outer_rig in polar coordinates
+		std::vector<Eigen::Vector2f> edge_points;   // outer_rig in polar coordinates
 
         //Struct declaration
         Band band;
@@ -173,8 +174,8 @@ class SpecificWorker : public GenericWorker
         bool robot_stopped = false;
 
         // Draw method
-        void draw_ring_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
-        void draw_ring(const std::vector<std::tuple<float, float>> &edge_points, QGraphicsScene *scene);
+        void draw_edge_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
+        void draw_edge(const std::vector<Eigen::Vector2f> &edge_points, QGraphicsScene *scene);
         void draw_discr_points(const std::vector<std::tuple<float, float>> &discr_points, QGraphicsScene *scene);
         void draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene);
         void draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene);
@@ -185,6 +186,9 @@ class SpecificWorker : public GenericWorker
         void draw_target(double x, double y, bool erase=false);
         void draw_target_breach(const Target &t, bool erase = false);
         void draw_points_in_belt(const std::vector<Eigen::Vector2f> &points_in_belt);
+        void draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene);
+        void draw_lidar(const RoboCompLidar3D::TPoints &points);
+        void draw_robot_contour(const QPolygonF &robot_contour, const QPolygonF &robot_safe_band, QGraphicsScene *pScene);
 
         // Thread method
         void read_lidar();
@@ -195,6 +199,7 @@ class SpecificWorker : public GenericWorker
         // Timing
         void self_adjust_period(int new_period);
         FPSCounter fps;
+        rc::Timer<> clock;
 
         // Double Buffer 
         DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_dwa;
@@ -209,11 +214,8 @@ class SpecificWorker : public GenericWorker
         bool inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour);
         void repulsion_force(const RoboCompLidar3D::TData &ldata);
         void stop_robot(const std::string_view txt);
-        std::vector<Eigen::Vector2f> check_safety(const vector<std::tuple<float, float>> &points);
+        std::vector<Eigen::Vector2f> check_safety(const RoboCompLidar3D::TPoints &points);
         Target get_closest_point_inside(const vector<std::tuple<float, float>> &points, const Target &target);
-
-
-    void draw_displacements(std::vector<Eigen::Matrix<float, 2, 1>> displacement_points, QGraphicsScene *scene);
 
 };
 
