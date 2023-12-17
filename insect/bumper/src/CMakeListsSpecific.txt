@@ -15,7 +15,7 @@ SET ( HEADERS
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
-add_definitions(-g -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/
+add_definitions(-O3 -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/
                 -I/usr/include/pcl-1.12 -I/home/robocomp/software/fast_gicp/include/)
 link_directories(/home/robocomp/software/fast_gicp/build)
 
