@@ -176,11 +176,6 @@ class SpecificWorker : public GenericWorker
         // Draw method
         void draw_edge_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_edge(const std::vector<Eigen::Vector2f> &edge_points, QGraphicsScene *scene);
-        void draw_discr_points(const std::vector<std::tuple<float, float>> &discr_points, QGraphicsScene *scene);
-        void draw_enlarged_points(const std::vector<std::tuple<float, float>> &enlarged_points, QGraphicsScene *scene);
-        void draw_blocks(const std::vector<Block> &blocks, QGraphicsScene *scene);
-        void draw_band_width(QGraphicsScene *scene);
-        void draw_result(const LPoint &res);
         void draw_target(const Target &t, bool erase=false);
         void draw_target_original(const Target &t, bool erase = false);
         void draw_target(double x, double y, bool erase=false);
@@ -193,9 +188,6 @@ class SpecificWorker : public GenericWorker
         // Thread method
         void read_lidar();
 
-        Band adjustSafetyZone(Eigen::Vector3f velocity);
-        std::vector<Eigen::Vector3f> filterPointsInRectangle(const std::vector<Eigen::Vector3f>& points);
-
         // Timing
         void self_adjust_period(int new_period);
         FPSCounter fps;
@@ -205,18 +197,8 @@ class SpecificWorker : public GenericWorker
         DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_dwa;
 
         // Processing steps
-        std::vector<tuple<float, float>> discretize_lidar(const RoboCompLidar3D::TPoints &ldata);
-        std::vector<tuple<float, float>> configuration_space(const std::vector<std::tuple<float, float>> &points);
-        std::pair<std::vector<Block>, std::vector<LPoint>>
-            get_blocks(const std::vector<std::tuple<float, float>> &enlarged_points);
-        std::vector<Block> set_blocks_symbol(const std::vector<SpecificWorker::Block> &blocks);
-        std::tuple<float, float> cost_function(const std::vector<std::tuple<float, float>> &points, const Target &target);
-        bool inside_contour(const Target &target, const std::vector<std::tuple<float, float>> &contour);
-        void repulsion_force(const RoboCompLidar3D::TData &ldata);
         void stop_robot(const std::string_view txt);
         std::vector<Eigen::Vector2f> check_safety(const RoboCompLidar3D::TPoints &points);
-        Target get_closest_point_inside(const vector<std::tuple<float, float>> &points, const Target &target);
-
 };
 
 #endif
