@@ -3,6 +3,7 @@ SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
   grid.cpp
+  fastgicp.cpp
 )
 
 # Headers set
@@ -13,9 +14,12 @@ SET ( HEADERS
   /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
 )
 
-add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/
+                -I/usr/include/pcl-1.12 -I/home/robocomp/software/fast_gicp/include/)
+link_directories(/home/robocomp/software/fast_gicp/build)
+find_package(PCL REQUIRED)
 
-SET (LIBS ${LIBS} )
+SET (LIBS ${LIBS})
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 
@@ -28,4 +32,6 @@ if( USE_QT6)
     list(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.h")
     LIST(APPEND LIBS QGLViewer-qt5)
 endif()
+
+LIST(APPEND LIBS pcl_common pcl_search pcl_filters pcl_kdtree fast_gicp)
 

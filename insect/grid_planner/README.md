@@ -1,6 +1,8 @@
 # grid_planner
 Intro to component here
 
+Lidar odometry from: https://github.com/SMRT-AIST/fast_gicp
+clone and make
 
 ## Configuration parameters
 As any other component, *grid_planner* needs a configuration file to start. In
