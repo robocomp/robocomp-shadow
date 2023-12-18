@@ -67,41 +67,27 @@ class SpecificWorker : public GenericWorker
 
 	private:
 		bool startup_check_flag;
-		int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
-        int BAND_WIDTH = 300;			// distance to the obstacle that repels the object
-        double BELT_ANGULAR_STEP = 0.3;
+
         // Structs
-        struct Band
+        struct Constants
         {
-            float frontal_distance = 300.0f;
-            float back_distance = 300.0f;
-            float left_distance = 300.0f;
-            float right_distance = 300.0f;
+            int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
+            int BAND_WIDTH = 250;			// distance to the obstacle that repels the object
+            double BELT_ANGULAR_STEP = 0.1f;  // angular step to create the belt
+            float BELT_LINEAR_STEP = 30.f;  // linear step to create the belt
+            float MAX_DIST_TO_LOOK_AHEAD = 300;  // mm in search of a valid displacement to free the bumper
+            float ROBOT_WIDTH = 460;  // mm
+            float ROBOT_LENGTH = 480;  // mm
+            int ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2;     // mm
+            int ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2;    // mm
+            std::string LIDAR_NAME = "bpearl";
+            float MAX_LIDAR_RANGE = 10000;  // mm
+            QRectF viewer_dim{-3000, -3000, 6000, 6000};
+            long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
+            int PERIOD = 50;    // ms (20 Hz) for compute timer
         };
-        struct Robot_speed
-        {
-            float adv = 0.0f;
-            float rot = 0.0f;
-            float side = 0.0f;
-        };
-        struct Block
-        {
-            float A_ang = 0.0f;
-            float A_dist = 0.0f;
-            float B_ang = 0.0f;
-            float B_dist = 0.0f;
-            bool concave = true;
-            float dist() const { return (A_dist+B_dist)/2.f; };
-        };
-        struct LPoint
-        {
-            float ang = 0.0f;
-            float dist = 0.0f;
-            int block;
-            bool concave;
-            bool kinematics;
-            float coste = 0.f;
-        };
+        Constants consts;
+
         struct Target
         {
             float x = 0.f, y = 0.f, ang = 0,f, dist = 0.f;  // target
@@ -143,22 +129,12 @@ class SpecificWorker : public GenericWorker
 		std::vector<Eigen::Vector2f> edge_points;   // outer_rig in polar coordinates
 
         //Struct declaration
-        Band band;
-        Robot_speed robot_speed;
-        Target target_ext, target_original, target;
+        Target target; // holds the current target to be reached
+        Target target_ext;  // holds a new target to be reached set by and external component
 
         // Viewer
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
-
-        // BW pose for drawing
-        QGraphicsRectItem* rectItem;
-
-		// Thread variable
-		std::thread read_lidar_th;
-
-        // DoubleBuffer variable
-		DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
         // Robot speed gains
         float x_gain = 10;
@@ -168,9 +144,9 @@ class SpecificWorker : public GenericWorker
 		const float max_side = 500;
         const float R = 250;
 
-        FastGICP fastgicp;
+        //FastGICP fastgicp;
 
-        Eigen::Vector2f robot_current_speed = {0.f, 0.f};
+        Eigen::Vector3f robot_current_speed = {0.f, 0.f, 0.f}; // side,adv, rot
         bool robot_stopped = false;
 
         // Draw method
@@ -185,7 +161,9 @@ class SpecificWorker : public GenericWorker
         void draw_lidar(const RoboCompLidar3D::TPoints &points);
         void draw_robot_contour(const QPolygonF &robot_contour, const QPolygonF &robot_safe_band, QGraphicsScene *pScene);
 
-        // Thread method
+        // Lidar Thread
+        DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+        std::thread read_lidar_th;
         void read_lidar();
 
         // Timing
