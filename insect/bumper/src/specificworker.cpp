@@ -83,8 +83,6 @@ void SpecificWorker::initialize(int period)
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
-        //connect(viewer, SIGNAL(new_mouse_coordinates(QPointF)), this, SLOT(new_mouse_coordinates(QPointF)));
-
         timer.start(this->Period);
 	}
 }
@@ -97,28 +95,11 @@ void SpecificWorker::compute()
     //draw_lidar(ldata.points);
     //qInfo() << ldata.points.size();
 
-    //  pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud<pcl::PointXYZ>);
-    //  pcl_cloud_source->reserve(ldata.points.size());
-    //  for (const auto &[i, p]: ldata.points | iter::enumerate)
-    //      pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
-
-    /// compute odometry
-    // auto robot_pose = fastgicp.align(pcl_cloud_source);
-    // QPointF robot_tr(robot_pose(0, 3)*1000, robot_pose(1, 3)*1000);
-
-    /// compute free space polar representation
-    //auto discr_points = discretize_lidar(ladata.points);
-    //auto enlarged_points = configuration_space(discr_points);
-    //auto blocks_and_tagged_points = get_blocks(enlarged_points);
-    //auto sblocks = set_blocks_symbol(blocks_and_tagged_points.first);
-
     /// Check for new external target
     if(const auto ext = buffer_dwa.try_get(); ext.has_value())
     {
         const auto &[side, adv, rot, debug] = ext.value();
         target_ext.set(side, adv, rot, true);
-        //fastgicp.reset();
-        // target_original = target_ext;
         draw_target_original(target_ext);
     }
 
@@ -150,9 +131,7 @@ void SpecificWorker::compute()
 
     // (2) no target and no security breach. Stop robot
     if(not security_breach and not target_ext.active)
-    {
        stop_robot("No target, no breach");
-    }
 
     // (3) no target and security breach. Choose displacement that maximizes sum of distances to obstacles
     if(not target_ext.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
@@ -178,11 +157,10 @@ void SpecificWorker::compute()
     // Move the robot
     if(target.active)
     {
-        draw_target(target_ext);
-        //target.print("FINAL");
-        float adv = target.y;   // TODO: Check target limits
-        float side = target.x;
-        float rot = atan2( target.x, target.y);  // dumps rotation for small resultant force;
+        // check speed limits
+        float adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
+        float side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
+        float rot = std::clamp(atan2(target.x, target.y), -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);
         robot_current_speed = {side, adv, rot};
         try
         {

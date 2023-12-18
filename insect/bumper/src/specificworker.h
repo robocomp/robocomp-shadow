@@ -28,10 +28,6 @@
 
 #include <genericworker.h>
 #include <Eigen/Dense>
-#include "fastgicp.h"
-#include <pcl/common/io.h>
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
 
 #define QT6
 #ifdef QT5
@@ -80,6 +76,9 @@ class SpecificWorker : public GenericWorker
             float ROBOT_LENGTH = 480;  // mm
             int ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2;     // mm
             int ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2;    // mm
+            const float MAX_ADV_SPEED = 500;    // mm/s
+            const float MAX_SIDE_SPEED = 500;   // mm/s
+            const float MAX_ROT_SPEED = 1;  // rad/s
             std::string LIDAR_NAME = "bpearl";
             float MAX_LIDAR_RANGE = 10000;  // mm
             QRectF viewer_dim{-3000, -3000, 6000, 6000};
@@ -135,16 +134,6 @@ class SpecificWorker : public GenericWorker
         // Viewer
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
-
-        // Robot speed gains
-        float x_gain = 10;
-        float y_gain = 4;
-        bool robot_stop = false;
-		const float max_adv = 500;
-		const float max_side = 500;
-        const float R = 250;
-
-        //FastGICP fastgicp;
 
         Eigen::Vector3f robot_current_speed = {0.f, 0.f, 0.f}; // side,adv, rot
         bool robot_stopped = false;
