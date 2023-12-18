@@ -149,8 +149,7 @@ void SpecificWorker::compute()
             // select the minimum displacement that sets the robot free
             auto res = std::ranges::min(displacements,[](auto &a, auto &b)
                 { return a.norm() < b.norm(); });
-            res *= 10;
-            //target.set(res.x(), res.y(), 0.f);
+            res *= consts.REPULSION_GAIN;
             reaction.set(res.x(), res.y(), 0.f);
             draw_target_breach(reaction);
         } else  {  stop_robot("Collision but no solution found");  }
@@ -262,7 +261,7 @@ void SpecificWorker::read_lidar()
     {
         try
         {
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME, consts.MAX_LIDAR_RANGE);
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME, consts.MAX_LIDAR_RANGE, consts.LIDAR_DECIMATION_FACTOR);
             if(wait_period > std::chrono::milliseconds((long)data.period+consts.PERIOD_HYSTERESIS)) wait_period--;
             else if(wait_period < std::chrono::milliseconds((long)data.period-consts.PERIOD_HYSTERESIS)) wait_period++;
             buffer_lidar_data.put(std::move(data));
@@ -280,13 +279,15 @@ void SpecificWorker::move_robot(Target &target, const Target &reaction)
     float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
 
-    if(target.active and reaction.active)
-        robot_current_speed = {t_side+r_side, t_adv+r_adv, t_rot};
-    else if(target.active and not reaction.active)
+    // check activation status of targets and combine results
+    if(target.active and not reaction.active)
         robot_current_speed = {t_side, t_adv, t_rot};
-    else if(not target.active and reaction.active)
+    else if(target.active ) // also reaction.active is true
+        robot_current_speed = {t_side+r_side, t_adv+r_adv, t_rot};
+    else if(reaction.active) // also target.active is false
         robot_current_speed = {r_side, r_adv, 0.f};
     else return;  // no targets active
+
     try
     {
         // TODO: Webots has order changed

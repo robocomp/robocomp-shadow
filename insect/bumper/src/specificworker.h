@@ -83,8 +83,10 @@ public slots:
             const float MAX_ROT_SPEED = 2;  // rad/s
             std::string LIDAR_NAME = "bpearl";
             float MAX_LIDAR_RANGE = 10000;  // mm
+            float LIDAR_DECIMATION_FACTOR = 1;
             QRectF viewer_dim{-3000, -3000, 6000, 6000};
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
+            float REPULSION_GAIN = 10.f;
             int PERIOD = 50;    // ms (20 Hz) for compute timer
         };
         Constants consts;
