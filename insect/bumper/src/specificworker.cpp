@@ -275,7 +275,7 @@ void SpecificWorker::move_robot(Target &target, const Target &reaction)
     // check speed limits
     float t_adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float t_side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
-    float t_rot = std::clamp(target.rot, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);
+    float t_rot = std::clamp(target.ang, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);  // angle wrt axis y
     float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
 
