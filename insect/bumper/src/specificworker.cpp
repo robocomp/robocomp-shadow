@@ -74,7 +74,7 @@ void SpecificWorker::initialize(int period)
                         QPointF(-consts.ROBOT_SEMI_WIDTH - consts.BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.BAND_WIDTH);
 
         // create list of edge points (polar) from robot_safe_band
-		edge_points = create_edge_points();
+		edge_points = create_edge_points(robot_safe_band);
         //draw_edge(edge_points, &viewer->scene);
         draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
         std::cout << __FUNCTION__  << "Robot is drawn" << std::endl;
@@ -99,12 +99,11 @@ void SpecificWorker::compute()
     if(const auto ext = buffer_target.try_get(); ext.has_value())
     {
         const auto &[side, adv, rot, debug] = ext.value();
-        target_ext.set(side, adv, rot, true);
-        draw_target_original(target_ext, false, 500);
+        target.set(side, adv, rot, true);
+        draw_target_original(target, false, 1);
     }
 
     /// Check bumper for a security breach
-    //std::vector<Eigen::Vector2f> displacements = check_safety(enlarged_points);
     std::vector<Eigen::Vector2f> displacements = check_safety(ldata.points);
     draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
@@ -114,69 +113,63 @@ void SpecificWorker::compute()
     /// We have now four possibilities
     //////////////////////////////////
     // (1) target active and security breach.  Choose displacement best aligned with target
-    if(target_ext.active and security_breach)
+    if(target.active and security_breach)
     {
         qInfo() << "Target active and security breach -------------------------------";
         if (not displacements.empty())
         {
             // we need to find the element that is the minimum in the following cost function: J = target.eigen().transpose * a + a.norm()
             // meaning that it is aligned with the target and has small module
-            auto res = std::ranges::max_element(displacements, [t = target_ext](auto &a, auto &b)
+            auto res = std::ranges::max_element(displacements, [t = target](auto &a, auto &b)
             {
                 Eigen::Vector2f tv = t.eigen().transpose().normalized();
                 return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
             });
-            *res *= 0.003; // reduce displacement to smooth movement
-            *res += target_ext.eigen(); // add target to displacement
+            float landa = 0.8;
+            *res = (*res)*landa + target.eigen()*landa; // add target to displacement
             target.set(res->x(), res->y(), 0.f);
-            draw_target_original(target, false, 500);
+            draw_target_original(target, false, 1);
         }
     }
 
     // (2) no target and no security breach. Stop robot
-    if(not security_breach and not target_ext.active)
-       stop_robot("No target, no breach");
+    if(not target.active and not security_breach)
+    {
+        //qInfo() << "NO target active and NOT security breach -------------------------------";
+        reaction.active = false;
+        stop_robot("No target, no breach");
+    }
 
     // (3) no target and security breach. Choose displacement that maximizes sum of distances to obstacles
-    if(not target_ext.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
+    if(not target.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
     {
-        //std::cout << "3"<<std::endl;
+        qInfo() << "NO target active and security breach -------------------------------";
         if (not displacements.empty())
         {
             // select the minimum displacement that sets the robot free
             auto res = std::ranges::min(displacements,[](auto &a, auto &b)
                 { return a.norm() < b.norm(); });
-            target.set(res.x(), res.y(), 0.f);
-            draw_target_breach(target);
+            res *= 10;
+            //target.set(res.x(), res.y(), 0.f);
+            reaction.set(res.x(), res.y(), 0.f);
+            draw_target_breach(reaction);
         } else  {  stop_robot("Collision but no solution found");  }
     }
 
     // (4) target and no security breach. Keep going
-    if(target_ext.active and not security_breach)
-    {
-        //std::cout << "5"<<std::endl;
-        target = target_ext;
-    }
+
+    // Check if target is zero speed to deactivate target
+    if(target.active and target.eigen().norm() < 50.f and fabs(target.rot)<0.1f)
+        target.active = false;
 
     // Move the robot
-    if(target.active)
-    {
-        // check speed limits
-        float adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
-        float side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
-        //float rot = std::clamp(atan2(target.x, target.y), -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);
-        float rot = std::clamp(target.rot, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);
+    if(target.active or reaction.active)
+        move_robot(target, reaction);
 
-        robot_current_speed = {side, adv, rot};
-        try
-        {
-            omnirobot_proxy->setSpeedBase(adv , -side , -rot);
-            robot_stopped = false;
-            target.active = false;
-        }
-        catch (const Ice::Exception &e)
-        { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
-    }
+    // Adjust band size
+    robot_safe_band = adjust_band_size(robot_current_speed);
+    edge_points = create_edge_points(robot_safe_band);
+    draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
     //fps.print("FPS:");
 }
 
@@ -278,26 +271,53 @@ void SpecificWorker::read_lidar()
         std::this_thread::sleep_for(wait_period);
     }
 }
-std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points()
+void SpecificWorker::move_robot(Target &target, const Target &reaction)
 {
-	std::vector<Eigen::Vector2f> edges;
-	for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
+    // check speed limits
+    float t_adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
+    float t_side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
+    float t_rot = std::clamp(target.rot, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);
+    float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
+    float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
+
+    if(target.active and reaction.active)
+        robot_current_speed = {t_side+r_side, t_adv+r_adv, t_rot};
+    else if(target.active and not reaction.active)
+        robot_current_speed = {t_side, t_adv, t_rot};
+    else if(not target.active and reaction.active)
+        robot_current_speed = {r_side, r_adv, 0.f};
+    else return;  // no targets active
+    try
+    {
+        // TODO: Webots has order changed
+        omnirobot_proxy->setSpeedBase(robot_current_speed.y()/1000.f ,
+                                      -robot_current_speed.x()/1000.f ,
+                                      -robot_current_speed.z());
+        robot_stopped = false;
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
+}
+std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF &robot_safe_band)
+{
+    std::vector<Eigen::Vector2f> edges;
+    for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
         {
-		bool found = false;
+        bool found = false;
         // iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
-		for(const int r : iter::range(consts.OUTER_RIG_DISTANCE))
-		{
-			double x = r * sin(ang);
-			double y = r * cos(ang);
+        for(const int r : iter::range(consts.OUTER_RIG_DISTANCE))
+        {
+            double x = r * sin(ang);
+            double y = r * cos(ang);
             if( not robot_safe_band.containsPoint(QPointF(x, y), Qt::OddEvenFill))
-			{
-				edges.emplace_back(ang, r);
-				found = true;
-				break;
-			}
-		}
-		if(not found) { qFatal("ERROR: Could not find limit for angle ");	}
-	}
+            {
+                edges.emplace_back(ang, r);
+                found = true;
+                break;
+            }
+        }
+        if(not found) { qFatal("[Create_edge_points] ERROR: Could not find limit for angle ");	}
+    }
     return edges;
 }
 void SpecificWorker::stop_robot(const std::string_view txt)
@@ -318,38 +338,19 @@ void SpecificWorker::stop_robot(const std::string_view txt)
         std::cout << "Robot stopped due to " << txt << std::endl;
     }
 };
-//QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
-//{
-//    QPolygonF adjusted = robot_safe_band;
-//    float safety_distance = 200;
-//
-//    // if advance velocity (y) is positive, make the width of the band proportional to it
-//    if(velocity.y() > 0.f)
-//        adjusted.
-//
-//    if (velocity.x() >= 0.0f)
-//    {
-//        adjusted.right_distance = std::max(velocity.x() / 1000,safety_distance);
-//        adjusted.left_distance = -safety_distance;
-//    } else //if(velocity.x() <= -600.0f)
-//    {
-//        adjusted.right_distance = safety_distance;
-//        adjusted.left_distance = std::min(velocity.x() / 1000,-safety_distance);
-//    }
-//
-//    // Si y es positivo, aumentamos la distancia derecha y disminuimos la izquierda.
-//    if (velocity.y() >= 0.0f)
-//    {
-//        adjusted.frontal_distance = std::max(velocity.y() / 1000,safety_distance);
-//        adjusted.back_distance = -safety_distance;
-//    } else //if(velocity.y() <= -600.0f)
-//    {
-//        adjusted.frontal_distance = safety_distance;
-//        adjusted.back_distance = std::min(velocity.y() / 1000,-safety_distance);
-//    }
-//    std::cout << adjusted.frontal_distance << " " << adjusted.back_distance << " " << adjusted.right_distance << " " << adjusted.left_distance << std::endl;
-//    return adjusted;
-//}
+QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
+{
+    // if advance velocity (y) is positive, make the width of the band proportional to it
+    // according to the following constraints: for MAX_ADV_SPEED -> MIN_BAND_WIDTH; for MIN_ADV_SPEED -> MAX_BAND_WIDTH
+    float width = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.y()) / consts.MAX_ADV_SPEED + consts.MAX_BAND_WIDTH;
+    float height = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.x()) / consts.MAX_SIDE_SPEED + consts.MAX_BAND_WIDTH;
+    QRectF new_rect{-consts.ROBOT_SEMI_WIDTH - width,
+                    consts.ROBOT_SEMI_LENGTH + height,
+                    consts.ROBOT_WIDTH + 2 * width,
+                    -(consts.ROBOT_LENGTH + 2 * height)};
+
+    return QPolygonF{new_rect};
+}
 /////////////////////////////////// DRAW ////////////////////////////////////////
 void SpecificWorker::draw_edge(const std::vector<Eigen::Vector2f> &edge, QGraphicsScene *scene)
 {
@@ -402,7 +403,6 @@ void SpecificWorker::draw_target_original(const Target &t, bool erase, float sca
     if(not erase)
     {
         //qInfo() << __FUNCTION__ << t.x << t.y;
-        float scale = 500;
         line = viewer->scene.addLine(0, 0, t.x*scale, t.y*scale, QPen(QColor("blue"), 20));
         ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("blue"), 20));
         ball->setPos(t.x*scale, t.y*scale);
@@ -530,7 +530,7 @@ void SpecificWorker::new_mouse_coordinates(QPointF p)
 /////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)
 {
-    float side, adv, rot = 0.f;
+    float side=0.f, adv=0.f, rot=0.f;
     // Take joystick data as an external. It comes in m/sg, so we need to scale it to mm/s
     for (const auto &axis : data.axes)
     {
@@ -543,7 +543,7 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
         else
             cout << "[ JoystickAdapter ] Warning: Using a non-defined axes (" << axis.name << ")." << endl;
     }
-    buffer_target.put(std::make_tuple(side, adv, rot, false));
+    buffer_target.put(std::make_tuple(side*1000.f, adv*1000.f, rot, false));
 }
 
 
