@@ -2,6 +2,8 @@ CommonBehavior.Endpoints=tcp -p 10567
 
 # Endpoints for implements interfaces
 GridPlanner.Endpoints=tcp -p 16804
+JoystickAdapterTopic.Endpoints=tcp -p 14232
+
 
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11991
@@ -9,7 +11,8 @@ PersonProxy = person:tcp -h localhost -p 0
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 0
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 
-InnerModelPath = innermodel.xml
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
