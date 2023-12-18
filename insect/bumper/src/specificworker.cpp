@@ -51,7 +51,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
-	this->Period = 50;
+	this->Period = consts.PERIOD;
 	if(this->startup_check_flag)
 	{
 		this->startup_check();
@@ -59,43 +59,42 @@ void SpecificWorker::initialize(int period)
 	else
 	{
 		// Viewer
- 		viewer = new AbstractGraphicViewer(this->frame, QRectF(-3000, -3000, 6000, 6000), false);
-        //viewer->draw_contour();
-        //viewer->add_robot(460, 480, 0, 100, QColor("Blue"));
+ 		viewer = new AbstractGraphicViewer(this->frame, consts.viewer_dim, false);
+        viewer->add_robot(consts.ROBOT_WIDTH, consts.ROBOT_LENGTH, 0, 100, QColor("Blue"));
         viewer->show();
         std::cout << "Started viewer" << std::endl;
 
-        // create map from degrees (0..360)  -> edge distances
-         int robot_semi_width = 230;
-         int robot_semi_height = 240;
-        robot_contour << QPointF(-robot_semi_width,robot_semi_height) << QPointF(robot_semi_width, robot_semi_height) << QPointF(robot_semi_width, -robot_semi_height) << QPointF(-robot_semi_width, -robot_semi_height);
-        robot_safe_band << QPointF(-robot_semi_width-BAND_WIDTH, robot_semi_height+BAND_WIDTH) <<
-                           QPointF(robot_semi_width+BAND_WIDTH, robot_semi_height+BAND_WIDTH) <<
-                           QPointF(robot_semi_width+BAND_WIDTH, -robot_semi_height-BAND_WIDTH) <<
-                           QPointF(-robot_semi_width-BAND_WIDTH, -robot_semi_height-BAND_WIDTH);
+        robot_contour << QPointF(-consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
+                      QPointF(consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
+                      QPointF(consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH) <<
+                      QPointF(-consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH);
+        robot_safe_band << QPointF(-consts.ROBOT_SEMI_WIDTH - consts.BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.BAND_WIDTH) <<
+                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.BAND_WIDTH) <<
+                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.BAND_WIDTH) <<
+                        QPointF(-consts.ROBOT_SEMI_WIDTH - consts.BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.BAND_WIDTH);
 
+        // create list of edge points (polar) from robot_safe_band
 		edge_points = create_edge_points();
         draw_edge(edge_points, &viewer->scene);
         draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
-        std::cout << "Robot is drawn" << std::endl;
+        std::cout << __FUNCTION__  << "Robot is drawn" << std::endl;
 
-        // A thread is created 
+        // Lidar thread is created
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
-        std::cout << "Started lidar reader" << std::endl;
+        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
-        connect(viewer, SIGNAL(new_mouse_coordinates(QPointF)), this, SLOT(new_mouse_coordinates(QPointF)));
+        //connect(viewer, SIGNAL(new_mouse_coordinates(QPointF)), this, SLOT(new_mouse_coordinates(QPointF)));
 
         timer.start(this->Period);
 	}
 }
-
 void SpecificWorker::compute()
 {
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
-    draw_lidar(ldata.points);
+    //draw_lidar(ldata.points);
     //qInfo() << ldata.points.size();
 
     //  pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud<pcl::PointXYZ>);
@@ -118,29 +117,10 @@ void SpecificWorker::compute()
     {
         const auto &[side, adv, rot, debug] = ext.value();
         target_ext.set(side, adv, rot, true);
-        fastgicp.reset();
-        target_original = target_ext;
+        //fastgicp.reset();
+        // target_original = target_ext;
         draw_target_original(target_ext);
     }
-
-    /// Check for debug target (later for LOST target)
-//    if(target_ext.active and target_ext.debug)
-//    {
-//        // How is target in world coordinates seen from the robot's frame
-//        Eigen::Vector4d target_in_robot =
-//                robot_pose.inverse().matrix() * Eigen::Vector4d(target_original.x / 1000.f, target_original.y / 1000.f, 0.f, 1.f) * 1000;
-//        target_ext.set(target_in_robot(0)/2, target_in_robot(1)/2, 0, true);
-//
-//        // Check if the robot is at target
-//        qInfo() << __FUNCTION__ << "Dist to target:" << target_in_robot.norm();
-//        if (target_in_robot.norm() < 600)
-//        {
-//            stop_robot("Robot arrived to target");
-//            target_ext.debug = false;
-//            target_ext.active = false;
-//            draw_target(target, true);
-//        }
-//    }
 
     /// Check bumper for a security breach
     //std::vector<Eigen::Vector2f> displacements = check_safety(enlarged_points);
@@ -156,10 +136,9 @@ void SpecificWorker::compute()
     // (1) target active and security breach.  Choose displacement best aligned with target
     if(target_ext.active and security_breach)
     {
-        std::cout << "1"<<std::endl;
+        //std::cout << "1"<<std::endl;
         if (not displacements.empty())
         {
-            std::cout << "2"<<std::endl;
             auto res = std::ranges::max(displacements, [t = target_ext](auto &a, auto &b)
             {
                 auto tv = t.eigen().transpose();
@@ -196,28 +175,29 @@ void SpecificWorker::compute()
         target = target_ext;
     }
 
+    // Move the robot
     if(target.active)
     {
         draw_target(target_ext);
         //target.print("FINAL");
-        float adv = target.y;
+        float adv = target.y;   // TODO: Check target limits
         float side = target.x;
         float rot = atan2( target.x, target.y);  // dumps rotation for small resultant force;
-        //robot_current_speed = {adv, side};
+        robot_current_speed = {side, adv, rot};
         try
         {
-//          omnirobot_proxy->setSpeedBase(adv , -side , -rot);
+            omnirobot_proxy->setSpeedBase(adv , -side , -rot);
             robot_stopped = false;
             target.active = false;
         }
         catch (const Ice::Exception &e)
-        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+        { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
     }
-
     fps.print("FPS:");
 }
 
-//////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// Checks if there are points inside the bumper and computes a set of safe displacements to avoid them
 std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D::TPoints &points)
 {
     // compute reachable positions at max acc that sets the robot free. Choose the one closest to target or of minimum length if not target.
@@ -240,17 +220,17 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
     draw_points_in_belt(close_points); // cartesian coordinates
 
     // max dist to reach from current situation
-    const float delta_t = 1; // 0.050; //200ms
-    const float MAX_ACC = 300; // mm/sg2
-    //  double dist = robot_current_speed.norm() * delta_t + (MAX_ACC * delta_t * delta_t);
-    double MAX_DIST = (MAX_ACC * delta_t * delta_t);
+    // const float delta_t = 1; // 0.050; //200ms
+    // const float MAX_ACC = 300; // mm/sg2
+    // double dist = robot_current_speed.head(2).norm() * delta_t + (MAX_ACC * delta_t * delta_t);
+    // float MAX_DIST = (MAX_ACC * delta_t * delta_t);
 
     if(not close_points.empty())
     {
         // iterate over all possible displacements
-        for (const double dist: iter::range(0.0, MAX_DIST, 30.0))
+        for (const float dist: iter::range(0.f, consts.MAX_DIST_TO_LOOK_AHEAD, consts.BELT_LINEAR_STEP))
         {
-            for (const double ang: iter::range(-M_PI, M_PI, BELT_ANGULAR_STEP))   // TODO: move to constants
+            for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
             {
                 // compute robot's new pos (d*sin(ang), d*cos(ang))
                 Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
@@ -258,9 +238,8 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
                 // check if all points are outside the belt
                 for (const auto &p: close_points)
                 {
-                    // transform point to new robot position
+                    // translate point to new robot position
                     float dist_p = (p - t).norm();
-                    //qInfo() << "COORDS" << dist << ang << t.x() << t.y() << dist_p ;
                     // check if point is inside belt after being moved. If so, break and try next displacement
                     if (point_in_body(atan2((p - t).x(), (p - t).y()), dist_p))
                     {
@@ -272,9 +251,6 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
                 if (free)
                     displacements.emplace_back(t); // add displacement to list
             }
-            // if we have found at least one displacement, break
-            //if(not displacements.empty())
-            //    break;
         }
       // Check if the selected displacements induce new points inside the belt
       std::vector<Eigen::Vector2f> final_displacement;
@@ -307,15 +283,11 @@ void SpecificWorker::read_lidar()
     auto wait_period = std::chrono::milliseconds (this->Period);
     while(true)
     {
-        // qInfo() << "While beginning" << (std::chrono::duration<double, std::milli> (std::chrono::high_resolution_clock::now() - start)).count();
-        // start = std::chrono::high_resolution_clock::now();
         try
         {
-            // Use with simulated lidar in webots using "pearl" name
-            //auto data = lidar3d_proxy->getLidarData("bpearl", -90, 360, 1); // TODO: move to contants
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 1000); // TODO: move to contants
-            if(wait_period > std::chrono::milliseconds((long)data.period+2)) wait_period--;
-            else if(wait_period < std::chrono::milliseconds((long)data.period-2)) wait_period++;
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME, consts.MAX_LIDAR_RANGE);
+            if(wait_period > std::chrono::milliseconds((long)data.period+consts.PERIOD_HYSTERESIS)) wait_period--;
+            else if(wait_period < std::chrono::milliseconds((long)data.period-consts.PERIOD_HYSTERESIS)) wait_period++;
             buffer_lidar_data.put(std::move(data));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
@@ -325,11 +297,11 @@ void SpecificWorker::read_lidar()
 std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points()
 {
 	std::vector<Eigen::Vector2f> edges;
-	for (const double ang: iter::range(-M_PI, M_PI, BELT_ANGULAR_STEP))
+	for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
         {
 		bool found = false;
         // iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
-		for(const int r : iter::range(OUTER_RIG_DISTANCE))
+		for(const int r : iter::range(consts.OUTER_RIG_DISTANCE))
 		{
 			double x = r * sin(ang);
 			double y = r * cos(ang);
@@ -354,7 +326,7 @@ void SpecificWorker::stop_robot(const std::string_view txt)
             omnirobot_proxy->setSpeedBase(0, 0, 0);
             qInfo() << __FUNCTION__ << "Robot stopped";
             draw_target(target, true);
-            robot_current_speed = {0.f, 0.f};
+            robot_current_speed = {0.f, 0.f, 0.f};
         }
         catch (const Ice::Exception &e)
         { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
@@ -363,7 +335,7 @@ void SpecificWorker::stop_robot(const std::string_view txt)
     }
 };
 
-///////////////////////////////////////////////////////////////////////////
+/////////////////////////////////// DRAW ////////////////////////////////////////
 void SpecificWorker::draw_edge(const std::vector<Eigen::Vector2f> &edge, QGraphicsScene *scene)
 {
     static std::vector<QGraphicsItem *> draw_points;
@@ -523,6 +495,8 @@ void SpecificWorker::self_adjust_period(int new_period)
 }
 
 //////////////////////////// Interfaces //////////////////////////////////////////
+/// Implements GridPlanner
+/////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 {
     if(plan.valid) // Possible failure variable
@@ -669,3 +643,22 @@ void SpecificWorker::new_mouse_coordinates(QPointF p)
 //    max_point.dist *= 0.8;  // to avoid being on the border
 //    return  max_point;
 //}
+
+/// Check for debug target (later for LOST target)
+//    if(target_ext.active and target_ext.debug)
+//    {
+//        // How is target in world coordinates seen from the robot's frame
+//        Eigen::Vector4d target_in_robot =
+//                robot_pose.inverse().matrix() * Eigen::Vector4d(target_original.x / 1000.f, target_original.y / 1000.f, 0.f, 1.f) * 1000;
+//        target_ext.set(target_in_robot(0)/2, target_in_robot(1)/2, 0, true);
+//
+//        // Check if the robot is at target
+//        qInfo() << __FUNCTION__ << "Dist to target:" << target_in_robot.norm();
+//        if (target_in_robot.norm() < 600)
+//        {
+//            stop_robot("Robot arrived to target");
+//            target_ext.debug = false;
+//            target_ext.active = false;
+//            draw_target(target, true);
+//        }
+//    }
