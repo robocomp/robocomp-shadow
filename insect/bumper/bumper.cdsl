@@ -3,6 +3,7 @@ import "Camera360RGB.idsl";
 import "Person.idsl";
 import "GridPlanner.idsl";
 import "OmniRobot.idsl";
+import "JoystickAdapter.idsl";
 
 Component bumper
 {
@@ -10,6 +11,7 @@ Component bumper
     {
 	    implements GridPlanner;
         requires Lidar3D, Camera360RGB, Person, OmniRobot;
+        subscribesTo JoystickAdapter;
     };
     language Cpp11;
     gui Qt(QWidget);

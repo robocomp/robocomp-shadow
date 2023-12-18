@@ -34,6 +34,7 @@
 #include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <GridPlanner.h>
+#include <JoystickAdapter.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
 #include <Person.h>
@@ -65,6 +66,7 @@ public:
 	RoboCompPerson::PersonPrxPtr person_proxy;
 
 	virtual void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan) = 0;
+	virtual void JoystickAdapter_sendData (RoboCompJoystickAdapter::TData data) = 0;
 
 protected:
 

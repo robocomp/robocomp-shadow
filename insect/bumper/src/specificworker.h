@@ -52,10 +52,10 @@ class SpecificWorker : public GenericWorker
 		SpecificWorker(TuplePrx tprx, bool startup_check);
 		~SpecificWorker();
 		bool setParams(RoboCompCommonBehavior::ParameterList params);
-
 		void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
+        void JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data);
 
-	public slots:
+public slots:
 		void compute();
 		int startup_check();
 		void initialize(int period);
@@ -68,10 +68,10 @@ class SpecificWorker : public GenericWorker
         struct Constants
         {
             int OUTER_RIG_DISTANCE = 1000;  // external maximum reach to search (mm) when subsampling the robot contourn
-            int BAND_WIDTH = 250;			// distance to the obstacle that repels the object
+            int BAND_WIDTH = 350;			// distance to the obstacle that repels the object
             double BELT_ANGULAR_STEP = 0.1f;  // angular step to create the belt
             float BELT_LINEAR_STEP = 30.f;  // linear step to create the belt
-            float MAX_DIST_TO_LOOK_AHEAD = 300;  // mm in search of a valid displacement to free the bumper
+            float MAX_DIST_TO_LOOK_AHEAD = BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
             float ROBOT_WIDTH = 460;  // mm
             float ROBOT_LENGTH = 480;  // mm
             int ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2;     // mm
@@ -135,14 +135,14 @@ class SpecificWorker : public GenericWorker
 		AbstractGraphicViewer *viewer;
         QPolygonF robot_contour, robot_safe_band;
 
-        Eigen::Vector3f robot_current_speed = {0.f, 0.f, 0.f}; // side,adv, rot
+        Eigen::Vector3f robot_current_speed = {0.f, 0.f, 0.f}; // side, adv, rot
         bool robot_stopped = false;
 
         // Draw method
         void draw_edge_points(const vector<QPointF> &points, const Eigen::Vector2f &result, QGraphicsScene *scene);
         void draw_edge(const std::vector<Eigen::Vector2f> &edge_points, QGraphicsScene *scene);
         void draw_target(const Target &t, bool erase=false);
-        void draw_target_original(const Target &t, bool erase = false);
+        void draw_target_original(const Target &t, bool erase = false, float scale=1);
         void draw_target(double x, double y, bool erase=false);
         void draw_target_breach(const Target &t, bool erase = false);
         void draw_points_in_belt(const std::vector<Eigen::Vector2f> &points_in_belt);
@@ -161,7 +161,7 @@ class SpecificWorker : public GenericWorker
         rc::Timer<> clock;
 
         // Double Buffer 
-        DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_dwa;
+        DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_target;
 
         // Processing steps
         void stop_robot(const std::string_view txt);
