@@ -66,7 +66,7 @@ class SpecificWorker : public GenericWorker
         float grid_width = 8000;
         float grid_length = 8000;
         float back_distance = 3000;
-        float tile_size = 100;
+        float tile_size = 80;
 
         float xMin = -grid_width / 2;
         float xMax = grid_width / 2;
