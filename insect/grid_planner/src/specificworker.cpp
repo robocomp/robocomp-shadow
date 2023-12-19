@@ -73,78 +73,79 @@ void SpecificWorker::initialize(int period)
                 target.set(p);
                 Eigen::Vector2f pt{p.x(), p.y()};
 //                draw_global_target(pt, &viewer->scene);
-                target_buffer.put(std::make_tuple(pt, true));
-            });// false = in robot's frame  });
+                target_buffer.put(std::make_tuple(pt, true)); // false = in robot's frame - true = in global frame
+                fastgicp.reset();
+            });
 
         timer.start(Period);
     }
 }
 void SpecificWorker::compute()
 {
-    //auto cstart = std::chrono::high_resolution_clock::now();
-    //clock.tick();
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false)
     {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
+
+    // convert points to Eigen
     std::vector<Eigen::Vector3f> points;
     points.reserve(ldata.points.size());
     for (const auto &p: ldata.points)
         points.emplace_back(p.x, p.y, p.z);
     //draw_lidar(ldata.points, 5);
 
+    // clear grid and update it
     grid.clear();
     grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, 7000);
     grid.update_costs(true);
 
-    /// compute odometry
+    // compute odometry
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud <pcl::PointXYZ>);
     pcl_cloud_source->reserve(ldata.points.size());
     for (const auto &[i, p]: ldata.points | iter::enumerate)
-        pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
+        if(p.z > 1500)  // only points below 1m
+            pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
     auto robot_pose = fastgicp.align(pcl_cloud_source);
     // QPointF robot_tr(robot_pose(0, 3)*1000, robot_pose(1, 3)*1000);
 
+    // get target from buffer
     if (auto res = target_buffer.try_get(); res.has_value())
     {
-        auto [pos, global] = res.value();
-        //if(target.active)
-        //{
-        //     std::cout << "Time updating grid 2: " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - cstart).count() <<std::endl;
-        QPointF init_Qtarget;
+        auto [pos, global] = res.value();   // global = true -> target in global coordinates
+        QPointF init_qtarget;
         if(not global)
-            init_Qtarget = {pos.x(), pos.y()};
+            init_qtarget = {pos.x(), pos.y()};
         else    // target is set in global coordinates. Transform to robot's frame
         {
-            qInfo() << "Target in global ref frame" << target.pos().x() << target.pos().y();
+            // transform target to robot's frame
+            //qInfo() << "Target in global ref frame" << target.pos().x() << target.pos().y();
             Eigen::Vector4d target_in_robot =
                   robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos().x() / 1000.f, target.pos().y() / 1000.f, 0.f, 1.f) * 1000;
-            init_Qtarget = {target_in_robot(0), target_in_robot(1)};
+            init_qtarget = {target_in_robot(0), target_in_robot(1)};
             //draw_global_target(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, &viewer->scene);
-            target_buffer.put(std::make_tuple(target.pos(), true)); // reinject global target
+            target_buffer.put(std::make_tuple(target.pos(), true)); // reinfect global target so it is not lost
         }
         Eigen::Vector2f closest_point;
-        //if (auto res = closest_point_to_target(init_Qtarget); not res.has_value())
-        if(auto res = grid.closest_free(init_Qtarget); not res.has_value())
+        if(auto res = grid.closest_free(init_qtarget); not res.has_value())
         {
             qInfo() << __FUNCTION__ << "No closest_point found. Returning";
             return;
         }
         else closest_point = Eigen::Vector2f{res.value().x(), res.value().y()};
         draw_global_target(closest_point, &viewer->scene);
-        qInfo() << closest_point.x() << closest_point.y() << init_Qtarget.x() << init_Qtarget.y();
-        QPointF Qtarget(closest_point.x(), closest_point.y());
+        qInfo() << closest_point.x() << closest_point.y() << init_qtarget.x() << init_qtarget.y();
+        QPointF qtarget(closest_point.x(), closest_point.y());
 
         RoboCompGridPlanner::TPlan returning_plan;
-        if (not_line_of_sight_path(Qtarget))
+        if (not_line_of_sight_path(qtarget))
         {
             qInfo() << __FUNCTION__ << "No Line of Sight path to target!";
             bool path_found = false;
             std::vector<Eigen::Vector2f> path;
 //            while(not path_found)
 //            {
-//                path = grid.compute_path(QPointF(0, 0), Qtarget);
+//                path = grid.compute_path(QPointF(0, 0), qtarget);
 //                auto frechet_distance = frechetDistance(path, last_path);
 //                std::cout << "FRECHET DISTANCE: " << frechet_distance << std::endl;
 //
@@ -154,7 +155,7 @@ void SpecificWorker::compute()
 //                    path_found = true;
 //                }
 //            }
-            path = grid.compute_path(QPointF(0, 0), Qtarget);
+            path = grid.compute_path(QPointF(0, 0), qtarget);
             qInfo() << "Path size" << path.size();
             if (not path.empty() and path.size() > 0)
             {
@@ -181,11 +182,11 @@ void SpecificWorker::compute()
         else // Target in line of sight
         {
             returning_plan.valid = true;
-            returning_plan.subtarget.x = Qtarget.x();
-            returning_plan.subtarget.y = Qtarget.y();
-            std::cout << __FUNCTION__ << " target x,y:" << Qtarget.x() << " "<< Qtarget.y() << std::endl;
+            returning_plan.subtarget.x = qtarget.x();
+            returning_plan.subtarget.y = qtarget.y();
+            std::cout << __FUNCTION__ << " target x,y:" << qtarget.x() << " " << qtarget.y() << std::endl;
             std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
-            draw_subtarget(Eigen::Vector2f {Qtarget.x(), Qtarget.y()}, &viewer->scene);
+            draw_subtarget(Eigen::Vector2f {qtarget.x(), qtarget.y()}, &viewer->scene);
         }
         // Sending plan to remote interface
         try
@@ -207,42 +208,6 @@ void SpecificWorker::compute()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
-std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
-{
-    std::vector <Eigen::Vector3f> points;
-    try
-    {
-       string lidar_name = "bpearl";
-       //auto ldata = lidar3d_proxy->getLidarData(lidar_name, 315, 90, 5);
-       auto ldata = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
-        //std::cout << "LIDAR LENGHT: " << ldata.points.size() << std::endl;
-        //HELIOS
-//        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
-//        {
-//            float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-//            return p.z < 300
-//                   and p.z > -900
-//                   and dist < 5000
-//                   and dist > 550;
-//        }, ldata) | iter::enumerate)
-//            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-
-        // BPEARL
-//        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
-//                                         {
-//                                             float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-//                                             return p.z < 1000 and dist > 50 and p.z > 100;
-//                                         }, ldata.points) | iter::enumerate)
-//            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-
-        for (const auto &p : ldata.points)
-            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
-
-        return points;
-    }
-    catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
-    return points;
-}
 // Thread to read the lidar
 void SpecificWorker::read_lidar()
 {
@@ -251,10 +216,11 @@ void SpecificWorker::read_lidar()
     {
         try
         {
-            // Use with simulated lidar in webots using "pearl" name
-            //auto data = lidar3d_proxy->getLidarData("bpearl", -90, 360, 1); // TODO: move to contants
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000); // TODO: move to contants
-            // compute the period to read the lidar based on the current difference with the lidar period. Use a hysterisis of 2ms
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000, 1); // TODO: move to constants
+            auto data_helios = lidar3d1_proxy->getLidarDataWithThreshold2d("helios", 10000, 1); // TODO: move to constants
+            // concatenate both lidars
+            data.points.insert(data.points.end(), data_helios.points.begin(), data_helios.points.end());
+            // compute the period to read the lidar based on the current difference with the lidar period. Use a hysteresis of 2ms
             if (wait_period > std::chrono::milliseconds((long) data.period + 2)) wait_period--;
             else if (wait_period < std::chrono::milliseconds((long) data.period - 2)) wait_period++;
             buffer_lidar_data.put(std::move(data));
@@ -499,3 +465,45 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TO
         qInfo()<<"TARGET OUT OF GRID" << border_subtarget(target).x() << border_subtarget(target).y();
     }
 }
+
+
+///// MORALLA
+
+
+//
+//std::vector<Eigen::Vector3f> SpecificWorker::get_lidar_data()
+//{
+//    std::vector <Eigen::Vector3f> points;
+//    try
+//    {
+//        string lidar_name = "bpearl";
+//        //auto ldata = lidar3d_proxy->getLidarData(lidar_name, 315, 90, 5);
+//        auto ldata = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000);
+//        //std::cout << "LIDAR LENGHT: " << ldata.points.size() << std::endl;
+//        //HELIOS
+////        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
+////        {
+////            float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+////            return p.z < 300
+////                   and p.z > -900
+////                   and dist < 5000
+////                   and dist > 550;
+////        }, ldata) | iter::enumerate)
+////            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+//
+//        // BPEARL
+////        for (auto &&[i, p]: iter::filter([z = z_lidar_height](auto p)
+////                                         {
+////                                             float dist = sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+////                                             return p.z < 1000 and dist > 50 and p.z > 100;
+////                                         }, ldata.points) | iter::enumerate)
+////            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+//
+//        for (const auto &p : ldata.points)
+//            points.emplace_back(Eigen::Vector3f{p.x, p.y, p.z});
+//
+//        return points;
+//    }
+//    catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
+//    return points;
+//}
