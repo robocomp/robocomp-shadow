@@ -66,7 +66,7 @@ class SpecificWorker : public GenericWorker
         float grid_width = 8000;
         float grid_length = 8000;
         float back_distance = 3000;
-        float tile_size = 80;
+        float tile_size = 120;
 
         float xMin = -grid_width / 2;
         float xMax = grid_width / 2;
@@ -135,9 +135,10 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector2f> last_path;
 
         // Frechet distance calculus
-        float euclideanDistance(const Eigen::Vector2f& a, const Eigen::Vector2f& b);
-        float frechetDistanceUtil(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2, int i, int j, std::vector<std::vector<float>>& dp);
-        float frechetDistance(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2);
+        double get_frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB);
+        int path_not_found_counter = 0;
+        int path_not_found_limit = 10;
+
         RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
                                               float threshold_dist, float threshold_angle);
         std::optional<Eigen::Vector2f> closest_point_to_target(const QPointF &p);
@@ -146,6 +147,7 @@ class SpecificWorker : public GenericWorker
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
+        void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
 };
 
 #endif

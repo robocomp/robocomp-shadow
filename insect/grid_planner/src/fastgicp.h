@@ -25,15 +25,16 @@
 #include <fast_gicp/gicp/fast_gicp_st.hpp>
 #include <fast_gicp/gicp/fast_vgicp.hpp>
 
-//#ifdef USE_VGICP_CUDA
+#ifdef USE_VGICP_CUDA
     #include <fast_gicp/ndt/ndt_cuda.hpp>
     #include <fast_gicp/gicp/fast_vgicp_cuda.hpp>
-//#endif
+#endif
 
 class FastGICP
 {
     public:
         FastGICP();
+        //pcl::PointCloud<pcl::PointXY>::Ptr  align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
         Eigen::Isometry3d align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
         void reset();
 
@@ -42,11 +43,11 @@ class FastGICP
         pcl::PointCloud<pcl::PointXY>::Ptr  trajectory;
         bool first_time = true;
 
-        //fast_gicp::FastGICP<pcl::PointXYZ, pcl::PointXYZ> fgicp;
+        fast_gicp::FastGICP<pcl::PointXYZ, pcl::PointXYZ> fgicp;
 
         // other options
         // fast_gicp::FastVGICP<pcl::PointXYZ, pcl::PointXYZ> gicp;
-        fast_gicp::FastVGICPCuda<pcl::PointXYZ, pcl::PointXYZ> fgicp;
+        // fast_gicp::FastVGICPCuda<pcl::PointXYZ, pcl::PointXYZ> gicp;
         // fast_gicp::NDTCuda<pcl::PointXYZ, pcl::PointXYZ> gicp;
         // gicp.setResolution(1.0);
         // gicp.setNearestNeighborSearchMethod(fast_gicp::NearestNeighborMethod::GPU_RBF_KERNEL);
