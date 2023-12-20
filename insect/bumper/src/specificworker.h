@@ -171,6 +171,7 @@ public slots:
         std::vector<Eigen::Vector2f> check_safety(const RoboCompLidar3D::TPoints &points);
         QPolygonF adjust_band_size(const Eigen::Vector3f &velocity);
         void move_robot(Target &target, const Target &reaction);
+        void stop_robot();
 };
 
 #endif
