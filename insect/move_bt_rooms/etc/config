@@ -5,7 +5,7 @@ OmniRobot.Endpoints=tcp -p 10005
 
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11988
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 
 

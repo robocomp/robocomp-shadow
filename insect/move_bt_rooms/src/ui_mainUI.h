@@ -14,6 +14,7 @@
 #include <QtWidgets/QWidget>
 #include <QtWidgets/QFrame>
 #include <QtWidgets/QVBoxLayout>
+
 QT_BEGIN_NAMESPACE
 
 class Ui_guiDlg
@@ -36,7 +37,6 @@ public:
         frame->setFrameShape(QFrame::StyledPanel);
         frame->setFrameShadow(QFrame::Raised);
         verticalLayout->addWidget(frame);
-
         retranslateUi(guiDlg);
 
         QMetaObject::connectSlotsByName(guiDlg);
