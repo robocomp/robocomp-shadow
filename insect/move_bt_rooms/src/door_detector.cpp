@@ -7,110 +7,139 @@
 #include <cppitertools/sliding_window.hpp>
 #include <cppitertools/combinations.hpp>
 #include <cppitertools/enumerate.hpp>
+#include <cppitertools/slice.hpp>
+#include <cppitertools/reversed.hpp>
 
-std::vector<DoorDetector::Door> DoorDetector::detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer)
+DoorDetector::DoorDetector()
 {
-    // lambda to check that all points between door edges are further that the edges themselves
-    auto distances_between_points_greater_than_distances_to_points = [](auto &p0, auto &p1, auto &line)
-            { for(auto &&i: iter::range(std::max(p0,p1), std::min(p0,p1)))
-                if(line[i].norm() > line[p0].norm() or line[i].norm() > line[p1].norm())
-                    return false;
-              return true;
-            };
+}
+DoorDetector::Doors
+DoorDetector::detect(const Lines &lines, QGraphicsScene *scene)
+{
+    auto peaks = extract_peaks(lines);
+    auto doors = get_doors(peaks, lines);
+    auto final_doors = filter_doors(doors);
 
-    std::vector<std::vector<Door>> doors(n_lines);
-    for(auto &&i: iter::range(1, n_lines))
-    {
-        const auto &line = lines[i];
-        std::vector<float> derivatives(line.size() - 1);
-        for (auto &&[i, p]: line | iter::sliding_window(2) | iter::enumerate)
-            derivatives[i] = p[1].norm() - p[0].norm();
-
-        std::vector<std::tuple<int, bool>> peaks;
-        for (auto &&[i, d]: derivatives | iter::enumerate)
-            if (d > der_threshold) peaks.push_back(std::make_tuple(i, true));
-            else if (d < -der_threshold) peaks.push_back(std::make_tuple(i + 1, false));
-
-        for (auto &&p: peaks | iter::combinations(2))  //QUITAR
-        {
-            auto &[p0, p0pos] = p[0]; auto &[p1, p1pos] = p[1];
-            auto v0 = line[p0]; auto v1 = line[p1];
-            if (((not p0pos and p1pos) or (p0pos and not p1pos))  // alternating signs
-                and (v0 - v1).norm() < max_door_width             // width contraint
-                and (v0 - v1).norm() > min_door_width
-                and distances_between_points_greater_than_distances_to_points(p0, p1, line)
-                and v0.y()>200 and v1.y()>200) // to remove spureous peaks
+    draw_doors(final_doors, Door(), scene);
+    return final_doors;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////7
+DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &lines)
+{
+    Peaks_list peaks_list(lines.size());
+    const float THRES_PEAK = 1000;
+    // for each line in lines (each level of lidar) and for each pair of points in the line check
+    // if the distance between them is greater than THRES_PEAK
+    for(const auto &[i, line] : lines | iter::enumerate)
+        for (const auto &[j, both]: iter::sliding_window(line, 2) | iter::enumerate)
+            if (fabs(both[1].norm() - both[0].norm()) > THRES_PEAK)
             {
-                Door door;
-                door.center_floor = (v0 + v1) / 2.f;
-                door.points = {Eigen::Vector3f(v0.x(), v0.y(), 0.f), Eigen::Vector3f(v1.x(), v1.y(), 0.f),
-                               Eigen::Vector3f(v1.x(), v1.y(), door.height), Eigen::Vector3f(v0.x(), v0.y(), door.height)};
-                door.p0 = v0;door.p1 = v1;
-                door.idx0 = p0; door.idx1 = p1;
-                if (i == 1)
-                    doors[i].emplace_back(std::move(door));
-                else    //if there is also a door in the previous level
-                if(auto it=std::ranges::find_if(doors[i-1], [door, max_sep = max_door_separation](auto &a)
-                                {return (door.center_floor-a.center_floor).norm() < max_sep;}); it != doors[i-1].end())
-                    doors[i].emplace_back(std::move(door));
+                // select the point with the smallest distance to the robot
+                if (both[0].norm() < both[1].norm()) peaks_list[i].push_back(j);
+                else peaks_list[i].push_back(j+1);
             }
+    return peaks_list;
+}
+DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list &peaks_list, const DoorDetector::Lines &lines)
+{
+    std::vector<Doors> doors_list(peaks_list.size());
+    // lambda to check if a door is near another door in the
+    auto near_door = [thres = consts.SAME_DOOR](auto &doors_list, auto d)
+    {
+        return std::ranges::any_of(doors_list, [d, thres](auto &old)
+        {return (old.p0-d.p0).norm() < thres or
+                (old.p1-d.p1).norm() < thres or
+                (old.p1-d.p0).norm() < thres or
+                (old.p0-d.p1).norm() < thres;});
+    };
+    // for each line in lines (each level of lidar) and for each pair of peaks in the line check
+    // if the distance between them is greater than MIN_DOOR_WIDTH and less than MAX_DOOR_WIDTH
+    for(const auto &[i, peaks] : peaks_list | iter::enumerate)
+        for(auto &par : peaks | iter::combinations(2))
+            if((lines[i][par[0]]-lines[i][par[1]]).norm() < consts.MAX_DOOR_WIDTH and (lines[i][par[0]]-lines[i][par[1]]).norm() > consts.MIN_DOOR_WIDTH)
+            {
+                auto door = Door{lines[i][par[0]], lines[i][par[1]], (int)par[0], (int)par[1]};
+                if(not near_door(doors_list[i], door))
+                    doors_list[i].emplace_back(std::move(door));
+            }
+    return doors_list;
+}
+DoorDetector::Doors DoorDetector::filter_doors(const DoorDetector::Doors_list &doors_list)
+{
+    Doors final_doors;
+    auto lowest_doors = doors_list[0];
+    //
+    for(const auto &dl: lowest_doors)
+    {
+        bool match = true;
+        for(const auto &doors: iter::slice(doors_list, 1, (int)doors_list.size(), 1))  // start from second element
+            match = match and std::ranges::find(doors, dl) != doors.end();
+
+        if (match)
+            final_doors.push_back(dl);
+    }
+    return final_doors;
+}
+
+void DoorDetector::draw_doors(const Doors &doors, const Door &door_target, QGraphicsScene *scene, QColor color)
+{
+    static std::vector<QGraphicsItem *> borrar;
+    for (auto &b: borrar)
+    {
+        scene->removeItem(b);
+        delete b;
+    }
+    borrar.clear();
+
+    QColor target_color;
+    for (const auto &d: doors)
+    {
+        if(d == door_target)
+        {
+            target_color = QColor("magenta");
+            auto middle = scene->addRect(-100, -100, 200, 200, QColor("blue"), QBrush(QColor("blue")));
+            auto perp = door_target.point_perpendicular_to_door_at();
+            middle->setPos(perp.first.x(), perp.first.y());
+            borrar.push_back(middle);
+            auto middle_line = scene->addLine(perp.first.x(), perp.first.y(), d.middle.x(), d.middle.y(), QPen(QColor("blue"), 20));
+            borrar.push_back(middle_line);
         }
-        draw_peaks(peaks, line, viewer);
-    }
-    draw_doors(doors[n_lines-1], viewer);
-    return doors[n_lines-1];
-}
-
-void DoorDetector::draw_peaks(const std::vector<std::tuple<int, bool>> &peaks, const std::vector<Eigen::Vector2f> &line, AbstractGraphicViewer *viewer)
-{
-    if(viewer==nullptr) return;
-    static std::vector<QGraphicsItem *> items;
-    for(const auto &item: items)
-        viewer->scene.removeItem(item);
-    items.clear();
-    QColor color;
-    for(auto &[d, pos]: peaks)
-    {
-        if(pos)
-            color = QColor("yellow");
         else
-            color = QColor("green");
-        auto item = viewer->scene.addEllipse(-80, -80, 160, 160, color, QBrush(color));
-        item->setPos(line[d].x(), line[d].y());
-        items.push_back(item);
+            target_color = color;
+        auto point = scene->addRect(-50, -50, 100, 100, QPen(target_color), QBrush(target_color));
+        point->setPos(d.p0.x(), d.p0.y());
+        borrar.push_back(point);
+        point = scene->addRect(-50, -50, 100, 100, QPen(target_color), QBrush(target_color));
+        point->setPos(d.p1.x(), d.p1.y());
+        borrar.push_back(point);
+        auto line = scene->addLine(d.p0.x(), d.p0.y(), d.p1.x(), d.p1.y(), QPen(target_color, 50));
+        borrar.push_back(line);
     }
 }
-void DoorDetector::draw_doors(const std::vector<Door> &doors, AbstractGraphicViewer *viewer)    //one vector for each height level
+DoorDetector::Line DoorDetector::filter_out_points_beyond_doors(const Line &floor_line, const Doors &doors)
 {
-    if (viewer == nullptr) return;
-    static std::vector<QGraphicsItem *> items;
-    for (const auto &item: items)
-        viewer->scene.removeItem(item);
-    items.clear();
-
-    for (auto &&d: doors)
-    {
-        auto item = viewer->scene.addEllipse(-80, -80, 160, 160, QColor("magenta"), QBrush(QColor("magenta")));
-        item->setPos(d.center_floor.x(), d.center_floor.y());
-        items.push_back(item);
-    }
-}
-std::vector<Eigen::Vector2f> DoorDetector::filter_out_points_beyond_doors(const std::vector<Eigen::Vector2f> &floor_line_cart, const std::vector<DoorDetector::Door> &doors)
-{
-    std::vector<Eigen::Vector2f> inside_points(floor_line_cart);
-    std::vector<std::pair<u_long, Eigen::Vector2f>> ignore;
-    //qInfo() << __FUNCTION__ << "Before" << inside_points.size();
+    std::vector<Eigen::Vector2f> inside_points(floor_line);
+    std::vector<int> remove_points;
+    // for each door in doors check if the line going from the robot to each point in the segment of the floor_line
+    // that corresponds to the door, intersects with the door line
     for (const auto &door: doors)       // all in robot's reference system
     {
         QLineF door_line(door.p0.x(), door.p0.y(), door.p1.x(), door.p1.y());
-        for (auto &&i: iter::range(std::min(door.idx0, door.idx1), std::max(door.idx0, door.idx1)))
+        //
+        for (auto &&i: iter::range(std::min(door.idx_in_peaks_0, door.idx_in_peaks_1), std::max(door.idx_in_peaks_0, door.idx_in_peaks_1)))
         {
-            QLineF r_to_p(0.f, 0.f, floor_line_cart[i].x(), floor_line_cart[i].y());
+            // line from robot to point in floor_line
+            QLineF robot_to_point(0.f, 0.f, floor_line[i].x(), floor_line[i].y());
             QPointF point;
-            if (auto res = r_to_p.intersect(door_line, &point); res == QLineF::BoundedIntersection)
-                inside_points[i] = Eigen::Vector2f(point.x(), point.y());
+            if (auto res = robot_to_point.intersects(door_line, &point); res == QLineF::BoundedIntersection)
+                remove_points.emplace_back(i);
         }
     }
-    //qInfo() << __FUNCTION__ << "After" << inside_points.size();
+    // remove points from inside_points that has index in remove_points
+    // first, sort in descending order to avoid problems with the indexes
+    std::ranges::sort(remove_points, std::greater<>());
+    for(const auto i: remove_points)
+        inside_points.erase(inside_points.begin()+i);
+    qInfo() << __FUNCTION__ << "Before" << floor_line.size() << "After" << inside_points.size() << "Removed" << remove_points.size();
     return inside_points;
 }

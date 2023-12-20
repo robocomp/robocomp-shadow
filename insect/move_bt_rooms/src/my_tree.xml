@@ -2,7 +2,10 @@
     <BehaviorTree ID="MainTree">
         <Sequence name="root_sequence">
             <LookForNewDoor name="LookForNewDoor"/>
-            <GoThroughDoor name="GoThroughDoor"/>
+            <InFrontDoor name="InFrontDoor"/>
+            <RetryUntilSuccessful num_attempts="-1">
+                <GoThroughDoor name="GoThroughDoor"/>
+            </RetryUntilSuccessful>
             <GoMiddleOfTheRoom name="GoMiddleOfTheRoom"/>
         </Sequence>
     </BehaviorTree>
