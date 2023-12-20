@@ -103,15 +103,26 @@ void SpecificWorker::compute()
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud <pcl::PointXYZ>);
     pcl_cloud_source->reserve(ldata.points.size());
     for (const auto &[i, p]: ldata.points | iter::enumerate)
-        if(p.z > 1500)  // only points above 1.5m
+        if(p.z > 2000)  // only points above 1.5m
             pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
     auto robot_pose = fastgicp.align(pcl_cloud_source);
 
     // get target from buffer
     if (auto res = target_buffer.try_get(); res.has_value())
     {
+        RoboCompGridPlanner::TPlan returning_plan;
         auto target = res.value();
         auto original_target = res.value(); // save original target to reinject it into the buffer
+
+        if(not target.active) // if robot arrived to target in the past iteration
+        {
+            returning_plan.valid = true;
+            returning_plan.subtarget.x = 0.f;
+            returning_plan.subtarget.y = 0.f;
+            send_and_publish_plan(returning_plan);
+            return;
+        }
+
         if(target.global)  // global = true -> target in global coordinates
         {
             // transform target to robot's frame
@@ -144,30 +155,31 @@ void SpecificWorker::compute()
         else target.set(res2.value(), target.global); // keep current status of global
         draw_global_target(target.pos_eigen(), &viewer->scene);
 
-        RoboCompGridPlanner::TPlan returning_plan;
         // we need to return a subtarget that at most 1 meter away from the robot
         if (not_line_of_sight_path(target.pos_qt()))
         {
             qInfo() << __FUNCTION__ << "No Line of Sight path to target!";
             //bool path_found = false;
             std::vector<Eigen::Vector2f> path;
-//            while(not path_found)
-//            {
-//                path = grid.compute_path(QPointF(0, 0), qtarget);
-//                auto frechet_distance = frechetDistance(path, last_path);
-//                std::cout << "FRECHET DISTANCE: " << frechet_distance << std::endl;
-//
-//                if(frechet_distance < 500)
-//                {
-//                    std::cout << "ENTRAAAAAAAAAAAAaaa" << std::endl;
-//                    path_found = true;
-//                }
-//            }
+            if(!last_path.empty())
+            {
+                auto frechet_distance =get_frechet_distance(last_path, path);
+                qInfo() << "FRECHET DISTANCE " << frechet_distance;
+                if(frechet_distance > 600 and (path_not_found_counter < path_not_found_limit))
+                {
+                    path = last_path;
+                    path_not_found_counter++;
+                }
+                else
+                {
+                    path_not_found_counter = 0;
+                }
+            }
             path = grid.compute_path(QPointF(0, 0), target.pos_qt());
             //qInfo() << "Path size" << path.size();
             if (not path.empty() and path.size() > 0)
             {
-                auto subtarget = send_path(path, 650, M_PI_4 / 6);
+                auto subtarget = send_path(path, 250, M_PI_4 / 6);
                 draw_path(path, &viewer->scene);
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
@@ -189,7 +201,7 @@ void SpecificWorker::compute()
         else // Target in line of sight
         {
             returning_plan.valid = true;
-            auto point_close_to_robot = target.point_at_distance(650);  // TODO: move to constants
+            auto point_close_to_robot = target.point_at_distance(250);  // TODO: move to constants
             //returning_plan.subtarget.x = target.pos_qt().x();
             //returning_plan.subtarget.y = target.pos_qt().y();
             returning_plan.subtarget.x = point_close_to_robot.x();
@@ -198,21 +210,11 @@ void SpecificWorker::compute()
             //std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
             draw_subtarget(point_close_to_robot, &viewer->scene);
         }
-
-        // Sending plan to remote interface
-        try
-        { gridplanner_proxy->setPlan(returning_plan); }
-        catch (const Ice::Exception &e)
-        { std::cout << __FUNCTION__ << " Error setting valid plan" << e << std::endl; }
-
-        // Publishing the plan to rcnode
-        try
-        { gridplanner_pubproxy->setPlan(returning_plan); }
-        catch (const Ice::Exception &e)
-        { std::cout << __FUNCTION__ << " Error publishing valid plan" << e << std::endl; }
+        send_and_publish_plan(returning_plan);
     }
     else //NO TARGET
-    { }
+    { 
+    }
 
     viewer->update();
     fps.print("FPS:");
@@ -288,6 +290,14 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
 //        return last_subtarget;
     return subtarget;
 }
+double SpecificWorker::get_frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB) {
+    double maxDist = 0.0;
+    for (size_t i = 0; i < (std::min(pathA.size(), pathB.size())); ++i) {
+        double dist = (pathA[i] - pathB[i]).norm();
+        maxDist = std::max(maxDist, dist);
+    }
+    return maxDist;
+}
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene)
 {
     static std::vector<QGraphicsEllipseItem*> points;
@@ -341,45 +351,7 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &points, int deci
         }
     }
 }
-float SpecificWorker::euclideanDistance(const Eigen::Vector2f& a, const Eigen::Vector2f& b)
-{
-    return (a - b).norm();
-}
-float SpecificWorker::frechetDistanceUtil(const std::vector<Eigen::Vector2f>& path1,
-                          const std::vector<Eigen::Vector2f>& path2,
-                          int i, int j,
-                          std::vector<std::vector<float>>& dp)
-{
-    if (i == 0 && j == 0) {
-        return euclideanDistance(path1[0], path2[0]);
-    }
 
-    if (i < 0 || j < 0) {
-        return std::numeric_limits<float>::max();
-    }
-
-    if (dp[i][j] != -1) {
-        return dp[i][j];
-    }
-
-    float cost = euclideanDistance(path1[i], path2[j]);
-    float minPrevious = std::min({frechetDistanceUtil(path1, path2, i - 1, j, dp),
-                                  frechetDistanceUtil(path1, path2, i - 1, j - 1, dp),
-                                  frechetDistanceUtil(path1, path2, i, j - 1, dp)});
-
-    dp[i][j] = std::max(cost, minPrevious);
-    return dp[i][j];
-}
-float SpecificWorker::frechetDistance(const std::vector<Eigen::Vector2f>& path1, const std::vector<Eigen::Vector2f>& path2)
-{
-    if(path1.empty() or path2.empty())
-    {
-        std::cout << "Empty path found." << std::endl;
-        return -1;
-    }
-    std::vector<std::vector<float>> dp(path1.size(), std::vector<float>(path2.size(), -1));
-    return frechetDistanceUtil(path1, path2, path1.size() - 1, path2.size() - 1, dp);
-}
 Eigen::Vector2f SpecificWorker::border_subtarget(RoboCompVisualElements::TObject target)    // TODO: Explicar qué hace el método
 {
     Eigen::Vector2f target2f {target.x,target.y};
@@ -451,6 +423,20 @@ std::optional<Eigen::Vector2f> SpecificWorker::closest_point_to_target(const QPo
         }
     }
     return {};
+}
+void SpecificWorker::send_and_publish_plan(RoboCompGridPlanner::TPlan plan)
+{
+    // Sending plan to remote interface
+    try
+    { gridplanner_proxy->setPlan(plan); }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__ << " Error setting valid plan" << e << std::endl; }
+
+    // Publishing the plan to rcnode
+    try
+    { gridplanner_pubproxy->setPlan(plan); }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__ << " Error publishing valid plan" << e << std::endl; }
 }
 ///////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()

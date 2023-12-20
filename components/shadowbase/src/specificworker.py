@@ -121,22 +121,19 @@ class SpecificWorker(GenericWorker):
 
     def setAdvx(self, val):
         if abs(val)>self.maxLinSpeed:  
-            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[0],"CUNADO MAXIMA ES", self.maxLinSpeed)
-            self.targetSpeed[0] = self.maxLinSpeed if self.maxLinSpeed > 0 else -self.maxLinSpeed
-        else:  self.targetSpeed[0] = val
-
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",val,"CUANDO MAXIMA ES", self.maxLinSpeed)
+        self.targetSpeed[0] = np.clip(val, -self.maxLinSpeed,  self.maxLinSpeed)
+        
     def setAdvz(self, val):
-        if val>self.maxLinSpeed: 
-            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",self.targetSpeed[1],"CUNADO MAXIMA ES", self.maxLinSpeed) 
-            self.targetSpeed[1] = self.maxLinSpeed if self.maxLinSpeed > 0 else -self.maxLinSpeed
-        else:  self.targetSpeed[1] = val
-
+        if abs(val)>self.maxLinSpeed: 
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA",val,"CUANDO MAXIMA ES", self.maxLinSpeed) 
+        self.targetSpeed[1] = np.clip(val, -self.maxLinSpeed,  self.maxLinSpeed)
+        
     def setRot(self, val):
-        if val>self.maxRotSpeed:  
-            print("AVISO SUPERADA LA VELOCIDAD MAXIMA", self.targetSpeed[2],"CUNADO MAXIMA ES", self.maxRotSpeed)
-            self.targetSpeed[2] = self.maxRotSpeed if self.maxRotSpeed > 0 else -self.maxRotSpeed 
-        else:  self.targetSpeed[2] = val
-
+        if abs(val)>self.maxRotSpeed:  
+            print("AVISO SUPERADA LA VELOCIDAD MAXIMA", val,"CUANDO MAXIMA ES", self.maxRotSpeed)
+        self.targetSpeed[2] = np.clip(val, -self.maxRotSpeed,  self.maxRotSpeed)
+        
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
@@ -150,7 +147,7 @@ class SpecificWorker(GenericWorker):
                     self.time_move = time.time()
                     #print("Modificamos velocidades: ", self.oldTargetSpeed)
                 #si en un segundo no hay nuevo target se detiene
-                elif time.time() - self.time_move > 3:
+                elif time.time() - self.time_move > 5:
                     print("No comand, Stoping ")
                     self.OmniRobot_setSpeedBase(0,0,0)
                     self.time_move = float("inf")
