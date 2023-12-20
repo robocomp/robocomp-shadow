@@ -69,11 +69,10 @@ void SpecificWorker::initialize(int period)
         // mouse
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
             {
-                qInfo() << "New global target arrived:" << p;
-                target.set(p);
-                Eigen::Vector2f pt{p.x(), p.y()};
-//                draw_global_target(pt, &viewer->scene);
-                target_buffer.put(std::make_tuple(pt, true)); // false = in robot's frame - true = in global frame
+                qInfo() << "[MOUSE] New global target arrived:" << p;
+                Target target;
+                target.set(p, true);    // true = in global coordinates
+                target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
                 fastgicp.reset();
             });
 
@@ -104,44 +103,50 @@ void SpecificWorker::compute()
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud <pcl::PointXYZ>);
     pcl_cloud_source->reserve(ldata.points.size());
     for (const auto &[i, p]: ldata.points | iter::enumerate)
-        if(p.z > 1500)  // only points below 1m
+        if(p.z > 1500)  // only points above 1.5m
             pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
     auto robot_pose = fastgicp.align(pcl_cloud_source);
-    // QPointF robot_tr(robot_pose(0, 3)*1000, robot_pose(1, 3)*1000);
 
     // get target from buffer
     if (auto res = target_buffer.try_get(); res.has_value())
     {
-        auto [pos, global] = res.value();   // global = true -> target in global coordinates
-        QPointF init_qtarget;
-        if(not global)
-            init_qtarget = {pos.x(), pos.y()};
-        else    // target is set in global coordinates. Transform to robot's frame
+        auto target = res.value();
+        if(target.global)  // global = true -> target in global coordinates
         {
             // transform target to robot's frame
-            //qInfo() << "Target in global ref frame" << target.pos().x() << target.pos().y();
             Eigen::Vector4d target_in_robot =
-                  robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos().x() / 1000.f, target.pos().y() / 1000.f, 0.f, 1.f) * 1000;
-            init_qtarget = {target_in_robot(0), target_in_robot(1)};
-            //draw_global_target(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, &viewer->scene);
-            target_buffer.put(std::make_tuple(target.pos(), true)); // reinfect global target so it is not lost
+                  robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos_eigen().x() / 1000.f, target.pos_eigen().y() / 1000.f, 0.f, 1.f) * 1000.f;
+            target.set(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, true); // mm
+            auto robot_at = Eigen::Vector2f{robot_pose(0, 3), robot_pose(1, 3)}*1000.f;
+            if ((robot_at - target.pos_eigen()).norm() < 200)   // robot at target
+            {
+                qInfo() << __FUNCTION__  << "Target reached. Sending zero target";
+                target_buffer.put(Target{.active=false,
+                                            .global=false,
+                                            .point=Eigen::Vector2f::Zero(),
+                                            .qpoint=QPointF{0.f,0.f}}); // reinject zero target to notify bumper of target reached
+            }
+            else    // still moving
+                target_buffer.put(Target{.active=true,
+                                            .global=true,
+                                            .point=target.pos_eigen(),
+                                            .qpoint=target.pos_qt()});  // reinject global target so it is not lost
         }
-        Eigen::Vector2f closest_point;
-        if(auto res = grid.closest_free(init_qtarget); not res.has_value())
+
+        // search for closest point to target in grid
+        if(auto res2 = grid.closest_free(target.pos_qt()); not res2.has_value())
         {
-            qInfo() << __FUNCTION__ << "No closest_point found. Returning";
+            qInfo() << __FUNCTION__ << "No closest_point found. Returning. Cancelling target";
             return;
         }
-        else closest_point = Eigen::Vector2f{res.value().x(), res.value().y()};
-        draw_global_target(closest_point, &viewer->scene);
-        qInfo() << closest_point.x() << closest_point.y() << init_qtarget.x() << init_qtarget.y();
-        QPointF qtarget(closest_point.x(), closest_point.y());
+        else target.set(res2.value(), target.global); // keep current status of global
+        draw_global_target(target.pos_eigen(), &viewer->scene);
 
         RoboCompGridPlanner::TPlan returning_plan;
-        if (not_line_of_sight_path(qtarget))
+        if (not_line_of_sight_path(target.pos_qt()))
         {
             qInfo() << __FUNCTION__ << "No Line of Sight path to target!";
-            bool path_found = false;
+            //bool path_found = false;
             std::vector<Eigen::Vector2f> path;
 //            while(not path_found)
 //            {
@@ -155,8 +160,8 @@ void SpecificWorker::compute()
 //                    path_found = true;
 //                }
 //            }
-            path = grid.compute_path(QPointF(0, 0), qtarget);
-            qInfo() << "Path size" << path.size();
+            path = grid.compute_path(QPointF(0, 0), target.pos_qt());
+            //qInfo() << "Path size" << path.size();
             if (not path.empty() and path.size() > 0)
             {
                 auto subtarget = send_path(path, 650, M_PI_4 / 6);
@@ -164,7 +169,6 @@ void SpecificWorker::compute()
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
                 // Constructing the plan for interface type TPlan
-                //Tplan (path, timestamps, Tpoint subtarget,bool valid)
                 returning_plan.subtarget = subtarget;
                 returning_plan.valid = true;
                 last_path = path;
@@ -182,12 +186,13 @@ void SpecificWorker::compute()
         else // Target in line of sight
         {
             returning_plan.valid = true;
-            returning_plan.subtarget.x = qtarget.x();
-            returning_plan.subtarget.y = qtarget.y();
-            std::cout << __FUNCTION__ << " target x,y:" << qtarget.x() << " " << qtarget.y() << std::endl;
-            std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
-            draw_subtarget(Eigen::Vector2f {qtarget.x(), qtarget.y()}, &viewer->scene);
+            returning_plan.subtarget.x = target.pos_qt().x();
+            returning_plan.subtarget.y = target.pos_qt().y();
+            //std::cout << __FUNCTION__ << " target x,y:" << qtarget.x() << " " << qtarget.y() << std::endl;
+            //std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
+            draw_subtarget(target.pos_eigen(), &viewer->scene);
         }
+
         // Sending plan to remote interface
         try
         { gridplanner_proxy->setPlan(returning_plan); }
@@ -456,14 +461,17 @@ int SpecificWorker::startup_check()
 /// SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
 void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
 {
-    //    qInfo()<< "TARGET " << target.x << target.y;
+    // TODO: Check here if line of sight is blocked
+    // qInfo()<< "TARGET " << target.x << target.y;
+    Target t;
     if (target.x < xMax and target.x > xMin and target.y > yMin and target.y < yMax)
-        target_buffer.put(std::make_tuple(Eigen::Vector2f{target.x, target.y}, false)); // false = in robot's frame
+        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame
     else
     {
-        target_buffer.put(std::make_tuple(border_subtarget(target), false));
-        qInfo()<<"TARGET OUT OF GRID" << border_subtarget(target).x() << border_subtarget(target).y();
+        t.set(border_subtarget(target), false); /// false = in robot's frame
+        qInfo() << "TARGET OUT OF GRID" << border_subtarget(target).x() << border_subtarget(target).y();
     }
+    target_buffer.put(std::move(t));
 }
 
 

@@ -906,6 +906,9 @@ void Grid::clear()
 ////////////////////////////// NEIGHS /////////////////////////////////////////////////////////
 std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, std::function<bool(std::pair<Grid::Key, Grid::T>)> pred)
 {
+    if(not dim.contains(p))
+        return {};
+
     size_t moveUnit = TILE_SIZE;
     int vi = moveUnit, vj = 0, tamSegmento = 1, i = p.x(), j = p.y(), recorrido = 0;
 

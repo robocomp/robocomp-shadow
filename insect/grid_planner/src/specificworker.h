@@ -78,7 +78,6 @@ class SpecificWorker : public GenericWorker
 
         // Timer
         rc::Timer<> clock;
-        rc::Timer<> t;
 
         // Lidar Thread
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
@@ -89,21 +88,40 @@ class SpecificWorker : public GenericWorker
         struct Target
         {
             bool active = false;
+            bool global = false;  // defined in global coordinates
             Eigen::Vector2f point = Eigen::Vector2f(0, 0);
             QPointF qpoint;
-            void set(QPointF p)
+            void set(const QPointF &p, bool global_ = false)
             {
                 point = Eigen::Vector2f(p.x(), p.y());
                 qpoint = p;
+                global = global_;
                 active = true;
             }
-            Eigen::Vector2f pos() const { return point; }
+            void set(const Eigen::Vector2f &p, bool global_ = false)
+            {
+                point = p;
+                global = global_;
+                qpoint = QPointF(p.x(), p.y());
+                active = true;
+            }
+            Eigen::Vector2f pos_eigen() const { return point; }
+            QPointF pos_qt() const { return qpoint; }
             void unset() { active = false; }
+            void print() const
+            {
+                qInfo() << "Target: ";
+                qInfo() << "    point: " << point.x() << " " << point.y();
+                qInfo() << "    qpoint: " << qpoint.x() << " " << qpoint.y();
+                qInfo() << "    global: " << global;
+                qInfo() << "    active: " << active;
+            }
         };
-        Target target;
-        DoubleBuffer<std::tuple<Eigen::Vector2f, bool> , std::tuple<Eigen::Vector2f, bool>> target_buffer;
+        //Target target;
+        //DoubleBuffer<std::tuple<Eigen::Vector2f, bool> , std::tuple<Eigen::Vector2f, bool>> target_buffer;
+        DoubleBuffer<Target, Target> target_buffer;
 
-        // Lidar odometry
+    // Lidar odometry
         FastGICP fastgicp;
 
         // Path
