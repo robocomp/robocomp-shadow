@@ -3,9 +3,8 @@ SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
   door_detector_alej.cpp
+  door_detector.cpp
   /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp
-
-
 )
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
