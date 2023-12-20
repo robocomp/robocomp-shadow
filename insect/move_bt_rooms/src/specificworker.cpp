@@ -16,6 +16,7 @@
  *    You should have received a copy of the GNU General Public License
  *    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <cppitertools/enumerate.hpp>
 #include "specificworker.h"
 
 /**
@@ -63,7 +64,8 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
-		timer.start(Period);
+
+        timer.start(Period);
 	}
 
     this->min_distance = 0.0f;
@@ -82,8 +84,12 @@ void SpecificWorker::initialize(int period)
 //    this->factory.registerNodeType<GoMiddleOfTheRoom>("GoMiddleOfTheRoom",this, std::bind(&RoboCompLidar3D::Lidar3DPrx::getLidarDataWithThreshold2d, this->lidar3d_proxy));
 
     this->dataPtr = std::make_shared<Data>();
+
+    this->robot_comunication_th = std::move(std::thread(&SpecificWorker::robot_comunication,this));
+
     this->factory.registerNodeType<LookForNewDoor>("LookForNewDoor",this->dataPtr);
-    this->factory.registerNodeType<GoThroughDoor>("GoThroughDoor", this->dataPtr);
+    this->factory.registerNodeType<InFrontDoor>("InFrontDoor", this->dataPtr);
+    this->factory.registerNodeType<GoThroughDoor>("GoThroughDoor",this->dataPtr);
     this->factory.registerNodeType<GoMiddleOfTheRoom>("GoMiddleOfTheRoom");
 
     std::cout << "Node registered" << std::endl;
@@ -98,18 +104,19 @@ void SpecificWorker::initialize(int period)
     } catch (const std::exception& e) {
         std::cerr << "Error al crear el árbol de comportamiento: " << e.what() << std::endl;
     }
+
 }
 
 void SpecificWorker::compute()
 {
 
-    auto lidar_points = this->lidar3d_proxy->getLidarDataWithThreshold2d("helios",8000).points;
+    auto lidar_points = this->lidar3d_proxy->getLidarData("helios",0,360,1).points;
 
     std::ranges::sort(lidar_points, {}, &RoboCompLidar3D::TPoint::phi);
 
     this->current_phi = trunc((lidar_points[0].phi * 180) / M_PI);
     this->aux_point = lidar_points[0];
-
+    
     std::vector<Eigen::Vector2f> lidar2D;
 
     for(auto &&point: lidar_points)
@@ -136,22 +143,16 @@ void SpecificWorker::compute()
     lidar2D.push_back(Eigen::Vector2f{this->aux_point.x,this->aux_point.y});
 
     draw_floor_line(lidar2D);
+    Lines lines = this->extract_lines(lidar_points,this->consts.ranges_list);
 
     //Get doors from lidar2D
-    this->dataPtr->detected_doors = detector.detector(lidar2D);
+    this->dataPtr->detected_doors = this->detector.detect(lines,&this->viewer->scene);
 
 //    std::cout << __FUNCTION__ << "ROT_POINT:" << this->dataPtr->rot_point << std::endl;
-    try
-    {
-        omnirobot_proxy->setSpeedBase(this->dataPtr->advy_point,-this->dataPtr->advx_point,-this->dataPtr->rot_point);
-    }
-    catch (const Ice::Exception &e)
-    { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
 
-    detector.draw(viewer,this->dataPtr->detected_doors);
+    this->detector.draw_doors(this->dataPtr->detected_doors,this->dataPtr->target_door,&this->viewer->scene);
 
     draw_floor_line(lidar2D);
-    std::cout << __FUNCTION__ << "Doors" << this->dataPtr->detected_doors.size() << std::endl;
 
     this->tree.tickWhileRunning();
 }
@@ -178,6 +179,30 @@ void SpecificWorker::draw_floor_line(const vector<Eigen::Vector2f> &lines)
         auto o = viewer->scene.addRect(-10, 10, 20, 20, QPen(QColor("green")), QBrush(QColor("green")));
         o->setPos(QPointF{p.x(),p.y()});
         draw_points.push_back(o);
+    }
+}
+
+SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges)
+{
+    Lines lines(ranges.size());
+    for(const auto &p: points)
+        for(const auto &[i, r] : ranges | iter::enumerate)
+            if(p.z > r.first and p.z < r.second)
+                lines[i].emplace_back(p.x, p.y);
+
+    return lines;
+}
+
+void SpecificWorker::robot_comunication()
+{
+    while(true)
+    {
+        try
+        {
+            omnirobot_proxy->setSpeedBase(this->dataPtr->advy_point,-this->dataPtr->advx_point,-this->dataPtr->rot_point);
+        }
+        catch (const Ice::Exception &e)
+        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
     }
 }
 
