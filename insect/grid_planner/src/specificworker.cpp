@@ -111,14 +111,15 @@ void SpecificWorker::compute()
     if (auto res = target_buffer.try_get(); res.has_value())
     {
         auto target = res.value();
+        auto original_target = res.value(); // save original target to reinject it into the buffer
         if(target.global)  // global = true -> target in global coordinates
         {
             // transform target to robot's frame
             Eigen::Vector4d target_in_robot =
-                  robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos_eigen().x() / 1000.f, target.pos_eigen().y() / 1000.f, 0.f, 1.f) * 1000.f;
+                  robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos_eigen().x() / 1000.0, target.pos_eigen().y() / 1000.0, 0.0, 1.0) * 1000.0;
             target.set(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, true); // mm
-            auto robot_at = Eigen::Vector2f{robot_pose(0, 3), robot_pose(1, 3)}*1000.f;
-            if ((robot_at - target.pos_eigen()).norm() < 200)   // robot at target
+            target.print();
+            if(target.pos_eigen().norm() < 200)   // robot at target
             {
                 qInfo() << __FUNCTION__  << "Target reached. Sending zero target";
                 target_buffer.put(Target{.active=false,
@@ -129,20 +130,22 @@ void SpecificWorker::compute()
             else    // still moving
                 target_buffer.put(Target{.active=true,
                                             .global=true,
-                                            .point=target.pos_eigen(),
-                                            .qpoint=target.pos_qt()});  // reinject global target so it is not lost
+                                            .point=original_target.pos_eigen(),
+                                            .qpoint=original_target.pos_qt()});  // reinject global target so it is not lost
         }
 
         // search for closest point to target in grid
         if(auto res2 = grid.closest_free(target.pos_qt()); not res2.has_value())
         {
             qInfo() << __FUNCTION__ << "No closest_point found. Returning. Cancelling target";
+            target_buffer.try_get();   // empty buffer so it doesn't enter a loop
             return;
         }
         else target.set(res2.value(), target.global); // keep current status of global
         draw_global_target(target.pos_eigen(), &viewer->scene);
 
         RoboCompGridPlanner::TPlan returning_plan;
+        // we need to return a subtarget that at most 1 meter away from the robot
         if (not_line_of_sight_path(target.pos_qt()))
         {
             qInfo() << __FUNCTION__ << "No Line of Sight path to target!";
@@ -186,11 +189,14 @@ void SpecificWorker::compute()
         else // Target in line of sight
         {
             returning_plan.valid = true;
-            returning_plan.subtarget.x = target.pos_qt().x();
-            returning_plan.subtarget.y = target.pos_qt().y();
+            auto point_close_to_robot = target.point_at_distance(650);  // TODO: move to constants
+            //returning_plan.subtarget.x = target.pos_qt().x();
+            //returning_plan.subtarget.y = target.pos_qt().y();
+            returning_plan.subtarget.x = point_close_to_robot.x();
+            returning_plan.subtarget.y = point_close_to_robot.y();
             //std::cout << __FUNCTION__ << " target x,y:" << qtarget.x() << " " << qtarget.y() << std::endl;
             //std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
-            draw_subtarget(target.pos_eigen(), &viewer->scene);
+            draw_subtarget(point_close_to_robot, &viewer->scene);
         }
 
         // Sending plan to remote interface

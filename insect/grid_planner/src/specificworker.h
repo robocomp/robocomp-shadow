@@ -108,6 +108,11 @@ class SpecificWorker : public GenericWorker
             Eigen::Vector2f pos_eigen() const { return point; }
             QPointF pos_qt() const { return qpoint; }
             void unset() { active = false; }
+            Eigen::Vector2f point_at_distance(float distance) const
+            {
+                Eigen::Vector2f result;
+                return point.normalized() * distance;
+            }
             void print() const
             {
                 qInfo() << "Target: ";
@@ -115,6 +120,7 @@ class SpecificWorker : public GenericWorker
                 qInfo() << "    qpoint: " << qpoint.x() << " " << qpoint.y();
                 qInfo() << "    global: " << global;
                 qInfo() << "    active: " << active;
+                qInfo() << "    dist to robot: " << point.norm();
             }
         };
         //Target target;
