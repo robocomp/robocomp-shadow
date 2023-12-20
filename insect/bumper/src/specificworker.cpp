@@ -126,7 +126,7 @@ void SpecificWorker::compute()
                 return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
             });
             float landa = 0.8;
-            *res = (*res)*landa + target.eigen()*landa; // add target to displacement
+            *res = (*res)*landa + target.eigen()*(1-landa); // add target to displacement
             target.set(res->x(), res->y(), 0.f);
             draw_target_original(target, false, 1);
         }
@@ -159,7 +159,10 @@ void SpecificWorker::compute()
 
     // Check if target is zero speed to deactivate target
     if(target.active and target.eigen().norm() < 50.f and fabs(target.rot)<0.1f)
+    {
         target.active = false;
+        stop_robot();
+    }
 
     // Move the robot
     if(target.active or reaction.active)
@@ -293,8 +296,21 @@ void SpecificWorker::move_robot(Target &target, const Target &reaction)
         // TODO: Webots has order changed
         omnirobot_proxy->setSpeedBase(robot_current_speed.y()/1000.f ,
                                       -robot_current_speed.x()/1000.f ,
-                                      -robot_current_speed.z());
+                                      -robot_current_speed.z()*1.2);
         robot_stopped = false;
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
+}
+void SpecificWorker::stop_robot()
+{
+    try
+    {
+        // TODO: Webots has order changed
+        omnirobot_proxy->setSpeedBase(0.f ,
+                                      0.f ,
+                                      0.f);
+        robot_stopped = true;
     }
     catch (const Ice::Exception &e)
     { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
