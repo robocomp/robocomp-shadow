@@ -1,0 +1,14 @@
+import "LidarOdometry.idsl";
+import "Lidar3D.idsl";
+
+Component lidar_odometry
+{
+    Communications
+    {
+        implements LidarOdometry;
+        requires Lidar3D;
+    };
+    language Cpp11;
+    gui Qt(QWidget);
+};
+
