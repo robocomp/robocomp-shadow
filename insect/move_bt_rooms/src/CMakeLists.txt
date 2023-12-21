@@ -35,8 +35,8 @@ FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior GenericBase Lidar3D OmniRobot OmniRobot)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior GenericBase Lidar3D OmniRobot OmniRobot)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior GenericBase GridPlanner GridPlanner Lidar3D OmniRobot OmniRobot)
+ROBOCOMP_ICE_TO_SRC( CommonBehavior GenericBase GridPlanner GridPlanner Lidar3D OmniRobot OmniRobot)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 QT_WRAP_UI( UI_HEADERS mainUI.ui )

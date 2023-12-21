@@ -41,6 +41,7 @@ public:
 	~SpecificWorker();
 	bool setParams(RoboCompCommonBehavior::ParameterList params);
 
+	void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
 	void OmniRobot_correctOdometer(int x, int z, float alpha);
 	void OmniRobot_getBasePose(int &x, int &z, float &alpha);
 	void OmniRobot_getBaseState(RoboCompGenericBase::TBaseState &state);
@@ -51,6 +52,8 @@ public:
 	void OmniRobot_stopBase();
 
     struct Data{
+
+        //Door variables
         std::vector<DoorDetector::Door> detected_doors;
         DoorDetector::Door target_door;
         float advx_point;
@@ -58,6 +61,11 @@ public:
         float rot_point;
         bool chosen_door;
         std::chrono::high_resolution_clock::time_point startThroughDoor;
+
+        //Plan variables
+        bool valid;
+        float subtarget_x = 0.f;
+        float subtarget_y = 0.f;
     };
 
 public slots:
@@ -101,6 +109,7 @@ private:
     std::shared_ptr<Data> dataPtr;
 };
 
+
 //Blocking nodes they do not return RUNNING, only SUCCESS or FAILURE
 class LookForNewDoor : public BT::SyncActionNode
 {
@@ -118,6 +127,11 @@ public:
     {
         std::cout << this->name() << std::endl;
         bool found = false;
+        // Sending plan to remote interface
+        try
+        { gridplanner_proxy->setPlan(returning_plan); }
+        catch (const Ice::Exception &e)
+        { std::cout << __FUNCTION__ << " Error setting valid plan" << e << std::endl; }
 
         if(_data->detected_doors.size() > 0) //and !_data->chosen_door
         {
@@ -325,4 +339,5 @@ public:
 //    std::function<RoboCompLidar3D::TData()> _getLidar;
 //    SpecificWorker* _component;
 //};
+
 #endif

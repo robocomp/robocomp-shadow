@@ -23,11 +23,12 @@
 GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 {
 
-	lidar3d_proxy = std::get<0>(tprx);
-	omnirobot_proxy = std::get<1>(tprx);
+	gridplanner_proxy = std::get<0>(tprx);
+	lidar3d_proxy = std::get<1>(tprx);
+	omnirobot_proxy = std::get<2>(tprx);
+	gridplanner_pubproxy = std::get<3>(tprx);
 
 	mutex = new QMutex();
-
 
 	#ifdef USE_QTGUI
 		setupUi(this);
