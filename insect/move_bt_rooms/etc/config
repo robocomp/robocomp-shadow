@@ -9,6 +9,8 @@ Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 
 
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 InnerModelPath = innermodel.xml
 

@@ -20,7 +20,6 @@ QT_BEGIN_NAMESPACE
 class Ui_guiDlg
 {
 public:
-
     QVBoxLayout *verticalLayout;
     QFrame *frame;
 
@@ -36,6 +35,7 @@ public:
         frame->setObjectName(QString::fromUtf8("frame"));
         frame->setFrameShape(QFrame::StyledPanel);
         frame->setFrameShadow(QFrame::Raised);
+
         verticalLayout->addWidget(frame);
         retranslateUi(guiDlg);
 

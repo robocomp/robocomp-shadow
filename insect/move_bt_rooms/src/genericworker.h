@@ -32,6 +32,7 @@
 #include <CommonBehavior.h>
 
 #include <GenericBase.h>
+#include <GridPlanner.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
 
@@ -40,7 +41,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
+using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompGridPlanner::GridPlannerPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -56,8 +57,10 @@ public:
 	QMutex *mutex;
 
 
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_pubproxy;
 
 	virtual void OmniRobot_correctOdometer(int x, int z, float alpha) = 0;
 	virtual void OmniRobot_getBasePose(int &x, int &z, float &alpha) = 0;
