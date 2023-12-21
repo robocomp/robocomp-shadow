@@ -1,12 +1,14 @@
 import "Lidar3D.idsl";
 import "OmniRobot.idsl";
+import "GridPlanner.idsl";
 
 Component move_bt_rooms
 {
     Communications
     {
 	    implements OmniRobot;
-        requires Lidar3D, OmniRobot;
+	    publishes GridPlanner;
+        requires Lidar3D, OmniRobot, GridPlanner;
     };
     language Cpp11;
     gui Qt(QWidget);

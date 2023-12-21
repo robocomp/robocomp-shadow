@@ -116,7 +116,7 @@ void SpecificWorker::compute()
 
     this->current_phi = trunc((lidar_points[0].phi * 180) / M_PI);
     this->aux_point = lidar_points[0];
-    
+
     std::vector<Eigen::Vector2f> lidar2D;
 
     for(auto &&point: lidar_points)
@@ -251,10 +251,25 @@ void SpecificWorker::OmniRobot_setSpeedBase(float advx, float advz, float rot)
 void SpecificWorker::OmniRobot_stopBase()
 {
 //implementCODE
+}
 
+//////////////////////////// Interfaces //////////////////////////////////////////
+/// Implements GridPlanner
+/////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
+{
 }
 
 
+
+/**************************************/
+// From the RoboCompGridPlanner you can call this methods:
+// this->gridplanner_proxy->setPlan(...)
+
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TPlan
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
@@ -283,6 +298,20 @@ void SpecificWorker::OmniRobot_stopBase()
 /**************************************/
 // From the RoboCompOmniRobot you can use this types:
 // RoboCompOmniRobot::TMechParams
+
+/**************************************/
+// From the RoboCompGridPlanner you can publish calling this methods:
+// this->gridplanner_pubproxy->setPlan(...)
+
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TPlan
+
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TPlan
 
 /**************************************/
 // From the RoboCompOmniRobot you can use this types:
