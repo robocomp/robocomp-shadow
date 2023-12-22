@@ -261,6 +261,11 @@ void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 }
 
 
+//try
+//{ gridplanner_proxy->setPlan(returning_plan); }
+//catch (const Ice::Exception &e)
+//{ std::cout << __FUNCTION__ << " Error setting valid plan" << e << std::endl; }
+
 
 /**************************************/
 // From the RoboCompGridPlanner you can call this methods:
