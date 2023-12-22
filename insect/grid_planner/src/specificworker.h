@@ -58,7 +58,6 @@ class SpecificWorker : public GenericWorker
 
         //Graphics
         AbstractGraphicViewer *viewer;
-        std::vector<Eigen::Vector3f> get_lidar_data();
 
         //GRID
         int z_lidar_height = 0;
@@ -66,7 +65,7 @@ class SpecificWorker : public GenericWorker
         float grid_width = 8000;
         float grid_length = 8000;
         float back_distance = 3000;
-        float tile_size = 120;
+        float tile_size = 80;
 
         float xMin = -grid_width / 2;
         float xMax = grid_width / 2;
@@ -123,8 +122,6 @@ class SpecificWorker : public GenericWorker
                 qInfo() << "    dist to robot: " << point.norm();
             }
         };
-        //Target target;
-        //DoubleBuffer<std::tuple<Eigen::Vector2f, bool> , std::tuple<Eigen::Vector2f, bool>> target_buffer;
         DoubleBuffer<Target, Target> target_buffer;
 
     // Lidar odometry

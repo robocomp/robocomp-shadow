@@ -1,12 +1,13 @@
 import "Lidar3D.idsl";
 import "GridPlanner.idsl";
 import "SegmentatorTrackingPub.idsl";
+import "LidarOdometry.idsl";
 
 Component grid_planner
 {
     Communications
     {
-        requires Lidar3D, Lidar3D, GridPlanner;
+        requires Lidar3D, Lidar3D, GridPlanner, LidarOdometry;
 	    publishes GridPlanner;
         subscribesTo SegmentatorTrackingPub;
     };

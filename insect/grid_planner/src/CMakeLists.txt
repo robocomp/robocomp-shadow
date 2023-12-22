@@ -35,8 +35,8 @@ FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior GridPlanner GridPlanner Lidar3D Lidar3D SegmentatorTrackingPub VisualElements)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior GridPlanner GridPlanner Lidar3D Lidar3D SegmentatorTrackingPub VisualElements)
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior FullPoseEstimation GridPlanner GridPlanner Lidar3D Lidar3D LidarOdometry SegmentatorTrackingPub VisualElements)
+ROBOCOMP_ICE_TO_SRC( CommonBehavior FullPoseEstimation GridPlanner GridPlanner Lidar3D Lidar3D LidarOdometry SegmentatorTrackingPub VisualElements)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 QT_WRAP_UI( UI_HEADERS mainUI.ui )
