@@ -83,6 +83,7 @@
 
 #include <segmentatortrackingpubI.h>
 
+#include <FullPoseEstimation.h>
 #include <VisualElements.h>
 
 
@@ -135,6 +136,7 @@ int ::grid_planner::run(int argc, char* argv[])
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d1_proxy;
+	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
 
 	string proxy, tmp;
 	initialize();
@@ -187,6 +189,22 @@ int ::grid_planner::run(int argc, char* argv[])
 	rInfo("Lidar3DProxy1 initialized Ok!");
 
 
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "LidarOdometryProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy LidarOdometryProxy\n";
+		}
+		lidarodometry_proxy = Ice::uncheckedCast<RoboCompLidarOdometry::LidarOdometryPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy LidarOdometry: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("LidarOdometryProxy initialized Ok!");
+
+
 	IceStorm::TopicManagerPrxPtr topicManager;
 	try
 	{
@@ -234,7 +252,7 @@ int ::grid_planner::run(int argc, char* argv[])
 	auto gridplanner_pub = gridplanner_topic->getPublisher()->ice_oneway();
 	gridplanner_pubproxy = Ice::uncheckedCast<RoboCompGridPlanner::GridPlannerPrx>(gridplanner_pub);
 
-	tprx = std::make_tuple(gridplanner_proxy,lidar3d_proxy,lidar3d1_proxy,gridplanner_pubproxy);
+	tprx = std::make_tuple(gridplanner_proxy,lidar3d_proxy,lidar3d1_proxy,lidarodometry_proxy,gridplanner_pubproxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

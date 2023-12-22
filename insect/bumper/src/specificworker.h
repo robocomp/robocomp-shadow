@@ -68,9 +68,9 @@ public slots:
         struct Constants
         {
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
-            float BAND_WIDTH = 350.f;			// distance to the obstacle that repels the object
-            float MIN_BAND_WIDTH = 50.f;		// minimum distance to the obstacle that repels the object
-            float MAX_BAND_WIDTH = 400.f;		// maximum distance to the obstacle that repels the object
+            float BAND_WIDTH = 200.f;			// distance to the obstacle that repels the object
+            float MIN_BAND_WIDTH = 25.f;		// minimum distance to the obstacle that repels the object
+            float MAX_BAND_WIDTH = 300.f;		// maximum distance to the obstacle that repels the object
             double BELT_ANGULAR_STEP = 0.1f;  // angular step to create the belt
             float BELT_LINEAR_STEP = 30.f;  // linear step to create the belt
             float MAX_DIST_TO_LOOK_AHEAD = BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
@@ -103,11 +103,11 @@ public slots:
                 side = x; adv = y; rot = rot_;
                 debug = debug_;
             };
-            void set(float ang_, float dist_, bool debug_ = false)
-            {
-                ang = ang_; dist = dist_; x = dist*sin(ang); y = dist*cos(ang); active = true;
-                side = x; adv = y; rot = 0; debug = debug_;
-            }
+//            void set(float ang_, float dist_, bool debug_ = false)
+//            {
+//                ang = ang_; dist = dist_; x = dist*sin(ang); y = dist*cos(ang); active = true;
+//                side = x; adv = y; rot = 0; debug = debug_;
+//            }
 
             void print(QString txt="") const
             {
