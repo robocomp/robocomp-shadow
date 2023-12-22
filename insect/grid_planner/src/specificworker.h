@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -34,10 +32,6 @@
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <fps/fps.h>
 #include <timer/timer.h>
-#include "fastgicp.h"
-#include <pcl/common/io.h>
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -65,7 +59,7 @@ class SpecificWorker : public GenericWorker
         float grid_width = 8000;
         float grid_length = 8000;
         float back_distance = 3000;
-        float tile_size = 80;
+        float tile_size = 50;
 
         float xMin = -grid_width / 2;
         float xMax = grid_width / 2;
@@ -123,9 +117,6 @@ class SpecificWorker : public GenericWorker
             }
         };
         DoubleBuffer<Target, Target> target_buffer;
-
-    // Lidar odometry
-        FastGICP fastgicp;
 
         // Path
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
