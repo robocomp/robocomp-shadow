@@ -4,7 +4,7 @@ CommonBehavior.Endpoints=tcp -p 10111
 LidarOdometry.Endpoints=tcp -p 12191
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11992
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 #Lidar3D1Proxy = lidar3d:tcp -h localhost -p 11992
 
 
