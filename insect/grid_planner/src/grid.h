@@ -189,7 +189,6 @@ class Grid
         std::vector<QGraphicsRectItem *> scene_grid_points;
         double updated=0.0, flipped=0.0;
 
-
         std::list<QPointF> orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
         std::list<QPointF> decimate_path(const std::list<QPointF> &path);
@@ -200,7 +199,7 @@ class Grid
         {
             const QString free_color = "white";
             const QString occupied_color = "DarkRed";
-            const float occupancy_threshold = 0.4;
+            const float occupancy_threshold = 0.45;
         };
         Params params;
 };
