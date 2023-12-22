@@ -167,7 +167,7 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 50
             self.display = False
             
-            self.yolo_model_name = 'yolov8m-seg.engine'
+            self.yolo_model_name = 'yolov8x-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
             
             self.model_v8 = YOLO(self.yolo_model_name)
