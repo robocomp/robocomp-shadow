@@ -128,10 +128,6 @@ public:
         std::cout << this->name() << std::endl;
         bool found = false;
         // Sending plan to remote interface
-        try
-        { gridplanner_proxy->setPlan(returning_plan); }
-        catch (const Ice::Exception &e)
-        { std::cout << __FUNCTION__ << " Error setting valid plan" << e << std::endl; }
 
         if(_data->detected_doors.size() > 0) //and !_data->chosen_door
         {
