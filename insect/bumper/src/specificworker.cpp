@@ -126,8 +126,6 @@ void SpecificWorker::compute()
                 Eigen::Vector2f tv = t.eigen().transpose().normalized();
                 return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
             });
-            // float landa = 0.5;
-            // *res = (*res)*landa + target.eigen()*(1-landa); // add target to displacement
             reaction.set(res->x(), res->y(), 0.f);
             draw_target_original(target, false, 1);
         }
@@ -279,29 +277,35 @@ void SpecificWorker::move_robot(Target &target, const Target &reaction)
     // check speed limits
     float t_adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float t_side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
-    float t_rot = std::clamp(target.ang, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);  // angle wrt axis y
+    float t_rot;
+    if(target.rot == 0)
+        t_rot = std::clamp(target.ang, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);  // angle wrt axis y
+    else
+        t_rot = std::clamp(target.rot, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);  // angle wrt axis y
     float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
 
-    qInfo() << "ROBOT SPEEDS " << t_adv << t_side << t_rot;
-
     float lambda = 0.3;
-
     // check activation status of targets and combine results
     if(target.active and not reaction.active)
         robot_current_speed = {t_side, t_adv, t_rot};
     else if(target.active ) // also reaction.active is true
-        robot_current_speed = {()lambda * t_side+ (1-lambda) * r_side, lambda * t_adv+(1-lambda) * r_adv, t_rot};
+        robot_current_speed = {lambda * t_side + (1-lambda) * r_side, lambda * t_adv+(1-lambda) * r_adv, t_rot};
     else if(reaction.active) // also target.active is false
         robot_current_speed = {r_side, r_adv, 0.f};
     else return;  // no targets active
 
+    //qInfo() << "ROBOT SPEEDS " << robot_current_speed.x() << robot_current_speed.y() << robot_current_speed.z();
+
     try
     {
         // TODO: Webots has order changed
-        omnirobot_proxy->setSpeedBase(robot_current_speed.x()*0.4 ,
-                                      robot_current_speed.y()*0.4 ,
-                                      robot_current_speed.z()*0.7);
+//        omnirobot_proxy->setSpeedBase(robot_current_speed.x()*0.4 ,
+//                                      robot_current_speed.y()*0.4 ,
+//                                      robot_current_speed.z()*0.7);
+        omnirobot_proxy->setSpeedBase(robot_current_speed.y()/1000*3,
+                                      -robot_current_speed.x()/1000*2,
+                                      -robot_current_speed.z()*1.4);
         robot_stopped = false;
     }
     catch (const Ice::Exception &e)
@@ -373,6 +377,7 @@ QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
 
     return QPolygonF{new_rect};
 }
+
 /////////////////////////////////// DRAW ////////////////////////////////////////
 void SpecificWorker::draw_edge(const std::vector<Eigen::Vector2f> &edge, QGraphicsScene *scene)
 {
@@ -561,7 +566,7 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
         else if (axis.name == "advance")
             adv = axis.value;
         else if (axis.name == "side")
-            side = -axis.value;
+            side = axis.value;
         else
             cout << "[ JoystickAdapter ] Warning: Using a non-defined axes (" << axis.name << ")." << endl;
     }

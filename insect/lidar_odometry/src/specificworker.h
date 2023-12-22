@@ -57,10 +57,11 @@ class SpecificWorker : public GenericWorker
     private:
         bool startup_check_flag;
 
-        // Lidar Thread
+        // Lidar and Thread
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
         std::thread read_lidar_th;
-        void read_lidar();
+        void read_lidar_thread();
+        std::optional<pcl::PointCloud<pcl::PointXYZ>::Ptr> read_lidar();
 
         // Lidar odometry
         FastGICP fastgicp;
@@ -71,6 +72,7 @@ class SpecificWorker : public GenericWorker
         QGraphicsPolygonItem *robot_polygon;
 
         // draw
+        void draw_robot(const Eigen::Isometry3d &robot_pose);
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
         void draw_path(bool only_clean=false);
 
@@ -79,6 +81,7 @@ class SpecificWorker : public GenericWorker
 
         // Path
         std::vector<Eigen::Vector2f> path;
+
 
 
 };

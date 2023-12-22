@@ -29,10 +29,6 @@
 SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
 {
     this->startup_check_flag = startup_check;
-    // Uncomment if there's too many debug messages
-    // but it removes the possibility to see the messages
-    // shown in the console with qDebug()
-//	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 /**
 * \brief Default destructor
@@ -57,8 +53,10 @@ void SpecificWorker::initialize(int period)
     {
         // Viewer
         viewer = new AbstractGraphicViewer(this->frame, QRectF(xMin, yMin, grid_width, grid_length));
-        viewer->add_robot(500, 500, 0, 0, QColor("Blue"));
+        viewer->add_robot(500, 500, 0, 100, QColor("Blue"));
         viewer->show();
+
+        // grid
         QRectF dim{xMin, yMin, static_cast<qreal>(grid_width), static_cast<qreal>(grid_length)};
         grid.initialize(dim, tile_size, &viewer->scene, false);
 
@@ -73,7 +71,9 @@ void SpecificWorker::initialize(int period)
                 Target target;
                 target.set(p, true);    // true = in global coordinates
                 target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
-                fastgicp.reset();
+                //fastgicp.reset();
+                try{ lidarodometry_proxy->reset(); }
+                catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;};
             });
 
         timer.start(Period);
@@ -83,8 +83,7 @@ void SpecificWorker::compute()
 {
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false)
-    {   /*qWarning() << "No data Lidar";*/ return; }
+    if (res_.has_value() == false)  {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
 
     // convert points to Eigen
@@ -100,12 +99,23 @@ void SpecificWorker::compute()
     grid.update_costs(true);
 
     // compute odometry
-    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud <pcl::PointXYZ>);
-    pcl_cloud_source->reserve(ldata.points.size());
-    for (const auto &[i, p]: ldata.points | iter::enumerate)
-        if(p.z > 2000)  // only points above 1.5m
-            pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
-    auto robot_pose = fastgicp.align(pcl_cloud_source);
+//    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source(new pcl::PointCloud <pcl::PointXYZ>);
+//    pcl_cloud_source->reserve(ldata.points.size());
+//    for (const auto &[i, p]: ldata.points | iter::enumerate)
+//        if(p.z > 2000)  // only points above 1.5m
+//            pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
+//    auto robot_pose = fastgicp.align(pcl_cloud_source);
+    Eigen::Transform<double, 3, 1> robot_pose;
+    try
+    {
+        auto pose = lidarodometry_proxy->getFullPoseMatrix();
+        robot_pose.matrix() << pose.m00, pose.m01, pose.m02, pose.m03,
+                               pose.m10, pose.m11, pose.m12, pose.m13,
+                               pose.m20, pose.m21, pose.m22, pose.m23,
+                               pose.m30, pose.m31, pose.m32, pose.m33;
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << "Error reading from LidarOdometry" << e << std::endl; }
 
     // get target from buffer
     if (auto res = target_buffer.try_get(); res.has_value())
@@ -125,11 +135,10 @@ void SpecificWorker::compute()
 
         if(target.global)  // global = true -> target in global coordinates
         {
-            // transform target to robot's frame
+            // transform target to robot's frame TODO: Check if robot_pose exists
             Eigen::Vector4d target_in_robot =
                   robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos_eigen().x() / 1000.0, target.pos_eigen().y() / 1000.0, 0.0, 1.0) * 1000.0;
             target.set(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, true); // mm
-            target.print();
             if(target.pos_eigen().norm() < 200)   // robot at target
             {
                 qInfo() << __FUNCTION__  << "Target reached. Sending zero target";
@@ -179,7 +188,7 @@ void SpecificWorker::compute()
             //qInfo() << "Path size" << path.size();
             if (not path.empty() and path.size() > 0)
             {
-                auto subtarget = send_path(path, 250, M_PI_4 / 6);
+                auto subtarget = send_path(path, 550, M_PI_4 / 6);
                 draw_path(path, &viewer->scene);
                 draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
@@ -201,7 +210,7 @@ void SpecificWorker::compute()
         else // Target in line of sight
         {
             returning_plan.valid = true;
-            auto point_close_to_robot = target.point_at_distance(250);  // TODO: move to constants
+            auto point_close_to_robot = target.point_at_distance(550);  // TODO: move to constants
             //returning_plan.subtarget.x = target.pos_qt().x();
             //returning_plan.subtarget.y = target.pos_qt().y();
             returning_plan.subtarget.x = point_close_to_robot.x();

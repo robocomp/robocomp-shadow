@@ -37,6 +37,7 @@ SpecificWorker::~SpecificWorker()
 
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
+    // TODO: add config params to display/not display, lidar name, viewer size
 //	try
 //	{
 //		RoboCompCommonBehavior::Parameter par = params.at("InnerModelPath");
@@ -57,14 +58,14 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
-        // Vierwer
+        // Viewer
         viewer = new AbstractGraphicViewer(this->frame, QRectF(-4000, -4000, 8000, 8000));
-        auto [rob, las] = viewer->add_robot(500, 500, 0, -100, QColor("Blue"));
+        auto [rob, las] = viewer->add_robot(500, 500, 0, 100, QColor("Blue"));
         robot_polygon = rob;
         viewer->show();
 
         // Lidar thread is created
-        read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
+        read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar_thread,this));
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
         // reset button
@@ -84,8 +85,36 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     /// read LiDAR
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source;
+    if( auto res = read_lidar(); not res.has_value()) return;
+    else pcl_cloud_source = res.value();
+
+    auto robot_pose = fastgicp.align(pcl_cloud_source);
+    buffer_odometry.put(std::move(robot_pose), [](auto &&input, auto &output)
+            {
+                output.m00 = input(0, 0); output.m01 = input(0, 1); output.m02 = input(0, 2);
+                output.m03 = input(0, 3); output.m10 = input(1, 0); output.m11 = input(1, 1);
+                output.m12 = input(1, 2); output.m13 = input(1, 3); output.m20 = input(2, 0);
+                output.m21 = input(2, 1); output.m22 = input(2, 2); output.m23 = input(2, 3);
+                output.m30 = input(3, 0); output.m31 = input(3, 1); output.m32 = input(3, 2);
+                output.m33 = input(3, 3);
+            });
+
+    // draw
+    draw_robot(robot_pose);
+
+    // print
+    std::string pose = std::to_string(robot_pose.translation().x()*1000) + "mm " +
+                       std::to_string(robot_pose.translation().y()*1000) + "mm " +
+                       std::to_string(robot_pose.rotation().eulerAngles(0, 1, 2).z()) + "rad";
+    fps.print("Pose: [" + pose + "]", 3000);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+std::optional<pcl::PointCloud<pcl::PointXYZ>::Ptr> SpecificWorker::read_lidar()
+{
     auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false)  {   /*qWarning() << "No data Lidar";*/ return; }
+    if (not res_.has_value()) { qWarning() << __FUNCTION__  << "No data"; return {};} // No data
     auto ldata = res_.value();
 
     // convert points to Eigen
@@ -104,35 +133,10 @@ void SpecificWorker::compute()
             pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
             lidar_points.emplace_back(p);
         };
-
-    auto robot_pose = fastgicp.align(pcl_cloud_source);
-    buffer_odometry.put(std::move(robot_pose), [](auto &&input, auto &output)
-            {
-                output.m00 = input(0, 0); output.m01 = input(0, 1); output.m02 = input(0, 2);
-                output.m03 = input(0, 3); output.m10 = input(1, 0); output.m11 = input(1, 1);
-                output.m12 = input(1, 2); output.m13 = input(1, 3); output.m20 = input(2, 0);
-                output.m21 = input(2, 1); output.m22 = input(2, 2); output.m23 = input(2, 3);
-                output.m30 = input(3, 0); output.m31 = input(3, 1); output.m32 = input(3, 2);
-                output.m33 = input(3, 3);
-            });
-
-    //std::cout << "Robot pose: " << robot_pose.translation().transpose() << " " << robot_pose.rotation().eulerAngles(0, 1, 2).transpose() << std::endl;
-    robot_polygon->setPos(robot_pose.translation().x()*1000.0, robot_pose.translation().y()*1000.0);
-    robot_polygon->setRotation(robot_pose.rotation().eulerAngles(0, 1, 2).z() * 180.0 / M_PI);
-    path.emplace_back(robot_pose.translation().x()*1000, robot_pose.translation().y()*1000);
-    if(path.size() > 1000) path.erase(path.begin(), path.begin() + 1);
-    draw_path();
-
-    // print
-    std::string pose = std::to_string(robot_pose.translation().x()*1000) + "mm " +
-                       std::to_string(robot_pose.translation().y()*1000) + "mm " +
-                       std::to_string(robot_pose.rotation().eulerAngles(0, 1, 2).z()) + "rad";
-    fps.print("Pose: [" + pose + "]", 3000);
+    return pcl_cloud_source;
 }
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////
 // Thread to read the lidar
-void SpecificWorker::read_lidar()
+void SpecificWorker::read_lidar_thread()
 {
     auto wait_period = std::chrono::milliseconds (this->Period);
     while(true)
@@ -190,6 +194,15 @@ void SpecificWorker::draw_path(bool only_clean)
             draw_path.push_back(o);
         }
 }
+void SpecificWorker::draw_robot(const Eigen::Isometry3d &robot_pose)
+{
+    robot_polygon->setPos(robot_pose.translation().x()*1000.0, robot_pose.translation().y()*1000.0);
+    robot_polygon->setRotation(robot_pose.rotation().eulerAngles(0, 1, 2).z() * 180.0 / M_PI);
+    path.emplace_back(robot_pose.translation().x()*1000, robot_pose.translation().y()*1000);
+    if(path.size() > 1000) path.erase(path.begin(), path.begin() + 1);
+    draw_path();
+}
+
 int SpecificWorker::startup_check()
 {
 	std::cout << "Startup check" << std::endl;
@@ -201,6 +214,7 @@ int SpecificWorker::startup_check()
 RoboCompFullPoseEstimation::FullPoseEuler SpecificWorker::LidarOdometry_getFullPoseEuler()
 {
     qWarning() << "Not implemented";
+    // TODO: check time since last request and move to paused state
     return RoboCompFullPoseEstimation::FullPoseEuler();
 }
 
@@ -213,6 +227,7 @@ void SpecificWorker::LidarOdometry_reset()
 {
     fastgicp.reset();
 }
+
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
