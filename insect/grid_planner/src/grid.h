@@ -117,6 +117,7 @@ class Grid
                         QPointF grid_center = QPointF(0,0),
                         float grid_angle = 0.f);
         void clear();
+        void reset();
         std::list<QPointF> computePath(const QPointF &source_, const QPointF &target_);
         std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
         void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
@@ -162,8 +163,8 @@ class Grid
         void setCost(const Key &k, float cost);
         float get_cost(const Eigen::Vector2f &p);
         void add_miss_naif(const Eigen::Vector2f &p);
-        void add_miss(const Eigen::Vector2f &p);
-        void add_hit(const Eigen::Vector2f &p);
+        inline void add_miss(const Eigen::Vector2f &p);
+        inline void add_hit(const Eigen::Vector2f &p);
         void log_update(const Eigen::Vector2f &p, float prob);
         double log_odds(double prob);
         double retrieve_p(double l);
@@ -172,7 +173,7 @@ class Grid
         int count_total_visited() const;
         void markAreaInGridAs(const QPolygonF &poly, bool free);   // if true area becomes free
         void modifyCostInGrid(const QPolygonF &poly, float cost);
-        void update_costs(bool wide=true);
+        void update_costs(float robot_semi_width, bool wide=true);
         void update_costs_naif(bool wide=true);
         std::optional<QPointF> closest_obstacle(const QPointF &p);
         std::optional<QPointF> closest_free(const QPointF &p);
@@ -181,12 +182,11 @@ class Grid
         std::vector<std::pair<Key, T>> neighboors(const Key &k, const std::vector<int> &xincs, const std::vector<int> &zincs, bool all = false);
         std::vector<std::pair<Key, T>> neighboors_8(const Key &k, bool all = false);
         std::vector<std::pair<Key, T>> neighboors_16(const Key &k, bool all = false);
-        void draw();
+        void draw(bool clear=false);
 
     private:
         FMap fmap;
         QGraphicsScene *scene;
-        std::vector<QGraphicsRectItem *> scene_grid_points;
         double updated=0.0, flipped=0.0;
 
         std::list<QPointF> orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
