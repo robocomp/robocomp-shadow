@@ -45,12 +45,15 @@ void Grid::initialize(  QRectF dim_,
     /// CHECK DIMENSIONS BEFORE PROCEED
     qInfo() << __FUNCTION__ << "Grid coordinates. Center:" << grid_center << "Angle:" << grid_angle;
     for (const auto &[key, value]: fmap)
+    {
         scene->removeItem(value.tile);
+        delete value.tile;
+    }
     if(bounding_box != nullptr) scene->removeItem(bounding_box);
     fmap.clear();
 
-//    if(read_from_file and not file_name.empty())
-//        readFromFile(file_name);
+    //    if(read_from_file and not file_name.empty())
+    //        readFromFile(file_name);
     QColor my_color = QColor("White");
     //my_color.setAlpha(40);
     std::uint32_t id=0;
@@ -307,9 +310,7 @@ void Grid::add_miss_naif(const Eigen::Vector2f &p)
 //    else
 //        qWarning() << __FUNCTION__ << "Cell not found" << "[" << p.x() << p.y() << "]";
 }
-
-
-void Grid::add_miss(const Eigen::Vector2f &p)
+inline void Grid::add_miss(const Eigen::Vector2f &p)
 {
     auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
     if(success)
@@ -329,15 +330,14 @@ void Grid::add_miss(const Eigen::Vector2f &p)
 ////    else
 ////        qWarning() << __FUNCTION__ << "Cell not found" << "[" << p.x() << p.y() << "]";
 }
-void Grid::add_hit(const Eigen::Vector2f &p)
+inline void Grid::add_hit(const Eigen::Vector2f &p)
 {
     auto &&[success, v] = getCell((long int)p.x(),(long int)p.y());
     if(success)
     {
         v.hits++;
         if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold)
-        //if((float)v.hits/(v.hits+v.misses) >= params.prob_occ)
-            {
+        {
             if(v.free)
                 this->flipped++;
             v.free = false;
@@ -669,7 +669,7 @@ inline double Grid::heuristicL2(const Key &a, const Key &b) const
 }
 
 /////////////////////////////// COSTS /////////////////////////////////////////////////////////
-void Grid::update_costs(bool wide)
+void Grid::update_costs(float robot_semi_width, bool wide)
 {
     static QBrush free_brush(QColor(params.free_color));
     static QBrush occ_brush(QColor(params.occupied_color));
@@ -677,60 +677,32 @@ void Grid::update_costs(bool wide)
     static QBrush yellow_brush(QColor("Yellow"));
     static QBrush gray_brush(QColor("LightGray"));
     static QBrush green_brush(QColor("LightGreen"));
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges
+                ={{100, 75, orange_brush, &Grid::neighboors_8},
+                  {75, 50, yellow_brush, &Grid::neighboors_8},
+                  {50, 25, gray_brush, &Grid::neighboors_8},
+                  {25, 5,  green_brush, &Grid::neighboors_16}};
 
-    for(auto &&[k,v] : iter::filter([](auto v){ return std::get<1>(v).cost > 1;}, fmap))
+    // we assume the grid has been cleared before. All free cells have cost 1
+
+    // if not free, set cost to 100. These are cells detected by the  Lidar.
+    for (auto &&[k, v]: iter::filterfalse([](auto &v) { return std::get<1>(v).free; }, fmap))
     {
-        v.tile->setBrush(free_brush);
-        v.cost = 1.f;
+        v.cost = 100;
+        v.tile->setBrush(occ_brush);
     }
 
-    //update grid values
-    if(wide)
+    if(wide)    // if wide is true, we set the cost of the cells detected by the Lidar to 100 and their neighboors to values defined in wall_ranges
     {
-        for (auto &&[k, v]: iter::filterfalse([](auto &v) { return std::get<1>(v).free; }, fmap))
-        {
-            v.cost = 100;
-            v.tile->setBrush(occ_brush);
-        }
-        for (auto &&[k, v]: iter::filter([](auto &v) { return std::get<1>(v).cost == 100; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs | iter::filter([](auto &v) { return std::get<1>(v).cost < 100 and std::get<1>(v).free; }))
-            {
-                fmap.at(kk).cost = 80;
-                fmap.at(kk).free = false;
-                fmap.at(kk).tile->setBrush(orange_brush);
-            }
-
-        for (auto &&[k, v]: iter::filter([](auto &v) { return std::get<1>(v).cost == 80; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs | iter::filter([](auto &v) { return std::get<1>(v).cost < 80; }))
-            {
-                // vv.free = true;
-                fmap.at(kk).cost = 50;
-                fmap.at(kk).tile->setBrush(yellow_brush);
-            }
-        for (auto &&[k, v]: iter::filter([](auto &v) { return std::get<1>(v).cost == 50; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &[kk, vv]: neighs | iter::filter([](auto &v) { return std::get<1>(v).cost < 50; }))
-            {
-                // vv.free = true;
-                fmap.at(kk).cost = 25;
-                fmap.at(kk).tile->setBrush(gray_brush);
-            }
-        for (auto &&[k, v]: iter::filter([](auto &v) { return std::get<1>(v).cost == 25; }, fmap))
-            for (auto neighs = neighboors_8(k); auto &[kk, vv]: neighs | iter::filter([](auto &v) { return std::get<1>(v).cost < 25; }))
-            {
-                // vv.free = true;
-                fmap.at(kk).cost = 10;
-                fmap.at(kk).tile->setBrush(green_brush);
-            }
-    }
-    else
-    {
-        for (auto &&[k, v]: iter::filterfalse([](auto v) { return std::get<1>(v).free; }, fmap))
-        {
-            v.cost = 100;
-            v.tile->setBrush(occ_brush);
-            fmap.at(k).cost = 100;
-            fmap.at(k).tile->setBrush(occ_brush);
-        }
+        for(auto &[upper, lower, brush, neigh] : wall_ranges)
+            for (auto &&[k, v]: iter::filter([upper, lower](auto &v) { return std::get<1>(v).cost == upper; }, fmap))
+                for (auto neighs = neigh(this, k, false); auto &&[kk, vv]: neighs | iter::filter([upper](auto &ve)
+                                                                                           { return std::get<1>(ve).cost < upper and std::get<1>(ve).free; }))
+                {
+                    fmap.at(kk).cost = lower;
+                    fmap.at(kk).free = true;
+                    fmap.at(kk).tile->setBrush(brush);
+                }
     }
 }
 void Grid::update_costs_naif(bool wide)
@@ -839,45 +811,52 @@ bool Grid::is_path_blocked(const std::vector<Eigen::Vector2f> &path) // grid coo
     return false;
 }
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
-void Grid::draw()
+void Grid::draw(bool clear) // if clear is true, only removes the previous points
 {
     //clear previous points
+    static std::vector<QGraphicsRectItem *> scene_grid_points;
     for (QGraphicsRectItem* item : scene_grid_points)
-        scene->removeItem((QGraphicsItem*)item);
-
-    scene_grid_points.clear();
-    //create new representation
-    std::string color;
-    for( const auto &[key,value] : fmap)
     {
-        if(value.free)
-        {
-            if (value.cost == 2.0) //affordance spaces
-                color = "#FFFF00";
-            else if (value.cost == 3.0) //lowvisited spaces
-                color = "#FFBF00";
-            else if (value.cost == 4.0) //mediumvisited spaces
-                color = "#FF8000";
-            else if (value.cost == 5.0) //highVisited spaces
-                color = "#FF4000";
-            else if (value.cost == 8.0) //zona social
-                color = "#BF00FF";
-            else if (value.cost == 10.0) //zona personal
-                color = "#00BFFF";
-            else if (value.cost == 50.0) //Affordance maximum
-                color = "#FF0000";
-            else
-                color = "White";
-        }
-        else // occupied
-            color = "Red";
+        scene->removeItem((QGraphicsItem *) item);
+        delete item;
+    }
+    scene_grid_points.clear();
 
-        QColor my_color = QColor(QString::fromStdString(color));
-        my_color.setAlpha(40);
-        QGraphicsRectItem* aux = scene->addRect(-TILE_SIZE/2, -TILE_SIZE/2, TILE_SIZE, TILE_SIZE, QPen(my_color), QBrush(my_color));
-        aux->setZValue(1);
-        aux->setPos(key.x, key.z);
-        scene_grid_points.push_back(aux);
+    if(not clear)
+    {
+        //create new representation
+        std::string color;
+        for (const auto &[key, value]: fmap)
+        {
+            if (value.free)
+            {
+                if (value.cost == 2.0) //affordance spaces
+                    color = "#FFFF00";
+                else if (value.cost == 3.0) //lowvisited spaces
+                    color = "#FFBF00";
+                else if (value.cost == 4.0) //mediumvisited spaces
+                    color = "#FF8000";
+                else if (value.cost == 5.0) //highVisited spaces
+                    color = "#FF4000";
+                else if (value.cost == 8.0) //zona social
+                    color = "#BF00FF";
+                else if (value.cost == 10.0) //zona personal
+                    color = "#00BFFF";
+                else if (value.cost == 50.0) //Affordance maximum
+                    color = "#FF0000";
+                else
+                    color = "White";
+            } else // occupied
+                color = "Red";
+
+            QColor my_color = QColor(QString::fromStdString(color));
+            my_color.setAlpha(40);
+            QGraphicsRectItem *aux = scene->addRect(-TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE,
+                                                    QPen(my_color), QBrush(my_color));
+            aux->setZValue(1);
+            aux->setPos(key.x, key.z);
+            scene_grid_points.push_back(aux);
+        }
     }
 }
 void Grid::clear()
@@ -890,12 +869,15 @@ void Grid::clear()
     }
 }
 
-//void Grid::clear()
-//{
-//    for (const auto &[key, value]: fmap)
-//        scene->removeItem(value.tile);
-//    fmap.clear();
-//}
+void Grid::reset()
+{
+    for (auto &[key, value]: fmap)
+    {
+        scene->removeItem(value.tile);
+        delete value.tile;
+    }
+   fmap.clear();
+}
 
 ////////////////////////////// NEIGHS /////////////////////////////////////////////////////////
 std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, std::function<bool(std::pair<Grid::Key, Grid::T>)> pred)

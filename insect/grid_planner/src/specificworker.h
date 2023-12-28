@@ -53,18 +53,27 @@ class SpecificWorker : public GenericWorker
         //Graphics
         AbstractGraphicViewer *viewer;
 
-        //GRID
-        int z_lidar_height = 0;
-        Grid grid;
-        float grid_width = 8000;
-        float grid_length = 8000;
-        float back_distance = 3000;
-        float tile_size = 50;
+        struct Constants
+        {
+            int z_lidar_height = 0;
+            float grid_width = 12000;
+            float grid_length = 12000;
+            float back_distance = 3000;
+            float tile_size = 100;
+            float MAX_LASER_RANGE = 8000;
+            float xMin = -grid_width / 2;
+            float xMax = grid_width / 2;
+            //float yMin = -back_distance;
+            //float yMax = grid_length - back_distance;
+            float yMin = -grid_length / 2;
+            float yMax = grid_length / 2;
+            float robot_semi_width = 200;
+            float min_distance_to_target = 200; // mm
+        };
+        Constants consts;
 
-        float xMin = -grid_width / 2;
-        float xMax = grid_width / 2;
-        float yMin = -back_distance;
-        float yMax = grid_length - back_distance;
+        // grid
+        Grid grid;
 
         // FPS
         FPSCounter fps;
@@ -82,6 +91,7 @@ class SpecificWorker : public GenericWorker
         {
             bool active = false;
             bool global = false;  // defined in global coordinates
+            bool completed = false;
             Eigen::Vector2f point = Eigen::Vector2f(0, 0);
             QPointF qpoint;
             void set(const QPointF &p, bool global_ = false)
@@ -90,6 +100,7 @@ class SpecificWorker : public GenericWorker
                 qpoint = p;
                 global = global_;
                 active = true;
+                completed = false;
             }
             void set(const Eigen::Vector2f &p, bool global_ = false)
             {
@@ -97,6 +108,7 @@ class SpecificWorker : public GenericWorker
                 global = global_;
                 qpoint = QPointF(p.x(), p.y());
                 active = true;
+                completed = false;
             }
             Eigen::Vector2f pos_eigen() const { return point; }
             QPointF pos_qt() const { return qpoint; }
@@ -115,6 +127,8 @@ class SpecificWorker : public GenericWorker
                 qInfo() << "    active: " << active;
                 qInfo() << "    dist to robot: " << point.norm();
             }
+            static Target invalid() { Target t; t.active=false; return t; };
+            bool is_valid() const { return active; };
         };
         DoubleBuffer<Target, Target> target_buffer;
 
@@ -127,15 +141,20 @@ class SpecificWorker : public GenericWorker
         int path_not_found_counter = 0;
         int path_not_found_limit = 10;
 
+        Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
         RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
-                                              float threshold_dist, float threshold_angle);
-        std::optional<Eigen::Vector2f> closest_point_to_target(const QPointF &p);
+                                              float threshold_dist, float threshold_angle); // get close point in current path
         bool not_line_of_sight_path(const QPointF &f);
-        Eigen::Vector2f  border_subtarget(RoboCompVisualElements::TObject target);
+        Eigen::Vector2f  border_subtarget(const RoboCompVisualElements::TObject &target);
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
+        void set_target_global(const Eigen::Transform<double, 3, 1> &robot_pose, Target &target, Target &original_target);
+        RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
+        RoboCompGridPlanner::TPlan compute_not_line_of_sight_target(const Target &target);
+        void adapt_grid_size(const Target &target);
+
 };
 
 #endif
