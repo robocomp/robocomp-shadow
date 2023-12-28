@@ -57,6 +57,12 @@ class SpecificWorker : public GenericWorker
     private:
         bool startup_check_flag;
 
+        // config
+        bool display = false;
+        std::string lidar_name = "helios";
+        QRectF dim = QRectF(-4000, -4000, 8000, 8000);
+        int MAX_INACTIVE_TIME = 5;  // secs after which the component is paused. It reactivates with a new reset
+
         // Lidar and Thread
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
         std::thread read_lidar_th;
@@ -78,6 +84,7 @@ class SpecificWorker : public GenericWorker
 
         // Timer
         FPSCounter fps;
+        std::atomic<std::chrono::high_resolution_clock::time_point> last_read;
 
         // Path
         std::vector<Eigen::Vector2f> path;

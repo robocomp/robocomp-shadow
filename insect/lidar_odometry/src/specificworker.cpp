@@ -26,7 +26,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 {
     this->startup_check_flag = startup_check;
 }
-
 /**
 * \brief Default destructor
 */
@@ -34,20 +33,20 @@ SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
 }
-
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
-    // TODO: add config params to display/not display, lidar name, viewer size
-//	try
-//	{
-//		RoboCompCommonBehavior::Parameter par = params.at("InnerModelPath");
-//		std::string innermodel_path = par.value;
-//		innerModel = std::make_shared(innermodel_path);
-//	}
-//	catch(const std::exception &e) { qFatal("Error reading config params"); }
+	try
+	{
+		display = params.at("display").value == "True" or params.at("display").value == "true";
+        lidar_name = params.at("lidar_name").value;
+        dim.setLeft(std::stod(params.at("viewer_left").value));
+        dim.setTop(std::stod(params.at("viewer_top").value));
+        dim.setWidth(std::stod(params.at("viewer_width").value));
+        dim.setHeight(std::stod(params.at("viewer_height").value));
+	}
+	catch(const std::exception &e) { qFatal("Error reading config params"); }
 	return true;
 }
-
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
@@ -59,10 +58,15 @@ void SpecificWorker::initialize(int period)
 	else
 	{
         // Viewer
-        viewer = new AbstractGraphicViewer(this->frame, QRectF(-4000, -4000, 8000, 8000));
-        auto [rob, las] = viewer->add_robot(500, 500, 0, 100, QColor("Blue"));
-        robot_polygon = rob;
-        viewer->show();
+        if(display)
+        {
+            viewer = new AbstractGraphicViewer(this->frame, dim);
+            auto [rob, las] = viewer->add_robot(400, 500, 0, 100, QColor("Blue"));
+            robot_polygon = rob;
+            viewer->show();
+        }
+        else
+            hide();
 
         // Lidar thread is created
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar_thread,this));
@@ -77,6 +81,9 @@ void SpecificWorker::initialize(int period)
             path.clear();
         });
 
+        // pause variable
+        last_read.store(std::chrono::high_resolution_clock::now());
+
         Period = 100;
 		timer.start(Period);
 	}
@@ -84,6 +91,12 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+    /// check idle time
+    if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
+    {
+        fps.print("No requests in the last 5 seconds. Pausing. Reset to continue", 3000);
+        return;
+    }
     /// read LiDAR
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source;
     if( auto res = read_lidar(); not res.has_value()) return;
@@ -101,7 +114,8 @@ void SpecificWorker::compute()
             });
 
     // draw
-    draw_robot(robot_pose);
+    if(display)
+        draw_robot(robot_pose);
 
     // print
     std::string pose = std::to_string(robot_pose.translation().x()*1000) + "mm " +
@@ -143,7 +157,6 @@ void SpecificWorker::read_lidar_thread()
     {
         try
         {
-            //auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000, 1); // TODO: move to constants
             auto data = lidar3d_proxy->getLidarDataWithThreshold2d("helios", 10000, 1); // TODO: move to constants
             // concatenate both lidars
             //data.points.insert(data.points.end(), data_helios.points.begin(), data_helios.points.end());
@@ -214,17 +227,17 @@ int SpecificWorker::startup_check()
 RoboCompFullPoseEstimation::FullPoseEuler SpecificWorker::LidarOdometry_getFullPoseEuler()
 {
     qWarning() << "Not implemented";
-    // TODO: check time since last request and move to paused state
     return RoboCompFullPoseEstimation::FullPoseEuler();
 }
-
 RoboCompFullPoseEstimation::FullPoseMatrix SpecificWorker::LidarOdometry_getFullPoseMatrix()
 {
-    return buffer_odometry.get();
+    last_read.store(std::chrono::high_resolution_clock::now());
+    return buffer_odometry.get_idemp();
 }
 
 void SpecificWorker::LidarOdometry_reset()
 {
+    last_read.store(std::chrono::high_resolution_clock::now());
     fastgicp.reset();
 }
 
