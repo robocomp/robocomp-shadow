@@ -110,9 +110,11 @@ void SpecificWorker::compute()
     /// clear grid and update it
     grid.clear();
     // TODO: pass target to remove occupied cells.
+    //qInfo() << "update";
     grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, consts.MAX_LASER_RANGE);
+    //qInfo() << "costs";
     grid.update_costs( consts.robot_semi_width, true);
-
+    //qInfo() << "after costs";
     /// if new valid target
     if (target.is_valid())
     {
@@ -132,9 +134,6 @@ void SpecificWorker::compute()
         if(target.global)  // global = true -> target in global coordinates
             set_target_global(robot_pose, target, original_target);    // transform target to robot's frame
 
-        /// adapt grid size and resolution for next iteration
-        adapt_grid_size(target);
-
         /// search for closest point to target in grid
         if(auto closest_ = grid.closest_free(target.pos_qt()); not closest_.has_value())
         {
@@ -150,9 +149,11 @@ void SpecificWorker::compute()
             returning_plan = compute_not_line_of_sight_target(target);
         else
             returning_plan = compute_line_of_sight_target(target);
-
         /// send plan to remote interface and publish it to rcnode
         send_and_publish_plan(returning_plan);
+
+        /// adapt grid size and resolution for next iteration
+        adapt_grid_size(target);
     }
     viewer->update();
     fps.print("FPS:");

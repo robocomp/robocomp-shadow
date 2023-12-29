@@ -121,12 +121,12 @@ class Grid
         std::list<QPointF> computePath(const QPointF &source_, const QPointF &target_);
         std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
         void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
-        void update_map_naif( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
+        //void update_map_naif( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
         bool is_path_blocked(const std::vector<Eigen::Vector2f> &path); // grid coordinates
 
-        inline std::tuple<bool, T &> getCell(long int x, long int z);
+        //inline std::tuple<bool, T &> getCell(long int x, long int z);
         inline std::tuple<bool, T &> getCell(const Key &k);
-        inline std::tuple<bool, T &> getCell(const Eigen::Vector2f &p);
+        //inline std::tuple<bool, T &> getCell(const Eigen::Vector2f &p);
         typename FMap::iterator begin()
         { return fmap.begin(); };
         typename FMap::iterator end()
@@ -137,7 +137,7 @@ class Grid
         { return fmap.begin(); };
         size_t size() const
         { return fmap.size(); };
-        void insert(const Key &key, const T &value);
+        inline void insert(const Key &key, const T &value);
         void saveToFile(const std::string &fich);
         void readFromFile(const std::string &fich);
         std::string saveToString() const;
@@ -165,7 +165,7 @@ class Grid
         void add_miss_naif(const Eigen::Vector2f &p);
         inline void add_miss(const Eigen::Vector2f &p);
         inline void add_hit(const Eigen::Vector2f &p);
-        void log_update(const Eigen::Vector2f &p, float prob);
+        //void log_update(const Eigen::Vector2f &p, float prob);
         double log_odds(double prob);
         double retrieve_p(double l);
         float percentage_changed();
@@ -188,6 +188,7 @@ class Grid
         FMap fmap;
         QGraphicsScene *scene;
         double updated=0.0, flipped=0.0;
+        std::vector<Key> keys;  // vector of keys to compute closest matches
 
         std::list<QPointF> orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
