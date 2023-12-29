@@ -39,13 +39,59 @@ SpecificWorker::~SpecificWorker()
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
-//	try
-//	{
-//		RoboCompCommonBehavior::Parameter par = params.at("InnerModelPath");
-//		std::string innermodel_path = par.value;
-//		innerModel = std::make_shared(innermodel_path);
-//	}
-//	catch(const std::exception &e) { qFatal("Error reading config params"); }
+    try
+    {
+        consts.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
+        consts.LIDAR_NAME = params.at("lidar_name").value;
+        consts.viewer_dim.setLeft(std::stod(params.at("viewer_left").value));
+        consts.viewer_dim.setTop(std::stod(params.at("viewer_top").value));
+        consts.viewer_dim.setWidth(std::stod(params.at("viewer_width").value));
+        consts.viewer_dim.setHeight(std::stod(params.at("viewer_height").value));
+        consts.OUTER_RIG_DISTANCE = std::stod(params.at("outer_rig_distance").value);
+        consts.BAND_WIDTH = std::stod(params.at("band_width").value);
+        consts.MIN_BAND_WIDTH = std::stod(params.at("min_band_width").value);
+        consts.MAX_BAND_WIDTH = std::stod(params.at("max_band_width").value);
+        consts.BELT_ANGULAR_STEP = std::stod(params.at("belt_angular_step").value);
+        consts.BELT_LINEAR_STEP = std::stod(params.at("belt_linear_step").value);
+        consts.MAX_DIST_TO_LOOK_AHEAD = consts.BAND_WIDTH;
+        consts.ROBOT_WIDTH = std::stod(params.at("robot_width").value);
+        consts.ROBOT_LENGTH = std::stod(params.at("robot_length").value);
+        consts.ROBOT_SEMI_WIDTH = consts.ROBOT_WIDTH / 2.f;
+        consts.ROBOT_SEMI_LENGTH = consts.ROBOT_LENGTH / 2.f;
+        consts.MAX_ADV_SPEED = std::stod(params.at("max_adv_speed").value);
+        consts.MAX_SIDE_SPEED = std::stod(params.at("max_side_speed").value);
+        consts.MAX_ROT_SPEED = std::stod(params.at("max_rot_speed").value);
+        consts.MAX_LIDAR_RANGE = std::stod(params.at("max_lidar_range").value);
+        consts.LIDAR_DECIMATION_FACTOR = std::stod(params.at("lidar_decimation_factor").value);
+        consts.PERIOD_HYSTERESIS = std::stod(params.at("period_hysteresis").value);
+        consts.REPULSION_GAIN = std::stod(params.at("repulsion_gain").value);
+        consts.PERIOD = std::stod(params.at("period").value);
+    }
+    catch(const std::exception &e) { qWarning("Error reading config params. Withdrawing to defaults"); }
+    qInfo() << "Config parameters:";
+    qInfo() << "    display" << consts.DISPLAY;
+    qInfo() << "    lidar_name" << consts.LIDAR_NAME.c_str();
+    qInfo() << "    viewer_dim" << consts.viewer_dim << "mm";
+    qInfo() << "    outer_rig_distance" << consts.OUTER_RIG_DISTANCE << "mm";
+    qInfo() << "    band_width" << consts.BAND_WIDTH << "mm";
+    qInfo() << "    min_band_width" << consts.MIN_BAND_WIDTH << "mm";
+    qInfo() << "    max_band_width" << consts.MAX_BAND_WIDTH << "mm";
+    qInfo() << "    belt_angular_step" << consts.BELT_ANGULAR_STEP << "rad";
+    qInfo() << "    belt_linear_step" << consts.BELT_LINEAR_STEP << "mm";
+    qInfo() << "    max_dist_to_look_ahead" << consts.MAX_DIST_TO_LOOK_AHEAD << "mm";
+    qInfo() << "    robot_width" << consts.ROBOT_WIDTH << "mm";
+    qInfo() << "    robot_length" << consts.ROBOT_LENGTH << "mm";
+    qInfo() << "    robot_semi_width" << consts.ROBOT_SEMI_WIDTH << "mm";
+    qInfo() << "    robot_semi_length" << consts.ROBOT_SEMI_LENGTH << "mm";
+    qInfo() << "    max_adv_speed" << consts.MAX_ADV_SPEED << "mm/s";
+    qInfo() << "    max_side_speed" << consts.MAX_SIDE_SPEED << "mm/s";
+    qInfo() << "    max_rot_speed" << consts.MAX_ROT_SPEED << "rad/s";
+    qInfo() << "    max_lidar_range" << consts.MAX_LIDAR_RANGE << "mm";
+    qInfo() << "    lidar_decimation_factor" << consts.LIDAR_DECIMATION_FACTOR;
+    qInfo() << "    period_hysteresis" << consts.PERIOD_HYSTERESIS << "ms";
+    qInfo() << "    repulsion_gain" << consts.REPULSION_GAIN;
+    qInfo() << "    period" << consts.PERIOD << "ms";
+    qInfo() << "-----------------------------";
 	return true;
 }
 void SpecificWorker::initialize(int period)
@@ -104,57 +150,26 @@ void SpecificWorker::compute()
     }
 
     /// Check bumper for a security breach
+    reaction.active = false;
     std::vector<Eigen::Vector2f> displacements = check_safety(ldata.points);
     draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
-    //security_breach = false;
-    if(not security_breach) draw_target_breach(target, true);
+    if(not security_breach) draw_target_breach(target, true);   // erase target breach from draw
 
-    //////////////////////////////////
+    ////////////////////////////////////////////
     /// We have now four possibilities
-    //////////////////////////////////
+    ///////////////////////////////////////////
     // (1) target active and security breach.  Choose displacement best aligned with target
     if(target.active and security_breach)
-    {
-        qInfo() << "Target active and security breach -------------------------------";
-        if (not displacements.empty())
-        {
-            // we need to find the element that is the minimum in the following cost function: J = target.eigen().transpose * a + a.norm()
-            // meaning that it is aligned with the target and has small module
-            auto res = std::ranges::max_element(displacements, [t = target](auto &a, auto &b)
-            {
-                Eigen::Vector2f tv = t.eigen().transpose().normalized();
-                return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
-            });
-            // float landa = 0.5;
-            // *res = (*res)*landa + target.eigen()*(1-landa); // add target to displacement
-            reaction.set(res->x(), res->y(), 0.f);
-            draw_target_original(target, false, 1);
-        }
-    }
+        target_active_and_security_breach(displacements);
 
     // (2) no target and no security breach. Stop robot
     if(not target.active and not security_breach)
-    {
-        //qInfo() << "NO target active and NOT security breach -------------------------------";
-        reaction.active = false;
-        stop_robot("No target, no breach");
-    }
+        not_target_active_and_not_security_breach(displacements);
 
     // (3) no target and security breach. Choose displacement that maximizes sum of distances to obstacles
     if(not target.active and security_breach) // choose displacement that maximizes sum of distances to obstacles
-    {
-        qInfo() << "NO target active and security breach -------------------------------";
-        if (not displacements.empty())
-        {
-            // select the minimum displacement that sets the robot free
-            auto res = std::ranges::min(displacements,[](auto &a, auto &b)
-                { return a.norm() < b.norm(); });
-            res *= consts.REPULSION_GAIN;
-            reaction.set(res.x(), res.y(), 0.f);
-            draw_target_breach(reaction);
-        } else  {  stop_robot("Collision but no solution found");  }
-    }
+        not_target_active_and_security_breach(displacements);
 
     // (4) target and no security breach. Keep going
 
@@ -162,7 +177,7 @@ void SpecificWorker::compute()
     if(target.active and target.eigen().norm() < 50.f and fabs(target.rot)<0.1f)
     {
         target.active = false;
-        stop_robot();
+        move_robot(Target(), Target(), true);
     }
 
     // Move the robot
@@ -274,8 +289,55 @@ void SpecificWorker::read_lidar()
         std::this_thread::sleep_for(wait_period);
     }
 }
-void SpecificWorker::move_robot(Target &target, const Target &reaction)
+void SpecificWorker::target_active_and_security_breach(const std::vector<Eigen::Vector2f> &displacements)
 {
+    qInfo() << "Target active and security breach -------------------------------";
+    if (not displacements.empty())
+    {
+        // we need to find the element that is the minimum in the following cost function: J = target.eigen().transpose * a + a.norm()
+        // meaning that it is aligned with the target and has small module
+        auto res = std::ranges::max_element(displacements, [t = target](auto &a, auto &b)
+        {
+            Eigen::Vector2f tv = t.eigen().transpose().normalized();
+            return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
+        });
+        reaction.set(res->x(), res->y(), 0.f);
+        draw_target_original(target, false, 1);
+    }
+}
+void SpecificWorker::not_target_active_and_not_security_breach(const std::vector<Eigen::Vector2f> &displacements)
+{
+    //qInfo() << "NO target active and NOT security breach -------------------------------";
+    reaction.active = false;
+    move_robot(Target(), Target(), true);
+}
+void SpecificWorker::not_target_active_and_security_breach(const std::vector<Eigen::Vector2f> &displacements)
+{
+    qInfo() << "NO target active and security breach -------------------------------";
+    if (not displacements.empty())
+    {
+        // select the minimum displacement that sets the robot free
+        auto res = std::ranges::min(displacements,[](auto &a, auto &b)
+        { return a.norm() < b.norm(); });
+        res *= consts.REPULSION_GAIN;
+        reaction.set(res.x(), res.y(), 0.f);
+        draw_target_breach(reaction);
+    } else
+    {  move_robot(Target(), Target(), true);  }
+}
+void SpecificWorker::move_robot(const Target &target, const Target &reaction, bool stop)
+{
+    if(stop)
+    try
+    {
+        omnirobot_proxy->setSpeedBase(0.f, 0.f, 0.f);
+        robot_stopped = true;
+        qInfo() << "Stopping robot -------------------------------";
+        return;
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
+
     // check speed limits
     float t_adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float t_side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
@@ -283,43 +345,52 @@ void SpecificWorker::move_robot(Target &target, const Target &reaction)
     float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
 
-    qInfo() << "ROBOT SPEEDS " << t_adv << t_side << t_rot;
-
-    float lambda = 0.0;
-
+    float lambda = 0.5;
     // check activation status of targets and combine results
     if(target.active and not reaction.active)
+    {
+        qInfo() << "Target active and reaction NOT active";
         robot_current_speed = {t_side, t_adv, t_rot};
+    }
     else if(target.active ) // also reaction.active is true
-        robot_current_speed = {lambda * t_side + (1-lambda) * r_side, lambda * t_adv+(1-lambda) * r_adv, t_rot};
+    {
+        qInfo() << "Target active and reaction active";
+        robot_current_speed = {lambda * t_side + (1 - lambda) * r_side, lambda * t_adv + (1 - lambda) * r_adv, t_rot};
+    }
     else if(reaction.active) // also target.active is false
+    {
+        qInfo() << "Target NOT active and reaction active";
         robot_current_speed = {r_side, r_adv, 0.f};
+    }
     else return;  // no targets active
+
+    qInfo() << "ROBOT SPEEDS before" << t_adv << t_side << t_rot << " reaction" << r_adv << r_side;
+    qInfo() << "ROBOT SPEEDS to controller" << robot_current_speed.y() << robot_current_speed.x() << robot_current_speed.z();
 
     try
     {
         // TODO: Webots has order changed
         omnirobot_proxy->setSpeedBase(robot_current_speed.x(),
                                       robot_current_speed.y(),
-                                      robot_current_speed.z());
+                                      robot_current_speed.z()*1.2); // Maybe too much for the real robot
         robot_stopped = false;
     }
     catch (const Ice::Exception &e)
     { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
 }
-void SpecificWorker::stop_robot()
-{
-    try
-    {
-        // TODO: Webots has order changed
-        omnirobot_proxy->setSpeedBase(0.f ,
-                                      0.f ,
-                                      0.f);
-        robot_stopped = true;
-    }
-    catch (const Ice::Exception &e)
-    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
-}
+//void SpecificWorker::stop_robot()
+//{
+//    try
+//    {
+//        // TODO: Webots has order changed
+//        omnirobot_proxy->setSpeedBase(0.f ,
+//                                      0.f ,
+//                                      0.f);
+//        robot_stopped = true;
+//    }
+//    catch (const Ice::Exception &e)
+//    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
+//}
 std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF &robot_safe_band)
 {
     std::vector<Eigen::Vector2f> edges;
@@ -342,24 +413,24 @@ std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF 
     }
     return edges;
 }
-void SpecificWorker::stop_robot(const std::string_view txt)
-{
-    if(not robot_stopped)
-    {
-        target.active = false;
-        try
-        {
-            omnirobot_proxy->setSpeedBase(0, 0, 0);
-            qInfo() << __FUNCTION__ << "Robot stopped";
-            draw_target(target, true);
-            robot_current_speed = {0.f, 0.f, 0.f};
-        }
-        catch (const Ice::Exception &e)
-        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-        robot_stopped = true;
-        std::cout << "Robot stopped due to " << txt << std::endl;
-    }
-};
+//void SpecificWorker::stop_robot(const std::string_view txt)
+//{
+//    if(not robot_stopped)
+//    {
+//        target.active = false;
+//        try
+//        {
+//            omnirobot_proxy->setSpeedBase(0, 0, 0);
+//            qInfo() << __FUNCTION__ << "Robot stopped";
+//            draw_target(target, true);
+//            robot_current_speed = {0.f, 0.f, 0.f};
+//        }
+//        catch (const Ice::Exception &e)
+//        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
+//        robot_stopped = true;
+//        std::cout << "Robot stopped due to " << txt << std::endl;
+//    }
+//};
 QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
 {
     // if advance velocity (y) is positive, make the width of the band proportional to it
