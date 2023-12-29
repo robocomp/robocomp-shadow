@@ -67,10 +67,11 @@ public slots:
         // Structs
         struct Constants
         {
+            bool DISPLAY = false;
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
             float BAND_WIDTH = 200.f;			// distance to the obstacle that repels the object
             float MIN_BAND_WIDTH = 25.f;		// minimum distance to the obstacle that repels the object
-            float MAX_BAND_WIDTH = 300.f;		// maximum distance to the obstacle that repels the object
+            float MAX_BAND_WIDTH = 200.f;		// maximum distance to the obstacle that repels the object
             double BELT_ANGULAR_STEP = 0.1f;  // angular step to create the belt
             float BELT_LINEAR_STEP = 30.f;  // linear step to create the belt
             float MAX_DIST_TO_LOOK_AHEAD = BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
@@ -78,9 +79,9 @@ public slots:
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
-            const float MAX_ADV_SPEED = 1000;    // mm/s
-            const float MAX_SIDE_SPEED = 1000;   // mm/s
-            const float MAX_ROT_SPEED = 2;  // rad/s
+            float MAX_ADV_SPEED = 1000;    // mm/s
+            float MAX_SIDE_SPEED = 1000;   // mm/s
+            float MAX_ROT_SPEED = 2;  // rad/s
             std::string LIDAR_NAME = "bpearl";
             float MAX_LIDAR_RANGE = 10000;  // mm
             float LIDAR_DECIMATION_FACTOR = 1;
@@ -167,11 +168,13 @@ public slots:
         DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_target;
 
         // Processing steps
-        void stop_robot(const std::string_view txt);
+        //void stop_robot(const std::string_view txt);
         std::vector<Eigen::Vector2f> check_safety(const RoboCompLidar3D::TPoints &points);
         QPolygonF adjust_band_size(const Eigen::Vector3f &velocity);
-        void move_robot(Target &target, const Target &reaction);
-        void stop_robot();
+        void move_robot(const Target &target, const Target &reaction, bool stop = false);
+        void target_active_and_security_breach(const vector<Eigen::Vector2f> &displacements);
+        void not_target_active_and_not_security_breach(const vector<Eigen::Vector2f> &displacements);
+        void not_target_active_and_security_breach(const vector<Eigen::Vector2f> &displacements);
 };
 
 #endif
