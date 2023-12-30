@@ -48,12 +48,12 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
         consts.viewer_dim.setWidth(std::stod(params.at("viewer_width").value));
         consts.viewer_dim.setHeight(std::stod(params.at("viewer_height").value));
         consts.OUTER_RIG_DISTANCE = std::stod(params.at("outer_rig_distance").value);
-        consts.BAND_WIDTH = std::stod(params.at("band_width").value);
+        consts.MAX_BAND_WIDTH = std::stod(params.at("band_width").value);
         consts.MIN_BAND_WIDTH = std::stod(params.at("min_band_width").value);
         consts.MAX_BAND_WIDTH = std::stod(params.at("max_band_width").value);
         consts.BELT_ANGULAR_STEP = std::stod(params.at("belt_angular_step").value);
         consts.BELT_LINEAR_STEP = std::stod(params.at("belt_linear_step").value);
-        consts.MAX_DIST_TO_LOOK_AHEAD = consts.BAND_WIDTH;
+        consts.MAX_DIST_TO_LOOK_AHEAD = consts.MAX_BAND_WIDTH;
         consts.ROBOT_WIDTH = std::stod(params.at("robot_width").value);
         consts.ROBOT_LENGTH = std::stod(params.at("robot_length").value);
         consts.ROBOT_SEMI_WIDTH = consts.ROBOT_WIDTH / 2.f;
@@ -73,7 +73,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
     qInfo() << "    lidar_name" << consts.LIDAR_NAME.c_str();
     qInfo() << "    viewer_dim" << consts.viewer_dim << "mm";
     qInfo() << "    outer_rig_distance" << consts.OUTER_RIG_DISTANCE << "mm";
-    qInfo() << "    band_width" << consts.BAND_WIDTH << "mm";
+    qInfo() << "    band_width" << consts.MAX_BAND_WIDTH << "mm";
     qInfo() << "    min_band_width" << consts.MIN_BAND_WIDTH << "mm";
     qInfo() << "    max_band_width" << consts.MAX_BAND_WIDTH << "mm";
     qInfo() << "    belt_angular_step" << consts.BELT_ANGULAR_STEP << "rad";
@@ -114,10 +114,10 @@ void SpecificWorker::initialize(int period)
                       QPointF(consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
                       QPointF(consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH) <<
                       QPointF(-consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH);
-        robot_safe_band << QPointF(-consts.ROBOT_SEMI_WIDTH - consts.BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.BAND_WIDTH) <<
-                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.BAND_WIDTH) <<
-                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.BAND_WIDTH) <<
-                        QPointF(-consts.ROBOT_SEMI_WIDTH - consts.BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.BAND_WIDTH);
+        robot_safe_band << QPointF(-consts.ROBOT_SEMI_WIDTH - consts.MAX_BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.MAX_BAND_WIDTH) <<
+                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.MAX_BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.MAX_BAND_WIDTH) <<
+                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.MAX_BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.MAX_BAND_WIDTH) <<
+                        QPointF(-consts.ROBOT_SEMI_WIDTH - consts.MAX_BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.MAX_BAND_WIDTH);
 
         // create list of edge points (polar) from robot_safe_band
 		edge_points = create_edge_points(robot_safe_band);
@@ -247,9 +247,9 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
                     displacements.emplace_back(t); // add displacement to list
             }
         }
-      // Check if the selected displacements induce new points inside the belt
-      std::vector<Eigen::Vector2f> final_displacement;
-      for (const auto &d : displacements)
+        // Check if the selected displacements induce new points inside the belt
+        std::vector<Eigen::Vector2f> final_displacement;
+        for (const auto &d : displacements)
       {
           bool success = true;
           Eigen::Vector2f p_cart;
@@ -268,7 +268,7 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
               final_displacement.emplace_back(d);
       }
 
-      return final_displacement;
+        return final_displacement;
     }
     else return {};
 }
@@ -327,7 +327,7 @@ void SpecificWorker::not_target_active_and_security_breach(const std::vector<Eig
 }
 void SpecificWorker::move_robot(const Target &target, const Target &reaction, bool stop)
 {
-    if(stop)
+    if(stop and not robot_stopped)
     try
     {
         omnirobot_proxy->setSpeedBase(0.f, 0.f, 0.f);
@@ -362,17 +362,20 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
         qInfo() << "Target NOT active and reaction active";
         robot_current_speed = {r_side, r_adv, 0.f};
     }
-    else return;  // no targets active
+    else
+    {
+        robot_current_speed = {0.f, 0.f, 0.f};
+        return;  // no targets active
+    }
 
-    qInfo() << "ROBOT SPEEDS before" << t_adv << t_side << t_rot << " reaction" << r_adv << r_side;
+    //qInfo() << "ROBOT SPEEDS before" << t_adv << t_side << t_rot << " reaction" << r_adv << r_side;
     qInfo() << "ROBOT SPEEDS to controller" << robot_current_speed.y() << robot_current_speed.x() << robot_current_speed.z();
 
     try
     {
-        // TODO: Webots has order changed
         omnirobot_proxy->setSpeedBase(robot_current_speed.x(),
                                       robot_current_speed.y(),
-                                      robot_current_speed.z()*1.2); // Maybe too much for the real robot
+                                      robot_current_speed.z());
         robot_stopped = false;
     }
     catch (const Ice::Exception &e)
@@ -435,6 +438,7 @@ QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
 {
     // if advance velocity (y) is positive, make the width of the band proportional to it
     // according to the following constraints: for MAX_ADV_SPEED -> MIN_BAND_WIDTH; for MIN_ADV_SPEED -> MAX_BAND_WIDTH
+    //qInfo() << velocity.x() << velocity.y();
     float width = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.y()) / consts.MAX_ADV_SPEED + consts.MAX_BAND_WIDTH;
     float height = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.x()) / consts.MAX_SIDE_SPEED + consts.MAX_BAND_WIDTH;
     QRectF new_rect{-consts.ROBOT_SEMI_WIDTH - width,
@@ -469,8 +473,8 @@ void SpecificWorker::draw_target(const Target &t, bool erase)
     if( ball != nullptr) { viewer->scene.removeItem(ball); ball = nullptr; }
     if(not erase)
     {
-        line = viewer->scene.addLine(0, 0, t.x, t.y, QPen(QColor("green"), 20));
-        ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20));
+        line = viewer->scene.addLine(0, 0, t.x, t.y, QPen(QColor("red"), 20));
+        ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("red"), 20));
         ball->setPos(t.x, t.y);
     }
 }
@@ -482,8 +486,8 @@ void SpecificWorker::draw_target(double x, double y, bool erase)
     if( ball != nullptr) { viewer->scene.removeItem(ball); ball = nullptr;}
     if(not erase)
     {
-        line = viewer->scene.addLine(0, 0, x, y, QPen(QColor("green"), 20));
-        ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20));
+        line = viewer->scene.addLine(0, 0, x, y, QPen(QColor("red"), 20));
+        ball = viewer->scene.addEllipse(-20, -20, 40, 40, QPen(QColor("red"), 20));
         ball->setPos(x, y);
     }
 }
@@ -575,7 +579,7 @@ void SpecificWorker::draw_robot_contour(const QPolygonF &robot_contour, const QP
         delete p;
     }
     items.clear();
-    auto r = scene->addPolygon(robot_contour, QPen(QColor("green"), 15));
+    auto r = scene->addPolygon(robot_contour, QPen(QColor("magenta"), 15));
     auto s = scene->addPolygon(robot_safe_band, QPen(QColor("orange"), 15));
     items.push_back(r);
     items.push_back(s);

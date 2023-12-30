@@ -64,17 +64,16 @@ public slots:
 	private:
 		bool startup_check_flag;
 
-        // Structs
+        // Parameters
         struct Constants
         {
             bool DISPLAY = false;
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
-            float BAND_WIDTH = 200.f;			// distance to the obstacle that repels the object
             float MIN_BAND_WIDTH = 25.f;		// minimum distance to the obstacle that repels the object
             float MAX_BAND_WIDTH = 200.f;		// maximum distance to the obstacle that repels the object
-            double BELT_ANGULAR_STEP = 0.1f;  // angular step to create the belt
-            float BELT_LINEAR_STEP = 30.f;  // linear step to create the belt
-            float MAX_DIST_TO_LOOK_AHEAD = BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
+            double BELT_ANGULAR_STEP = 0.1f;    // angular step to create the belt
+            float BELT_LINEAR_STEP = 30.f;      // linear step to create the belt
+            float MAX_DIST_TO_LOOK_AHEAD = MAX_BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
             float ROBOT_WIDTH = 460;  // mm
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
