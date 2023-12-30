@@ -52,13 +52,14 @@ void SpecificWorker::initialize(int period)
     else
     {
         // Viewer
-        viewer = new AbstractGraphicViewer(this->frame, QRectF(consts.xMin, consts.yMin, consts.grid_width, consts.grid_length));
-        viewer->add_robot(500, 500, 0, 100, QColor("Blue"));
+        viewer = new AbstractGraphicViewer(this->frame, consts.VIEWER_MAX_DIM);
+        //QRectF(consts.xMin, consts.yMin, consts.grid_width, consts.grid_length));
+        viewer->add_robot(consts.ROBOT_WIDTH, consts.ROBOT_LENGTH, 0, 100, QColor("Blue"));
         viewer->show();
 
         // grid
-        QRectF dim{consts.xMin, consts.yMin, static_cast<qreal>(consts.grid_width), static_cast<qreal>(consts.grid_length)};
-        grid.initialize(dim, consts.tile_size, &viewer->scene, false);
+        //QRectF dim{consts.xMin, consts.yMin, static_cast<qreal>(consts.grid_width), static_cast<qreal>(consts.grid_length)};
+        grid.initialize(consts.VIEWER_MAX_DIM, consts.TILE_SIZE, &viewer->scene, false);
 
         // reset lidar odometry
         try{ lidarodometry_proxy->reset(); }
@@ -73,7 +74,10 @@ void SpecificWorker::initialize(int period)
             {
                 qInfo() << "[MOUSE] New global target arrived:" << p;
                 Target target;
-                target.set(p, true);    // true = in global coordinates
+                if(grid.dim.contains(p))
+                    target.set(p, true); /// false = in robot's frame; true = in global frame
+                else
+                    target.set(border_subtarget(Eigen::Vector2f{p.x(), p.y()}), true); /// false = in robot's frame
                 target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
                 try{ lidarodometry_proxy->reset(); }
                 catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;};
@@ -87,13 +91,12 @@ void SpecificWorker::compute()
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false)  {   /*qWarning() << "No data Lidar";*/ return; }
-    auto ldata = res_.value();
+    auto points = res_.value();
 
-    /// convert points to Eigen
-    std::vector<Eigen::Vector3f> points; points.reserve(ldata.points.size());
-    for (const auto &p: ldata.points)
-        points.emplace_back(p.x, p.y, p.z);
-    //draw_lidar(ldata.points, 5);
+    /// clear grid and update it
+    grid.clear();   // TODO: pass human target to remove occupied cells.
+    grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, consts.MAX_LIDAR_RANGE);
+    grid.update_costs( consts.ROBOT_SEMI_WIDTH, true);
 
     /// get target from buffer
     RoboCompGridPlanner::TPlan returning_plan;
@@ -104,18 +107,10 @@ void SpecificWorker::compute()
     else
     {
         target = Target::invalid();
-        adapt_grid_size(target);    // restore max grid size
+        adapt_grid_size(target, {});    // restore max grid size
     }
 
-    /// clear grid and update it
-    grid.clear();
-    // TODO: pass target to remove occupied cells.
-    //qInfo() << "update";
-    grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, consts.MAX_LASER_RANGE);
-    //qInfo() << "costs";
-    grid.update_costs( consts.robot_semi_width, true);
-    //qInfo() << "after costs";
-    /// if new valid target
+    /// if new valid target arrived process it
     if (target.is_valid())
     {
         /// get robot pose
@@ -138,7 +133,12 @@ void SpecificWorker::compute()
         if(auto closest_ = grid.closest_free(target.pos_qt()); not closest_.has_value())
         {
             qInfo() << __FUNCTION__ << "No closest_point found. Returning. Cancelling target";
-            target_buffer.try_get();   // empty buffer so it doesn't enter a loop
+            //target_buffer.try_get();   // empty buffer so it doesn't enter a loop
+            target_buffer.put(Target{.active=true,
+                    .global=false,
+                    .completed=true,
+                    .point=Eigen::Vector2f::Zero(),
+                    .qpoint=QPointF{0.f,0.f}}); // reinject zero target to notify bumper of target reached
             return;
         }
         else target.set(closest_.value(), target.global); // keep current status of global
@@ -149,11 +149,25 @@ void SpecificWorker::compute()
             returning_plan = compute_not_line_of_sight_target(target);
         else
             returning_plan = compute_line_of_sight_target(target);
+
+        if(not returning_plan.valid)   // no valid path found. Cancel target
+        {
+            qWarning() << __FUNCTION__ << "No valid path found. Cancelling target";
+            //target_buffer.try_get();   // empty buffer so it doesn't enter a loop
+            target_buffer.put(Target{.active=true,
+                    .global=false,
+                    .completed=true,
+                    .point=Eigen::Vector2f::Zero(),
+                    .qpoint=QPointF{0.f,0.f}}); // reinject zero target to notify bumper of target reached
+            return;
+        }
+//        else
+//            /// adapt grid size and resolution for next iteration
+//            adapt_grid_size(target, returning_plan.path);
+
         /// send plan to remote interface and publish it to rcnode
         send_and_publish_plan(returning_plan);
 
-        /// adapt grid size and resolution for next iteration
-        adapt_grid_size(target);
     }
     viewer->update();
     fps.print("FPS:");
@@ -167,35 +181,45 @@ void SpecificWorker::read_lidar()
     {
         try
         {
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d("bpearl", 10000, 1); // TODO: move to constants
-            auto data_helios = lidar3d1_proxy->getLidarDataWithThreshold2d("helios", 10000, 1); // TODO: move to constants
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME_LOW,
+                                                                           consts.MAX_LIDAR_LOW_RANGE,
+                                                                           consts.LIDAR_LOW_DECIMATION_FACTOR);
+            auto data_helios = lidar3d1_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME_HIGH,
+                                                                           consts.MAX_LIDAR_HIGH_RANGE,
+                                                                           consts.LIDAR_HIGH_DECIMATION_FACTOR);
             // concatenate both lidars
             data.points.insert(data.points.end(), data_helios.points.begin(), data_helios.points.end());
             // compute the period to read the lidar based on the current difference with the lidar period. Use a hysteresis of 2ms
             if (wait_period > std::chrono::milliseconds((long) data.period + 2)) wait_period--;
             else if (wait_period < std::chrono::milliseconds((long) data.period - 2)) wait_period++;
-            buffer_lidar_data.put(std::move(data));
+            std::vector<Eigen::Vector3f> eig_data(data.points.size());
+            for (const auto &[i, p]: data.points | iter::enumerate)
+               eig_data[i] = {p.x, p.y, p.z};
+            buffer_lidar_data.put(std::move(eig_data));
         }
         catch (const Ice::Exception &e)
         { std::cout << "Error reading from Lidar3D" << e << std::endl; }
         std::this_thread::sleep_for(wait_period);
     }
 } // Thread to read the lidar
-void SpecificWorker::adapt_grid_size(const Target &target)
+void SpecificWorker::adapt_grid_size(const Target &target, const RoboCompGridPlanner::Points &path)
 {
     // TODO: change TILE_SIZE in map according to the existence of target, distance to the target, closeness to obstacles, etc.
     // adjust grid size to target distance and path
-    if(not target.is_valid() and grid.dim.width() != consts.grid_width) // if no target and first time
+    if(not target.is_valid() and grid.dim.width() != consts.VIEWER_MAX_DIM.width()) // if no target and first time
     {
         grid.reset();
-        grid.initialize(QRectF(consts.xMin, consts.yMin, consts.grid_width, consts.grid_length), consts.tile_size, &viewer->scene, false);
+        grid.initialize(consts.VIEWER_MAX_DIM, consts.TILE_SIZE, &viewer->scene, false);
         return;
     }
     if(target.is_valid())
     {
-        std::vector<Eigen::Vector2f> points;
+        std::vector<Eigen::Vector2f> points; points.reserve(path.size()+2);
         points.emplace_back(0, 0);
         points.emplace_back(target.pos_eigen().x(), target.pos_eigen().y());
+        for(auto &&p: path)
+            points.emplace_back(p.x, p.y);
+        // compute enclosing rectangle of points
         float xmin = std::ranges::min(points, [](auto &a, auto &b)
         { return a.x() < b.x(); }).x();
         float ymin = std::ranges::min(points, [](auto &a, auto &b)
@@ -204,11 +228,11 @@ void SpecificWorker::adapt_grid_size(const Target &target)
         { return a.x() < b.x(); }).x();
         float ymax = std::ranges::max(points, [](auto &a, auto &b)
         { return a.y() < b.y(); }).y();
-        QRectF dim{xmin-1000, ymin-1000, fabs(xmax - xmin)+2000, fabs(ymax - ymin)+2000};
+        QRectF dim{xmin-1200, ymin-1200, fabs(xmax - xmin)+2400, fabs(ymax - ymin)+2400};
         if (fabs(dim.width() - grid.dim.width()) > 500 or fabs(dim.height() > grid.dim.height()) > 500)
         {
             grid.reset();
-            grid.initialize(dim, consts.tile_size, &viewer->scene, false);
+            grid.initialize(dim, 50, &viewer->scene, false);
         }
     }
     // tile size
@@ -247,7 +271,7 @@ void SpecificWorker::set_target_global(const Eigen::Transform<double, 3, 1> &rob
     Eigen::Vector4d target_in_robot =
             robot_pose.inverse().matrix() * Eigen::Vector4d(target.pos_eigen().x() / 1000.0, target.pos_eigen().y() / 1000.0, 0.0, 1.0) * 1000.0;
     target.set(Eigen::Vector2f{target_in_robot(0), target_in_robot(1)}, true); // mm
-    if(target.pos_eigen().norm() < consts.min_distance_to_target)   // robot at target
+    if(target.pos_eigen().norm() < consts.MIN_DISTANCE_TO_TARGET)   // robot at target
     {
         qInfo() << __FUNCTION__  << "Target reached. Sending zero target";
         target_buffer.put(Target{.active=true,
@@ -277,13 +301,12 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_line_of_sight_target(const Ta
 }
 RoboCompGridPlanner::TPlan SpecificWorker::compute_not_line_of_sight_target(const Target &target)
 {
-    //qInfo() << __FUNCTION__ << "No Line of Sight path to target!";
     RoboCompGridPlanner::TPlan returning_plan;
     std::vector<Eigen::Vector2f> path;
     if(not last_path.empty())
     {
-        auto frechet_distance =get_frechet_distance(last_path, path);
-        qInfo() << "FRECHET DISTANCE " << frechet_distance;
+        auto frechet_distance = get_frechet_distance(last_path, path);
+        qInfo() << __FUNCTION__ << ": Frechet distance = " << frechet_distance;
         if(frechet_distance > 600 and (path_not_found_counter < path_not_found_limit))
         {
             path = last_path;
@@ -295,7 +318,6 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_not_line_of_sight_target(cons
         }
     }
     path = grid.compute_path(QPointF(0, 0), target.pos_qt());
-    //qInfo() << "Path size" << path.size();
     if (not path.empty() and path.size() > 0)
     {
         auto subtarget = send_path(path, 550, M_PI_4 / 6);
@@ -306,12 +328,12 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_not_line_of_sight_target(cons
         returning_plan.subtarget = subtarget;
         returning_plan.valid = true;
         last_path = path;
-        for (auto &&p: iter::sliding_window(path, 1))
-        {
-            auto point = RoboCompGridPlanner::TPoint(p[0][0], p[0][1]);
-            returning_plan.path.push_back(point);
-        }
-    } else  // EMPTY PATH
+        returning_plan.path.reserve(path.size());
+        for (auto &&p: path)
+            returning_plan.path.emplace_back(p.x(), p.y());
+        qInfo() << __FUNCTION__ << ": No Line of Sight path to target! Path size: " << path.size();
+    }
+    else  // EMPTY PATH
     {
         qWarning() << __FUNCTION__ << "Empty path";
         returning_plan.valid = false;
@@ -373,28 +395,34 @@ double SpecificWorker::get_frechet_distance(const std::vector<Eigen::Vector2f>& 
     }
     return maxDist;
 }
-Eigen::Vector2f SpecificWorker::border_subtarget(const RoboCompVisualElements::TObject &target)    // TODO: Explicar qué hace el método
+// Check if target is within the grid and otherwise, compute the intersection with the border
+Eigen::Vector2f SpecificWorker::border_subtarget(const Eigen::Vector2f &target)
 {
-    Eigen::Vector2f target2f {target.x,target.y};
+    float xMin = grid.dim.left();
+    float xMax = grid.dim.right();
+    float yMin = grid.dim.top();
+    float yMax = grid.dim.bottom();
+
+    Eigen::Vector2f target2f{target.x(), target.y()};
     float dist = target2f.norm();
-    Eigen::Vector2f corner_left_top {consts.xMin, consts.yMax};
-    Eigen::Vector2f corner_right_bottom {consts.xMax, consts.yMin};
+    Eigen::Vector2f corner_left_top {xMin, yMax};
+    Eigen::Vector2f corner_right_bottom {xMax, yMin};
 
     // Vertical
     if (target2f.x() == 0)
     {
-        target2f.y() = (target.y > 0) ? corner_left_top.y() : corner_right_bottom.y();
+        target2f.y() = (target.y() > 0) ? corner_left_top.y() : corner_right_bottom.y();
         return target2f;
     }
     double m = target2f.y() / target2f.x();  // Pendiente de la línea
 
-    // Calculamos las intersecciones con los lados del rectángulo
-    Eigen::Vector2f interseccionIzquierda(consts.xMin, m * consts.xMin);
-    Eigen::Vector2f interseccionDerecha(consts.xMax, m * consts.xMax);
-    Eigen::Vector2f interseccionSuperior(consts.xMax / m, consts.yMax);
-    Eigen::Vector2f interseccionInferior(consts.xMin / m, consts.yMin);
+    // Compute intersections with the rectangle
+    Eigen::Vector2f interseccionIzquierda(xMin, m * xMin);
+    Eigen::Vector2f interseccionDerecha(xMax, m * xMax);
+    Eigen::Vector2f interseccionSuperior(xMax / m, yMax);
+    Eigen::Vector2f interseccionInferior(xMin / m, yMin);
 
-    // Comprobamos si las intersecciones están dentro del rectángulo
+    // Check if intersections are inside the rectangle
     Eigen::Vector2f intersecciones[4] = { interseccionIzquierda, interseccionDerecha, interseccionSuperior, interseccionInferior };
     Eigen::Vector2f resultado;
 
@@ -402,15 +430,16 @@ Eigen::Vector2f SpecificWorker::border_subtarget(const RoboCompVisualElements::T
     {
         float x = intersecciones[i].x();
         float y = intersecciones[i].y();
-        if (consts.xMin <= x && x <= consts.xMax && consts.yMin <= y && y <= consts.yMax)
+        if (xMin <= x and x <= xMax and yMin <= y and y <= yMax)
         {
             if((intersecciones[i]-target2f).norm() < dist)
             {
-                resultado = intersecciones[i];
+                resultado = intersecciones[i] - consts.TILE_SIZE * intersecciones[i].normalized();
                 break;
             }
         }
     }
+    qInfo() << __FUNCTION__ << "Target out of grid. Computing intersection with border: [" << resultado.x() << resultado.y() << "]";
     return resultado;
 }
 bool SpecificWorker::not_line_of_sight_path(const QPointF &f)
@@ -513,16 +542,24 @@ int SpecificWorker::startup_check()
 /// SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
 void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
 {
-    // TODO: Check here if line of sight is blocked
     // qInfo()<< "TARGET " << target.x << target.y;
     Target t;
-    if (target.x < consts.xMax and target.x > consts.xMin and target.y > consts.yMin and target.y < consts.yMax)
-        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame
+    if(grid.dim.contains(QPointF{target.x, target.y}))
+        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame; true = in global frame
     else
     {
-        t.set(border_subtarget(target), false); /// false = in robot's frame
-        qInfo() << "TARGET OUT OF GRID" << border_subtarget(target).x() << border_subtarget(target).y();
+        Eigen::Vector2f tt = border_subtarget(Eigen::Vector2f{target.x, target.y});
+        t.set(tt, false); /// false = in robot's frame
+        //qInfo() << "TARGET OUT OF GRID" << tt.x() << tt.y();
     }
+
+//    if (target.x < consts.xMax and target.x > consts.xMin and target.y > consts.yMin and target.y < consts.yMax)
+//        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame
+//    else
+//    {
+//        t.set(border_subtarget(target), false); /// false = in robot's frame
+//        qInfo() << "TARGET OUT OF GRID" << border_subtarget(target).x() << border_subtarget(target).y();
+//    }
     target_buffer.put(std::move(t));
 }
 
