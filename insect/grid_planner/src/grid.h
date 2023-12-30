@@ -38,7 +38,7 @@ class Grid
 
     public:
         using Dimensions = QRectF;
-        int TILE_SIZE;
+        int TILE_SIZE;  // TODO:
 
         struct Key
         {
@@ -107,7 +107,7 @@ class Grid
         };
 
         using FMap = std::unordered_map<Key, T, KeyHasher>;
-        Dimensions dim = QRectF();
+        Dimensions dim = QRectF();  // TODO: make private
 
         void initialize(QRectF dim_,
                         int tile_size,
@@ -165,7 +165,6 @@ class Grid
         void add_miss_naif(const Eigen::Vector2f &p);
         inline void add_miss(const Eigen::Vector2f &p);
         inline void add_hit(const Eigen::Vector2f &p);
-        //void log_update(const Eigen::Vector2f &p, float prob);
         double log_odds(double prob);
         double retrieve_p(double l);
         float percentage_changed();

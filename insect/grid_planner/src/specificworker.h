@@ -55,20 +55,27 @@ class SpecificWorker : public GenericWorker
 
         struct Constants
         {
-            int z_lidar_height = 0;
-            float grid_width = 12000;
-            float grid_length = 12000;
-            float back_distance = 3000;
-            float tile_size = 80;
-            float MAX_LASER_RANGE = 8000;
-            float xMin = -grid_width / 2;
-            float xMax = grid_width / 2;
-            //float yMin = -back_distance;
-            //float yMax = grid_length - back_distance;
-            float yMin = -grid_length / 2;
-            float yMax = grid_length / 2;
-            float robot_semi_width = 200;
-            float min_distance_to_target = 200; // mm
+            float TILE_SIZE = 75;   // mm
+            float ROBOT_WIDTH = 460;  // mm
+            float ROBOT_LENGTH = 480;  // mm
+            float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
+            float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
+            float MAX_ADV_SPEED = 1000;    // mm/s
+            float MAX_SIDE_SPEED = 1000;   // mm/s
+            float MAX_ROT_SPEED = 2;  // rad/s
+            float MIN_DISTANCE_TO_TARGET = 200; // mm
+            std::string LIDAR_NAME_LOW = "bpearl";
+            std::string LIDAR_NAME_HIGH = "helios";
+            float MAX_LIDAR_LOW_RANGE = 10000;  // mm
+            float MAX_LIDAR_HIGH_RANGE = 10000;  // mm
+            float MAX_LIDAR_RANGE = 10000;  // mm used in the grid
+            float LIDAR_LOW_DECIMATION_FACTOR = 1;
+            float LIDAR_HIGH_DECIMATION_FACTOR = 1;
+            float GRID_WIDTH = 12000;   // mm
+            float GRID_LENGTH = 12000;  // mm
+            QRectF VIEWER_MAX_DIM{-6000, -6000, 12000, 12000};
+            long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
+            int PERIOD = 50;    // ms (20 Hz) for compute timer
         };
         Constants consts;
 
@@ -82,7 +89,7 @@ class SpecificWorker : public GenericWorker
         rc::Timer<> clock;
 
         // Lidar Thread
-        DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+        DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
         std::thread read_lidar_th;
         void read_lidar();
 
@@ -145,7 +152,7 @@ class SpecificWorker : public GenericWorker
         RoboCompGridPlanner::TPoint send_path(const vector<Eigen::Vector2f> &path,
                                               float threshold_dist, float threshold_angle); // get close point in current path
         bool not_line_of_sight_path(const QPointF &f);
-        Eigen::Vector2f  border_subtarget(const RoboCompVisualElements::TObject &target);
+        Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
@@ -153,7 +160,7 @@ class SpecificWorker : public GenericWorker
         void set_target_global(const Eigen::Transform<double, 3, 1> &robot_pose, Target &target, Target &original_target);
         RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
         RoboCompGridPlanner::TPlan compute_not_line_of_sight_target(const Target &target);
-        void adapt_grid_size(const Target &target);
+        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);
 
 };
 
