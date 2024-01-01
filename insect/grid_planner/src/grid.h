@@ -118,15 +118,20 @@ class Grid
                         float grid_angle = 0.f);
         void clear();
         void reset();
-        std::list<QPointF> computePath(const QPointF &source_, const QPointF &target_);
         std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
+        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const QPointF &source_, const QPointF &target_, int num_paths);
         void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
-        //void update_map_naif( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
-        bool is_path_blocked(const std::vector<Eigen::Vector2f> &path); // grid coordinates
 
         //inline std::tuple<bool, T &> getCell(long int x, long int z);
         inline std::tuple<bool, T &> getCell(const Key &k);
         //inline std::tuple<bool, T &> getCell(const Eigen::Vector2f &p);
+        Key pointToKey(long int x, long int z) const;
+        Key pointToKey(const QPointF &p) const;
+        Key pointToKey(const Eigen::Vector2f &p) const;
+        size_t size() const { return fmap.size(); };
+        Eigen::Vector2f pointToGrid(const Eigen::Vector2f &p) const;
+
+        // iterators
         typename FMap::iterator begin()
         { return fmap.begin(); };
         typename FMap::iterator end()
@@ -135,24 +140,17 @@ class Grid
         { return fmap.begin(); };
         typename FMap::const_iterator end() const
         { return fmap.begin(); };
-        size_t size() const
-        { return fmap.size(); };
+        // TODO: add line, rectangle, circle, espiral, submap, iterators to access regions of the grid
+        // as in https://github.com/ANYbotics/grid_map/blob/master/grid_map_core/src/iterators/GridMapIterator.cpp
+        // cell access
         inline void insert(const Key &key, const T &value);
-        void saveToFile(const std::string &fich);
-        void readFromFile(const std::string &fich);
-        std::string saveToString() const;
-        void readFromString(const std::string &cadena);
-        Key pointToKey(long int x, long int z) const;
-        Key pointToKey(const QPointF &p) const;
-        Key pointToKey(const Eigen::Vector2f &p) const;
-        Eigen::Vector2f pointToGrid(const Eigen::Vector2f &p) const;
-        void setFree(const Key &k);
-        void set_free(int cx, int cy);
+        void set_free(const Key &k);
         void set_free(const QPointF &p);
         void set_free(long int x, long int y);
         void set_free(float xf, float yf);
-        bool isFree(const Key &k);
-        bool is_occupied(const Eigen::Vector2f &p);
+        inline bool is_free(const Key &k);
+        inline bool is_free(const Eigen::Vector2f &p);
+        inline bool is_occupied(const Eigen::Vector2f &p);
         void setVisited(const Key &k, bool visited);
         bool is_visited(const Key &k);
         void set_all_to_not_visited();
@@ -162,18 +160,21 @@ class Grid
         void setOccupied(const QPointF &p);
         void setCost(const Key &k, float cost);
         float get_cost(const Eigen::Vector2f &p);
+
+        // cell probabilistic update
         void add_miss_naif(const Eigen::Vector2f &p);
         inline void add_miss(const Eigen::Vector2f &p);
         inline void add_hit(const Eigen::Vector2f &p);
         double log_odds(double prob);
         double retrieve_p(double l);
-        float percentage_changed();
-        int count_total() const;
+        float percentage_changed() const;
+        size_t count_total() const;
         int count_total_visited() const;
+
+        // constrained grid access
         void markAreaInGridAs(const QPolygonF &poly, bool free);   // if true area becomes free
         void modifyCostInGrid(const QPolygonF &poly, float cost);
         void update_costs(float robot_semi_width, bool wide=true);
-        void update_costs_naif(bool wide=true);
         std::optional<QPointF> closest_obstacle(const QPointF &p);
         std::optional<QPointF> closest_free(const QPointF &p);
         std::optional<QPointF> closest_free_4x4(const QPointF &p);
@@ -183,6 +184,18 @@ class Grid
         std::vector<std::pair<Key, T>> neighboors_16(const Key &k, bool all = false);
         void draw(bool clear=false);
 
+        // file io
+        void saveToFile(const std::string &fich);
+        void readFromFile(const std::string &fich);
+        std::string saveToString() const;
+        void readFromString(const std::string &cadena);
+
+        // path related
+        bool is_path_blocked(const std::vector<Eigen::Vector2f> &path);
+        bool line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target);
+        float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
+        float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
+
     private:
         FMap fmap;
         QGraphicsScene *scene;
@@ -191,9 +204,11 @@ class Grid
 
         std::list<QPointF> orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
+        double heuristicL1(const Key &a, const Key &b) const;
         std::list<QPointF> decimate_path(const std::list<QPointF> &path);
-        std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, std::function<bool(std::pair<Grid::Key, Grid::T>)> pred);
+        std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
+        std::list<QPointF> computePath(const QPointF &source_, const QPointF &target_);
 
         struct Params
         {
@@ -202,6 +217,8 @@ class Grid
             const float occupancy_threshold = 0.45;
         };
         Params params;
+
+
 };
 #endif // GRID_H
 
