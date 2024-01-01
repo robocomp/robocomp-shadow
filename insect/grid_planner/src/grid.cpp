@@ -53,11 +53,11 @@ void Grid::initialize(  QRectF dim_,
 
     //    if(read_from_file and not file_name.empty())
     //        readFromFile(file_name);
-    QColor my_color = QColor("White");
+    auto my_color = QColor("White");
     //my_color.setAlpha(40);
     std::uint32_t id=0;
     Eigen::Matrix2f matrix;
-    matrix << cos(grid_angle) , -sin(grid_angle) , sin(grid_angle) , cos(grid_angle);
+    matrix << std::cos(grid_angle) , -std::sin(grid_angle) , std::sin(grid_angle) , std::cos(grid_angle);
     for(const auto &i: iter::range(dim.left(), dim.right()+TILE_SIZE, static_cast<double>(TILE_SIZE)))
         for(const auto &j: iter::range(dim.top(), dim.bottom()+TILE_SIZE, static_cast<double>(TILE_SIZE)))
         {
@@ -66,7 +66,7 @@ void Grid::initialize(  QRectF dim_,
             aux.free = true;
             aux.visited = false;
             aux.cost = 1.0;
-            QGraphicsRectItem *tile = scene->addRect(-TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE,
+            QGraphicsRectItem *tile = scene->addRect(-TILE_SIZE / 2.f, -TILE_SIZE / 2.f, TILE_SIZE, TILE_SIZE,
                                                      QPen(my_color), QBrush(my_color));
             //tile->setZValue(50);
             Eigen::Vector2f res = matrix * Eigen::Vector2f(i, j) + Eigen::Vector2f(grid_center.x(), grid_center.y());
@@ -111,53 +111,26 @@ inline std::tuple<bool, Grid::T&> Grid::getCell(const Key &k)
             //qInfo() << __FUNCTION__ << "Key not found in grid: (" << k.x << k.z << ")";
             // finds the first element with a key not less than k
             auto low_x = std::ranges::lower_bound(keys, k, [](const Key &k, const Key &p)
-                                                    { return k.x <= p.x; });
-            if(low_x == keys.end() and not keys.empty())
+            { return k.x <= p.x; });
+            if (low_x == keys.end() and not keys.empty())
                 low_x = std::prev(keys.end());
             std::vector<Key> y_keys;
-            std::copy_if(low_x, std::end(keys), std::back_inserter(y_keys), [low_x](const Key &k){ return k.x == low_x->x;});
-            auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p){ return k.z < p.z; });     // z is y
-           if(low_y != y_keys.end())
-           {
-               //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.x << k.z << ") but found ("
-               //           << low_x->x << low_y->z << ")";
-               Key new_key = pointToKey(low_x->x, low_y->z);
-               if(fmap.contains(new_key))
-                   return std::forward_as_tuple(true, fmap.at(new_key));
-               else
-                   return std::forward_as_tuple(false, T());
-           }
-           else return std::forward_as_tuple(false, T());
-//
-////            {
-////                auto kk = pointToKey(low_x->x, low_y->z);
-////                if (fmap.contains(kk))
-////                    return std::forward_as_tuple(true, fmap.at(kk));
-////            }
-////            else
-////            {
-////                qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.x << k.z << ") but found (" << low_x->x << low_y->z << ")";
-////                return std::forward_as_tuple(false, T());
-////            }
+            std::copy_if(low_x, std::end(keys), std::back_inserter(y_keys), [low_x](const Key &k)
+            { return k.x == low_x->x; });
+            auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p)
+            { return k.z < p.z; });     // z is y
+            if (low_y != y_keys.end())
+            {
+                //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.x << k.z << ") but found ("
+                //           << low_x->x << low_y->z << ")";
+                Key new_key = pointToKey(low_x->x, low_y->z);
+                if (fmap.contains(new_key))
+                    return std::forward_as_tuple(true, fmap.at(new_key));
+                else
+                    return std::forward_as_tuple(false, T());
+            } else return std::forward_as_tuple(false, T());
         }
-            // find the closest key
     }
-//    {
-//        auto low_x = std::ranges::upper_bound(keys, k, [](const Key &k, const Key &p){ return k.x < p.x; });
-//        std::vector<Key> y_keys;
-//        std::ranges::copy_if(keys, std::back_inserter(y_keys), [low_x](const Key &k){ return k.x == low_x->x;});
-//        auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p){ return k.z < p.z; });     // z is y
-//        return std::forward_as_tuple(true, fmap.at(pointToKey(low_x->x, low_y->z)));
-//    }
-//      try
-//      {
-//          return std::forward_as_tuple(true, fmap.at(pointToKey(k.x, k.z)));
-//      }
-//      catch(const std::exception &e)
-//      {
-//          qWarning() << __FUNCTION__ << " No key found in grid: (" << k.x << k.z << ")";
-//          return std::forward_as_tuple(false, T());
-//      }
 }
 Grid::Key Grid::pointToKey(long int x, long int z) const
 {
@@ -190,7 +163,7 @@ Grid::Key Grid::pointToKey(const Eigen::Vector2f &p) const
 };
 Eigen::Vector2f Grid::pointToGrid(const Eigen::Vector2f &p) const
 {
-    return Eigen::Vector2f(ceil((p.x() - dim.left()) / TILE_SIZE), ceil((p.y()) - dim.top()) / TILE_SIZE);
+    return Eigen::Vector2f{ceil((p.x() - dim.left()) / TILE_SIZE), ceil((p.y()) - dim.top()) / TILE_SIZE};
 }
 
 ///////////////////////////////INPUT / OUTPUT //////////////////////////////////
@@ -257,8 +230,7 @@ void Grid::readFromFile(const std::string &fich)
 }
 
 //////////////////////////////// STATUS //////////////////////////////////////////
-//deprecated
-bool Grid::isFree(const Key &k)
+inline bool Grid::is_free(const Key &k)
 {
     const auto &[success, v] = getCell(k);
     if(success)
@@ -266,7 +238,15 @@ bool Grid::isFree(const Key &k)
     else
         return false;
 }
-bool Grid::is_occupied(const Eigen::Vector2f &p)
+inline bool Grid::is_free(const Eigen::Vector2f &p)
+{
+    const auto &[success, v] = getCell(pointToKey(static_cast<long int>(p.x()), static_cast<long int>(p.y())));
+    if(success)
+        return v.free;
+    else
+        return false;
+}
+inline bool Grid::is_occupied(const Eigen::Vector2f &p)
 {
     const auto &[success, v] = getCell(pointToKey(static_cast<long int>(p.x()), static_cast<long int>(p.y())));
     if(success)
@@ -274,8 +254,7 @@ bool Grid::is_occupied(const Eigen::Vector2f &p)
     else
         return true;  // non existing cells are returned as occupied
 }
-//deprecated
-void Grid::setFree(const Key &k)
+void Grid::set_free(const Key &k)
 {
     auto &&[success, v] = getCell(k);
     if(success)
@@ -284,10 +263,6 @@ void Grid::setFree(const Key &k)
         if(v.tile != nullptr)
             v.tile->setBrush(QBrush(QColor(params.free_color)));
     }
-}
-void Grid::set_free(int cx, int cy)
-{
-    setFree(pointToKey(cx, cy));
 }
 void Grid::set_free(const QPointF &p)
 {
@@ -408,7 +383,7 @@ double Grid::retrieve_p(double l)
 
     return 1 - 1 / (1 + exp(l));
 }
-float Grid::percentage_changed()
+float Grid::percentage_changed() const
 {
     return (flipped / updated);
 }
@@ -452,7 +427,7 @@ void Grid::set_all_costs(float value)
     for(auto &[key, cell] : fmap)
         cell.cost = value;
 }
-int Grid::count_total() const
+size_t Grid::count_total() const
 {
     return fmap.size();
 }
@@ -472,21 +447,21 @@ void Grid::set_all_to_not_visited()
 void Grid::set_all_to_free()
 {
     for(auto &[k,v] : fmap)
-        setFree(k);
+        set_free(k);
 }
 void Grid::markAreaInGridAs(const QPolygonF &poly, bool free)
 {
-    const qreal step = TILE_SIZE / 4;
+    const qreal step = TILE_SIZE / 4.f;
     QRectF box = poly.boundingRect();
-    for (auto &&x : iter::range(box.x() - step / 2, box.x() + box.width() + step / 2, step))
-        for (auto &&y : iter::range(box.y() - step / 2, box.y() + box.height() + step / 2, step))
+    for (auto &&x : iter::range(box.x() - step / 2.0, box.x() + box.width() + step / 2, step))
+        for (auto &&y : iter::range(box.y() - step / 2.0, box.y() + box.height() + step / 2, step))
         {
             if (poly.containsPoint(QPointF(x, y), Qt::OddEvenFill))
             {
                 if (free)
-                    setFree(pointToKey(x, y));
+                    set_free(pointToKey(static_cast<long>(x), static_cast<long>(y)));
                 else
-                    setOccupied(pointToKey(x, y));
+                    setOccupied(pointToKey(static_cast<long>(x), static_cast<long>(y)));
             }
         }
 }
@@ -497,7 +472,7 @@ void Grid::modifyCostInGrid(const QPolygonF &poly, float cost)
     for (auto &&x : iter::range(box.x() - step / 2, box.x() + box.width() + step / 2, step))
         for (auto &&y : iter::range(box.y() - step / 2, box.y() + box.height() + step / 2, step))
             if (poly.containsPoint(QPointF(x, y), Qt::OddEvenFill))
-                setCost(pointToKey(x, y), cost);
+                setCost(pointToKey(static_cast<long>(x), static_cast<long>(y)), cost);
 }
 
 ////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
@@ -533,21 +508,7 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
         qDebug() << __FUNCTION__ << "Robot already at target. Returning empty path";
         return {};
     }
-//    if(neighboors_16(target).size()<16)
-//    {
-//        std::optional<QPointF> new_target = closest_free(target_);
-//        target = pointToKey(new_target->x(), new_target->y());
-//        std::cout<<"TARGET WAS IN OBSTACLE SO CHANGED TARGET TO NEAREST FREE CELL."<<std::endl;
-//    }
-//    //source in a non-free cell (red cell)
-//    if(neighboors_8(source).empty())
-//    {
-//        std::cout<<"Source on an occupied cell: "<<std::endl;
-//        qInfo() << __FUNCTION__ << "Source on an occupied cell: " << source.x << ", " << source.z << "Returning empty path";
-//        std::optional<QPointF> new_source = closest_free(source_);
-//        source = pointToKey(new_source->x(), new_source->y());
-//    }
-//
+
     // vector de distancias inicializado a UINT_MAX
     std::vector<uint32_t> min_distance(fmap.size(), std::numeric_limits<uint32_t>::max());
     // initialize source position to 0
@@ -558,6 +519,7 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
     auto comp = [this](std::pair<std::uint32_t, Key> x, std::pair<std::uint32_t, Key> y){ return x.first <= y.first; };
 
     // OPEN List
+    std::vector<std::vector<Eigen::Vector2f>> paths_list;
     std::set<std::pair<std::uint32_t, Key>, decltype(comp)> active_vertices(comp);
     active_vertices.insert({0, source_key});
     while (not active_vertices.empty())
@@ -581,19 +543,69 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
                 min_distance[ed.second.id] = min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost);
                 previous[ed.second.id] = std::make_pair(where_cell.id, where);
                 active_vertices.insert({min_distance[ed.second.id], ed.first}); // Djikstra
-                //active_vertices.insert( { min_distance[ed.second.id] + heuristicL2(ed.first, target), ed.first } ); //A*
+                //active_vertices.insert( { min_distance[ed.second.id] + heuristicL1(ed.first, target_key), ed.first } ); //A*
             }
         }
     }
     qInfo() << __FUNCTION__ << "Path from (" << source_key.x << "," << source_key.z << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
     return {};
 };
+std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const QPointF &source_, const QPointF &target_, int num_paths)
+{
+    // lambda to convert a list of QPointF to a vector of Eigen::Vector2f
+    auto to_eigen = [](const std::list<QPointF> &path)
+            {
+                std::vector<Eigen::Vector2f> path_v(path.size());
+                for(const auto &[i, p] : iter::enumerate(path))
+                    path_v[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
+                return path_v;
+            };
+
+    // Yen's algorithm
+    // get an initial shortest path
+    auto i_path = computePath(source_, target_);
+    if(i_path.empty()) return {};
+
+    auto initial_path = to_eigen(i_path);
+    // proceed by setting as occupied the cells of the path and searching for an alternative one
+    int k= 0;
+    std::vector<std::vector<Eigen::Vector2f>> paths_list;
+    paths_list.push_back(initial_path);
+    auto current_step= initial_path.cbegin();   // source
+    Key deleted_key = pointToKey(source_);
+    while(k < num_paths)
+    {
+        // restore previously cell set to occupied
+        set_free(deleted_key);
+        // get next key from path and mark it as occupied in the grid
+        if(current_step = std::next(current_step); current_step != initial_path.cend())
+        {
+            auto key = pointToKey(*current_step);
+            setOccupied(key);
+            auto path = computePath(source_, target_);
+            if(not path.empty())
+            {
+                auto path_eigen = to_eigen(path);
+                auto mdist = max_distance(initial_path, path_eigen);
+                if(mdist > 100)
+                {
+                    paths_list.emplace_back(path_eigen);
+                    k++;
+                    //qInfo() << __FUNCTION__ << "Max distance: " << mdist << " Path length: " << path.size();
+                }
+            }
+        }
+        else
+            break;
+    }
+    return paths_list;
+}
 std::vector<Eigen::Vector2f> Grid::compute_path(const QPointF &source_, const QPointF &target_)
 {
     auto lpath = computePath(source_, target_);
     std::vector<Eigen::Vector2f> path(lpath.size());
-    for(auto &&[i, p] : lpath | iter::enumerate)
-        path[i] = Eigen::Vector2f(p.x(), p.y());
+    for(const auto &[i, p] : iter::enumerate(lpath))
+        path[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
     return  path;
 }
 std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, const std::vector<int> &xincs,const std::vector<int> &zincs,
@@ -612,12 +624,12 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
 //            p.cost = 1.43;                                // if neighboor in diagonal, cost is sqrt(2)
 
         if (all)
-            neigh.emplace_back(std::make_pair(lk, p));
+            neigh.emplace_back(lk, p);
         else // if all cells covered by the robot are free
         {
             //bool all_free = true;
             if (p.free)
-                neigh.emplace_back(std::make_pair(lk, p));
+                neigh.emplace_back(lk, p);
 //            {
 //                if(ceil(400.0/TILE_SIZE)<= 3) // robot occupies three cells, Check 8-neigh
 //                {
@@ -662,17 +674,15 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors_16(const Grid::Key &
     static const std::vector<int> zincs = {2*I, 2*I, 2*I,  I,   0 , -I , -2*I, -2*I,-2*I,-2*I,-2*I, -I, 0,I, 2*I, 2*I};
     return this->neighboors(k, xincs, zincs, all);
 }
-/**
- @brief Recovers the optimal path from the list of previous nodes
-*/
 std::list<QPointF> Grid::orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target)
 {
+    // recovers the path from the previous vector
     std::list<QPointF> res;
     Key k = target;
     std::uint32_t u = fmap.at(k).id;
     while (previous[u].first != (std::uint32_t)-1)
     {
-        res.push_front(QPointF(k.x, k.z));
+        res.emplace_front(static_cast<double>(k.x), static_cast<long>(k.z));
         u = previous[u].first;
         k = previous[u].second;
     }
@@ -688,7 +698,11 @@ std::list<QPointF> Grid::decimate_path(const std::list<QPointF> &path)
 }
 inline double Grid::heuristicL2(const Key &a, const Key &b) const
 {
-    return sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
+    return std::hypot(a.x - b.x, a.z - b.z);
+}
+inline double Grid::heuristicL1(const Key &a, const Key &b) const
+{
+    return std::abs(a.x - b.x) + std::abs(a.z - b.z);
 }
 
 /////////////////////////////// COSTS /////////////////////////////////////////////////////////
@@ -704,7 +718,7 @@ void Grid::update_costs(float robot_semi_width, bool wide)
                 ={{100, 75, orange_brush, &Grid::neighboors_8},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
-                  {25, 5,  green_brush, &Grid::neighboors_16}};
+                  {25, 10,  green_brush, &Grid::neighboors_16}};
 
     // we assume the grid has been cleared before. All free cells have cost 1
 
@@ -731,91 +745,12 @@ void Grid::update_costs(float robot_semi_width, bool wide)
                 }
     }
 }
-void Grid::update_costs_naif(bool wide)
-{
-    static QBrush free_brush(QColor(params.free_color));
-    static QBrush occ_brush(QColor(params.occupied_color));
-    static QBrush orange_brush(QColor("Orange"));
-    static QBrush yellow_brush(QColor("Yellow"));
-    static QBrush gray_brush(QColor("LightGray"));
-
-//    for(auto &&[k,v] : iter::filter([](auto v){ return std::get<1>(v).cost > 1;}, fmap))
-//    {
-//        v.tile->setBrush(free_brush);
-//        v.cost = 1.f;
-//    }
-
-    //update grid values
-    if(wide)
-    {
-//        for (auto &&[k, v]: iter::filterfalse([](auto v) { return std::get<1>(v).free; }, fmap))
-//        {
-//            v.cost = 100;
-//            v.tile->setBrush(occ_brush);
-//            // for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
-//            // {
-//            //     fmap.at(kk).cost = 100;
-//            //     fmap.at(kk).tile->setBrush(occ_brush);
-//            // }
-//        }
-        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 100; }, fmap))
-            for (auto neighs = neighboors_16(k); auto &&[kk, vv]: neighs)
-            {
-                if (vv.cost < 100)
-                {
-                    fmap.at(kk).cost = 99;
-                    fmap.at(kk).free = false;
-                    fmap.at(kk).tile->setBrush(orange_brush);
-                }
-            }
-
-//        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 50; }, fmap))
-//            for (auto neighs = neighboors_8(k); auto &&[kk, vv]: neighs)
-//            {
-//                if (vv.cost < 50)
-//                {
-//                    // vv.free = true;
-//                    fmap.at(kk).cost = 25;
-//                    fmap.at(kk).tile->setBrush(yellow_brush);
-//                }
-//            }
-//        for (auto &&[k, v]: iter::filter([](auto v) { return std::get<1>(v).cost == 25; }, fmap))
-//            for (auto neighs = neighboors_8(k); auto &[kk, vv]: neighs)
-//            {
-//                if (vv.cost < 25)
-//                {
-//                    // vv.free = true;
-//                    fmap.at(kk).cost = 15;
-//                    fmap.at(kk).tile->setBrush(gray_brush);
-//                }
-//            }
-    }
-    else
-    {
-        for (auto &&[k, v]: iter::filterfalse([](auto v) { return std::get<1>(v).free; }, fmap))
-        {
-            v.cost = 100;
-            v.tile->setBrush(occ_brush);
-            fmap.at(k).cost = 100;
-            fmap.at(k).tile->setBrush(occ_brush);
-        }
-    }
-}
-//void Grid::update_map_naif( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range) {
-//    for (const auto &point: points)
-//        if(auto &&[success, v] = getCell(point.head(2)); success )
-//        {
-//            v.free = false;
-//            v.cost = 100;
-//            v.tile->setBrush(QBrush(QColor(params.occupied_color)));
-//        }
-//}
 void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range)
 {
     for(const auto &point : points)
     {
         float length = (point.head(2)-robot_in_grid).norm();
-        int num_steps = ceil(length/(TILE_SIZE));
+        int num_steps = ceil(static_cast<double>(length/(static_cast<float>(TILE_SIZE))));
         Eigen::Vector2f p;
         for(const auto &&step : iter::range(0.0, 1.0-(1.0/num_steps), 1.0/num_steps))
         {
@@ -825,17 +760,11 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::
         if(length <= max_laser_range)
             add_hit(point.head(2));
 
-        if((p-point.head(2)).norm() < TILE_SIZE)  // in case last miss overlaps tip
+        if((p-point.head(2)).norm() < static_cast<float>(TILE_SIZE))  // in case last miss overlaps tip
             add_hit(point.head(2));
     }
 }
-bool Grid::is_path_blocked(const std::vector<Eigen::Vector2f> &path) // grid coordinates
-{
-    for(const auto &p: path)
-        if(is_occupied(p) or get_cost(p)>=50)
-           return true;
-    return false;
-}
+
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
 void Grid::draw(bool clear) // if clear is true, only removes the previous points
 {
@@ -894,7 +823,6 @@ void Grid::clear()
         value.cost = 1;
     }
 }
-
 void Grid::reset()
 {
     for (auto &[key, value]: fmap)
@@ -906,8 +834,44 @@ void Grid::reset()
     fmap.clear();
 }
 
-////////////////////////////// NEIGHS /////////////////////////////////////////////////////////
-std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, std::function<bool(std::pair<Grid::Key, Grid::T>)> pred)
+////////////////////////////// QUERIES /////////////////////////////////////////////////////////
+float Grid::max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB)
+{
+    // Approximates Frechet distance
+    std::vector<float> dists;
+    for(auto &&i: iter::range(std::min(pathA.size(), pathB.size())))
+        dists.emplace_back((pathA[i] - pathB[i]).norm());
+    return std::ranges::max(dists);
+}
+float Grid::frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B)
+{
+    // Frechet distance between to paths
+    int n = A.size(), m = B.size();
+    Eigen::MatrixXf dp(n, m);
+    dp(0, 0) = (A[0] - B[0]).norm();
+
+    // Fill first row and column
+    for (int i = 1; i < n; ++i)
+    {
+        dp(i, 0) = std::max(dp(i - 1, 0), (A[i] - B[0]).norm());
+    }
+    for (int j = 1; j < m; ++j)
+    {
+        dp(0, j) = std::max(dp(0, j - 1), (A[0] - B[j]).norm());
+    }
+
+    // Fill rest of the table
+    for (int i = 1; i < n; ++i)
+    {
+        for (int j = 1; j < m; ++j)
+        {
+            float minPrevious = std::min({dp(i - 1, j), dp(i, j - 1), dp(i - 1, j - 1)});
+            dp(i, j) = std::max(minPrevious, (A[i] - B[j]).norm());
+        }
+    }
+    return dp(n - 1, m - 1);
+}
+std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred)
 {
     if(not dim.adjusted(-500, -500, 500, 500).contains(p))  // TODO: remove this hack
     {
@@ -968,10 +932,13 @@ std::optional<QPointF> Grid::closest_free_4x4(const QPointF &p)
         return (L1.size() == 16);
     });
 }
-
+bool Grid::is_path_blocked(const std::vector<Eigen::Vector2f> &path) // grid coordinates
+{
+    return std::ranges::any_of(path, [this](const auto &p){ return is_occupied(p);});
+}
 std::tuple<bool, QVector2D> Grid::vectorToClosestObstacle(QPointF center)
 {
-    auto k = pointToKey(center.x(), center.y());
+    auto k = pointToKey(center);
     QVector2D closestVector;
     bool obstacleFound = false;
 
@@ -979,7 +946,7 @@ std::tuple<bool, QVector2D> Grid::vectorToClosestObstacle(QPointF center)
     float dist = std::numeric_limits<float>::max();
     for (auto n : neigh)
     {
-        if (n.second.free == false)
+        if (not n.second.free)
         {
             QVector2D vec = QVector2D(QPointF(k.x, k.z)) - QVector2D(QPointF(n.first.x,n.first.z)) ;
             if (vec.length() < dist)
@@ -997,7 +964,7 @@ std::tuple<bool, QVector2D> Grid::vectorToClosestObstacle(QPointF center)
         auto DistNeigh = neighboors_16(k, true);
         for (auto n : DistNeigh)
         {
-            if (n.second.free == false)
+            if (not n.second.free)
             {
                 QVector2D vec = QVector2D(QPointF(k.x, k.z)) - QVector2D(QPointF(n.first.x, n.first.z)) ;
                 if (vec.length() < dist)
@@ -1011,4 +978,32 @@ std::tuple<bool, QVector2D> Grid::vectorToClosestObstacle(QPointF center)
     }
     return std::make_tuple(obstacleFound,closestVector);
 }
+bool Grid::line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target)
+{
+    // Admission rules
+    if (not dim.contains(QPointF{target.x(), target.y()}))
+    {
+        qInfo() << "[GRID]" << __FUNCTION__ << "Target " << target.x() << target.y() << "out of limits " << dim;
+        return false;
+    }
+    if (not dim.contains(QPointF{source.x(), source.y()}))
+    {
+        qInfo() << "[GRID]" << __FUNCTION__ << "Source " << target.x() << target.y() << "out of limits " << dim;
+        return false;
+    }
 
+    // check if there is a straight line from source to target that is free
+    float num_steps = (target - source).norm() / static_cast<float>(TILE_SIZE);
+    Eigen::Vector2f step((target - source) / num_steps);
+
+    // compute how many parallel lines we need to cover the robot's width
+    int num_lines_to_side = ceil(250.0 / TILE_SIZE);
+    bool success = true;
+    for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
+    {
+        Eigen::Vector2f src = source - Eigen::Vector2f{-TILE_SIZE * i, 0.f};
+        success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
+                        { return is_free(src + step * i); });
+    }
+    return success;
+}

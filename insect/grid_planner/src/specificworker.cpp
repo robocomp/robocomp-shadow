@@ -20,6 +20,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/sliding_window.hpp>
+#include <cppitertools/range.hpp>
 
 
 /**
@@ -59,14 +60,14 @@ void SpecificWorker::initialize(int period)
 
         // grid
         //QRectF dim{consts.xMin, consts.yMin, static_cast<qreal>(consts.grid_width), static_cast<qreal>(consts.grid_length)};
-        grid.initialize(consts.VIEWER_MAX_DIM, consts.TILE_SIZE, &viewer->scene, false);
+        grid.initialize(consts.VIEWER_MAX_DIM, static_cast<int>(consts.TILE_SIZE), &viewer->scene, false);
 
         // reset lidar odometry
         try{ lidarodometry_proxy->reset(); }
-        catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;};
+        catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;}
 
         // Lidar thread is created
-        read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
+        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
         // mouse
@@ -82,6 +83,10 @@ void SpecificWorker::initialize(int period)
                 try{ lidarodometry_proxy->reset(); }
                 catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;};
             });
+        connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
+        {
+            qInfo() <<  "RIGHT CLICK";
+        });
 
         timer.start(Period);
     }
@@ -90,7 +95,7 @@ void SpecificWorker::compute()
 {
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false)  {   /*qWarning() << "No data Lidar";*/ return; }
+    if (not res_.has_value())  {   /*qWarning() << "No data Lidar";*/ return; }
     auto points = res_.value();
 
     /// clear grid and update it
@@ -122,6 +127,7 @@ void SpecificWorker::compute()
             returning_plan.subtarget.x = 0.f;
             returning_plan.subtarget.y = 0.f;
             send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
+            draw_paths({}, &viewer->scene, true);   // erase paths
             return;
         }
         auto original_target = target; // save original target to reinject it into the buffer
@@ -145,8 +151,8 @@ void SpecificWorker::compute()
         draw_global_target(target.pos_eigen(), &viewer->scene);
 
         /// if target is not in line of sight, compute path
-        if (not_line_of_sight_path(target.pos_qt()))
-            returning_plan = compute_not_line_of_sight_target(target);
+        if(not grid.line_of_sigth_to_target(target.pos_eigen(), Eigen::Vector2f{0.f, 0.f}))
+            returning_plan = compute_plan_from_grid(target);
         else
             returning_plan = compute_line_of_sight_target(target);
 
@@ -204,6 +210,7 @@ void SpecificWorker::read_lidar()
 } // Thread to read the lidar
 void SpecificWorker::adapt_grid_size(const Target &target, const RoboCompGridPlanner::Points &path)
 {
+
     // TODO: change TILE_SIZE in map according to the existence of target, distance to the target, closeness to obstacles, etc.
     // adjust grid size to target distance and path
     if(not target.is_valid() and grid.dim.width() != consts.VIEWER_MAX_DIM.width()) // if no target and first time
@@ -294,44 +301,45 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_line_of_sight_target(const Ta
     auto point_close_to_robot = target.point_at_distance(550);  // TODO: move to constants
     returning_plan.subtarget.x = point_close_to_robot.x();
     returning_plan.subtarget.y = point_close_to_robot.y();
-    //std::cout << __FUNCTION__ << " target x,y:" << qtarget.x() << " " << qtarget.y() << std::endl;
-    //std::cout << __FUNCTION__ << " returningplan_subtarget x,y:" << returning_plan.subtarget.x << " "<< returning_plan.subtarget.y << std::endl;
+    draw_paths({}, &viewer->scene, true);   // erase paths
     draw_subtarget(point_close_to_robot, &viewer->scene);
     return returning_plan;
 }
-RoboCompGridPlanner::TPlan SpecificWorker::compute_not_line_of_sight_target(const Target &target)
+RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &target)
 {
+    static std::vector<Eigen::Vector2f> current_path = grid.compute_path(QPointF(0, 0), target.pos_qt());
     RoboCompGridPlanner::TPlan returning_plan;
-    std::vector<Eigen::Vector2f> path;
-    if(not last_path.empty())
+    std::vector<std::vector<Eigen::Vector2f>> paths;
+
+    paths = grid.compute_k_paths(QPointF(0, 0), target.pos_qt(), 5);
+    if(paths.empty()) { qWarning() << __FUNCTION__ << "No paths found"; return returning_plan; }
+    // compute the max_distance of current_path to all paths
+    std::vector<std::pair<float, int>> distances;
+    for(auto &&[i, path]: paths | iter::enumerate)
+        distances.emplace_back(max_distance(current_path, path), i);
+    std::ranges::sort(distances, [](auto &a, auto &b){ return a.first < b.first; });
+
+    // select the path with the minimum max_distance to current_path,
+    if(not std::ranges::any_of(distances, [](auto &a){ return a.first < 600; }))
     {
-        auto frechet_distance = get_frechet_distance(last_path, path);
-        qInfo() << __FUNCTION__ << ": Frechet distance = " << frechet_distance;
-        if(frechet_distance > 600 and (path_not_found_counter < path_not_found_limit))
-        {
-            path = last_path;
-            path_not_found_counter++;
-        }
-        else
-        {
-            path_not_found_counter = 0;
-        }
+        auto idx = std::ranges::find_if(distances, [](auto &a)
+        { return a.first > 600; });
+        current_path = paths[idx->second];
     }
-    path = grid.compute_path(QPointF(0, 0), target.pos_qt());
-    if (not path.empty() and path.size() > 0)
+
+    if (not current_path.empty())
     {
-        auto subtarget = send_path(path, 550, M_PI_4 / 6);
-        draw_path(path, &viewer->scene);
+        auto subtarget = get_carrot_from_path(current_path, 550, M_PI_4 / 6);
+        draw_paths(paths, &viewer->scene);
         draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
 
-        // Constructing the plan for interface type TPlan
+        // Constructing the interface type TPlan
         returning_plan.subtarget = subtarget;
         returning_plan.valid = true;
-        last_path = path;
-        returning_plan.path.reserve(path.size());
-        for (auto &&p: path)
+        current_path = current_path;
+        returning_plan.path.reserve(current_path.size());
+        for (auto &&p: current_path)
             returning_plan.path.emplace_back(p.x(), p.y());
-        qInfo() << __FUNCTION__ << ": No Line of Sight path to target! Path size: " << path.size();
     }
     else  // EMPTY PATH
     {
@@ -340,15 +348,51 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_not_line_of_sight_target(cons
     }
     return returning_plan;
 }
-RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::Vector2f> &path, float threshold_dist, float threshold_angle)
+//    if(not last_path.empty())
+//    {
+//        auto frechet_distance = frechet_distance(last_path, path);
+//        qInfo() << __FUNCTION__ << ": Frechet distance = " << frechet_distance;
+//        if(frechet_distance > 600 and (path_not_found_counter < path_not_found_limit))
+//        {
+//            path = last_path;
+//            path_not_found_counter++;
+//        }
+//        else
+//        {
+//            path_not_found_counter = 0;
+//        }
+//    }
+//auto path = paths.front();
+
+//    static float last_path_distance;
+//    if(not last_path.empty())
+//    {
+//        float path_distance = 0.f;
+//        for(const auto &pp: path | iter::sliding_window(2))
+//            path_distance += (pp[1] - pp[0]).norm();
+//        //qInfo() << __FUNCTION__ << ": Frechet distance = " << frechet_distance;
+//        if((fabs(path_distance - last_path_distance) > last_path_distance * 0.7))
+//        {
+//            path = last_path;
+//            last_path_distance = path_distance;
+//            path_not_found_counter++;
+//        }
+//                else
+//        {
+//            path_not_found_counter = 0;
+//        }
+//    }
+RoboCompGridPlanner::TPoint SpecificWorker::get_carrot_from_path(const std::vector<Eigen::Vector2f> &path, float threshold_dist, float threshold_angle)
 {
-    RoboCompGridPlanner::TPoint subtarget;
+    // computes a subtarget from a path that is closer than threshold_dist and has an angle with the robot smaller than threshold_angle
 
-    static float h = sin(M_PI_2 + (M_PI - threshold_angle)/ 2.0);
-    float len = 0.0;
-
+    // Admissible conditions
     if (path.empty())
         return RoboCompGridPlanner::TPoint{.x=0.f, .y=0.f};
+
+    RoboCompGridPlanner::TPoint subtarget;
+    double h = sin(M_PI_2 + (M_PI - threshold_angle)/ 2.f);
+    float len = 0.f;
 
     if(path.size() < 3)
     {
@@ -365,7 +409,6 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
         float d1d2 = (p[2]-p[1]).norm();
         float d0d2 = (p[2]-p[0]).norm();
         len += d0d1;
-//        qInfo()<< len << (d0d2 - (d1d2 + d0d1)) << (d0d1 * h) << (((d1d2 + d0d1) - d0d2) > (d0d1 * h));
         if (len > threshold_dist or (abs((d1d2 + d0d1) - d0d2) > (d0d1 * h)))
         {
             subtarget.x = p[1].x();
@@ -375,25 +418,22 @@ RoboCompGridPlanner::TPoint SpecificWorker::send_path(const std::vector<Eigen::V
         subtarget.x = p[2].x();
         subtarget.y = p[2].y();
     }
-
-//    qInfo()<< "t.duration"<<t.duration();
-//    if((Eigen::Vector2f{last_subtarget.x,last_subtarget.y}-Eigen::Vector2f{subtarget.x,subtarget.y}).norm()< 600 or t.duration() > 500)
-//    {
-//        t.tick();
-//        last_subtarget=subtarget;
-//        return subtarget;
-//    }
-//    else
-//        return last_subtarget;
     return subtarget;
 }
-double SpecificWorker::get_frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB) {
-    double maxDist = 0.0;
-    for (size_t i = 0; i < (std::min(pathA.size(), pathB.size())); ++i) {
-        double dist = (pathA[i] - pathB[i]).norm();
-        maxDist = std::max(maxDist, dist);
-    }
-    return maxDist;
+float SpecificWorker::max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB)
+{
+    // Approximates Frechet distance
+    std::vector<float> dists;
+    for(auto &&i: iter::range(std::min(pathA.size(), pathB.size())))
+        dists.emplace_back((pathA[i] - pathB[i]).norm());
+    return std::ranges::max(dists);
+}
+double SpecificWorker::frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB)
+{
+    std::vector<float> dists;
+    for(auto &&i: iter::range(std::min(pathA.size(), pathB.size())))
+        dists.emplace_back((pathA[i] - pathB[i]).norm());
+    return std::ranges::max(dists);
 }
 // Check if target is within the grid and otherwise, compute the intersection with the border
 Eigen::Vector2f SpecificWorker::border_subtarget(const Eigen::Vector2f &target)
@@ -442,22 +482,8 @@ Eigen::Vector2f SpecificWorker::border_subtarget(const Eigen::Vector2f &target)
     qInfo() << __FUNCTION__ << "Target out of grid. Computing intersection with border: [" << resultado.x() << resultado.y() << "]";
     return resultado;
 }
-bool SpecificWorker::not_line_of_sight_path(const QPointF &f)
-{
-    int tile_size = 100;
-    std::vector<Eigen::Vector2f> path;
-    Eigen::Vector2f target(f.x(),f.y());
-    Eigen::Vector2f origin(0.0,0.0);
-    float steps = (target - origin).norm() / tile_size;
-    Eigen::Vector2f step((target-origin)/steps);
 
-    for ( int i = 0 ; i <= steps-3; ++i)
-    {
-        path.push_back(origin + i*step);
-    }
-    draw_path(path, &viewer->scene);
-    return  grid.is_path_blocked(path);
-}
+///////////////////////////////// Send and publish plan ///////////////////////////////////////
 void SpecificWorker::send_and_publish_plan(RoboCompGridPlanner::TPlan plan)
 {
     // Sending plan to remote interface
@@ -487,6 +513,29 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
         auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(QColor("green")), QBrush(QColor("green")));
         ptr->setPos(QPointF(p.x(), p.y()));
         points.push_back(ptr);
+    }
+}
+void SpecificWorker::draw_paths(const std::vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only)
+{
+    static std::vector<QGraphicsEllipseItem*> points;
+    static QColor colors[] = {QColor("green"), QColor("blue"), QColor("red"), QColor("orange"), QColor("magenta"), QColor("cyan")};
+    for(auto p : points)
+        scene->removeItem(p);
+    points.clear();
+
+    if(erase_only) return;
+
+    float s = 80;
+    for(const auto &[i, path]: paths | iter::enumerate)
+    {
+        // pick a consecutive color
+        auto color = colors[i];
+        for(const auto &p: path)
+        {
+            auto ptr = scene->addEllipse(-s/2.f, -s/2.f, s, s, QPen(color), QBrush(color));
+            ptr->setPos(QPointF(p.x(), p.y()));
+            points.push_back(ptr);
+        }
     }
 }
 void SpecificWorker::draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene)
@@ -527,8 +576,8 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &points, int deci
         }
     }
 }
-///////////////////////////////////////////////////////////////////////////////////////////
 
+///////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
     std::cout << "Startup check" << std::endl;
