@@ -151,7 +151,7 @@ void SpecificWorker::compute()
         draw_global_target(target.pos_eigen(), &viewer->scene);
 
         /// if target is not in line of sight, compute path
-        if(not grid.line_of_sigth_to_target(target.pos_eigen(), Eigen::Vector2f{0.f, 0.f}))
+        if(not grid.line_of_sigth_to_target(target.pos_eigen(), Eigen::Vector2f::Zero(), consts.ROBOT_SEMI_WIDTH))
             returning_plan = compute_plan_from_grid(target);
         else
             returning_plan = compute_line_of_sight_target(target);
@@ -311,7 +311,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
     RoboCompGridPlanner::TPlan returning_plan;
     std::vector<std::vector<Eigen::Vector2f>> paths;
 
-    paths = grid.compute_k_paths(QPointF(0, 0), target.pos_qt(), 5);
+    paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(), 5, 100.f);
     if(paths.empty()) { qWarning() << __FUNCTION__ << "No paths found"; return returning_plan; }
     // compute the max_distance of current_path to all paths
     std::vector<std::pair<float, int>> distances;
@@ -659,7 +659,7 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TO
 //    for (double t = 1.0; t >= 0.0; t -= 0.001)
 //    {
 //        auto act_point = Eigen::Vector2f(p.x() * t, p.y() * t);
-//        auto point_as_key = grid.pointToKey(act_point);
+//        auto point_as_key = grid.point_to_key(act_point);
 //        auto free_neighboors = grid.neighboors_8(point_as_key);
 ////        std::cout << "exists_los " << exists_los << " " << p.x() * t << " " << p.y() * t << std::endl;
 //        if(free_neighboors.empty())
