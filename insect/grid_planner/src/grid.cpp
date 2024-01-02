@@ -7,26 +7,26 @@
 #include <cppitertools/filterfalse.hpp>
 #include <cppitertools/count.hpp>
 
-auto operator<<(std::ostream &os, const Grid::Key &k) -> decltype(k.save(os), os)
-{
-    k.save(os);
-    return os;
-};
-auto operator>>(std::istream &is, Grid::Key &k) -> decltype(k.read(is), is)
-{
-    k.read(is);
-    return is;
-};
-auto operator<<(std::ostream &os, const Grid::T &t) -> decltype(t.save(os), os)
-{
-    t.save(os);
-    return os;
-};
-auto operator>>(std::istream &is, Grid::T &t) -> decltype(t.read(is), is)
-{
-    t.read(is);
-    return is;
-};
+//auto operator<<(std::ostream &os, const Grid::Key &k) -> decltype(k.save(os), os)
+//{
+//    k.save(os);
+//    return os;
+//};
+//auto operator>>(std::istream &is, Grid::Key &k) -> decltype(k.read(is), is)
+//{
+//    k.read(is);
+//    return is;
+//};
+//auto operator<<(std::ostream &os, const Grid::T &t) -> decltype(t.save(os), os)
+//{
+//    t.save(os);
+//    return os;
+//};
+//auto operator>>(std::istream &is, Grid::T &t) -> decltype(t.read(is), is)
+//{
+//    t.read(is);
+//    return is;
+//};
 
 void Grid::initialize(  QRectF dim_,
                         int tile_size,
@@ -38,9 +38,9 @@ void Grid::initialize(  QRectF dim_,
 {
     static QGraphicsRectItem *bounding_box = nullptr;
     dim = dim_;
-    TILE_SIZE = tile_size;
+    params.tile_size = tile_size;
     scene = scene_;
-    //qInfo() << __FILE__ << __FUNCTION__ <<  "World dimension: " << dim << TILE_SIZE << "I assume that Y+ axis goes upwards";
+    //qInfo() << __FILE__ << __FUNCTION__ <<  "World dimension: " << dim << params.tile_size << "I assume that Y+ axis goes upwards";
     // TODO: CHECK DIMENSIONS BEFORE PROCEED
     //qInfo() << __FUNCTION__ << "Grid coordinates. Center:" << grid_center << "Angle:" << grid_angle;
     for (const auto &[key, value]: fmap)
@@ -58,15 +58,15 @@ void Grid::initialize(  QRectF dim_,
     std::uint32_t id=0;
     Eigen::Matrix2f matrix;
     matrix << std::cos(grid_angle) , -std::sin(grid_angle) , std::sin(grid_angle) , std::cos(grid_angle);
-    for(const auto &i: iter::range(dim.left(), dim.right()+TILE_SIZE, static_cast<double>(TILE_SIZE)))
-        for(const auto &j: iter::range(dim.top(), dim.bottom()+TILE_SIZE, static_cast<double>(TILE_SIZE)))
+    for(const auto &i: iter::range(dim.left(), dim.right()+params.tile_size, static_cast<double>(params.tile_size)))
+        for(const auto &j: iter::range(dim.top(), dim.bottom()+params.tile_size, static_cast<double>(params.tile_size)))
         {
             T aux;
             aux.id = id++;
             aux.free = true;
             aux.visited = false;
             aux.cost = 1.0;
-            QGraphicsRectItem *tile = scene->addRect(-TILE_SIZE / 2.f, -TILE_SIZE / 2.f, TILE_SIZE, TILE_SIZE,
+            QGraphicsRectItem *tile = scene->addRect(-params.tile_size / 2.f, -params.tile_size / 2.f, params.tile_size, params.tile_size,
                                                      QPen(my_color), QBrush(my_color));
             //tile->setZValue(50);
             Eigen::Vector2f res = matrix * Eigen::Vector2f(i, j) + Eigen::Vector2f(grid_center.x(), grid_center.y());
@@ -89,10 +89,10 @@ void Grid::initialize(  QRectF dim_,
     qInfo() << "    " <<"top:" << dim.top();
     qInfo() << "    " << "width:" << dim.width();
     qInfo() << "    " << "height:" << dim.height();
-    qInfo() << "    " << "TILE:" << TILE_SIZE;
-    qInfo() << "    " << "rows:" << ceil(dim.width() / TILE_SIZE) + 1;
-    qInfo() << "    " << "cols:" << ceil(dim.height() / TILE_SIZE) + 1;
-    qInfo() << "    " << "elems:" << keys.size() << "(" << (ceil(dim.width() / TILE_SIZE) + 1) * (ceil(dim.height() / TILE_SIZE) + 1) << ")";
+    qInfo() << "    " << "TILE:" << params.tile_size;
+    qInfo() << "    " << "rows:" << ceil(dim.width() / params.tile_size) + 1;
+    qInfo() << "    " << "cols:" << ceil(dim.height() / params.tile_size) + 1;
+    qInfo() << "    " << "elems:" << keys.size() << "(" << (ceil(dim.width() / params.tile_size) + 1) * (ceil(dim.height() / params.tile_size) + 1) << ")";
 }
 inline void Grid::insert(const Key &key, const T &value)
 {
@@ -100,7 +100,8 @@ inline void Grid::insert(const Key &key, const T &value)
 }
 inline std::tuple<bool, Grid::T&> Grid::get_cell(const Key &k)
 {
-    if (not dim.contains(k.toQPointF()))
+    //if (not dim.contains(k.toQPointF()))
+    if (not dim.contains(QPointF{static_cast<double>(k.first), static_cast<double>(k.second)}))
         return std::forward_as_tuple(false, T());
     else
     {
@@ -108,22 +109,22 @@ inline std::tuple<bool, Grid::T&> Grid::get_cell(const Key &k)
             return std::forward_as_tuple(true, fmap.at(k));
         else
         {
-            //qInfo() << __FUNCTION__ << "Key not found in grid: (" << k.x << k.z << ")";
+            //qInfo() << __FUNCTION__ << "Key not found in grid: (" << k.first << k.second << ")";
             // finds the first element with a key not less than k
             auto low_x = std::ranges::lower_bound(keys, k, [](const Key &k, const Key &p)
-            { return k.x <= p.x; });
+            { return k.first <= p.first; });
             if (low_x == keys.end() and not keys.empty())
                 low_x = std::prev(keys.end());
             std::vector<Key> y_keys;
             std::copy_if(low_x, std::end(keys), std::back_inserter(y_keys), [low_x](const Key &k)
-            { return k.x == low_x->x; });
+            { return k.first == low_x->first; });
             auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p)
-            { return k.z < p.z; });     // z is y
+            { return k.second < p.second; });     // z is y
             if (low_y != y_keys.end())
             {
-                //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.x << k.z << ") but found ("
+                //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.first << k.second << ") but found ("
                 //           << low_x->x << low_y->z << ")";
-                Key new_key = point_to_key(low_x->x, low_y->z);
+                Key new_key = point_to_key(low_x->first, low_y->second);
                 if (fmap.contains(new_key))
                     return std::forward_as_tuple(true, fmap.at(new_key));
                 else
@@ -136,98 +137,98 @@ Grid::Key Grid::point_to_key(long int x, long int z) const
 {
     // Key can be invalid for current grid. Check with get_cell()
     // bottom is top since Y axis is inverted
-    double kx = rint((static_cast<double>(x) - dim.left()) / TILE_SIZE);
-    double kz = rint((static_cast<double>(z) - dim.top()) / TILE_SIZE);
-    auto k = Key{ static_cast<long>(dim.left() + kx * TILE_SIZE), static_cast<long>(dim.top() + kz * TILE_SIZE)};
+    double kx = rint((static_cast<double>(x) - dim.left()) / params.tile_size);
+    double kz = rint((static_cast<double>(z) - dim.top()) / params.tile_size);
+    auto k = Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
     if(not fmap.contains(k))
-        qInfo() << __FUNCTION__ << "Key not found in grid: (" << x << z << ") -> (" << k.x << k.z << ")";
+        qInfo() << __FUNCTION__ << "Key not found in grid: (" << x << z << ") -> (" << k.first << k.second << ")";
     return k;
 };
 Grid::Key Grid::point_to_key(const QPointF &p) const
 {
     // Key can be invalid for current grid. Check with get_cell()
     // bottom is top since Y axis is inverted
-    double kx = rint((p.x() - dim.left()) / TILE_SIZE);
-    double kz = rint((p.y() - dim.top()) / TILE_SIZE);
-    auto k = Key{ static_cast<long>(dim.left() + kx * TILE_SIZE), static_cast<long>(dim.top() + kz * TILE_SIZE)};
+    double kx = rint((p.x() - dim.left()) / params.tile_size);
+    double kz = rint((p.y() - dim.top()) / params.tile_size);
+    auto k = Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
     if(not fmap.contains(k))
-        qInfo() << __FUNCTION__ << "QPoint not found in grid: (" << p.x() << p.y() << ") -> (" << k.x << k.z << ")";
+        qInfo() << __FUNCTION__ << "QPoint not found in grid: (" << p.x() << p.y() << ") -> (" << k.first << k.second << ")";
     return k;
 };
 Grid::Key Grid::point_to_key(const Eigen::Vector2f &p) const
 {
     // Key can be invalid for current grid. Check with get_cell()
-    double kx = ceil((p.x() - dim.left()) / TILE_SIZE);
-    double kz = ceil((p.y() - dim.top()) / TILE_SIZE);
-    return Key{ static_cast<long>(dim.left() + kx * TILE_SIZE), static_cast<long>(dim.top() + kz * TILE_SIZE)};
+    double kx = ceil((p.x() - dim.left()) / params.tile_size);
+    double kz = ceil((p.y() - dim.top()) / params.tile_size);
+    return Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
 };
 Eigen::Vector2f Grid::point_to_grid(const Eigen::Vector2f &p) const
 {
-    return Eigen::Vector2f{ceil((p.x() - dim.left()) / TILE_SIZE), ceil((p.y()) - dim.top()) / TILE_SIZE};
+    return Eigen::Vector2f{ceil((p.x() - dim.left()) / params.tile_size), ceil((p.y()) - dim.top()) / params.tile_size};
 }
 
 ///////////////////////////////INPUT / OUTPUT //////////////////////////////////
-void Grid::saveToFile(const std::string &fich)
-{
-    std::ofstream myfile;
-    myfile.open(fich);
-    for (const auto &[k, v] : fmap)
-        myfile << k << v << std::endl;
-
-    myfile.close();
-    std::cout << __FUNCTION__ << " " << fmap.size() << " elements written to " << fich << std::endl;
-}
-std::string Grid::saveToString() const
-{
-    std::ostringstream stream;
-    for (const auto &[k, v] : fmap)
-        stream << k << v << v.cost << std::endl;
-
-    std::cout << "Grid::" << __FUNCTION__ << " " << fmap.size() << " elements written to osdtringstream";
-    return stream.str();
-}
-void Grid::readFromString(const std::string &cadena)
-{
-    fmap.clear();
-
-    std::istringstream stream(cadena);
-    std::string line;
-    std::uint32_t count = 0;
-    while ( std::getline (stream, line) )
-    {
-        //std::cout << line << std::endl;
-        std::stringstream ss(line);
-        int x, z;
-        bool free, visited;
-        float cost;
-        std::string node_name;
-        ss >> x >> z >> free >> visited >> cost>> node_name;
-        fmap.emplace(point_to_key(x, z), T{count++, free, false, cost});
-    }
-    std::cout << __FUNCTION__ << " " << fmap.size() << " elements read from "  << std::endl;
-}
-void Grid::readFromFile(const std::string &fich)
-{
-    std::ifstream myfile(fich);
-    std::string line;
-    std::uint32_t count = 0;
-    if (!myfile)
-    {
-        std::cout << fich << " No file found" << std::endl;
-        std::terminate();
-    }
-    while ( std::getline (myfile, line) )
-    {
-        //std::cout << line << std::endl;
-        std::stringstream ss(line);
-        int x, z;
-        bool free, visited;
-        std::string node_name;
-        ss >> x >> z >> free >> visited >> node_name;
-        fmap.emplace(point_to_key(x, z), T{count++, free, false, 1.f});
-    }
-    std::cout << __FUNCTION__ << " " << fmap.size() << " elements read from " << fich << std::endl;
-}
+//void Grid::saveToFile(const std::string &fich)
+//{
+//    std::ofstream myfile;
+//    myfile.open(fich);
+//    for (const auto &[k, v] : fmap)
+//        myfile << k << v << std::endl;
+//
+//    myfile.close();
+//    std::cout << __FUNCTION__ << " " << fmap.size() << " elements written to " << fich << std::endl;
+//}
+//std::string Grid::saveToString() const
+//{
+//    std::ostringstream stream;
+//    for (const auto &[k, v] : fmap)
+//        stream << k << v << v.cost << std::endl;
+//
+//    std::cout << "Grid::" << __FUNCTION__ << " " << fmap.size() << " elements written to osdtringstream";
+//    return stream.str();
+//}
+//void Grid::readFromString(const std::string &cadena)
+//{
+//    fmap.clear();
+//
+//    std::istringstream stream(cadena);
+//    std::string line;
+//    std::uint32_t count = 0;
+//    while ( std::getline (stream, line) )
+//    {
+//        //std::cout << line << std::endl;
+//        std::stringstream ss(line);
+//        int x, z;
+//        bool free, visited;
+//        float cost;
+//        std::string node_name;
+//        ss >> x >> z >> free >> visited >> cost>> node_name;
+//        fmap.emplace(point_to_key(x, z), T{count++, free, false, cost});
+//    }
+//    std::cout << __FUNCTION__ << " " << fmap.size() << " elements read from "  << std::endl;
+//}
+//void Grid::readFromFile(const std::string &fich)
+//{
+//    std::ifstream myfile(fich);
+//    std::string line;
+//    std::uint32_t count = 0;
+//    if (!myfile)
+//    {
+//        std::cout << fich << " No file found" << std::endl;
+//        std::terminate();
+//    }
+//    while ( std::getline (myfile, line) )
+//    {
+//        //std::cout << line << std::endl;
+//        std::stringstream ss(line);
+//        int x, z;
+//        bool free, visited;
+//        std::string node_name;
+//        ss >> x >> z >> free >> visited >> node_name;
+//        fmap.emplace(point_to_key(x, z), T{count++, free, false, 1.f});
+//    }
+//    std::cout << __FUNCTION__ << " " << fmap.size() << " elements read from " << fich << std::endl;
+//}
 
 //////////////////////////////// STATUS //////////////////////////////////////////
 inline bool Grid::is_free(const Key &k)
@@ -451,7 +452,7 @@ void Grid::set_all_to_free()
 }
 void Grid::mark_area_in_grid_as(const QPolygonF &poly, bool free)
 {
-    const qreal step = TILE_SIZE / 4.f;
+    const qreal step = params.tile_size / 4.f;
     QRectF box = poly.boundingRect();
     for (auto &&x : iter::range(box.x() - step / 2.0, box.x() + box.width() + step / 2, step))
         for (auto &&y : iter::range(box.y() - step / 2.0, box.y() + box.height() + step / 2, step))
@@ -467,7 +468,7 @@ void Grid::mark_area_in_grid_as(const QPolygonF &poly, bool free)
 }
 void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 {
-    const qreal step = TILE_SIZE / 4.f;
+    const qreal step = params.tile_size / 4.f;
     QRectF box = poly.boundingRect();
     for (auto &&x : iter::range(box.x() - step / 2, box.x() + box.width() + step / 2, step))
         for (auto &&y : iter::range(box.y() - step / 2, box.y() + box.height() + step / 2, step))
@@ -476,8 +477,10 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 }
 
 ////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
-std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &target_)
+std::vector<Eigen::Vector2f > Grid::compute_path_internal(const QPointF &source_, const QPointF &target_)
 {
+    // computes a path from source to target using the Dijkstra algorithm
+
     // Admission rules
     if (not dim.contains(target_))
     {
@@ -509,7 +512,7 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
         return {};
     }
 
-    // vector de distancias inicializado a UINT_MAX
+    // initial distances vector
     std::vector<uint32_t> min_distance(fmap.size(), std::numeric_limits<uint32_t>::max());
     // initialize source position to 0
     min_distance[source_cell.id] = 0;
@@ -547,7 +550,7 @@ std::list<QPointF> Grid::computePath(const QPointF &source_, const QPointF &targ
             }
         }
     }
-    qInfo() << __FUNCTION__ << "Path from (" << source_key.x << "," << source_key.z << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
+    qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
     return {};
 };
 std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vector2f &source_,
@@ -560,23 +563,14 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // starting from an initial path and setting to occupied succesive cells in the path, new paths are computed
     // until k paths are found or the initial path is exhausted
 
-    // lambda to convert a list of QPointF to a vector of Eigen::Vector2f
-    auto to_eigen = [](const std::list<QPointF> &path)
-            {
-                std::vector<Eigen::Vector2f> path_v(path.size());
-                for(const auto &[i, p] : iter::enumerate(path))
-                    path_v[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
-                return path_v;
-            };
     auto to_qt = [](const Eigen::Vector2f &p)
             {return QPointF{static_cast<float>(p.x()), static_cast<float>(p.y())};};
 
     // get an initial shortest path
-    auto i_path = computePath(to_qt(source_), to_qt(target_));
-    if(i_path.empty()) return {};
+    auto initial_path = compute_path_internal(to_qt(source_), to_qt(target_));
+    if(initial_path.empty()) return {};
 
     // initialize vector of paths and aux variables
-    auto initial_path = to_eigen(i_path);
     std::vector<std::vector<Eigen::Vector2f>> paths_list;
     paths_list.push_back(initial_path);
     auto current_step= initial_path.cbegin();   // source
@@ -592,14 +586,13 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
         {
             // mark cell as occupied
             set_occupied(point_to_key(*current_step));
-            auto path = computePath(to_qt(source_), to_qt(target_));
+            auto path = compute_path_internal(to_qt(source_), to_qt(target_));
             if(not path.empty())
             {
-                auto path_eigen = to_eigen(path);
                 // check that the new path is different enough from the previous ones
-                if(std::ranges::all_of(paths_list, [&path_eigen, threshold, this](const auto &p)
-                            { return max_distance(p, path_eigen) > threshold;}))
-                    paths_list.emplace_back(path_eigen);
+                if(std::ranges::all_of(paths_list, [&path, threshold, this](const auto &p)
+                            { return max_distance(p, path) > threshold;}))
+                    paths_list.emplace_back(path);
 
             }
         }
@@ -608,7 +601,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
 }
 std::vector<Eigen::Vector2f> Grid::compute_path(const QPointF &source_, const QPointF &target_)
 {
-    auto lpath = computePath(source_, target_);
+    auto lpath = compute_path_internal(source_, target_);
     std::vector<Eigen::Vector2f> path(lpath.size());
     for(const auto &[i, p] : iter::enumerate(lpath))
         path[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
@@ -621,7 +614,7 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
     // list of increments to access the neighboors of a given position
     for (auto &&[itx, itz]: iter::zip(xincs, zincs))
     {
-        Key lk{k.x + itx, k.z + itz};
+        Key lk{k.first + itx, k.second + itz};
         auto &&[success, p] = get_cell(lk);
         if (not success) continue;
 
@@ -637,14 +630,14 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
             if (p.free)
                 neigh.emplace_back(lk, p);
 //            {
-//                if(ceil(400.0/TILE_SIZE)<= 3) // robot occupies three cells, Check 8-neigh
+//                if(ceil(400.0/params.tile_size)<= 3) // robot occupies three cells, Check 8-neigh
 //                {
 //                    auto neigh = neighboors_8(lk, true);
 //                    if( auto res = std::ranges::find_if_not(neigh, [](auto a){ return a.second.free;}); res != neigh.end())
 //                        all_free = false;
 ////                    for (auto &&[fitx, fitz]: iter::zip(xincs, zincs))
 ////                    {
-////                        Key flk{lk.x + fitx, lk.z + fitz};
+////                        Key flk{lk.first + fitx, lk.second + fitz};
 ////                        const auto &[fsuccess, fp] = get_cell(flk);
 ////                        if (not fsuccess or not fp.free)
 ////                        {
@@ -668,47 +661,53 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
 }
 std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors_8(const Grid::Key &k, bool all)
 {
-    const int &I = TILE_SIZE;
+    const int &I = params.tile_size;
     static const std::vector<int> xincs = {I, I, I, 0, -I, -I, -I, 0};
     static const std::vector<int> zincs = {I, 0, -I, -I, -I, 0, I, I};
     return this->neighboors(k, xincs, zincs, all);
 }
 std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors_16(const Grid::Key &k, bool all)
 {
-    const int &I = TILE_SIZE;
+    const int &I = params.tile_size;
     static const std::vector<int> xincs = {0,   I,   2*I,  2*I, 2*I, 2*I, 2*I, I, 0, -I, -2*I, -2*I,-2*I,-2*I,-2*I, -I};
     static const std::vector<int> zincs = {2*I, 2*I, 2*I,  I,   0 , -I , -2*I, -2*I,-2*I,-2*I,-2*I, -I, 0,I, 2*I, 2*I};
     return this->neighboors(k, xincs, zincs, all);
 }
-std::list<QPointF> Grid::recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target)
+std::vector<Eigen::Vector2f> Grid::recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target)
 {
-    // recovers the path from the previous vector
-    std::list<QPointF> res;
+    // recovers the path from the "previous" vector
+    // we use a list here because we want to add elements at the beginning and it is much faster than vector
+    std::list<Eigen::Vector2f> aux;
     Key k = target;
     std::uint32_t u = fmap.at(k).id;
     while (previous[u].first != (std::uint32_t)-1)
     {
-        res.emplace_front(static_cast<double>(k.x), static_cast<long>(k.z));
+        aux.emplace_front(static_cast<float>(k.first), static_cast<float>(k.second));
         u = previous[u].first;
         k = previous[u].second;
     }
-    //qDebug() << __FILE__ << __FUNCTION__ << "Path length:" << res.size();  //exit point
+    std::vector<Eigen::Vector2f> res{ std::begin(aux), std::end(aux) };
     return res;
 };
-std::list<QPointF> Grid::decimate_path(const std::list<QPointF> &path)
+std::vector<Eigen::Vector2f> Grid::decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step)
 {
-    std::list<QPointF> res;
-    for(auto &&p : iter::chunked(path,2))
+    // reduces the size of the path by a factor "step"
+    // admission rules
+    if(step > path.size()/2 )
+        return path;
+
+    std::vector<Eigen::Vector2f> res;
+    for(auto &&p : iter::chunked(path,step))
         res.push_back(p[0]);
     return res;
 }
 inline double Grid::heuristicL2(const Key &a, const Key &b) const
 {
-    return std::hypot(a.x - b.x, a.z - b.z);
+    return std::hypot(a.first - b.first, a.second - b.second);
 }
 inline double Grid::heuristicL1(const Key &a, const Key &b) const
 {
-    return std::abs(a.x - b.x) + std::abs(a.z - b.z);
+    return std::abs(a.first - b.first) + std::abs(a.second - b.second);
 }
 
 /////////////////////////////// COSTS /////////////////////////////////////////////////////////
@@ -724,7 +723,7 @@ void Grid::update_costs(float robot_semi_width, bool wide)
                 ={{100, 75, orange_brush, &Grid::neighboors_8},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
-                  {25, 10,  green_brush, &Grid::neighboors_16}};
+                  {25, 3,  green_brush, &Grid::neighboors_16}};
 
     // we assume the grid has been cleared before. All free cells have cost 1
 
@@ -756,7 +755,7 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::
     for(const auto &point : points)
     {
         float length = (point.head(2)-robot_in_grid).norm();
-        int num_steps = ceil(static_cast<double>(length/(static_cast<float>(TILE_SIZE))));
+        int num_steps = ceil(static_cast<double>(length/(static_cast<float>(params.tile_size))));
         Eigen::Vector2f p;
         for(const auto &&step : iter::range(0.0, 1.0-(1.0/num_steps), 1.0/num_steps))
         {
@@ -766,7 +765,7 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::
         if(length <= max_laser_range)
             add_hit(point.head(2));
 
-        if((p-point.head(2)).norm() < static_cast<float>(TILE_SIZE))  // in case last miss overlaps tip
+        if((p-point.head(2)).norm() < static_cast<float>(params.tile_size))  // in case last miss overlaps tip
             add_hit(point.head(2));
     }
 }
@@ -848,7 +847,7 @@ std::optional<QPointF> Grid::closestMatching_spiralMove(const QPointF &p, const 
     if(ok and cell.free)
         return p;
 
-    int move_unit = TILE_SIZE;
+    int move_unit = params.tile_size;
     int vi = move_unit;
     int vj = 0;
     int tam_segmento = 1;
@@ -883,13 +882,14 @@ std::optional<QPointF> Grid::closest_free(const QPointF &p)
 }
 std::optional<QPointF> Grid::closest_free_4x4(const QPointF &p)
 {
-    return this->closestMatching_spiralMove(p, [this, p](const auto &cell){
-        if (not cell.second.free)
-            return false;
-        Key key = point_to_key(QPointF(cell.first.x, cell.first.z));
-        std::vector<std::pair<Grid::Key, Grid::T>> L1 = neighboors_16(key, false);
-        return (L1.size() == 16);
-    });
+    return this->closestMatching_spiralMove(p, [this, p](const auto &cell)
+            {
+                if (not cell.second.free)
+                    return false;
+                Key key = point_to_key(QPointF(cell.first.first, cell.first.second));
+                std::vector<std::pair<Grid::Key, Grid::T>> L1 = neighboors_16(key, false);
+                return (L1.size() == 16);
+            });
 }
 bool Grid::is_path_blocked(const std::vector<Eigen::Vector2f> &path) // grid coordinates
 {
@@ -907,7 +907,7 @@ std::tuple<bool, QVector2D> Grid::vector_to_closest_obstacle(QPointF center)
     {
         if (not n.second.free)
         {
-            QVector2D vec = QVector2D(QPointF(k.x, k.z)) - QVector2D(QPointF(n.first.x,n.first.z)) ;
+            QVector2D vec = QVector2D(QPointF(k.first, k.second)) - QVector2D(QPointF(n.first.first,n.first.second)) ;
             if (vec.length() < dist)
             {
                 dist = vec.length();
@@ -925,7 +925,7 @@ std::tuple<bool, QVector2D> Grid::vector_to_closest_obstacle(QPointF center)
         {
             if (not n.second.free)
             {
-                QVector2D vec = QVector2D(QPointF(k.x, k.z)) - QVector2D(QPointF(n.first.x, n.first.z)) ;
+                QVector2D vec = QVector2D(QPointF(k.first, k.second)) - QVector2D(QPointF(n.first.first, n.first.second)) ;
                 if (vec.length() < dist)
                 {
                     dist = vec.length();
@@ -937,7 +937,7 @@ std::tuple<bool, QVector2D> Grid::vector_to_closest_obstacle(QPointF center)
     }
     return std::make_tuple(obstacleFound,closestVector);
 }
-bool Grid::line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width)
+bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width)
 {
     // checks if the robot can move from source to target in a straight line without colliding with an obstacle
 
@@ -954,15 +954,15 @@ bool Grid::line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::V
     }
 
     // check if there is a straight line from source to target that is free
-    float num_steps = (target - source).norm() / static_cast<float>(TILE_SIZE);
+    float num_steps = (target - source).norm() / static_cast<float>(params.tile_size);
     Eigen::Vector2f step((target - source) / num_steps);
 
     // compute how many parallel lines we need to cover the robot's width
-    int num_lines_to_side = ceil(robot_semi_width / TILE_SIZE);
+    int num_lines_to_side = ceil(robot_semi_width / params.tile_size);
     bool success = true;
     for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
     {
-        Eigen::Vector2f src = source - Eigen::Vector2f{-TILE_SIZE * i, 0.f};
+        Eigen::Vector2f src = source - Eigen::Vector2f{-params.tile_size * i, 0.f};
         success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
                         { return is_free(src + step * i); });
     }

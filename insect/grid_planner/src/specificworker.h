@@ -49,21 +49,19 @@ class SpecificWorker : public GenericWorker
 
     private:
         bool startup_check_flag;
+        bool cancel_from_mouse = false;     // cancel current target from mouse right click
 
         //Graphics
         AbstractGraphicViewer *viewer;
 
-        struct Constants
+        struct Params
         {
-            float TILE_SIZE = 75;   // mm
             float ROBOT_WIDTH = 460;  // mm
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
-            float MAX_ADV_SPEED = 1000;    // mm/s
-            float MAX_SIDE_SPEED = 1000;   // mm/s
-            float MAX_ROT_SPEED = 2;  // rad/s
-            float MIN_DISTANCE_TO_TARGET = 200; // mm
+            float TILE_SIZE = 100;   // mm
+            float MIN_DISTANCE_TO_TARGET = ROBOT_WIDTH / 2.f; // mm
             std::string LIDAR_NAME_LOW = "bpearl";
             std::string LIDAR_NAME_HIGH = "helios";
             float MAX_LIDAR_LOW_RANGE = 10000;  // mm
@@ -71,13 +69,13 @@ class SpecificWorker : public GenericWorker
             float MAX_LIDAR_RANGE = 10000;  // mm used in the grid
             int LIDAR_LOW_DECIMATION_FACTOR = 1;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
-            float GRID_WIDTH = 12000;   // mm
-            float GRID_LENGTH = 12000;  // mm
-            QRectF VIEWER_MAX_DIM{-6000, -6000, 12000, 12000};
+            QRectF GRID_MAX_DIM{-6000, -6000, 12000, 12000};
+            float CARROT_DISTANCE = 500;   // mm
+            float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 50;    // ms (20 Hz) for compute timer
         };
-        Constants consts;
+        Params params;
 
         // grid
         Grid grid;
@@ -138,22 +136,11 @@ class SpecificWorker : public GenericWorker
             static Target invalid() { Target t; t.active=false; return t; };
             [[nodiscard]] bool is_valid() const { return active; };
         };
-
-        // Target
         DoubleBuffer<Target, Target> target_buffer;
 
         // Frechet distance calculus
         double frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
-
-        Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
-        RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
-                                                         float threshold_dist, float threshold_angle); // get close point in current path
-        Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
-        void set_target_global(const Eigen::Transform<double, 3, 1> &robot_pose, Target &target, Target &original_target);
-        RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
-        RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
-        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);
 
         // Draw
         void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);
@@ -162,6 +149,17 @@ class SpecificWorker : public GenericWorker
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
 
+        // Work
+        Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
+        RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
+                                                         float threshold_dist, float threshold_angle); // get close point in current path
+        Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
+        void transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, Target &target, Target &original_target);
+        RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
+        RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
+        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);
+
+        // pusblish
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
 };
 

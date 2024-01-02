@@ -12,6 +12,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.*/
 
+/* Grid class implements a 2D occupancy grid map. It is bases on a hashmap (unorderedmap) of cells of type T
+ * It is used to represent the environment as seen from the robot's coordinate frame, regenerating at each iteration of the percepcion cycle.
+ * It has methods to edit the cells and to compute sets of optimal paths using the Dijkstra algorithm and the Yen algorithm.
+*/
+
 #ifndef GRID_H
 #define GRID_H
 
@@ -35,45 +40,9 @@ class Grid
         using Myclock = std::chrono::system_clock;
         using Msec = std::chrono::duration<double, std::milli>;
         using Seconds = std::chrono::seconds;
-
-    public:
         using Dimensions = QRectF;
-        int TILE_SIZE;  // TODO:
 
-        struct Key
-        {
-            long int x;
-            long int z;
-            public:
-                Key() : x(0), z(0)
-                {};
-                Key(long int &&x, long int &&z) : x(x), z(z)
-                {};
-                Key(long int &x, long int &z) : x(x), z(z)
-                {};
-                [[nodiscard]] QPointF toQPointF() const
-                { return {static_cast<double>(x), static_cast<double>(z)}; };
-                bool operator==(const Key &other) const
-                { return x == other.x && z == other.z; };
-                void save(std::ostream &os) const
-                { os << x << " " << z << " "; };    // method to save the keys
-                void read(std::istream &is)
-                { is >> x >> z; };                  // method to read the keys
-        };
-        struct KeyHasher
-        {
-            std::size_t operator()(const Key &k) const
-            {
-                using boost::hash_combine;
-                using boost::hash_value;
-                // Start with a hash value of 0    .
-                std::size_t seed = 0;
-                // Modify 'seed' by XORing and bit-shifting in one member of 'Key' after the other:
-                hash_combine(seed, hash_value(k.x));
-                hash_combine(seed, hash_value(k.z));
-                return seed;
-            };
-        };
+public:
         struct T
         {
             std::uint32_t id;
@@ -90,9 +59,8 @@ class Grid
             { is >> free >> visited; };
         };
 
-        using FMap = std::unordered_map<Key, T, KeyHasher>;
-        //using FMap = std::unordered_map<Key, T>;
-        Dimensions dim = QRectF();  // TODO: make private
+        using Key = std::pair<int, int>;
+        using FMap = std::unordered_map<Key, T, boost::hash<Key>>;
 
         void initialize(QRectF dim_,
                         int tile_size,
@@ -101,13 +69,14 @@ class Grid
                         const std::string &file_name = std::string(),
                         QPointF grid_center = QPointF(0,0),
                         float grid_angle = 0.f);
-        void clear();   // sets all cells to initial values
-        void reset();   // removes all cells from memory
+
+        // paths
         std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
         std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_,
                                                                   unsigned num_paths, float threshold_dist);
-        void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
 
+        // map maintainance
+        void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
         //inline std::tuple<bool, T &> get_cell(long int x, long int z);
         inline std::tuple<bool, T &> get_cell(const Key &k);
         //inline std::tuple<bool, T &> get_cell(const Eigen::Vector2f &p);
@@ -116,6 +85,9 @@ class Grid
         Key point_to_key(const Eigen::Vector2f &p) const;
         size_t size() const { return fmap.size(); };
         Eigen::Vector2f point_to_grid(const Eigen::Vector2f &p) const;
+        void clear();   // sets all cells to initial values
+        void reset();   // removes all cells from memory
+        QRectF get_dim() const { return dim; };
 
         // iterators
         typename FMap::iterator begin()
@@ -177,7 +149,7 @@ class Grid
 
         // path related
         bool is_path_blocked(const std::vector<Eigen::Vector2f> &path);
-        bool line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width);
+        bool is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width);
         float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
 
@@ -186,17 +158,19 @@ class Grid
         QGraphicsScene *scene;
         double updated=0.0, flipped=0.0;
         std::vector<Key> keys;  // vector of keys to compute closest matches
+        Dimensions dim = QRectF();
 
-        std::list<QPointF> recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
+        std::vector<Eigen::Vector2f> recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
         double heuristicL1(const Key &a, const Key &b) const;
-        std::list<QPointF> decimate_path(const std::list<QPointF> &path);
+        std::vector<Eigen::Vector2f> decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step=2);
         std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
-        std::list<QPointF> computePath(const QPointF &source_, const QPointF &target_);
+        std::vector<Eigen::Vector2f> compute_path_internal(const QPointF &source_, const QPointF &target_);
 
         struct Params
         {
+            int tile_size = 100;
             const QString free_color = "white";
             const QString occupied_color = "DarkRed";
             const float occupancy_threshold = 0.45;
