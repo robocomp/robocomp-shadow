@@ -44,34 +44,21 @@ class Grid
         {
             long int x;
             long int z;
-        public:
-            Key() : x(0), z(0)
-            {};
-            Key(long int &&x, long int &&z) : x(std::move(x)), z(std::move(z))
-            {};
-            Key(long int &x, long int &z) : x(x), z(z)
-            {};
-            Key(float &x, float &z) : x((long int) x), z((long int) z)
-            {};
-            Key(const long int &x, const long int &z) : x(x), z(z)
-            {};
-            Key(const QPointF &p)
-            {
-                x = p.x();
-                z = p.y();
-            };
-            QPointF toQPointF() const
-            { return QPointF(x, z); };
-
-            bool operator==(const Key &other) const
-            {
-                return x == other.x && z == other.z;
-            };
-
-            void save(std::ostream &os) const
-            { os << x << " " << z << " "; }; //method to save the keys
-            void read(std::istream &is)
-            { is >> x >> z; };                       //method to read the keys
+            public:
+                Key() : x(0), z(0)
+                {};
+                Key(long int &&x, long int &&z) : x(x), z(z)
+                {};
+                Key(long int &x, long int &z) : x(x), z(z)
+                {};
+                [[nodiscard]] QPointF toQPointF() const
+                { return {static_cast<double>(x), static_cast<double>(z)}; };
+                bool operator==(const Key &other) const
+                { return x == other.x && z == other.z; };
+                void save(std::ostream &os) const
+                { os << x << " " << z << " "; };    // method to save the keys
+                void read(std::istream &is)
+                { is >> x >> z; };                  // method to read the keys
         };
         struct KeyHasher
         {
@@ -96,17 +83,15 @@ class Grid
             float hits = 0;
             float misses = 0;
             QGraphicsRectItem *tile;
-            double log_odds = 0.0;  //log prior
-
-            // method to save the value
+            // methods to save and read values to disk
             void save(std::ostream &os) const
             { os << free << " " << visited; };
-
             void read(std::istream &is)
             { is >> free >> visited; };
         };
 
         using FMap = std::unordered_map<Key, T, KeyHasher>;
+        //using FMap = std::unordered_map<Key, T>;
         Dimensions dim = QRectF();  // TODO: make private
 
         void initialize(QRectF dim_,
@@ -116,20 +101,21 @@ class Grid
                         const std::string &file_name = std::string(),
                         QPointF grid_center = QPointF(0,0),
                         float grid_angle = 0.f);
-        void clear();
-        void reset();
+        void clear();   // sets all cells to initial values
+        void reset();   // removes all cells from memory
         std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
-        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const QPointF &source_, const QPointF &target_, int num_paths);
+        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_,
+                                                                  unsigned num_paths, float threshold_dist);
         void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
 
-        //inline std::tuple<bool, T &> getCell(long int x, long int z);
-        inline std::tuple<bool, T &> getCell(const Key &k);
-        //inline std::tuple<bool, T &> getCell(const Eigen::Vector2f &p);
-        Key pointToKey(long int x, long int z) const;
-        Key pointToKey(const QPointF &p) const;
-        Key pointToKey(const Eigen::Vector2f &p) const;
+        //inline std::tuple<bool, T &> get_cell(long int x, long int z);
+        inline std::tuple<bool, T &> get_cell(const Key &k);
+        //inline std::tuple<bool, T &> get_cell(const Eigen::Vector2f &p);
+        Key point_to_key(long int x, long int z) const;
+        Key point_to_key(const QPointF &p) const;
+        Key point_to_key(const Eigen::Vector2f &p) const;
         size_t size() const { return fmap.size(); };
-        Eigen::Vector2f pointToGrid(const Eigen::Vector2f &p) const;
+        Eigen::Vector2f point_to_grid(const Eigen::Vector2f &p) const;
 
         // iterators
         typename FMap::iterator begin()
@@ -151,14 +137,14 @@ class Grid
         inline bool is_free(const Key &k);
         inline bool is_free(const Eigen::Vector2f &p);
         inline bool is_occupied(const Eigen::Vector2f &p);
-        void setVisited(const Key &k, bool visited);
+        void set_visited(const Key &k, bool visited);
         bool is_visited(const Key &k);
         void set_all_to_not_visited();
         void set_all_to_free();
-        void setOccupied(const Key &k);
-        void setOccupied(long int x, long int y);
-        void setOccupied(const QPointF &p);
-        void setCost(const Key &k, float cost);
+        void set_occupied(const Key &k);
+        void set_occupied(long int x, long int y);
+        void set_occupied(const QPointF &p);
+        void set_cost(const Key &k, float cost);
         float get_cost(const Eigen::Vector2f &p);
 
         // cell probabilistic update
@@ -172,17 +158,16 @@ class Grid
         int count_total_visited() const;
 
         // constrained grid access
-        void markAreaInGridAs(const QPolygonF &poly, bool free);   // if true area becomes free
-        void modifyCostInGrid(const QPolygonF &poly, float cost);
+        void mark_area_in_grid_as(const QPolygonF &poly, bool free);   // if true area becomes free
+        void modify_cost_in_grid(const QPolygonF &poly, float cost);
         void update_costs(float robot_semi_width, bool wide=true);
         std::optional<QPointF> closest_obstacle(const QPointF &p);
         std::optional<QPointF> closest_free(const QPointF &p);
         std::optional<QPointF> closest_free_4x4(const QPointF &p);
-        std::tuple<bool, QVector2D> vectorToClosestObstacle(QPointF center);
+        std::tuple<bool, QVector2D> vector_to_closest_obstacle(QPointF center);
         std::vector<std::pair<Key, T>> neighboors(const Key &k, const std::vector<int> &xincs, const std::vector<int> &zincs, bool all = false);
         std::vector<std::pair<Key, T>> neighboors_8(const Key &k, bool all = false);
         std::vector<std::pair<Key, T>> neighboors_16(const Key &k, bool all = false);
-        void draw(bool clear=false);
 
         // file io
         void saveToFile(const std::string &fich);
@@ -192,7 +177,7 @@ class Grid
 
         // path related
         bool is_path_blocked(const std::vector<Eigen::Vector2f> &path);
-        bool line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target);
+        bool line_of_sigth_to_target(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width);
         float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
 
@@ -202,7 +187,7 @@ class Grid
         double updated=0.0, flipped=0.0;
         std::vector<Key> keys;  // vector of keys to compute closest matches
 
-        std::list<QPointF> orderPath(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
+        std::list<QPointF> recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
         double heuristicL1(const Key &a, const Key &b) const;
         std::list<QPointF> decimate_path(const std::list<QPointF> &path);
@@ -218,11 +203,5 @@ class Grid
         };
         Params params;
 
-
 };
 #endif // GRID_H
-
-//    T at(const Key &k) const
-//    { return fmap.at(k); };
-//    T &at(const Key &k)
-//    { return fmap.at(k); };
