@@ -105,10 +105,15 @@ void SpecificWorker::initialize(int period)
 	else
 	{
 		// Viewer
- 		viewer = new AbstractGraphicViewer(this->frame, consts.viewer_dim, false);
-        //viewer->add_robot(consts.ROBOT_WIDTH, consts.ROBOT_LENGTH, 0, 100, QColor("Blue"));
-        viewer->show();
-        std::cout << "Started viewer" << std::endl;
+        if(consts.DISPLAY)
+        {
+            viewer = new AbstractGraphicViewer(this->frame, consts.viewer_dim, false);
+            //viewer->add_robot(consts.ROBOT_WIDTH, consts.ROBOT_LENGTH, 0, 100, QColor("Blue"));
+            viewer->show();
+            std::cout << "Started viewer" << std::endl;
+        }
+        else
+            hide();
 
         robot_contour << QPointF(-consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
                       QPointF(consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
@@ -121,9 +126,12 @@ void SpecificWorker::initialize(int period)
 
         // create list of edge points (polar) from robot_safe_band
 		edge_points = create_edge_points(robot_safe_band);
-        //draw_edge(edge_points, &viewer->scene);
-        draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
-        std::cout << __FUNCTION__  << "Robot is drawn" << std::endl;
+        if(consts.DISPLAY)
+        {
+            //draw_edge(edge_points, &viewer->scene);
+            draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
+            std::cout << __FUNCTION__ << "Robot is drawn" << std::endl;
+        }
 
         // Lidar thread is created
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
@@ -138,7 +146,7 @@ void SpecificWorker::compute()
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
-    //draw_lidar(ldata.points);
+    if(consts.DISPLAY) draw_lidar(ldata.points);
     //qInfo() << ldata.points.size();
 
     /// Check for new external target
@@ -146,15 +154,15 @@ void SpecificWorker::compute()
     {
         const auto &[side, adv, rot, debug] = ext.value();
         target.set(side, adv, rot, true);
-        draw_target_original(target, false, 1);
+        if(consts.DISPLAY) draw_target_original(target, false, 1);
     }
 
     /// Check bumper for a security breach
     reaction.active = false;
     std::vector<Eigen::Vector2f> displacements = check_safety(ldata.points);
-    draw_displacements(displacements,&viewer->scene);
+    if(consts.DISPLAY) draw_displacements(displacements,&viewer->scene);
     bool security_breach = not displacements.empty();
-    if(not security_breach) draw_target_breach(target, true);   // erase target breach from draw
+    if(not security_breach and consts.DISPLAY) draw_target_breach(target, true);   // erase target breach from draw
 
     ////////////////////////////////////////////
     /// We have now four possibilities
@@ -187,8 +195,8 @@ void SpecificWorker::compute()
     // Adjust band size
     robot_safe_band = adjust_band_size(robot_current_speed);
     edge_points = create_edge_points(robot_safe_band);
-    draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
-    //fps.print("FPS:");
+    if(consts.DISPLAY) draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
+    fps.print("FPS:", 3000);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -212,7 +220,7 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
     std::vector<Eigen::Vector2f> close_points;  // cartesian coordinates
     for(const auto &p: points)
         if (point_in_body(p.phi, p.r)) close_points.emplace_back(p.x, p.y);
-    draw_points_in_belt(close_points); // cartesian coordinates
+    if(consts.DISPLAY) draw_points_in_belt(close_points); // cartesian coordinates
 
     // max dist to reach from current situation
     // const float delta_t = 1; // 0.050; //200ms
@@ -302,7 +310,7 @@ void SpecificWorker::target_active_and_security_breach(const std::vector<Eigen::
             return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
         });
         reaction.set(res->x(), res->y(), 0.f);
-        draw_target_original(target, false, 1);
+        if(consts.DISPLAY) draw_target_original(target, false, 1);
     }
 }
 void SpecificWorker::not_target_active_and_not_security_breach(const std::vector<Eigen::Vector2f> &displacements)
@@ -321,7 +329,7 @@ void SpecificWorker::not_target_active_and_security_breach(const std::vector<Eig
         { return a.norm() < b.norm(); });
         res *= consts.REPULSION_GAIN;
         reaction.set(res.x(), res.y(), 0.f);
-        draw_target_breach(reaction);
+        if(consts.DISPLAY) draw_target_breach(reaction);
     } else
     {  move_robot(Target(), Target(), true);  }
 }
@@ -345,7 +353,6 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
 
-    float lambda = 0.5;
     // check activation status of targets and combine results
     if(target.active and not reaction.active)
     {
@@ -355,7 +362,7 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     else if(target.active ) // also reaction.active is true
     {
         qInfo() << "Target active and reaction active";
-        robot_current_speed = {lambda * t_side + (1 - lambda) * r_side, lambda * t_adv + (1 - lambda) * r_adv, t_rot};
+        robot_current_speed = {consts.LAMBDA_GAIN * t_side + (1 - consts.LAMBDA_GAIN) * r_side, consts.LAMBDA_GAIN * t_adv + (1 - consts.LAMBDA_GAIN) * r_adv, t_rot};
     }
     else if(reaction.active) // also target.active is false
     {
@@ -370,6 +377,9 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
 
     //qInfo() << "ROBOT SPEEDS before" << t_adv << t_side << t_rot << " reaction" << r_adv << r_side;
     qInfo() << "ROBOT SPEEDS to controller" << robot_current_speed.y() << robot_current_speed.x() << robot_current_speed.z();
+
+    // WEBOTS ONLY #######################################
+    if(target.active and not reaction.active) t_adv *= 2.f; // increase speed if no reaction
 
     try
     {
