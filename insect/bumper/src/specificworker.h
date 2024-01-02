@@ -70,7 +70,7 @@ public slots:
             bool DISPLAY = false;
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
             float MIN_BAND_WIDTH = 25.f;		// minimum distance to the obstacle that repels the object
-            float MAX_BAND_WIDTH = 200.f;		// maximum distance to the obstacle that repels the object
+            float MAX_BAND_WIDTH = 250.f;		// maximum distance to the obstacle that repels the object
             double BELT_ANGULAR_STEP = 0.1f;    // angular step to create the belt
             float BELT_LINEAR_STEP = 30.f;      // linear step to create the belt
             float MAX_DIST_TO_LOOK_AHEAD = MAX_BAND_WIDTH;  // mm in search of a valid displacement to free the bumper
@@ -88,6 +88,7 @@ public slots:
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             float REPULSION_GAIN = 10.f;
             int PERIOD = 50;    // ms (20 Hz) for compute timer
+            float LAMBDA_GAIN = 0.3f;   // gain to split contributions between the bumper and the target. 1 -> target
         };
         Constants consts;
 
