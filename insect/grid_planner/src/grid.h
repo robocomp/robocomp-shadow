@@ -71,7 +71,7 @@ public:
                         float grid_angle = 0.f);
 
         // paths
-        std::vector<Eigen::Vector2f> compute_path(const QPointF &source_, const QPointF &target_);
+        std::vector<Eigen::Vector2f> compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
         std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_,
                                                                   unsigned num_paths, float threshold_dist);
 
@@ -166,7 +166,7 @@ public:
         std::vector<Eigen::Vector2f> decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step=2);
         std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
-        std::vector<Eigen::Vector2f> compute_path_internal(const QPointF &source_, const QPointF &target_);
+        //std::vector<Eigen::Vector2f> compute_path_internal(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
 
         struct Params
         {

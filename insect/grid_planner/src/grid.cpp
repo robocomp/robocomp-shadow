@@ -477,19 +477,19 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 }
 
 ////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
-std::vector<Eigen::Vector2f > Grid::compute_path_internal(const QPointF &source_, const QPointF &target_)
+std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
 {
     // computes a path from source to target using the Dijkstra algorithm
 
     // Admission rules
-    if (not dim.contains(target_))
+    if (not dim.contains(QPointF(target_.x(), target_.y())))
     {
-        qDebug() << __FUNCTION__ << "Target " << target_.x() << target_.y() << "out of limits " << dim << " Returning empty path";
+        qDebug() << __FUNCTION__ << "Target " << target_.x() << target_.y() << "Target out of limits " << dim << " Returning empty path";
         return {};
     }
-    if (not dim.contains(source_))
+    if (not dim.contains(QPointF(source_.x(), source_.y())))
     {
-        qDebug() << __FUNCTION__ << "Robot out of limits. Returning empty path";
+        qDebug() << __FUNCTION__ << "Source " << source_.x() << source_.y() << "Robot  out of limits " << dim << " Returning empty path";
         return {};
     }
     Key target_key = point_to_key(target_);
@@ -512,6 +512,7 @@ std::vector<Eigen::Vector2f > Grid::compute_path_internal(const QPointF &source_
         return {};
     }
 
+    // Dijkstra algorithm
     // initial distances vector
     std::vector<uint32_t> min_distance(fmap.size(), std::numeric_limits<uint32_t>::max());
     // initialize source position to 0
@@ -520,9 +521,7 @@ std::vector<Eigen::Vector2f > Grid::compute_path_internal(const QPointF &source_
     std::vector<std::pair<std::uint32_t, Key>> previous(fmap.size(), std::make_pair(-1, Key()));
     // lambda to compare two vertices: a < b if a.id<b.id or
     auto comp = [this](std::pair<std::uint32_t, Key> x, std::pair<std::uint32_t, Key> y){ return x.first <= y.first; };
-
-    // OPEN List
-    std::vector<std::vector<Eigen::Vector2f>> paths_list;
+    // Open List
     std::set<std::pair<std::uint32_t, Key>, decltype(comp)> active_vertices(comp);
     active_vertices.insert({0, source_key});
     while (not active_vertices.empty())
@@ -550,7 +549,7 @@ std::vector<Eigen::Vector2f > Grid::compute_path_internal(const QPointF &source_
             }
         }
     }
-    qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
+    //qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
     return {};
 };
 std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vector2f &source_,
@@ -563,11 +562,8 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // starting from an initial path and setting to occupied succesive cells in the path, new paths are computed
     // until k paths are found or the initial path is exhausted
 
-    auto to_qt = [](const Eigen::Vector2f &p)
-            {return QPointF{static_cast<float>(p.x()), static_cast<float>(p.y())};};
-
     // get an initial shortest path
-    auto initial_path = compute_path_internal(to_qt(source_), to_qt(target_));
+    auto initial_path = compute_path(source_, target_);
     if(initial_path.empty()) return {};
 
     // initialize vector of paths and aux variables
@@ -586,7 +582,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
         {
             // mark cell as occupied
             set_occupied(point_to_key(*current_step));
-            auto path = compute_path_internal(to_qt(source_), to_qt(target_));
+            auto path = compute_path(source_, target_);
             if(not path.empty())
             {
                 // check that the new path is different enough from the previous ones
@@ -599,14 +595,14 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     }
     return paths_list;
 }
-std::vector<Eigen::Vector2f> Grid::compute_path(const QPointF &source_, const QPointF &target_)
-{
-    auto lpath = compute_path_internal(source_, target_);
-    std::vector<Eigen::Vector2f> path(lpath.size());
-    for(const auto &[i, p] : iter::enumerate(lpath))
-        path[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
-    return  path;
-}
+//std::vector<Eigen::Vector2f> Grid::compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
+//{
+//    auto lpath = compute_path_internal(source_, target_);
+//    std::vector<Eigen::Vector2f> path(lpath.size());
+//    for(const auto &[i, p] : iter::enumerate(lpath))
+//        path[i] = Eigen::Vector2f{static_cast<float>(p.x()), static_cast<float>(p.y())};
+//    return  path;
+//}
 std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, const std::vector<int> &xincs,const std::vector<int> &zincs,
                                                             bool all)
 {
@@ -618,9 +614,9 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
         auto &&[success, p] = get_cell(lk);
         if (not success) continue;
 
-        // check that incs are not both zero but have the same abs value, i.e. a diagonal
-//        if (itx != 0 and itz != 0 and (fabs(itx) == fabs(itz)) and p.cost == 1)
-//            p.cost = 1.43;                                // if neighboor in diagonal, cost is sqrt(2)
+        // // if neighboor in diagonal, cost is sqrt(2). Not clear if it changes anything
+        //if (itx != 0 and itz != 0 and (fabs(itx) == fabs(itz)) and p.cost == 1)
+        //  p.cost = 1.43;
 
         if (all)
             neigh.emplace_back(lk, p);
@@ -629,32 +625,6 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
             //bool all_free = true;
             if (p.free)
                 neigh.emplace_back(lk, p);
-//            {
-//                if(ceil(400.0/params.tile_size)<= 3) // robot occupies three cells, Check 8-neigh
-//                {
-//                    auto neigh = neighboors_8(lk, true);
-//                    if( auto res = std::ranges::find_if_not(neigh, [](auto a){ return a.second.free;}); res != neigh.end())
-//                        all_free = false;
-////                    for (auto &&[fitx, fitz]: iter::zip(xincs, zincs))
-////                    {
-////                        Key flk{lk.first + fitx, lk.second + fitz};
-////                        const auto &[fsuccess, fp] = get_cell(flk);
-////                        if (not fsuccess or not fp.free)
-////                        {
-////                            all_free = false;
-////                            break;
-////                        }
-////                    }
-//                }
-//                else
-//                {
-//                    auto neigh = neighboors_16(lk, true);
-//                    if( auto res = std::ranges::find_if_not(neigh, [](auto a){ return a.second.free;}); res != neigh.end())
-//                        all_free = false;
-//                }
-//                if (all_free)
-//                    neigh.emplace_back(std::make_pair(lk, p));
-//            }
         }
     }
     return neigh;

@@ -54,6 +54,9 @@ class SpecificWorker : public GenericWorker
         //Graphics
         AbstractGraphicViewer *viewer;
 
+        // Robot
+        Eigen::Transform<double, 3, 1> robot_pose; // robot pose in a global reference frame computed with lidar odometry
+
         struct Params
         {
             float ROBOT_WIDTH = 460;  // mm
@@ -74,6 +77,7 @@ class SpecificWorker : public GenericWorker
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 50;    // ms (20 Hz) for compute timer
+            float MIN_ANGLE_TO_TARGET = 1.f;   // rad
         };
         Params params;
 
@@ -115,10 +119,15 @@ class SpecificWorker : public GenericWorker
                 active = true;
                 completed = false;
             }
+            void unset() { active = false; }
 
+            [[nodiscard]] bool is_valid() const { return active; };
             [[nodiscard]] Eigen::Vector2f pos_eigen() const { return point; }
             [[nodiscard]] QPointF pos_qt() const { return qpoint; }
-            void unset() { active = false; }
+            [[nodiscard]] bool is_global() const { return global; }
+            [[nodiscard]] bool is_completed() const { return completed; }
+            [[nodiscard]] float angle_to_robot() const { return atan2(point.x(), point.y()); }
+            [[nodiscard]] float distance_to_robot() const { return point.norm(); }
             [[nodiscard]] Eigen::Vector2f point_at_distance(float distance) const
             {
                 Eigen::Vector2f result;
@@ -134,7 +143,7 @@ class SpecificWorker : public GenericWorker
                 qInfo() << "    dist to robot: " << point.norm();
             }
             static Target invalid() { Target t; t.active=false; return t; };
-            [[nodiscard]] bool is_valid() const { return active; };
+
         };
         DoubleBuffer<Target, Target> target_buffer;
 
@@ -147,20 +156,22 @@ class SpecificWorker : public GenericWorker
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
-        void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene);
+        void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
 
         // Work
         Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
         RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
                                                          float threshold_dist, float threshold_angle); // get close point in current path
         Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
-        void transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, Target &target, Target &original_target);
+        Target transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, const Target &target);
         RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
         RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
         void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);
 
         // pusblish
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
+
+    bool check_if_robot_at_target(const Target &target_, const Target &original_target_);
 };
 
 #endif
