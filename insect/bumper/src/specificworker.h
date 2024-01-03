@@ -65,7 +65,7 @@ public slots:
 		bool startup_check_flag;
 
         // Parameters
-        struct Constants
+        struct Params
         {
             bool DISPLAY = false;
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
@@ -79,6 +79,7 @@ public slots:
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
             float MAX_ADV_SPEED = 1000;    // mm/s
+            float MAX_BACKWARDS_ADV_SPEED = 200;    // mm/s
             float MAX_SIDE_SPEED = 1000;   // mm/s
             float MAX_ROT_SPEED = 2;  // rad/s
             std::string LIDAR_NAME = "bpearl";
@@ -90,17 +91,17 @@ public slots:
             int PERIOD = 50;    // ms (20 Hz) for compute timer
             float LAMBDA_GAIN = 0.3f;   // gain to split contributions between the bumper and the target. 1 -> target
         };
-        Constants consts;
+        Params params;
 
         struct Target
         {
-            float x = 0.f, y = 0.f, ang = 0,f, dist = 0.f;  // target
-            float side, adv, rot; // assigned speed
+            float x = 0.f, y = 0.f, ang = 0.f;  // target
+            float side{}, adv{}, rot{}; // assigned speed
             bool active = false;
             bool debug = false;
             void set(float x_, float y_, float rot_, bool debug_ = false)
             {
-                x=x_; y=y_; ang = atan2(x, y); dist = sqrt(x*x+y*y); active = true;
+                x=x_; y=y_; ang = atan2(x, y); active = true;
                 side = x; adv = y; rot = rot_;
                 debug = debug_;
             };

@@ -41,63 +41,63 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
     try
     {
-        consts.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
-        consts.LIDAR_NAME = params.at("lidar_name").value;
-        consts.viewer_dim.setLeft(std::stod(params.at("viewer_left").value));
-        consts.viewer_dim.setTop(std::stod(params.at("viewer_top").value));
-        consts.viewer_dim.setWidth(std::stod(params.at("viewer_width").value));
-        consts.viewer_dim.setHeight(std::stod(params.at("viewer_height").value));
-        consts.OUTER_RIG_DISTANCE = std::stod(params.at("outer_rig_distance").value);
-        consts.MAX_BAND_WIDTH = std::stod(params.at("band_width").value);
-        consts.MIN_BAND_WIDTH = std::stod(params.at("min_band_width").value);
-        consts.MAX_BAND_WIDTH = std::stod(params.at("max_band_width").value);
-        consts.BELT_ANGULAR_STEP = std::stod(params.at("belt_angular_step").value);
-        consts.BELT_LINEAR_STEP = std::stod(params.at("belt_linear_step").value);
-        consts.MAX_DIST_TO_LOOK_AHEAD = consts.MAX_BAND_WIDTH;
-        consts.ROBOT_WIDTH = std::stod(params.at("robot_width").value);
-        consts.ROBOT_LENGTH = std::stod(params.at("robot_length").value);
-        consts.ROBOT_SEMI_WIDTH = consts.ROBOT_WIDTH / 2.f;
-        consts.ROBOT_SEMI_LENGTH = consts.ROBOT_LENGTH / 2.f;
-        consts.MAX_ADV_SPEED = std::stod(params.at("max_adv_speed").value);
-        consts.MAX_SIDE_SPEED = std::stod(params.at("max_side_speed").value);
-        consts.MAX_ROT_SPEED = std::stod(params.at("max_rot_speed").value);
-        consts.MAX_LIDAR_RANGE = std::stod(params.at("max_lidar_range").value);
-        consts.LIDAR_DECIMATION_FACTOR = std::stod(params.at("lidar_decimation_factor").value);
-        consts.PERIOD_HYSTERESIS = std::stod(params.at("period_hysteresis").value);
-        consts.REPULSION_GAIN = std::stod(params.at("repulsion_gain").value);
-        consts.PERIOD = std::stod(params.at("period").value);
+        this->params.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
+        this->params.LIDAR_NAME = params.at("lidar_name").value;
+        this->params.viewer_dim.setLeft(std::stod(params.at("viewer_left").value));
+        this->params.viewer_dim.setTop(std::stod(params.at("viewer_top").value));
+        this->params.viewer_dim.setWidth(std::stod(params.at("viewer_width").value));
+        this->params.viewer_dim.setHeight(std::stod(params.at("viewer_height").value));
+        this->params.OUTER_RIG_DISTANCE = std::stod(params.at("outer_rig_distance").value);
+        this->params.MAX_BAND_WIDTH = std::stod(params.at("band_width").value);
+        this->params.MIN_BAND_WIDTH = std::stod(params.at("min_band_width").value);
+        this->params.MAX_BAND_WIDTH = std::stod(params.at("max_band_width").value);
+        this->params.BELT_ANGULAR_STEP = std::stod(params.at("belt_angular_step").value);
+        this->params.BELT_LINEAR_STEP = std::stod(params.at("belt_linear_step").value);
+        this->params.MAX_DIST_TO_LOOK_AHEAD = this->params.MAX_BAND_WIDTH;
+        this->params.ROBOT_WIDTH = std::stod(params.at("robot_width").value);
+        this->params.ROBOT_LENGTH = std::stod(params.at("robot_length").value);
+        this->params.ROBOT_SEMI_WIDTH = this->params.ROBOT_WIDTH / 2.f;
+        this->params.ROBOT_SEMI_LENGTH = this->params.ROBOT_LENGTH / 2.f;
+        this->params.MAX_ADV_SPEED = std::stod(params.at("max_adv_speed").value);
+        this->params.MAX_SIDE_SPEED = std::stod(params.at("max_side_speed").value);
+        this->params.MAX_ROT_SPEED = std::stod(params.at("max_rot_speed").value);
+        this->params.MAX_LIDAR_RANGE = std::stod(params.at("max_lidar_range").value);
+        this->params.LIDAR_DECIMATION_FACTOR = std::stod(params.at("lidar_decimation_factor").value);
+        this->params.PERIOD_HYSTERESIS = std::stod(params.at("period_hysteresis").value);
+        this->params.REPULSION_GAIN = std::stod(params.at("repulsion_gain").value);
+        this->params.PERIOD = std::stod(params.at("period").value);
     }
     catch(const std::exception &e) { qWarning("Error reading config params. Withdrawing to defaults"); }
     qInfo() << "Config parameters:";
-    qInfo() << "    display" << consts.DISPLAY;
-    qInfo() << "    lidar_name" << consts.LIDAR_NAME.c_str();
-    qInfo() << "    viewer_dim" << consts.viewer_dim << "mm";
-    qInfo() << "    outer_rig_distance" << consts.OUTER_RIG_DISTANCE << "mm";
-    qInfo() << "    band_width" << consts.MAX_BAND_WIDTH << "mm";
-    qInfo() << "    min_band_width" << consts.MIN_BAND_WIDTH << "mm";
-    qInfo() << "    max_band_width" << consts.MAX_BAND_WIDTH << "mm";
-    qInfo() << "    belt_angular_step" << consts.BELT_ANGULAR_STEP << "rad";
-    qInfo() << "    belt_linear_step" << consts.BELT_LINEAR_STEP << "mm";
-    qInfo() << "    max_dist_to_look_ahead" << consts.MAX_DIST_TO_LOOK_AHEAD << "mm";
-    qInfo() << "    robot_width" << consts.ROBOT_WIDTH << "mm";
-    qInfo() << "    robot_length" << consts.ROBOT_LENGTH << "mm";
-    qInfo() << "    robot_semi_width" << consts.ROBOT_SEMI_WIDTH << "mm";
-    qInfo() << "    robot_semi_length" << consts.ROBOT_SEMI_LENGTH << "mm";
-    qInfo() << "    max_adv_speed" << consts.MAX_ADV_SPEED << "mm/s";
-    qInfo() << "    max_side_speed" << consts.MAX_SIDE_SPEED << "mm/s";
-    qInfo() << "    max_rot_speed" << consts.MAX_ROT_SPEED << "rad/s";
-    qInfo() << "    max_lidar_range" << consts.MAX_LIDAR_RANGE << "mm";
-    qInfo() << "    lidar_decimation_factor" << consts.LIDAR_DECIMATION_FACTOR;
-    qInfo() << "    period_hysteresis" << consts.PERIOD_HYSTERESIS << "ms";
-    qInfo() << "    repulsion_gain" << consts.REPULSION_GAIN;
-    qInfo() << "    period" << consts.PERIOD << "ms";
+    qInfo() << "    display" << this->params.DISPLAY;
+    qInfo() << "    lidar_name" << this->params.LIDAR_NAME.c_str();
+    qInfo() << "    viewer_dim" << this->params.viewer_dim << "mm";
+    qInfo() << "    outer_rig_distance" << this->params.OUTER_RIG_DISTANCE << "mm";
+    qInfo() << "    band_width" << this->params.MAX_BAND_WIDTH << "mm";
+    qInfo() << "    min_band_width" << this->params.MIN_BAND_WIDTH << "mm";
+    qInfo() << "    max_band_width" << this->params.MAX_BAND_WIDTH << "mm";
+    qInfo() << "    belt_angular_step" << this->params.BELT_ANGULAR_STEP << "rad";
+    qInfo() << "    belt_linear_step" << this->params.BELT_LINEAR_STEP << "mm";
+    qInfo() << "    max_dist_to_look_ahead" << this->params.MAX_DIST_TO_LOOK_AHEAD << "mm";
+    qInfo() << "    robot_width" << this->params.ROBOT_WIDTH << "mm";
+    qInfo() << "    robot_length" << this->params.ROBOT_LENGTH << "mm";
+    qInfo() << "    robot_semi_width" << this->params.ROBOT_SEMI_WIDTH << "mm";
+    qInfo() << "    robot_semi_length" << this->params.ROBOT_SEMI_LENGTH << "mm";
+    qInfo() << "    max_adv_speed" << this->params.MAX_ADV_SPEED << "mm/s";
+    qInfo() << "    max_side_speed" << this->params.MAX_SIDE_SPEED << "mm/s";
+    qInfo() << "    max_rot_speed" << this->params.MAX_ROT_SPEED << "rad/s";
+    qInfo() << "    max_lidar_range" << this->params.MAX_LIDAR_RANGE << "mm";
+    qInfo() << "    lidar_decimation_factor" << this->params.LIDAR_DECIMATION_FACTOR;
+    qInfo() << "    period_hysteresis" << this->params.PERIOD_HYSTERESIS << "ms";
+    qInfo() << "    repulsion_gain" << this->params.REPULSION_GAIN;
+    qInfo() << "    period" << this->params.PERIOD << "ms";
     qInfo() << "-----------------------------";
 	return true;
 }
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
-	this->Period = consts.PERIOD;
+	this->Period = params.PERIOD;
 	if(this->startup_check_flag)
 	{
 		this->startup_check();
@@ -105,28 +105,28 @@ void SpecificWorker::initialize(int period)
 	else
 	{
 		// Viewer
-        if(consts.DISPLAY)
+        if(params.DISPLAY)
         {
-            viewer = new AbstractGraphicViewer(this->frame, consts.viewer_dim, false);
-            //viewer->add_robot(consts.ROBOT_WIDTH, consts.ROBOT_LENGTH, 0, 100, QColor("Blue"));
+            viewer = new AbstractGraphicViewer(this->frame, params.viewer_dim, false);
+            //viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
             viewer->show();
             std::cout << "Started viewer" << std::endl;
         }
         else
             hide();
 
-        robot_contour << QPointF(-consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
-                      QPointF(consts.ROBOT_SEMI_WIDTH, consts.ROBOT_SEMI_LENGTH) <<
-                      QPointF(consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH) <<
-                      QPointF(-consts.ROBOT_SEMI_WIDTH, -consts.ROBOT_SEMI_LENGTH);
-        robot_safe_band << QPointF(-consts.ROBOT_SEMI_WIDTH - consts.MAX_BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.MAX_BAND_WIDTH) <<
-                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.MAX_BAND_WIDTH, consts.ROBOT_SEMI_LENGTH + consts.MAX_BAND_WIDTH) <<
-                        QPointF(consts.ROBOT_SEMI_WIDTH + consts.MAX_BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.MAX_BAND_WIDTH) <<
-                        QPointF(-consts.ROBOT_SEMI_WIDTH - consts.MAX_BAND_WIDTH, -consts.ROBOT_SEMI_LENGTH - consts.MAX_BAND_WIDTH);
+        robot_contour << QPointF(-params.ROBOT_SEMI_WIDTH, params.ROBOT_SEMI_LENGTH) <<
+                      QPointF(params.ROBOT_SEMI_WIDTH, params.ROBOT_SEMI_LENGTH) <<
+                      QPointF(params.ROBOT_SEMI_WIDTH, -params.ROBOT_SEMI_LENGTH) <<
+                      QPointF(-params.ROBOT_SEMI_WIDTH, -params.ROBOT_SEMI_LENGTH);
+        robot_safe_band << QPointF(-params.ROBOT_SEMI_WIDTH - params.MAX_BAND_WIDTH, params.ROBOT_SEMI_LENGTH + params.MAX_BAND_WIDTH) <<
+                        QPointF(params.ROBOT_SEMI_WIDTH + params.MAX_BAND_WIDTH, params.ROBOT_SEMI_LENGTH + params.MAX_BAND_WIDTH) <<
+                        QPointF(params.ROBOT_SEMI_WIDTH + params.MAX_BAND_WIDTH, -params.ROBOT_SEMI_LENGTH - params.MAX_BAND_WIDTH) <<
+                        QPointF(-params.ROBOT_SEMI_WIDTH - params.MAX_BAND_WIDTH, -params.ROBOT_SEMI_LENGTH - params.MAX_BAND_WIDTH);
 
         // create list of edge points (polar) from robot_safe_band
 		edge_points = create_edge_points(robot_safe_band);
-        if(consts.DISPLAY)
+        if(params.DISPLAY)
         {
             //draw_edge(edge_points, &viewer->scene);
             draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
@@ -146,7 +146,7 @@ void SpecificWorker::compute()
     auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
-    if(consts.DISPLAY) draw_lidar(ldata.points);
+    if(params.DISPLAY) draw_lidar(ldata.points);
     //qInfo() << ldata.points.size();
 
     /// Check for new external target
@@ -154,15 +154,15 @@ void SpecificWorker::compute()
     {
         const auto &[side, adv, rot, debug] = ext.value();
         target.set(side, adv, rot, true);
-        if(consts.DISPLAY) draw_target_original(target, false, 1);
+        if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 
     /// Check bumper for a security breach
     reaction.active = false;
     std::vector<Eigen::Vector2f> displacements = check_safety(ldata.points);
-    if(consts.DISPLAY) draw_displacements(displacements,&viewer->scene);
+    if(params.DISPLAY) draw_displacements(displacements, &viewer->scene);
     bool security_breach = not displacements.empty();
-    if(not security_breach and consts.DISPLAY) draw_target_breach(target, true);   // erase target breach from draw
+    if(not security_breach and params.DISPLAY) draw_target_breach(target, true);   // erase target breach from draw
 
     ////////////////////////////////////////////
     /// We have now four possibilities
@@ -195,7 +195,7 @@ void SpecificWorker::compute()
     // Adjust band size
     robot_safe_band = adjust_band_size(robot_current_speed);
     edge_points = create_edge_points(robot_safe_band);
-    if(consts.DISPLAY) draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
+    if(params.DISPLAY) draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
     fps.print("FPS:", 3000);
 }
 
@@ -220,7 +220,7 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
     std::vector<Eigen::Vector2f> close_points;  // cartesian coordinates
     for(const auto &p: points)
         if (point_in_body(p.phi, p.r)) close_points.emplace_back(p.x, p.y);
-    if(consts.DISPLAY) draw_points_in_belt(close_points); // cartesian coordinates
+    if(params.DISPLAY) draw_points_in_belt(close_points); // cartesian coordinates
 
     // max dist to reach from current situation
     // const float delta_t = 1; // 0.050; //200ms
@@ -231,9 +231,9 @@ std::vector<Eigen::Vector2f> SpecificWorker::check_safety(const RoboCompLidar3D:
     if(not close_points.empty())
     {
         // iterate over all possible displacements
-        for (const float dist: iter::range(0.f, consts.MAX_DIST_TO_LOOK_AHEAD, consts.BELT_LINEAR_STEP))
+        for (const float dist: iter::range(0.f, params.MAX_DIST_TO_LOOK_AHEAD, params.BELT_LINEAR_STEP))
         {
-            for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
+            for (const double ang: iter::range(-M_PI, M_PI, params.BELT_ANGULAR_STEP))
             {
                 // compute robot's new pos (d*sin(ang), d*cos(ang))
                 Eigen::Vector2f t{dist * sin(ang), dist * cos(ang)};
@@ -288,9 +288,9 @@ void SpecificWorker::read_lidar()
     {
         try
         {
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(consts.LIDAR_NAME, consts.MAX_LIDAR_RANGE, consts.LIDAR_DECIMATION_FACTOR);
-            if(wait_period > std::chrono::milliseconds((long)data.period+consts.PERIOD_HYSTERESIS)) wait_period--;
-            else if(wait_period < std::chrono::milliseconds((long)data.period-consts.PERIOD_HYSTERESIS)) wait_period++;
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(params.LIDAR_NAME, params.MAX_LIDAR_RANGE, params.LIDAR_DECIMATION_FACTOR);
+            if(wait_period > std::chrono::milliseconds((long)data.period + params.PERIOD_HYSTERESIS)) wait_period--;
+            else if(wait_period < std::chrono::milliseconds((long)data.period - params.PERIOD_HYSTERESIS)) wait_period++;
             buffer_lidar_data.put(std::move(data));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D" << e << std::endl; }
@@ -310,7 +310,7 @@ void SpecificWorker::target_active_and_security_breach(const std::vector<Eigen::
             return tv.dot(a.normalized())/a.norm() < tv.dot(b.normalized())/b.norm();  //maximum angle scaled by norm
         });
         reaction.set(res->x(), res->y(), 0.f);
-        if(consts.DISPLAY) draw_target_original(target, false, 1);
+        if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 }
 void SpecificWorker::not_target_active_and_not_security_breach(const std::vector<Eigen::Vector2f> &displacements)
@@ -327,9 +327,9 @@ void SpecificWorker::not_target_active_and_security_breach(const std::vector<Eig
         // select the minimum displacement that sets the robot free
         auto res = std::ranges::min(displacements,[](auto &a, auto &b)
         { return a.norm() < b.norm(); });
-        res *= consts.REPULSION_GAIN;
+        res *= params.REPULSION_GAIN;
         reaction.set(res.x(), res.y(), 0.f);
-        if(consts.DISPLAY) draw_target_breach(reaction);
+        if(params.DISPLAY) draw_target_breach(reaction);
     } else
     {  move_robot(Target(), Target(), true);  }
 }
@@ -347,11 +347,11 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
 
     // check speed limits
-    float t_adv = std::clamp(target.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
-    float t_side = std::clamp(target.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
-    float t_rot = std::clamp(target.ang, -consts.MAX_ROT_SPEED, consts.MAX_ROT_SPEED);  // angle wrt axis y
-    float r_adv = std::clamp(reaction.y, -consts.MAX_ADV_SPEED, consts.MAX_ADV_SPEED);
-    float r_side = std::clamp(reaction.x, -consts.MAX_SIDE_SPEED, consts.MAX_SIDE_SPEED);
+    float t_adv = std::clamp(target.y, -params.MAX_BACKWARDS_ADV_SPEED, params.MAX_ADV_SPEED);
+    float t_side = std::clamp(target.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
+    float t_rot = std::clamp(target.ang, -params.MAX_ROT_SPEED, params.MAX_ROT_SPEED);  // angle wrt axis y
+    float r_adv = std::clamp(reaction.y, -params.MAX_ADV_SPEED, params.MAX_ADV_SPEED);
+    float r_side = std::clamp(reaction.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
 
     // check activation status of targets and combine results
     if(target.active and not reaction.active)
@@ -362,7 +362,7 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     else if(target.active ) // also reaction.active is true
     {
         qInfo() << "Target active and reaction active";
-        robot_current_speed = {consts.LAMBDA_GAIN * t_side + (1 - consts.LAMBDA_GAIN) * r_side, consts.LAMBDA_GAIN * t_adv + (1 - consts.LAMBDA_GAIN) * r_adv, t_rot};
+        robot_current_speed = {params.LAMBDA_GAIN * t_side + (1 - params.LAMBDA_GAIN) * r_side, params.LAMBDA_GAIN * t_adv + (1 - params.LAMBDA_GAIN) * r_adv, t_rot};
     }
     else if(reaction.active) // also target.active is false
     {
@@ -407,11 +407,11 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
 std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF &robot_safe_band)
 {
     std::vector<Eigen::Vector2f> edges;
-    for (const double ang: iter::range(-M_PI, M_PI, consts.BELT_ANGULAR_STEP))
+    for (const double ang: iter::range(-M_PI, M_PI, params.BELT_ANGULAR_STEP))
         {
         bool found = false;
         // iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
-        for(const int r : iter::range(consts.OUTER_RIG_DISTANCE))
+        for(const int r : iter::range(params.OUTER_RIG_DISTANCE))
         {
             double x = r * sin(ang);
             double y = r * cos(ang);
@@ -449,12 +449,12 @@ QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
     // if advance velocity (y) is positive, make the width of the band proportional to it
     // according to the following constraints: for MAX_ADV_SPEED -> MIN_BAND_WIDTH; for MIN_ADV_SPEED -> MAX_BAND_WIDTH
     //qInfo() << velocity.x() << velocity.y();
-    float width = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.y()) / consts.MAX_ADV_SPEED + consts.MAX_BAND_WIDTH;
-    float height = -(consts.MAX_BAND_WIDTH - consts.MIN_BAND_WIDTH) * fabs(velocity.x()) / consts.MAX_SIDE_SPEED + consts.MAX_BAND_WIDTH;
-    QRectF new_rect{-consts.ROBOT_SEMI_WIDTH - width,
-                    consts.ROBOT_SEMI_LENGTH + height,
-                    consts.ROBOT_WIDTH + 2 * width,
-                    -(consts.ROBOT_LENGTH + 2 * height)};
+    float width = -(params.MAX_BAND_WIDTH - params.MIN_BAND_WIDTH) * fabs(velocity.y()) / params.MAX_ADV_SPEED + params.MAX_BAND_WIDTH;
+    float height = -(params.MAX_BAND_WIDTH - params.MIN_BAND_WIDTH) * fabs(velocity.x()) / params.MAX_SIDE_SPEED + params.MAX_BAND_WIDTH;
+    QRectF new_rect{-params.ROBOT_SEMI_WIDTH - width,
+                    params.ROBOT_SEMI_LENGTH + height,
+                    params.ROBOT_WIDTH + 2 * width,
+                    -(params.ROBOT_LENGTH + 2 * height)};
 
     return QPolygonF{new_rect};
 }
