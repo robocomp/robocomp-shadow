@@ -1,10 +1,10 @@
-import "MPC.idsl";
+import "GridPlanner.idsl";
 
 Component MPC
 {
     Communications
     {
-        implements MPC;
+        implements GridPlanner;
     };
     language Cpp11;
 };

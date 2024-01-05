@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -24,7 +24,7 @@
 #include <qlog/qlog.h>
 #include <CommonBehavior.h>
 
-#include <MPC.h>
+#include <GridPlanner.h>
 
 
 #define CHECK_PERIOD 5000
@@ -48,7 +48,8 @@ public:
 
 
 
-	virtual RoboCompMPC::Control MPC_newPath(RoboCompMPC::Path newpath) = 0;
+	virtual RoboCompGridPlanner::TPlan GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan) = 0;
+	virtual void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan) = 0;
 
 protected:
 
