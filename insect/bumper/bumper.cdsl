@@ -1,6 +1,4 @@
 import "Lidar3D.idsl";
-import "Camera360RGB.idsl";
-import "Person.idsl";
 import "GridPlanner.idsl";
 import "OmniRobot.idsl";
 import "JoystickAdapter.idsl";
@@ -10,7 +8,7 @@ Component bumper
     Communications
     {
 	    implements GridPlanner;
-        requires Lidar3D, Camera360RGB, Person, OmniRobot;
+        requires Lidar3D, OmniRobot;
         subscribesTo JoystickAdapter;
     };
     language Cpp11;
