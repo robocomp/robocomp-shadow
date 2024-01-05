@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -31,20 +31,18 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <GridPlanner.h>
 #include <JoystickAdapter.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
-#include <Person.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompCamera360RGB::Camera360RGBPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr,RoboCompPerson::PersonPrxPtr>;
+using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -60,11 +58,10 @@ public:
 	QMutex *mutex;
 
 
-	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
-	RoboCompPerson::PersonPrxPtr person_proxy;
 
+	virtual RoboCompGridPlanner::TPlan GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan) = 0;
 	virtual void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan) = 0;
 	virtual void JoystickAdapter_sendData (RoboCompJoystickAdapter::TData data) = 0;
 

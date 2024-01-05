@@ -632,6 +632,11 @@ void SpecificWorker::new_mouse_coordinates(QPointF p)
     buffer_target.put(std::make_tuple(p.x(), p.y(), 0, true)); // for debug
 }
 
+RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan)
+{
+    qWarning() << __FUNCTION__ << "Not implemented. Returning same plan";
+    return plan;
+}
 /////////////////////////////////////////////////////////////////////////////////
 // SUBSCRIPTION to sendData method from JoystickAdapter interface
 /////////////////////////////////////////////////////////////////////////////////

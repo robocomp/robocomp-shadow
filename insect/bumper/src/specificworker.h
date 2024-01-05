@@ -52,7 +52,8 @@ class SpecificWorker : public GenericWorker
 		SpecificWorker(TuplePrx tprx, bool startup_check);
 		~SpecificWorker();
 		bool setParams(RoboCompCommonBehavior::ParameterList params);
-		void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
+		RoboCompGridPlanner::TPlan GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan);   // not used
+        void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
         void JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data);
 
 public slots:

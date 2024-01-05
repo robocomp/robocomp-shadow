@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -33,6 +33,7 @@ public:
 	GridPlannerI(GenericWorker *_worker);
 	~GridPlannerI();
 
+	RoboCompGridPlanner::TPlan modifyPlan(RoboCompGridPlanner::TPlan plan, const Ice::Current&);
 	void setPlan(RoboCompGridPlanner::TPlan plan, const Ice::Current&);
 
 private:

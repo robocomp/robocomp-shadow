@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -28,6 +28,11 @@ GridPlannerI::~GridPlannerI()
 {
 }
 
+
+RoboCompGridPlanner::TPlan GridPlannerI::modifyPlan(RoboCompGridPlanner::TPlan plan, const Ice::Current&)
+{
+	return worker->GridPlanner_modifyPlan(plan);
+}
 
 void GridPlannerI::setPlan(RoboCompGridPlanner::TPlan plan, const Ice::Current&)
 {
