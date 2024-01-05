@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -24,10 +24,10 @@ GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 {
 
 	gridplanner_proxy = std::get<0>(tprx);
-	lidar3d_proxy = std::get<1>(tprx);
-	lidar3d1_proxy = std::get<2>(tprx);
-	lidarodometry_proxy = std::get<3>(tprx);
-	gridplanner_pubproxy = std::get<4>(tprx);
+	gridplanner1_proxy = std::get<1>(tprx);
+	lidar3d_proxy = std::get<2>(tprx);
+	lidar3d1_proxy = std::get<3>(tprx);
+	lidarodometry_proxy = std::get<4>(tprx);
 
 	mutex = new QMutex();
 

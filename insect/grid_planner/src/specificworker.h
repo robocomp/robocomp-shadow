@@ -157,8 +157,9 @@ class SpecificWorker : public GenericWorker
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
+        void draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
 
-        // Work
+        // Do some work
         Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
         RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
                                                          float threshold_dist, float threshold_angle); // get close point in current path
@@ -166,9 +167,10 @@ class SpecificWorker : public GenericWorker
         Target transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, const Target &target);
         RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
         RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
-        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);
+        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);   // EXPERIMENTAL
+        void convert_plan_to_control(const RoboCompGridPlanner::TPlan &plan);
 
-        // pusblish
+    // publish
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
 
     bool check_if_robot_at_target(const Target &target_, const Target &original_target_);
