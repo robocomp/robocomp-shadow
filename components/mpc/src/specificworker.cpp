@@ -25,10 +25,6 @@
 SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
 {
 	this->startup_check_flag = startup_check;
-	// Uncomment if there's too many debug messages
-	// but it removes the possibility to see the messages
-	// shown in the console with qDebug()
-//	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 
 /**
@@ -59,7 +55,8 @@ void SpecificWorker::initialize(int period)
         this->startup_check();
 	else
     {
-        auto opti = mpc.initialize_omni(num_steps);
+        auto opti = mpc.initialize_omni(params.num_steps);
+        this->Period = 50;
         timer.start(Period);
 	}
 }
@@ -71,31 +68,79 @@ void SpecificWorker::compute()
     {
         if(auto result = mpc.update(path.value(), slack_weight); result.has_value())
         {
-            auto &[adv, side, rot, res] = result.value();
-            qInfo() << adv << side << rot;
-            control_buffer.put(std::make_tuple(adv, side, rot));
+            auto control_and_path = result.value();
+            //qInfo() << adv << side << rot;
+            control_buffer.put(std::move(control_and_path), [](auto &&control_and_path, auto &grid_planner)
+            {
+                std::ranges::transform(control_and_path.first, std::back_inserter(grid_planner.first),
+                                       [](auto &&c){ return RoboCompGridPlanner::TControl{.adv=c[0], .side=c[1], .rot=c[2]}; });
+                std::ranges::transform(control_and_path.second, std::back_inserter(grid_planner.second),
+                                       [](auto &&p){ return RoboCompGridPlanner::TPoint{.x=p[0], .y=p[1]}; });
+            });
         }
+        else
+            control_buffer.put(std::make_pair(std::vector<Eigen::Vector3f>{}, std::vector<Eigen::Vector2f>{}));
     }
     fps.print("FPS:");
 }
 
-RoboCompMPC::Control SpecificWorker::MPC_newPath(RoboCompMPC::Path newpath)
-{
-    if(newpath.size() < num_steps)
-        return RoboCompMPC::Control{.valid=false};
-    if(newpath.size() > num_steps)
-        // reduce vector size by removing intermediate points.
+/////////////////////////////////////////////////////////////////////////////////
+/// MPC Interface Implementation
+/////////////////////////////////////////////////////////////////////////////////
 
-        for(auto p : newpath)
-        qInfo() << p.x << p.y;
-    qInfo() << "-----------------------";
-    path_buffer.put(std::move(newpath), [nsteps=num_steps](auto &&newpath, auto &path)
-                { path.reserve(nsteps);
-                  for(auto &&p: newpath)
-                      path.push_back(Eigen::Vector2f{p.x, p.y});
-                });
-    const auto &[adv, side, rot] = control_buffer.get();
-    return RoboCompMPC::Control{.valid=true, .adv=adv, .side=side, .rot=rot};
+//RoboCompMPC::Control SpecificWorker::MPC_newPath(RoboCompMPC::Path newpath)
+//{
+//    if(newpath.size() < num_steps)
+//        return RoboCompMPC::Control{.valid=false};
+//    if(newpath.size() > num_steps)
+//        // reduce vector size by removing intermediate points.
+//
+//        for(auto p : newpath)
+//        qInfo() << p.x << p.y;
+//    qInfo() << "-----------------------";
+//    path_buffer.put(std::move(newpath), [nsteps=num_steps](auto &&newpath, auto &path)
+//                { path.reserve(nsteps);
+//                  for(auto &&p: newpath)
+//                      path.push_back(Eigen::Vector2f{p.x, p.y});
+//                });
+//    const auto &[adv, side, rot] = control_buffer.get();
+//    return RoboCompMPC::Control{.valid=true, .adv=adv, .side=side, .rot=rot};
+//}
+RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan)
+{
+    if(not plan.valid)
+    {
+        qWarning() << __FUNCTION__ << "Invalid plan";
+        return RoboCompGridPlanner::TPlan{.valid=false};
+    }
+
+    if(plan.path.size() < params.num_steps)
+    {
+        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
+        plan.valid = false;
+        return plan;
+    }
+    path_buffer.put(std::move(plan.path), [nsteps=params.num_steps](auto &&new_path, auto &path)
+    {  std::transform(new_path.begin(), new_path.begin()+nsteps, std::back_inserter(path),
+                      [](auto &&p){ return Eigen::Vector2f{p.x, p.y}; });});
+
+    const auto& control_and_path = control_buffer.get();
+    if(control_and_path.first.empty() and control_and_path.second.empty())
+    {
+        qWarning() << __FUNCTION__ << "Empty control or path";
+        return RoboCompGridPlanner::TPlan{.valid=false};
+    }
+    else
+    {
+        return RoboCompGridPlanner::TPlan{.path=control_and_path.second,
+                                      .controls=control_and_path.first,
+                                      .timestamp=std::chrono::system_clock::now().time_since_epoch().count(),
+                                      .valid=true,};
+    }
+}
+void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
+{
+    qWarning() << "GridPlanner_setPlan not implemented";
 }
 
 ///////////////////////////////////////////////////////////////////////////////

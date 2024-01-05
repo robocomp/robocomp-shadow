@@ -1,6 +1,7 @@
 CommonBehavior.Endpoints=tcp -p 12340
+
 # Endpoints for implements interfaces
-MPC.Endpoints=tcp -p 12341
+GridPlanner.Endpoints=tcp -p 12341
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

@@ -22,13 +22,10 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
 #include <genericworker.h>
-#include <innermodel/innermodel.h>
 #include "mpc.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
@@ -40,7 +37,8 @@ class SpecificWorker : public GenericWorker
         SpecificWorker(TuplePrx tprx, bool startup_check);
         ~SpecificWorker();
         bool setParams(RoboCompCommonBehavior::ParameterList params);
-        RoboCompMPC::Control MPC_newPath(RoboCompMPC::Path newpath);
+        RoboCompGridPlanner::TPlan GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan);
+        void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
 
 
 public slots:
@@ -49,13 +47,17 @@ public slots:
         void initialize(int period);
 
     private:
-        std::shared_ptr < InnerModel > innerModel;
         bool startup_check_flag;
         FPSCounter fps;
         rc::MPC mpc;
-        unsigned int num_steps = 5;
-        DoubleBuffer<RoboCompMPC::Path, std::vector<Eigen::Vector2f>> path_buffer;
-        DoubleBuffer<std::tuple<float, float, float>, std::tuple<float, float, float>> control_buffer;
+        struct Params
+        {
+            unsigned int num_steps = 10;
+        };
+        Params params;
+        DoubleBuffer<RoboCompGridPlanner::Points, std::vector<Eigen::Vector2f>> path_buffer;
+        DoubleBuffer<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>,
+                     std::pair<RoboCompGridPlanner::Control, RoboCompGridPlanner::Points>> control_buffer; // adv, side and rot for each point of the path
 
 };
 

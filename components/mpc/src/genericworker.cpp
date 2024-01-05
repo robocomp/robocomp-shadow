@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -24,7 +24,7 @@ GenericWorker::GenericWorker(TuplePrx tprx) : QObject()
 {
 
 
-	mutex = new QMutex(QMutex::Recursive);
+	mutex = new QMutex();
 
 	Period = BASIC_PERIOD;
 	connect(&timer, SIGNAL(timeout()), this, SLOT(compute()));

@@ -87,7 +87,6 @@ namespace rc
 
         return opti;
     };
-
     casadi::Opti MPC::initialize_omni(const int N)
     {
         consts.num_steps = N;
@@ -108,27 +107,23 @@ namespace rc
         state = opti.variable(3, N+1);
         pos = state(casadi::Slice(0,2), all);
         phi = state(2, all);
+
         // ---- inputs variables 3 adv, side and rot---------
         control = opti.variable(3, N);
         adv = control(0, all);
         side = control(1, all);
         rot = control(2, all);
-        // Gap closing: dynamic constraints for differential robot: dx/dt = f(x, u)   3 x 2 * 2 x 1 -> 3 x 1
-//        auto integrate = [](casadi::MX x, casadi::MX u) { return casadi::MX::mtimes(
-//                casadi::MX::vertcat(std::vector<casadi::MX>{
-//                        casadi::MX::horzcat(std::vector<casadi::MX>{casadi::MX::sin(x(2)), 0.0}),
-//                        casadi::MX::horzcat(std::vector<casadi::MX>{casadi::MX::cos(x(2)), 0.0}),
-//                        casadi::MX::horzcat(std::vector<casadi::MX>{0.0,      1.0})}
-//                ), u);};
 
         // Gap closing: dynamic constraints for omni robot: dx/dt = f(x, u)   3 x 3 * 3 x 1 -> 3 x 1
-        auto integrate = [](casadi::MX x, casadi::MX u) { return casadi::MX::mtimes(
-                casadi::MX::vertcat(std::vector<casadi::MX>{
-                        casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 1.0, 0.0}),
-                        casadi::MX::horzcat(std::vector<casadi::MX>{1.0, 0.0, 0.0}),
-                        casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 0.0, 1.0})}
-                ), u);};
-
+        auto integrate = [](const casadi::MX &x, const casadi::MX &u)
+                { return casadi::MX::mtimes(
+                         casadi::MX::vertcat(std::vector<casadi::MX>
+                                                 {
+                                                    casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 1.0, 0.0}),
+                                                    casadi::MX::horzcat(std::vector<casadi::MX>{1.0, 0.0, 0.0}),
+                                                    casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 0.0, 1.0})
+                                                 }
+                                                ), u);};
 
         double dt = 0.5;   // timer interval in secs
         // Runge-Kutta integration over control intervals
@@ -182,8 +177,8 @@ namespace rc
 
         return opti;
     };
-
-    MPC::Result MPC::update(const std::vector<Eigen::Vector2f> &path_robot, double slack_weight, QGraphicsPolygonItem *robot_polygon, QGraphicsScene *scene)
+    std::optional<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>>  // control and state vectors
+    MPC::update(const std::vector<Eigen::Vector2f> &path_robot, double slack_weight, QGraphicsPolygonItem *robot_polygon, QGraphicsScene *scene)
     {
         std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -242,7 +237,7 @@ namespace rc
         {
             auto solution = opti_local.solve();
             std::string retstat = solution.stats().at("return_status");
-            if (retstat.compare("Solve_Succeeded") != 0)
+            if (retstat != "Solve_Succeeded")
             {
                 std::cout << "NOT succeeded" << std::endl;
                 return {};
@@ -253,18 +248,28 @@ namespace rc
             // print output -----
             std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
             std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
-            auto advance = std::vector<double>(solution.value(adv)).at(2) * 1000;
-            auto vside = std::vector<double>(solution.value(side)).at(2) * 1000;
-            auto rotation = std::vector<double>(solution.value(rot)).at(2);
+            std::vector<Eigen::Vector3f> control_vector(consts.num_steps);
+            const auto &advs = std::vector<double>(solution.value(adv));
+            const auto &sides = std::vector<double>(solution.value(side));
+            const auto &rots = std::vector<double>(solution.value(rot));
+            for(auto &&i: iter::range(consts.num_steps))
+                control_vector[i] = Eigen::Vector3f{static_cast<float>(advs.at(i)*1000.f),  // move back to mm
+                                                    static_cast<float>(sides.at(i)*1000.f),
+                                                    static_cast<float>(rots.at(i))};
+            std::vector<Eigen::Vector2f> path_vector(consts.num_steps);
+            const auto &state_sol = std::vector<double>(solution.value(pos));
+            for(auto &&p: iter::chunked(state_sol, 2))
+                path_vector.emplace_back(p[0]*1000.f,p[1]*1000.f);
 
-            if(scene != nullptr)
-                draw_path(std::vector<double>(solution.value(state)), robot_polygon, scene);
+//            if(scene != nullptr)
+//                draw_path(std::vector<double>(solution.value(state)), robot_polygon, scene);
 
             qInfo() << __FUNCTION__ << "Iterations:" << (int) solution.stats()["iter_count"];
             qInfo() << __FUNCTION__ << "Status:" << QString::fromStdString(solution.stats().at("return_status"));
 
-            advance = advance * gaussian(rotation);
-            return std::make_tuple(advance, vside, rotation, solution);
+            //advance = advance * gaussian(rotation);
+            //return std::make_tuple(advance, vside, rotation, solution);
+            return std::make_pair(control_vector, path_vector);
         }
         catch (...)
         {

@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -81,7 +81,7 @@
 #include "specificmonitor.h"
 #include "commonbehaviorI.h"
 
-#include <mpcI.h>
+#include <gridplannerI.h>
 
 
 
@@ -176,18 +176,18 @@ int ::MPC::run(int argc, char* argv[])
 		try
 		{
 			// Server adapter creation and publication
-			if (not GenericMonitor::configGetString(communicator(), prefix, "MPC.Endpoints", tmp, ""))
+			if (not GenericMonitor::configGetString(communicator(), prefix, "GridPlanner.Endpoints", tmp, ""))
 			{
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy MPC";
+				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridPlanner";
 			}
-			Ice::ObjectAdapterPtr adapterMPC = communicator()->createObjectAdapterWithEndpoints("MPC", tmp);
-			auto mpc = std::make_shared<MPCI>(worker);
-			adapterMPC->add(mpc, Ice::stringToIdentity("mpc"));
-			adapterMPC->activate();
-			cout << "[" << PROGRAM_NAME << "]: MPC adapter created in port " << tmp << endl;
+			Ice::ObjectAdapterPtr adapterGridPlanner = communicator()->createObjectAdapterWithEndpoints("GridPlanner", tmp);
+			auto gridplanner = std::make_shared<GridPlannerI>(worker);
+			adapterGridPlanner->add(gridplanner, Ice::stringToIdentity("gridplanner"));
+			adapterGridPlanner->activate();
+			cout << "[" << PROGRAM_NAME << "]: GridPlanner adapter created in port " << tmp << endl;
 		}
 		catch (const IceStorm::TopicExists&){
-			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for MPC\n";
+			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for GridPlanner\n";
 		}
 
 

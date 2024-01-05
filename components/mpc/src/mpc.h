@@ -66,7 +66,8 @@ namespace rc
 
             casadi::Opti initialize_differential(const int N);
             casadi::Opti initialize_omni(const int N);
-            Result update(const std::vector<Eigen::Vector2f> &path, double slack_weight,
+            std::optional<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>> // control and state vectors
+            update(const std::vector<Eigen::Vector2f> &path, double slack_weight,
                           QGraphicsPolygonItem *robot_polygon = nullptr, QGraphicsScene *scene = nullptr);
             casadi::MX pos;
             casadi::MX rot;
