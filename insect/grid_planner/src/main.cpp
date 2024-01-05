@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -132,8 +132,8 @@ int ::grid_planner::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
-	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_pubproxy;
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner1_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d1_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
@@ -155,6 +155,22 @@ int ::grid_planner::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	rInfo("GridPlannerProxy initialized Ok!");
+
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "GridPlanner1Proxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridPlannerProxy\n";
+		}
+		gridplanner1_proxy = Ice::uncheckedCast<RoboCompGridPlanner::GridPlannerPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy GridPlanner1: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("GridPlannerProxy1 initialized Ok!");
 
 
 	try
@@ -221,38 +237,8 @@ int ::grid_planner::run(int argc, char* argv[])
 		cout << "[" << PROGRAM_NAME << "]: Exception: 'rcnode' not running: " << ex << endl;
 		return EXIT_FAILURE;
 	}
-	std::shared_ptr<IceStorm::TopicPrx> gridplanner_topic;
 
-	while (!gridplanner_topic)
-	{
-		try
-		{
-			gridplanner_topic = topicManager->retrieve("GridPlanner");
-		}
-		catch (const IceStorm::NoSuchTopic&)
-		{
-			cout << "[" << PROGRAM_NAME << "]: ERROR retrieving GridPlanner topic. \n";
-			try
-			{
-				gridplanner_topic = topicManager->create("GridPlanner");
-			}
-			catch (const IceStorm::TopicExists&){
-				// Another client created the topic.
-				cout << "[" << PROGRAM_NAME << "]: ERROR publishing the GridPlanner topic. It's possible that other component have created\n";
-			}
-		}
-		catch(const IceUtil::NullHandleException&)
-		{
-			cout << "[" << PROGRAM_NAME << "]: ERROR TopicManager is Null. Check that your configuration file contains an entry like:\n"<<
-			"\t\tTopicManager.Proxy=IceStorm/TopicManager:default -p <port>\n";
-			return EXIT_FAILURE;
-		}
-	}
-
-	auto gridplanner_pub = gridplanner_topic->getPublisher()->ice_oneway();
-	gridplanner_pubproxy = Ice::uncheckedCast<RoboCompGridPlanner::GridPlannerPrx>(gridplanner_pub);
-
-	tprx = std::make_tuple(gridplanner_proxy,lidar3d_proxy,lidar3d1_proxy,lidarodometry_proxy,gridplanner_pubproxy);
+	tprx = std::make_tuple(gridplanner_proxy,gridplanner1_proxy,lidar3d_proxy,lidar3d1_proxy,lidarodometry_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

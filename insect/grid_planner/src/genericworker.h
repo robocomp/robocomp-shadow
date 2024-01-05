@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -43,7 +43,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidarOdometry::LidarOdometryPrxPtr,RoboCompGridPlanner::GridPlannerPrxPtr>;
+using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidarOdometry::LidarOdometryPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -60,10 +60,10 @@ public:
 
 
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
+	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner1_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d1_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
-	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_pubproxy;
 
 	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target) = 0;
 
