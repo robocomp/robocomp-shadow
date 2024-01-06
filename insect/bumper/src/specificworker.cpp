@@ -150,10 +150,12 @@ void SpecificWorker::compute()
     //qInfo() << ldata.points.size();
 
     /// Check for new external target
-    if(const auto ext = buffer_target.try_get(); ext.has_value())
+    if(const auto plan = buffer_target.try_get(); plan.has_value())
     {
-        const auto &[side, adv, rot, debug] = ext.value();
-        target.set(side, adv, rot, true);
+        //const auto &[side, adv, rot, debug] = ext.value();
+        qInfo() << __FUNCTION__ << plan->valid << plan->controls.size() << plan->controls.front().adv << plan->controls.front().side << plan->controls.front().rot;
+        target.set(plan->controls.front().side, plan->controls.front().adv, plan->controls.front().rot);
+        //target.set(side, adv, rot, true);
         if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 
@@ -624,12 +626,18 @@ void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 {
     if(plan.valid) // Possible failure variable
     {
-        buffer_target.put(std::make_tuple(plan.subtarget.x, plan.subtarget.y, 0, false));
+        //qInfo() << __FUNCTION__ <<  plan.valid << plan.controls.size() << plan.controls.front().adv << plan.controls.front().side << plan.controls.front().rot;
+        buffer_target.put(std::move(plan));
     }
+    else
+        qWarning() << __FUNCTION__ << "Plan is not valid";
 }
 void SpecificWorker::new_mouse_coordinates(QPointF p)
 {
-    buffer_target.put(std::make_tuple(p.x(), p.y(), 0, true)); // for debug
+    RoboCompGridPlanner::TPlan plan;
+    plan.valid = true;
+    plan.controls.emplace_back(p.y(), p.x(), 0.f);
+    buffer_target.put(std::move(plan));
 }
 
 RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan)
@@ -655,7 +663,10 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
         else
             cout << "[ JoystickAdapter ] Warning: Using a non-defined axes (" << axis.name << ")." << endl;
     }
-    buffer_target.put(std::make_tuple(side*1000.f, adv*1000.f, rot, false));
+    RoboCompGridPlanner::TPlan plan;
+    plan.valid = true;
+    plan.controls.emplace_back(side*1000.f, adv*1000.f, rot);
+    buffer_target.put(std::move(plan));
 }
 
 
