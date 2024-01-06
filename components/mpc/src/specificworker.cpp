@@ -116,7 +116,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
 
     if(plan.path.size() < params.num_steps)
     {
-        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
+        //qWarning() << __FUNCTION__ << "Path too short. Returning original path";
         plan.valid = false;
         return plan;
     }

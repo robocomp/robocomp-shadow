@@ -40,7 +40,6 @@ class SpecificWorker : public GenericWorker
         RoboCompGridPlanner::TPlan GridPlanner_modifyPlan(RoboCompGridPlanner::TPlan plan);
         void GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan);
 
-
 public slots:
         void compute();
         int startup_check();
@@ -52,7 +51,7 @@ public slots:
         rc::MPC mpc;
         struct Params
         {
-            unsigned int num_steps = 10;
+            unsigned int num_steps = 8;
         };
         Params params;
         DoubleBuffer<RoboCompGridPlanner::Points, std::vector<Eigen::Vector2f>> path_buffer;
