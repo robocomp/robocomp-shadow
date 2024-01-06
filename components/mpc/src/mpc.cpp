@@ -117,15 +117,14 @@ namespace rc
         // Gap closing: dynamic constraints for omni robot: dx/dt = f(x, u)   3 x 3 * 3 x 1 -> 3 x 1
         auto integrate = [](const casadi::MX &x, const casadi::MX &u)
                 { return casadi::MX::mtimes(
-                         casadi::MX::vertcat(std::vector<casadi::MX>
-                                                 {
-                                                    casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 1.0, 0.0}),
-                                                    casadi::MX::horzcat(std::vector<casadi::MX>{1.0, 0.0, 0.0}),
-                                                    casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 0.0, 1.0})
-                                                 }
-                                                ), u);};
+                          casadi::MX::vertcat(std::vector<casadi::MX>
+                             {
+                                casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 1.0, 0.0}),
+                                casadi::MX::horzcat(std::vector<casadi::MX>{1.0, 0.0, 0.0}),
+                                casadi::MX::horzcat(std::vector<casadi::MX>{0.0, 0.0, 1.0})
+                             }), u);};
 
-        double dt = 0.5;   // timer interval in secs
+        double dt = consts.time_interval;   // integration timer interval in secs
         // Runge-Kutta integration over control intervals
         for(const auto k : iter::range(N))
         {
@@ -146,20 +145,21 @@ namespace rc
             auto v2 = control(0,k+1);
             auto acc = (v2-v1)/dt;
             //auto x_next = state(all, k) + dt * integrate(state(all,k), control(all,k));
-            opti.subject_to(opti.bounded(-3.19, acc, 3.19));
+            //opti.subject_to(opti.bounded(-3.19, acc, 3.19));
+            opti.subject_to(opti.bounded(-2, acc, 2));
 
             // side
             auto s1 = control(1,k);
             auto s2 = control(1,k+1);
             auto sacc = (s2-s1)/dt;
             //auto x_next = state(all, k) + dt * integrate(state(all,k), control(all,k));
-            opti.subject_to(opti.bounded(-3.19, sacc, 3.19));
+            opti.subject_to(opti.bounded(-2, sacc, 2));
 
             // rot
             auto w1 = control(2,k);
             auto w2 = control(2,k+1);
             auto ang_acc = (w2-w1)/dt;
-            opti.subject_to(opti.bounded(-0.5, ang_acc, 0.5));
+            opti.subject_to(opti.bounded(-0.7, ang_acc, 0.7));
         }
 
         // control constraints -----------
@@ -173,7 +173,7 @@ namespace rc
         opti.subject_to(state(all, 0) == std::vector<double>{0.0, 0.0, 0.0});
 
         // slack vector declaration
-        slack_vector = opti.variable(consts.num_steps);
+        //slack_vector = opti.variable(consts.num_steps);
 
         return opti;
     };
@@ -193,9 +193,9 @@ namespace rc
         auto opti_local = this->opti.copy();
         casadi::Slice all;
 
-        std::vector<double> mu_vector(consts.num_steps, slack_weight);
-        std::vector<double> slack_init(consts.num_steps, 0.5);
-        opti_local.set_initial(slack_vector, slack_init);
+        //std::vector<double> mu_vector(consts.num_steps, slack_weight);
+        //std::vector<double> slack_init(consts.num_steps, 0.5);
+        //opti_local.set_initial(slack_vector, slack_init);
 
         // Warm start
         if (previous_values_of_solution.empty())
@@ -212,6 +212,9 @@ namespace rc
         }
 
         // cost function
+
+        // add term to minimize distance to target and minimize angle of robot's nose wrt target
+
         // minimze distance to each element of path
         auto sum_dist_path = opti_local.parameter();
         opti_local.set_value(sum_dist_path, 0.0);
@@ -219,18 +222,24 @@ namespace rc
             sum_dist_path += casadi::MX::sumsqr(pos(all, k) - e2v(path_robot_meters[k].cast<double>()));
 
         // minimze sum of rotations
-        auto sum_rot = opti_local.parameter();
-        opti_local.set_value(sum_rot, 0.0);
-        for (auto k: iter::range(consts.num_steps))
-            sum_rot += casadi::MX::sumsqr(rot(k));
-
-        // minimze slack sums
-//        auto sum_slack = opti_local.parameter();
-//        opti_local.set_value(sum_slack, 0.0);
+//        auto sum_rot = opti_local.parameter();
+//        opti_local.set_value(sum_rot, 0.0);
 //        for (auto k: iter::range(consts.num_steps))
-//            sum_slack += casadi::MX::sumsqr(slack_vector(k));
+//            sum_rot += casadi::MX::sumsqr(rot(k));
 
-        opti_local.minimize( sum_dist_path /* + sum_rot + slack_weight*sum_slack*/);
+        // minimze angle of robot's nose wrt to next point in path
+        auto sum_angle = opti_local.parameter();
+        opti_local.set_value(sum_angle, 0.0);
+        for (auto k: iter::range(consts.num_steps))
+            sum_angle += casadi::MX::sumsqr(phi(k) - atan2(path_robot_meters[k].x(), path_robot_meters[k].y()));
+
+        // minimize sum of distances to target
+        auto sum_dist_target = opti_local.parameter();
+        opti_local.set_value(sum_dist_target, 0.0);
+        for (auto k: iter::range(consts.num_steps))
+            sum_dist_target += casadi::MX::sumsqr(pos(all, k) - e2v(target_robot.cast<double>()));
+
+        opti_local.minimize( sum_dist_path + sum_angle);
 
         // solve NLP ------
         try
