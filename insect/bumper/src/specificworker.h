@@ -99,25 +99,17 @@ public slots:
             float x = 0.f, y = 0.f, ang = 0.f;  // target
             float side{}, adv{}, rot{}; // assigned speed
             bool active = false;
-            bool debug = false;
-            void set(float x_, float y_, float rot_, bool debug_ = false)
+            void set(float x_, float y_, float rot_)
             {
                 x=x_; y=y_; ang = atan2(x, y); active = true;
                 side = x; adv = y; rot = rot_;
-                debug = debug_;
             };
-//            void set(float ang_, float dist_, bool debug_ = false)
-//            {
-//                ang = ang_; dist = dist_; x = dist*sin(ang); y = dist*cos(ang); active = true;
-//                side = x; adv = y; rot = 0; debug = debug_;
-//            }
 
             void print(QString txt="") const
             {
                 qInfo() << "Target " << txt;
                 qInfo() << "    side:" << side << "adv:" << adv << "rot:" << rot;
                 qInfo() << "    x:" << x << "y:" << y << "ang:" << ang;
-                qInfo() << "    debug = " << debug;
             }
             float distance_to_go(float px, float py)
             {
@@ -167,7 +159,8 @@ public slots:
         rc::Timer<> clock;
 
         // Double Buffer 
-        DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_target;
+        //DoubleBuffer<std::tuple<float, float, float, bool>,std::tuple<float, float, float, bool>> buffer_target;
+        DoubleBuffer<RoboCompGridPlanner::TPlan, RoboCompGridPlanner::TPlan> buffer_target;
 
         // Processing steps
         //void stop_robot(const std::string_view txt);
