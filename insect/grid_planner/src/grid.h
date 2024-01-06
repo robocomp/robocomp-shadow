@@ -78,6 +78,7 @@ public:
         // map maintainance
         void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
         //inline std::tuple<bool, T &> get_cell(long int x, long int z);
+        void update_costs(float robot_semi_width, bool color_all_cells=true);
         inline std::tuple<bool, T &> get_cell(const Key &k);
         //inline std::tuple<bool, T &> get_cell(const Eigen::Vector2f &p);
         Key point_to_key(long int x, long int z) const;
@@ -132,7 +133,6 @@ public:
         // constrained grid access
         void mark_area_in_grid_as(const QPolygonF &poly, bool free);   // if true area becomes free
         void modify_cost_in_grid(const QPolygonF &poly, float cost);
-        void update_costs(float robot_semi_width, bool wide=true);
         std::optional<QPointF> closest_obstacle(const QPointF &p);
         std::optional<QPointF> closest_free(const QPointF &p);
         std::optional<QPointF> closest_free_4x4(const QPointF &p);
@@ -166,7 +166,6 @@ public:
         std::vector<Eigen::Vector2f> decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step=2);
         std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
-        //std::vector<Eigen::Vector2f> compute_path_internal(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
 
         struct Params
         {

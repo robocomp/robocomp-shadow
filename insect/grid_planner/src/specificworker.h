@@ -73,11 +73,12 @@ class SpecificWorker : public GenericWorker
             int LIDAR_LOW_DECIMATION_FACTOR = 1;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-6000, -6000, 12000, 12000};
-            float CARROT_DISTANCE = 500;   // mm
+            float CARROT_DISTANCE = 700;   // mm
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 50;    // ms (20 Hz) for compute timer
             float MIN_ANGLE_TO_TARGET = 1.f;   // rad
+            int MPC_HORIZON = 8;
         };
         Params params;
 
@@ -154,7 +155,7 @@ class SpecificWorker : public GenericWorker
         // Draw
         void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);
         void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
-        void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene);
+        void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only=false);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
         void draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
@@ -168,12 +169,13 @@ class SpecificWorker : public GenericWorker
         RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
         RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
         void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);   // EXPERIMENTAL
-        void convert_plan_to_control(const RoboCompGridPlanner::TPlan &plan);
+        RoboCompGridPlanner::TPlan
+        convert_plan_to_control(const RoboCompGridPlanner::TPlan &plan, const Target &target);
 
     // publish
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
 
-    bool check_if_robot_at_target(const Target &target_, const Target &original_target_);
+    bool is_robot_at_target(const Target &target_, const Target &original_target_);
 };
 
 #endif

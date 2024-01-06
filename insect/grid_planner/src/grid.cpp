@@ -681,7 +681,7 @@ inline double Grid::heuristicL1(const Key &a, const Key &b) const
 }
 
 /////////////////////////////// COSTS /////////////////////////////////////////////////////////
-void Grid::update_costs(float robot_semi_width, bool wide)
+void Grid::update_costs(float robot_semi_width, bool color_all_cells)
 {
     static QBrush free_brush(QColor(params.free_color));
     static QBrush occ_brush(QColor(params.occupied_color));
@@ -689,11 +689,17 @@ void Grid::update_costs(float robot_semi_width, bool wide)
     static QBrush yellow_brush(QColor("Yellow"));
     static QBrush gray_brush(QColor("LightGray"));
     static QBrush green_brush(QColor("LightGreen"));
+    static QBrush white(QColor("White"));
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges
                 ={{100, 75, orange_brush, &Grid::neighboors_8},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
                   {25, 3,  green_brush, &Grid::neighboors_16}};
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
+                ={{100, 75, white, &Grid::neighboors_8},
+                  {75, 50, white, &Grid::neighboors_8},
+                  {50, 25, white, &Grid::neighboors_8},
+                  {25, 3,  white, &Grid::neighboors_16}};
 
     // we assume the grid has been cleared before. All free cells have cost 1
 
@@ -704,21 +710,19 @@ void Grid::update_costs(float robot_semi_width, bool wide)
         v.tile->setBrush(occ_brush);
     }
 
-    if(wide)    // if wide is true, we set the cost of the cells detected by the Lidar to 100 and their neighboors to values defined in wall_ranges
-    {
-        for(auto &[upper, lower, brush, neigh] : wall_ranges)
-            // get all cells with cost == upper
-            for (auto &&[k, v]: iter::filter([upper, lower](auto &v) { return std::get<1>(v).cost == upper; }, fmap))
-                // get all neighboors of these cells whose cost is lower than upper and are free
-                for (auto neighs = neigh(this, k, false); auto &&[kk, vv]: neighs | iter::filter([upper](auto &ve)
-                                                                                           { return std::get<1>(ve).cost < upper and std::get<1>(ve).free; }))
-                {
-                    const auto &[ok, cell] = get_cell(kk);
-                    cell.cost = lower;
-                    cell.free = true;
-                    cell.tile->setBrush(brush);
-                }
-    }
+    const auto final_ranges = color_all_cells ? wall_ranges : wall_ranges_no_color;
+    for(auto &[upper, lower, brush, neigh] : final_ranges)
+        // get all cells with cost == upper
+        for (auto &&[k, v]: iter::filter([upper, lower](auto &v) { return std::get<1>(v).cost == upper; }, fmap))
+            // get all neighboors of these cells whose cost is lower than upper and are free
+            for (auto neighs = neigh(this, k, false); auto &&[kk, vv]: neighs | iter::filter([upper](auto &ve)
+                                                                                       { return std::get<1>(ve).cost < upper and std::get<1>(ve).free; }))
+            {
+                const auto &[ok, cell] = get_cell(kk);
+                cell.cost = lower;
+                cell.free = true;
+                cell.tile->setBrush(brush);
+            }
 }
 void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range)
 {
