@@ -153,9 +153,8 @@ void SpecificWorker::compute()
     if(const auto plan = buffer_target.try_get(); plan.has_value())
     {
         //const auto &[side, adv, rot, debug] = ext.value();
-        qInfo() << __FUNCTION__ << plan->valid << plan->controls.size() << plan->controls.front().adv << plan->controls.front().side << plan->controls.front().rot;
+        //qInfo() << __FUNCTION__ << plan->valid << plan->controls.size() << plan->controls.front().adv << plan->controls.front().side << plan->controls.front().rot;
         target.set(plan->controls.front().side, plan->controls.front().adv, plan->controls.front().rot);
-        //target.set(side, adv, rot, true);
         if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 
@@ -351,7 +350,7 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     // check speed limits
     float t_adv = std::clamp(target.y, -params.MAX_BACKWARDS_ADV_SPEED, params.MAX_ADV_SPEED);
     float t_side = std::clamp(target.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
-    float t_rot = std::clamp(target.ang, -params.MAX_ROT_SPEED, params.MAX_ROT_SPEED);  // angle wrt axis y
+    float t_rot = std::clamp(target.rot, -params.MAX_ROT_SPEED, params.MAX_ROT_SPEED);  // WATCH: now angle comes from gridplanner
     float r_adv = std::clamp(reaction.y, -params.MAX_ADV_SPEED, params.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
 
@@ -393,21 +392,9 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     catch (const Ice::Exception &e)
     { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
 }
-//void SpecificWorker::stop_robot()
-//{
-//    try
-//    {
-//        // TODO: Webots has order changed
-//        omnirobot_proxy->setSpeedBase(0.f ,
-//                                      0.f ,
-//                                      0.f);
-//        robot_stopped = true;
-//    }
-//    catch (const Ice::Exception &e)
-//    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
-//}
 std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF &robot_safe_band)
 {
+    // create a polygon with the robot's safe band and iter from 0 to OUTER_RIG_DISTANCE until the point falls outside the polygon
     std::vector<Eigen::Vector2f> edges;
     for (const double ang: iter::range(-M_PI, M_PI, params.BELT_ANGULAR_STEP))
         {
@@ -428,24 +415,6 @@ std::vector<Eigen::Vector2f> SpecificWorker::create_edge_points(const QPolygonF 
     }
     return edges;
 }
-//void SpecificWorker::stop_robot(const std::string_view txt)
-//{
-//    if(not robot_stopped)
-//    {
-//        target.active = false;
-//        try
-//        {
-//            omnirobot_proxy->setSpeedBase(0, 0, 0);
-//            qInfo() << __FUNCTION__ << "Robot stopped";
-//            draw_target(target, true);
-//            robot_current_speed = {0.f, 0.f, 0.f};
-//        }
-//        catch (const Ice::Exception &e)
-//        { std::cout << "Error talking to OmniRobot " << e.what() << std::endl; }
-//        robot_stopped = true;
-//        std::cout << "Robot stopped due to " << txt << std::endl;
-//    }
-//};
 QPolygonF SpecificWorker::adjust_band_size(const Eigen::Vector3f &velocity)
 {
     // if advance velocity (y) is positive, make the width of the band proportional to it
@@ -624,11 +593,8 @@ void SpecificWorker::self_adjust_period(int new_period)
 /////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 {
-    if(plan.valid) // Possible failure variable
-    {
-        //qInfo() << __FUNCTION__ <<  plan.valid << plan.controls.size() << plan.controls.front().adv << plan.controls.front().side << plan.controls.front().rot;
+    if(plan.valid and not plan.controls.empty())
         buffer_target.put(std::move(plan));
-    }
     else
         qWarning() << __FUNCTION__ << "Plan is not valid";
 }
