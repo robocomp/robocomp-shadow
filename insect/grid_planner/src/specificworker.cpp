@@ -164,19 +164,15 @@ void SpecificWorker::compute()
             /// if target is not in line of sight, compute path
             if (not grid.is_line_of_sigth_to_target_free(target.pos_eigen(), Eigen::Vector2f::Zero(),
                                                          params.ROBOT_SEMI_WIDTH))
-            {
-                qInfo() << __FUNCTION__ <<  "target NOT in line of sight. Computing path";
                 returning_plan = compute_plan_from_grid(target);
-
-            }
             else
-            {
-                qInfo() << __FUNCTION__ << "target LINE of sight. Computing path";
                 returning_plan = compute_line_of_sight_target(target);
-            }
 
-            /// convert plan to list of control actions calling MPC
-            returning_plan = convert_plan_to_control(returning_plan, target);
+            if(params.USE_MPC) /// convert plan to list of control actions calling MPC
+                returning_plan = convert_plan_to_control(returning_plan, target);
+            // else CARROT
+            // new_returning_plan = mpc_buffer.get();  // get plan from MPC thread
+            // mpc_buffer.put(returning_plan); // empty buffer
 
             if (not returning_plan.valid)   // no valid path found. Cancel target
             {
@@ -193,11 +189,6 @@ void SpecificWorker::compute()
             //            adapt_grid_size(target, returning_plan.path);
 
             /// send plan to remote interface and publish it to rcnode
-            if(returning_plan.controls.empty())
-            {
-                qInfo() << __FUNCTION__ << "Sending empty control to BUMPER ===============================";
-                std::terminate();
-            }
             send_and_publish_plan(returning_plan);
         }
     }
@@ -334,6 +325,7 @@ SpecificWorker::Target SpecificWorker::transform_target_to_global_frame(const Ei
 }
 RoboCompGridPlanner::TPlan SpecificWorker::compute_line_of_sight_target(const Target &target)
 {
+    qInfo() << __FUNCTION__;
     RoboCompGridPlanner::TPlan returning_plan;
     returning_plan.valid = true;
     auto point_close_to_robot = target.point_at_distance(params.CARROT_DISTANCE);
@@ -354,16 +346,17 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_line_of_sight_target(const Ta
             returning_plan.path.emplace_back(RoboCompGridPlanner::TPoint(p.x(), p.y()));
         }
     }
+    else draw_smoothed_path({}, &viewer->scene, true); // erase smoothed path
 
     draw_paths({}, &viewer->scene, true);   // erase paths
     draw_path({}, &viewer->scene, true);          // erase path
-    draw_smoothed_path({}, &viewer->scene, true); // erase smoothed path
     draw_subtarget(point_close_to_robot, &viewer->scene);
 
     return returning_plan;
 }
 RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &target)
 {
+    qInfo() << __FUNCTION__;
     /// keep the current path in a static variable
     static std::vector<Eigen::Vector2f> current_path = {}, original_path = {};
     // it has to be reset when a new target arrives
@@ -381,21 +374,22 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
         original_path = current_path;
     }
 
-    // check if params.ELAPSED_TIME has passed since last path computation. We update path once very ELAPSED_TIME mseconds
+    /// check if params.ELAPSED_TIME has passed since last path computation. We update path once very ELAPSED_TIME_BETWEEN_PATH_UPDATES mseconds
     static auto last_time = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
     auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
-    if (elapsed_time.count() > 3000) // if enough time has passed, compute a new path. It should check for a sudden blockage
+    if (elapsed_time.count() > params.ELAPSED_TIME_BETWEEN_PATH_UPDATES) // if enough time has passed, compute a new path. It should check for a sudden blockage
     {
         // compute the K optimal paths that differ "min_max_dist" among them using the Yen algorithm and the max_distance approximation to Frechet distance
         std::vector<std::vector<Eigen::Vector2f>> paths;
-        paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(), 3, 500.f);
+        paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(),
+                                     params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
         if (paths.empty())
         {
-            qWarning() << __FUNCTION__ << "No paths found";
+            qWarning() << __FUNCTION__ << "No paths found in compute_k_paths";
             return RoboCompGridPlanner::TPlan{.valid=false};
         }
-        // compute a vector with the <max_distances, index> of current_path to all paths
+        // compute a sorted vector with the <max_distances, index> of current_path to all paths
         std::vector<std::pair<float, int>> distances_to_current;
         for (auto &&[i, path]: paths | iter::enumerate)
             distances_to_current.emplace_back(max_distance(current_path, path), i);
@@ -405,7 +399,6 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
         // assign current_path to the closest path
         current_path = paths[distances_to_current.front().second];
         original_path = current_path;
-        //qInfo() << __FUNCTION__ << "Dist to current path: " << distances_to_current.front().first << "Num paths: " << distances_to_current.size();
         //draw_paths(paths, &viewer->scene);
     } else  // if not enough time has passed, transform current_path to global frame
     {

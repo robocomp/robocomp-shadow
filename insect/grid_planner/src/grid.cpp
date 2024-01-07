@@ -936,9 +936,9 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
     bool success = true;
     for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
     {
-        Eigen::Vector2f src = source - Eigen::Vector2f{-params.tile_size * i, 0.f};
+        Eigen::Vector2f src = source - Eigen::Vector2f{params.tile_size * i, 0.f};
         success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
-                        { return is_free(src + step * i); });
+                        { return is_free(src + (step * i)); });
     }
     return success;
 }
