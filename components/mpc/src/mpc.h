@@ -24,14 +24,14 @@ namespace rc
             struct Constants
             {
                 unsigned int num_steps = 8;             // MPC steps ahead
-                float time_interval = 0.5;              // seconds
+                float time_interval = 0.4;              // seconds
                 const float robot_radius = 250;
                 double gauss_dist = 0.1;                // minimun distance to a lidar-gaussian as constraint
                 double point_dist = 0.2;                // value in lidar-gaussian at lidar points (corners)
                 double point_sigma = 0.07;              // variance for point (corners) gaussians
                 double gauss_value_for_point = 0.3;     // minimun distance to a corner gaussian as constraint
                 float min_dist_to_target = 0.9;         // min distance to target at which the robot stops
-                double max_rotation_value = 0.5;        // max rotation constraint in rads/sg
+                double max_rotation_value = 1;        // max rotation constraint in rads/sg
                 double max_advance_value = 1;           // max advance constraint in m/sg
                 double min_advance_value = 0;           // min advance constraint in m/sg
                 double max_side_value = 1;              // max advance constraint in m/sg

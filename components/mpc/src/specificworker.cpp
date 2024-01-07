@@ -72,9 +72,9 @@ void SpecificWorker::compute()
             //qInfo() << adv << side << rot;
             control_buffer.put(std::move(control_and_path), [](auto &&control_and_path, auto &grid_planner)
             {
-                std::ranges::transform(control_and_path.first, std::back_inserter(grid_planner.first),
+                std::ranges::transform(control_and_path.first, std::back_inserter(grid_planner.first),  // controls
                                        [](auto &&c){ return RoboCompGridPlanner::TControl{.adv=c[0], .side=c[1], .rot=c[2]}; });
-                std::ranges::transform(control_and_path.second, std::back_inserter(grid_planner.second),
+                std::ranges::transform(control_and_path.second, std::back_inserter(grid_planner.second),    // points
                                        [](auto &&p){ return RoboCompGridPlanner::TPoint{.x=p[0], .y=p[1]}; });
             });
         }
@@ -116,8 +116,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
 
     if(plan.path.size() < params.num_steps)
     {
-        //qWarning() << __FUNCTION__ << "Path too short. Returning original path";
-        plan.valid = false;
+        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
         return plan;
     }
     path_buffer.put(std::move(plan.path), [nsteps=params.num_steps](auto &&new_path, auto &path)
