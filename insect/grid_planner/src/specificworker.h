@@ -73,12 +73,16 @@ class SpecificWorker : public GenericWorker
             int LIDAR_LOW_DECIMATION_FACTOR = 1;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-6000, -6000, 12000, 12000};
-            float CARROT_DISTANCE = 700;   // mm
+            float CARROT_DISTANCE = 400;   // mm
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 50;    // ms (20 Hz) for compute timer
             float MIN_ANGLE_TO_TARGET = 1.f;   // rad
             int MPC_HORIZON = 8;
+            bool USE_MPC = true;
+            unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
+            int NUM_PATHS_TO_SEARCH = 3;
+            float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
         };
         Params params;
 
