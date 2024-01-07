@@ -165,13 +165,18 @@ void SpecificWorker::compute()
             if (not grid.is_line_of_sigth_to_target_free(target.pos_eigen(), Eigen::Vector2f::Zero(),
                                                          params.ROBOT_SEMI_WIDTH))
             {
-                qInfo() << __FUNCTION__ <<  "target not in line of sight. Computing path";
+                qInfo() << __FUNCTION__ <<  "target NOT in line of sight. Computing path";
                 returning_plan = compute_plan_from_grid(target);
-                /// convert plan to list of control actions calling MPC
-                returning_plan = convert_plan_to_control(returning_plan, target);
+
             }
             else
+            {
+                qInfo() << __FUNCTION__ << "target LINE of sight. Computing path";
                 returning_plan = compute_line_of_sight_target(target);
+            }
+
+            /// convert plan to list of control actions calling MPC
+            returning_plan = convert_plan_to_control(returning_plan, target);
 
             if (not returning_plan.valid)   // no valid path found. Cancel target
             {
@@ -188,6 +193,11 @@ void SpecificWorker::compute()
             //            adapt_grid_size(target, returning_plan.path);
 
             /// send plan to remote interface and publish it to rcnode
+            if(returning_plan.controls.empty())
+            {
+                qInfo() << __FUNCTION__ << "Sending empty control to BUMPER ===============================";
+                std::terminate();
+            }
             send_and_publish_plan(returning_plan);
         }
     }
@@ -331,24 +341,25 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_line_of_sight_target(const Ta
     returning_plan.subtarget.y = point_close_to_robot.y();
     returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=point_close_to_robot.y(),
                                                                        .side=point_close_to_robot.x(),
-                                                                       .rot=0});
+                                                                       .rot=atan2(point_close_to_robot.x(), point_close_to_robot.y())});
+
+    // fill path with ten points from the robot to the target at a distance of consts.ROBOT_LENGTH, to feed MPC
+    if(target.pos_eigen().norm() >= params.ROBOT_SEMI_LENGTH * params.MPC_HORIZON)
+    {
+        returning_plan.path.reserve(params.MPC_HORIZON);
+        Eigen::Vector2f dir = target.pos_eigen().normalized();
+        for(const auto &i: iter::range(params.MPC_HORIZON))
+        {
+            Eigen::Vector2f p = dir * (params.ROBOT_SEMI_LENGTH * i);
+            returning_plan.path.emplace_back(RoboCompGridPlanner::TPoint(p.x(), p.y()));
+        }
+    }
 
     draw_paths({}, &viewer->scene, true);   // erase paths
     draw_path({}, &viewer->scene, true);          // erase path
     draw_smoothed_path({}, &viewer->scene, true); // erase smoothed path
     draw_subtarget(point_close_to_robot, &viewer->scene);
 
-    // fill path with ten points from the robot to the target at a distance of consts.ROBOT_LENGTH, to feed MPC
-    //    if(target.pos_eigen().norm() >= params.ROBOT_SEMI_LENGTH * params.MPC_HORIZON)
-    //    {
-    //        returning_plan.path.reserve(params.MPC_HORIZON);
-    //        Eigen::Vector2f dir = target.pos_eigen().normalized();
-    //        for(const auto &i: iter::range(params.MPC_HORIZON))
-    //        {
-    //            Eigen::Vector2f p = dir * (params.ROBOT_SEMI_LENGTH * i);
-    //            returning_plan.path.emplace_back(RoboCompGridPlanner::TPoint(p.x(), p.y()));
-    //        }
-    //    }
     return returning_plan;
 }
 RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &target)
@@ -362,6 +373,11 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
     if (current_path.empty())
     {
         current_path = grid.compute_path(Eigen::Vector2f::Zero(), target.pos_eigen());
+        if(current_path.empty())
+        {
+            qWarning() << __FUNCTION__ << "No path found while initializing current_path";  //TODO: try a few times
+            return RoboCompGridPlanner::TPlan{.valid=false};
+        }
         original_path = current_path;
     }
 
@@ -369,7 +385,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
     static auto last_time = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
     auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
-    if (elapsed_time.count() > 3000)
+    if (elapsed_time.count() > 3000) // if enough time has passed, compute a new path. It should check for a sudden blockage
     {
         // compute the K optimal paths that differ "min_max_dist" among them using the Yen algorithm and the max_distance approximation to Frechet distance
         std::vector<std::vector<Eigen::Vector2f>> paths;
@@ -389,8 +405,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
         // assign current_path to the closest path
         current_path = paths[distances_to_current.front().second];
         original_path = current_path;
-        qInfo() << __FUNCTION__ << "Dist to current path: " << distances_to_current.front().first << "Num paths: "
-                << distances_to_current.size();
+        //qInfo() << __FUNCTION__ << "Dist to current path: " << distances_to_current.front().first << "Num paths: " << distances_to_current.size();
         //draw_paths(paths, &viewer->scene);
     } else  // if not enough time has passed, transform current_path to global frame
     {
@@ -413,9 +428,12 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
     {
         auto subtarget = get_carrot_from_path(current_path, params.CARROT_DISTANCE, params.CARROT_ANGLE);
         draw_subtarget(Eigen::Vector2f(subtarget.x, subtarget.y), &viewer->scene);
-
         // Constructing the interface type TPlan
         returning_plan.subtarget = subtarget;
+        // fill controls in case the path is too short for MPC
+        returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=subtarget.y,
+                                                                           .side=subtarget.x,
+                                                                           .rot=atan2(subtarget.x, subtarget.y)});
         returning_plan.valid = true;
         returning_plan.path.reserve(current_path.size());
         for (auto &&p: current_path)
@@ -443,8 +461,8 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridPlanner::TPlan &plan, 
             std::ranges::transform(mod_plan.path, std::back_inserter(path), [](auto &p)
                     { return Eigen::Vector2f{p.x, p.y}; });
             draw_smoothed_path(path, &viewer->scene);
-            for(auto i: iter::range(mod_plan.controls.size()-1)) // last control is not used
-                qInfo() << __FUNCTION__ <<  "Step: " << i << mod_plan.controls[i].adv << mod_plan.controls[i].side << mod_plan.controls[i].rot;
+            if(not mod_plan.controls.empty())
+                qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             returning_plan = mod_plan;
         }
         else    // no valid plan found
