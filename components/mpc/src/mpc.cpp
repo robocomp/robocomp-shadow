@@ -230,8 +230,8 @@ namespace rc
         // minimze angle of robot's nose wrt to next point in path
         auto sum_angle = opti_local.parameter();
         opti_local.set_value(sum_angle, 0.0);
-        for (auto k: iter::range(consts.num_steps))
-            sum_angle += casadi::MX::sumsqr(phi(k) - atan2(path_robot_meters[k].x(), path_robot_meters[k].y()));
+        for (auto k: iter::range(consts.num_steps-1))
+            sum_angle += casadi::MX::sumsqr(phi(k) - atan2(path_robot_meters[k+1].x(), path_robot_meters[k+1].y()));
 
         // minimize sum of distances to target
         auto sum_dist_target = opti_local.parameter();
@@ -239,7 +239,7 @@ namespace rc
         for (auto k: iter::range(consts.num_steps))
             sum_dist_target += casadi::MX::sumsqr(pos(all, k) - e2v(target_robot.cast<double>()));
 
-        opti_local.minimize( sum_dist_path + sum_angle);
+        opti_local.minimize( sum_dist_path + sum_angle*2 + sum_dist_target*0.1);
 
         // solve NLP ------
         try
