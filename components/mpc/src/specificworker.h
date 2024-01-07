@@ -51,12 +51,26 @@ public slots:
         rc::MPC mpc;
         struct Params
         {
-            unsigned int num_steps = 8;
+            int NUM_STEPS = 8;
+            int PERIOD = 50; // ms
+            std::string LIDAR_NAME_LOW = "bpearl";
+            std::string LIDAR_NAME_HIGH = "helios";
+            float MAX_LIDAR_LOW_RANGE = 700;  // mm
+            float MAX_LIDAR_HIGH_RANGE = 700;  // mm
+            int LIDAR_LOW_DECIMATION_FACTOR = 1;
+            int LIDAR_HIGH_DECIMATION_FACTOR = 1;
+            int MAX_OBSTACLES = 5;
+            float MAX_DIST_TO_OBSTACLES = 0.5; // m
         };
         Params params;
         DoubleBuffer<RoboCompGridPlanner::Points, std::vector<Eigen::Vector2f>> path_buffer;
         DoubleBuffer<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>,
                      std::pair<RoboCompGridPlanner::Control, RoboCompGridPlanner::Points>> control_buffer; // adv, side and rot for each point of the path
+
+        // Lidar Thread
+        DoubleBuffer<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector2f>> buffer_lidar_data;
+        std::thread read_lidar_th;
+        void read_lidar();
 
 };
 

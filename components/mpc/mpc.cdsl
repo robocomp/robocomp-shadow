@@ -1,9 +1,11 @@
 import "GridPlanner.idsl";
+import "Lidar3D.idsl";
 
 Component MPC
 {
     Communications
     {
+        requires Lidar3D;
         implements GridPlanner;
     };
     language Cpp11;

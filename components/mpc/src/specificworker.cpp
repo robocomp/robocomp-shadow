@@ -18,6 +18,9 @@
  */
 #include "specificworker.h"
 #include <cppitertools/range.hpp>
+#include <cppitertools/enumerate.hpp>
+#include <cppitertools/slice.hpp>
+
 
 /**
 * \brief Default constructor
@@ -55,18 +58,30 @@ void SpecificWorker::initialize(int period)
         this->startup_check();
 	else
     {
-        auto opti = mpc.initialize_omni(params.num_steps);
-        this->Period = 50;
+        // Opti
+        auto opti = mpc.initialize_omni(params.NUM_STEPS);
+
+        // Lidar thread is created
+        read_lidar_th = std::thread(&SpecificWorker::read_lidar, this);
+        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+
+        this->Period = params.PERIOD;
         timer.start(Period);
 	}
 }
 
 void SpecificWorker::compute()
 {
-    double slack_weight = 10;
+    /// read LiDAR
+    std::vector<Eigen::Vector2f> obstacles;
+    if(auto obs = buffer_lidar_data.try_get(); obs.has_value()) // meters
+        obstacles = obs.value();
+
+
+    /// read path
     if(auto path = path_buffer.try_get(); path.has_value())
     {
-        if(auto result = mpc.update(path.value(), slack_weight); result.has_value())
+        if(auto result = mpc.update(path.value(), obstacles); result.has_value())
         {
             auto control_and_path = result.value();
             //qInfo() << adv << side << rot;
@@ -85,20 +100,52 @@ void SpecificWorker::compute()
 }
 
 /////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::read_lidar()
+{
+    auto wait_period = std::chrono::milliseconds (this->Period);
+    while(true)
+    {
+        try
+        {
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(params.LIDAR_NAME_LOW,
+                                                                   params.MAX_LIDAR_LOW_RANGE,
+                                                                   params.LIDAR_LOW_DECIMATION_FACTOR);
+            // compute the period to read the lidar based on the current difference with the lidar period. Use a hysteresis of 2ms
+            if (wait_period > std::chrono::milliseconds((long) data.period + 2)) wait_period--;
+            else if (wait_period < std::chrono::milliseconds((long) data.period - 2)) wait_period++;
+            // convert to Eigen
+            std::vector<Eigen::Vector3f> eig_data(data.points.size());
+            for (const auto &[i, p]: data.points | iter::enumerate)
+                eig_data[i] = {p.x, p.y, p.z};
+            // get the N closest lidar points to the robot by sorting the array and taking the first N
+            std::ranges::sort(eig_data, [](auto &&p1, auto &&p2){ return p1.norm() < p2.norm(); });
+            std::vector<Eigen::Vector2f> obstacles;
+            for(const auto &p: eig_data | iter::slice(0, std::min(static_cast<int>(eig_data.size()), params.MAX_OBSTACLES), 1))
+                obstacles.emplace_back(p[0]/1000.f, p[1]/1000.f);   // to meters for MPC
+
+            buffer_lidar_data.put(std::move(obstacles));
+        }
+        catch (const Ice::Exception &e)
+        { std::cout << "Error reading from Lidar3D" << e << std::endl; }
+        std::this_thread::sleep_for(wait_period);
+    }
+} // Thread to read the lidar
+
+/////////////////////////////////////////////////////////////////////////////////
 /// MPC Interface Implementation
 /////////////////////////////////////////////////////////////////////////////////
 
 //RoboCompMPC::Control SpecificWorker::MPC_newPath(RoboCompMPC::Path newpath)
 //{
-//    if(newpath.size() < num_steps)
+//    if(newpath.size() < NUM_STEPS)
 //        return RoboCompMPC::Control{.valid=false};
-//    if(newpath.size() > num_steps)
+//    if(newpath.size() > NUM_STEPS)
 //        // reduce vector size by removing intermediate points.
 //
 //        for(auto p : newpath)
 //        qInfo() << p.x << p.y;
 //    qInfo() << "-----------------------";
-//    path_buffer.put(std::move(newpath), [nsteps=num_steps](auto &&newpath, auto &path)
+//    path_buffer.put(std::move(newpath), [nsteps=NUM_STEPS](auto &&newpath, auto &path)
 //                { path.reserve(nsteps);
 //                  for(auto &&p: newpath)
 //                      path.push_back(Eigen::Vector2f{p.x, p.y});
@@ -114,12 +161,13 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
         return RoboCompGridPlanner::TPlan{.valid=false};
     }
 
-    if(plan.path.size() < params.num_steps)
+    if(static_cast<int>(plan.path.size()) < params.NUM_STEPS)
     {
-        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
+        //qWarning() << __FUNCTION__ << "Path too short. Returning original path";
         return plan;
     }
-    path_buffer.put(std::move(plan.path), [nsteps=params.num_steps](auto &&new_path, auto &path)
+    qInfo() << __FUNCTION__ << plan.path[params.NUM_STEPS - 1].x << plan.path[params.NUM_STEPS - 1].y;
+    path_buffer.put(std::move(plan.path), [nsteps=params.NUM_STEPS](auto &&new_path, auto &path)
     {  std::transform(new_path.begin(), new_path.begin()+nsteps, std::back_inserter(path),
                       [](auto &&p){ return Eigen::Vector2f{p.x, p.y}; });});
 
@@ -143,7 +191,6 @@ void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
 int SpecificWorker::startup_check()
 {
 	std::cout << "Startup check" << std::endl;

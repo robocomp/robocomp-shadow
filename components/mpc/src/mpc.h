@@ -45,6 +45,7 @@ namespace rc
                 const float peak_threshold = 500;       // opening detector
                 const float target_noise_sigma = 50;
                 const int num_lidar_affected_rays_by_hard_noise = 1;
+                double MAX_DIST_TO_OBSTACLE = 0.5;      // meters
             };
 
             // target
@@ -70,8 +71,7 @@ namespace rc
             casadi::Opti initialize_differential(const int N);
             casadi::Opti initialize_omni(const int N);
             std::optional<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>> // control and state vectors
-            update(const std::vector<Eigen::Vector2f> &path, double slack_weight,
-                          QGraphicsPolygonItem *robot_polygon = nullptr, QGraphicsScene *scene = nullptr);
+            update(const std::vector<Eigen::Vector2f> &path, std::vector<Eigen::Vector2f> &obstacles);
             casadi::MX pos;
             casadi::MX rot;
 

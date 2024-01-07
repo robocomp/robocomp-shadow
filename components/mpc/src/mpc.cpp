@@ -146,20 +146,20 @@ namespace rc
             auto acc = (v2-v1)/dt;
             //auto x_next = state(all, k) + dt * integrate(state(all,k), control(all,k));
             //opti.subject_to(opti.bounded(-3.19, acc, 3.19));
-            opti.subject_to(opti.bounded(-2, acc, 2));
+            opti.subject_to(opti.bounded(-0.5, acc, 0.5));
 
             // side
             auto s1 = control(1,k);
             auto s2 = control(1,k+1);
             auto sacc = (s2-s1)/dt;
             //auto x_next = state(all, k) + dt * integrate(state(all,k), control(all,k));
-            opti.subject_to(opti.bounded(-2, sacc, 2));
+            opti.subject_to(opti.bounded(-0.5, sacc, 0.5));
 
             // rot
             auto w1 = control(2,k);
             auto w2 = control(2,k+1);
             auto ang_acc = (w2-w1)/dt;
-            opti.subject_to(opti.bounded(-0.7, ang_acc, 0.7));
+            opti.subject_to(opti.bounded(-0.5, ang_acc, 0.5));
         }
 
         // control constraints -----------
@@ -170,15 +170,15 @@ namespace rc
         // forward velocity constraints -----------
         //opti.subject_to(adv >= 0);
 
-        opti.subject_to(state(all, 0) == std::vector<double>{0.0, 0.0, 0.0});
+        opti.subject_to(state(all, 0) == std::vector<double>{0.0, 0.0, 0.0}); //TODO: check if this is needed
 
         // slack vector declaration
-        //slack_vector = opti.variable(consts.num_steps);
+        //slack_vector = opti.variable(consts.NUM_STEPS);
 
         return opti;
     };
     std::optional<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>>  // control and state vectors
-    MPC::update(const std::vector<Eigen::Vector2f> &path_robot, double slack_weight, QGraphicsPolygonItem *robot_polygon, QGraphicsScene *scene)
+    MPC::update(const std::vector<Eigen::Vector2f> &path_robot, std::vector<Eigen::Vector2f> &obstacles)
     {
         std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
@@ -192,10 +192,6 @@ namespace rc
 
         auto opti_local = this->opti.copy();
         casadi::Slice all;
-
-        //std::vector<double> mu_vector(consts.num_steps, slack_weight);
-        //std::vector<double> slack_init(consts.num_steps, 0.5);
-        //opti_local.set_initial(slack_vector, slack_init);
 
         // Warm start
         if (previous_values_of_solution.empty())
@@ -211,9 +207,7 @@ namespace rc
             }
         }
 
-        // cost function
-
-        // add term to minimize distance to target and minimize angle of robot's nose wrt target
+        /// cost function as sum of several terms weighted by a factor
 
         // minimze distance to each element of path
         auto sum_dist_path = opti_local.parameter();
@@ -221,11 +215,25 @@ namespace rc
         for (auto k: iter::range(consts.num_steps))
             sum_dist_path += casadi::MX::sumsqr(pos(all, k) - e2v(path_robot_meters[k].cast<double>()));
 
+        // maximize distance from pos to the closest obstacle, if any
+
+        auto sum_dist_obstacle = opti_local.parameter();
+        opti_local.set_value(sum_dist_obstacle, 0.0);
+        for (auto k: iter::range(consts.num_steps))
+        {
+            auto dist = opti_local.parameter();
+            opti_local.set_value(dist, std::numeric_limits<float>::max());
+            for (auto &&o: obstacles)
+                dist = casadi::MX::fmin(dist, casadi::MX::sumsqr(pos(all, k) - e2v(o.cast<double>())));
+            sum_dist_obstacle += dist;
+            // to minimize the distance to the closest obstacle, we maximize the inverse
+        }
+
         // minimze sum of rotations
-//        auto sum_rot = opti_local.parameter();
-//        opti_local.set_value(sum_rot, 0.0);
-//        for (auto k: iter::range(consts.num_steps))
-//            sum_rot += casadi::MX::sumsqr(rot(k));
+        //        auto sum_rot = opti_local.parameter();
+        //        opti_local.set_value(sum_rot, 0.0);
+        //        for (auto k: iter::range(consts.NUM_STEPS))
+        //            sum_rot += casadi::MX::sumsqr(rot(k));
 
         // minimze angle of robot's nose wrt to next point in path
         auto sum_angle = opti_local.parameter();
@@ -239,7 +247,7 @@ namespace rc
         for (auto k: iter::range(consts.num_steps))
             sum_dist_target += casadi::MX::sumsqr(pos(all, k) - e2v(target_robot.cast<double>()));
 
-        opti_local.minimize( sum_dist_path + sum_angle*2 + sum_dist_target*0.1);
+        opti_local.minimize( sum_dist_path + sum_angle*2 + sum_dist_target*0.1 + 1.0/(sum_dist_obstacle+0.0001));
 
         // solve NLP ------
         try
