@@ -1,0 +1,19 @@
+CommonBehavior.Endpoints=tcp -p 10111
+
+# Endpoints for implements interfaces
+LidarOdometry.Endpoints=tcp -p 12191
+
+# Proxies for required interfaces
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990    # to HELIOS
+
+display = false
+lidar_name = helios
+viewer_left = -4000
+viewer_top = -4000
+viewer_width = 8000
+viewer_height = 8000
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800

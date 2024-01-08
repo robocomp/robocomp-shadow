@@ -1,0 +1,23 @@
+CommonBehavior.Endpoints=tcp -p 10002
+
+# Endpoints for implements interfaces
+
+# Endpoints for subscriptions interfaces
+SegmentatorTrackingPubTopic.Endpoints=tcp -p 11113
+
+# Proxies for required interfaces
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
+Lidar3D1Proxy = lidar3d:tcp -h localhost -p 11991
+LidarOdometryProxy = lidarodometry:tcp -h localhost -p 12191
+#BUMPER
+GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
+#MPC
+GridPlanner1Proxy = gridplanner:tcp -h localhost -p 12341
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
