@@ -900,3 +900,59 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TO
 //        current_path = paths[distances_to_current.front().second];
 //        original_path = current_path;
 //    }
+
+
+/**************************************/
+// From the RoboCompGridPlanner you can call this methods:
+// this->gridplanner_proxy->modifyPlan(...)
+// this->gridplanner_proxy->setPlan(...)
+
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TControl
+// RoboCompGridPlanner::TPlan
+
+/**************************************/
+// From the RoboCompGridPlanner you can call this methods:
+// this->gridplanner1_proxy->modifyPlan(...)
+// this->gridplanner1_proxy->setPlan(...)
+
+/**************************************/
+// From the RoboCompGridPlanner you can use this types:
+// RoboCompGridPlanner::TPoint
+// RoboCompGridPlanner::TControl
+// RoboCompGridPlanner::TPlan
+
+/**************************************/
+// From the RoboCompLidar3D you can call this methods:
+// this->lidar3d_proxy->getLidarData(...)
+// this->lidar3d_proxy->getLidarDataArrayProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
+
+/**************************************/
+// From the RoboCompLidar3D you can use this types:
+// RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
+
+/**************************************/
+// From the RoboCompLidar3D you can call this methods:
+// this->lidar3d1_proxy->getLidarData(...)
+// this->lidar3d1_proxy->getLidarDataArrayProyectedInImage(...)
+// this->lidar3d1_proxy->getLidarDataProyectedInImage(...)
+// this->lidar3d1_proxy->getLidarDataWithThreshold2d(...)
+
+/**************************************/
+// From the RoboCompLidar3D you can use this types:
+// RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
+
+/**************************************/
+// From the RoboCompLidarOdometry you can call this methods:
+// this->lidarodometry_proxy->getFullPoseEuler(...)
+// this->lidarodometry_proxy->getFullPoseMatrix(...)
+// this->lidarodometry_proxy->reset(...)
+
