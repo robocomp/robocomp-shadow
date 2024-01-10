@@ -104,18 +104,10 @@ void SpecificWorker::compute()
 
     // gets accumulated pose and instantaneous change (first, second)
     auto robot_pose = fastgicp.align(pcl_cloud_source);
-//    buffer_odometry.put(std::move(robot_pose.first), [](auto &&input, auto &output)
-//            {
-//                output.m00 = input(0, 0); output.m01 = input(0, 1); output.m02 = input(0, 2);
-//                output.m03 = input(0, 3); output.m10 = input(1, 0); output.m11 = input(1, 1);
-//                output.m12 = input(1, 2); output.m13 = input(1, 3); output.m20 = input(2, 0);
-//                output.m21 = input(2, 1); output.m22 = input(2, 2); output.m23 = input(2, 3);
-//                output.m30 = input(3, 0); output.m31 = input(3, 1); output.m32 = input(3, 2);
-//                output.m33 = input(3, 3);
-//            });
 
     buffer_odometry.put(std::move(robot_pose), [](auto &&input, auto &output)
             {
+
                 output.pose.m00 = input.first(0, 0); output.pose.m01 = input.first(0, 1); output.pose.m02 = input.first(0, 2);
                 output.pose.m03 = input.first(0, 3); output.pose.m10 = input.first(1, 0); output.pose.m11 = input.first(1, 1);
                 output.pose.m12 = input.first(1, 2); output.pose.m13 = input.first(1, 3); output.pose.m20 = input.first(2, 0);
@@ -130,6 +122,7 @@ void SpecificWorker::compute()
                 output.change.m30 = input.second(3, 0); output.change.m31 = input.second(3, 1); output.change.m32 = input.second(3, 2);
                 output.change.m33 = input.second(3, 3);
             });
+
 
     // draw
     if(display)
@@ -260,6 +253,7 @@ void SpecificWorker::LidarOdometry_reset()
 RoboCompLidarOdometry::PoseAndChange SpecificWorker::LidarOdometry_getPoseAndChange()
 {
     last_read.store(std::chrono::high_resolution_clock::now());
+    //print buffer_odo
     return buffer_odometry.get_idemp();
 }
 /**************************************/

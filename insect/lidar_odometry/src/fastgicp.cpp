@@ -95,15 +95,14 @@ std::pair<Eigen::Isometry3d, Eigen::Matrix<double, 4, 4>> FastGICP::align(pcl::P
     fgicp.swapSourceAndTarget();
 
     // accumulate pose
-    auto current_change = fgicp.getFinalTransformation().cast<double>();
-    poses.emplace_back(poses.back() * current_change);
+    poses.emplace_back(poses.back() * fgicp.getFinalTransformation().cast<double>());
     //auto t2 = std::chrono::high_resolution_clock::now();
     //double fitness_score = fgicp.getFitnessScore();
     //double single = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1e6;
     //std::cout << "multi:" << single << "[msec] " << "source:" << source_cloud->size()
     //    << "[pts] score:" << fitness_score << " length: " << trajectory->size() << std::endl;;
 
-    return std::make_pair(poses.back(), current_change);
+    return std::make_pair(poses.back(), fgicp.getFinalTransformation().cast<double>());
 }
 
 void FastGICP::reset()
