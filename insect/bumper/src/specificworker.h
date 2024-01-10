@@ -68,7 +68,8 @@ public slots:
         // Parameters
         struct Params
         {
-            bool DISPLAY = false;
+            bool DISPLAY = false;               //
+            bool REACTION = true;               // true -> reaction to the bumper
             float OUTER_RIG_DISTANCE = 1500.f;  // external maximum reach to search (mm) when subsampling the robot contourn
             float MIN_BAND_WIDTH = 25.f;		// minimum distance to the obstacle that repels the object
             float MAX_BAND_WIDTH = 250.f;		// maximum distance to the obstacle that repels the object
