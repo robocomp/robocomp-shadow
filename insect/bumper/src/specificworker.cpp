@@ -42,6 +42,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
     try
     {
         this->params.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
+        this->params.REACTION = params.at("reaction").value == "True" or params.at("reaction").value == "true";
         this->params.LIDAR_NAME = params.at("lidar_name").value;
         this->params.viewer_dim.setLeft(std::stod(params.at("viewer_left").value));
         this->params.viewer_dim.setTop(std::stod(params.at("viewer_top").value));
@@ -70,6 +71,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
     catch(const std::exception &e) { qWarning("Error reading config params. Withdrawing to defaults"); }
     qInfo() << "Config parameters:";
     qInfo() << "    display" << this->params.DISPLAY;
+    qInfo() << "    reaction" << this->params.REACTION;
     qInfo() << "    lidar_name" << this->params.LIDAR_NAME.c_str();
     qInfo() << "    viewer_dim" << this->params.viewer_dim << "mm";
     qInfo() << "    outer_rig_distance" << this->params.OUTER_RIG_DISTANCE << "mm";
@@ -142,13 +144,6 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
-    /// read LiDAR
-    auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
-    auto ldata = res_.value();
-    if(params.DISPLAY) draw_lidar(ldata.points);
-    //qInfo() << ldata.points.size();
-
     /// Check for new external target
     if(const auto plan = buffer_target.try_get(); plan.has_value())
     {
@@ -157,6 +152,19 @@ void SpecificWorker::compute()
         target.set(plan->controls.front().side, plan->controls.front().adv, plan->controls.front().rot);
         if(params.DISPLAY) draw_target_original(target, false, 1);
     }
+
+    if(not params.REACTION)
+    {
+        move_robot(target, Target{.active=false});
+        return;
+    }
+
+    /// read LiDAR
+    auto res_ = buffer_lidar_data.try_get();
+    if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
+    auto ldata = res_.value();
+    if(params.DISPLAY) draw_lidar(ldata.points);
+    //qInfo() << ldata.points.size();
 
     /// Check bumper for a security breach
     reaction.active = false;
@@ -377,7 +385,7 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     }
 
     //qInfo() << "ROBOT SPEEDS before" << t_adv << t_side << t_rot << " reaction" << r_adv << r_side;
-    qInfo() << "ROBOT SPEEDS to controller" << robot_current_speed.y() << robot_current_speed.x() << robot_current_speed.z();
+    qInfo() << "ROBOT SPEEDS to controller. Adv:" << robot_current_speed.y() << "Side:" << robot_current_speed.x() << "Rot:" << robot_current_speed.z();
 
     // WEBOTS ONLY #######################################
     if(target.active and not reaction.active) t_adv *= 2.f; // increase speed if no reaction
