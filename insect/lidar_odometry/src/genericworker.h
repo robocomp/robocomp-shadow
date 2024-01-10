@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -60,6 +60,7 @@ public:
 
 	virtual RoboCompFullPoseEstimation::FullPoseEuler LidarOdometry_getFullPoseEuler() = 0;
 	virtual RoboCompFullPoseEstimation::FullPoseMatrix LidarOdometry_getFullPoseMatrix() = 0;
+	virtual RoboCompLidarOdometry::PoseAndChange LidarOdometry_getPoseAndChange() = 0;
 	virtual void LidarOdometry_reset() = 0;
 
 protected:
