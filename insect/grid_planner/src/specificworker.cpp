@@ -101,9 +101,12 @@ void SpecificWorker::compute()
     if (not res_.has_value())  {   /*qWarning() << "No data Lidar";*/ return; }
     auto points = res_.value();
 
+    /// get robot pose
+    this->robot_pose_and_change = get_robot_pose_and_change();
+
     /// clear grid and update it
     grid.clear();   // TODO: pass human target to remove occupied cells.
-    grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, params.MAX_LIDAR_RANGE);
+    grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, params.MAX_LIDAR_RANGE, robot_pose_and_change.second); // change
     grid.update_costs( params.ROBOT_SEMI_WIDTH, false);     // not color all cells
 
     /// get target from buffer
@@ -115,7 +118,7 @@ void SpecificWorker::compute()
     else
     {
         target = Target::invalid();
-        adapt_grid_size(target, {});    // restore max grid size
+        //adapt_grid_size(target, {});    // restore max grid size
     }
     if(cancel_from_mouse)
     {
@@ -126,8 +129,6 @@ void SpecificWorker::compute()
     /// if new valid target arrived process it
     if (target.is_valid())
     {
-        /// get robot pose
-        this->robot_pose = get_robot_pose();
 
         if(target.completed) // if robot arrived to target in the past iteration
         {
@@ -142,7 +143,7 @@ void SpecificWorker::compute()
         auto original_target = target; // save original target to reinject it into the buffer
 
         if(target.global)  // global = true -> target in global coordinates
-            target = transform_target_to_global_frame(robot_pose, target);    // transform target to robot's frame
+            target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
 
         /// check if target has been reached
         if(not is_robot_at_target(target, original_target))
@@ -298,21 +299,29 @@ void SpecificWorker::adapt_grid_size(const Target &target, const RoboCompGridPla
 //        grid.initialize(dim, params.tile_size, &viewer->scene, false);
 //    }
 }
-Eigen::Transform<double, 3, 1> SpecificWorker::get_robot_pose()
+std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>> SpecificWorker::get_robot_pose_and_change()
 {
     Eigen::Transform<double, 3, 1> robot_pose;
+    Eigen::Transform<double, 3, 1> robot_change;
     try
     {
-        auto pose = lidarodometry_proxy->getFullPoseMatrix();
+        //  auto pose = lidarodometry_proxy->getFullPoseMatrix();
+        const auto pose_and_change = lidarodometry_proxy->getPoseAndChange();
+        const auto &pose = pose_and_change.pose;
+        const auto &change = pose_and_change.change;
         robot_pose.matrix() << pose.m00, pose.m01, pose.m02, pose.m03,
-                pose.m10, pose.m11, pose.m12, pose.m13,
-                pose.m20, pose.m21, pose.m22, pose.m23,
-                pose.m30, pose.m31, pose.m32, pose.m33;
+                               pose.m10, pose.m11, pose.m12, pose.m13,
+                               pose.m20, pose.m21, pose.m22, pose.m23,
+                               pose.m30, pose.m31, pose.m32, pose.m33;
+        robot_change.matrix() << change.m00, change.m01, change.m02, change.m03,
+                                 change.m10, change.m11, change.m12, change.m13,
+                                 change.m20, change.m21, change.m22, change.m23,
+                                 change.m30, change.m31, change.m32, change.m33;
     }
     catch (const Ice::Exception &e)
     { std::cout << "Error reading from LidarOdometry" << e << std::endl; }
 
-    return robot_pose;
+    return std::make_pair(robot_pose, robot_change);
 }
 SpecificWorker::Target SpecificWorker::transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, const Target &target)
 {
@@ -405,12 +414,9 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
         // transform current_path to global frame
         std::vector<Eigen::Vector2f> local_current_path;
         local_current_path.reserve(current_path.size());
-        std::ranges::transform(original_path, std::back_inserter(local_current_path), [rp = robot_pose](auto &p)
-        {
-            Eigen::Vector4d p4d =
-                    rp.inverse().matrix() * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f;
-            return Eigen::Vector2f{p4d.x(), p4d.y()};
-        });
+        const auto &inv = robot_pose_and_change.first.inverse().matrix();
+        std::ranges::transform(original_path, std::back_inserter(local_current_path), [inv](auto &p)
+                { return (inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>();});
         current_path = local_current_path;
     }
     draw_path(current_path, &viewer->scene);

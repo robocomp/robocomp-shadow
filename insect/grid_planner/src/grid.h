@@ -76,7 +76,10 @@ public:
                                                                   unsigned num_paths, float threshold_dist);
 
         // map maintainance
-        void update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range);
+        void update_map( const std::vector<Eigen::Vector3f> &points,
+                         const Eigen::Vector2f &robot_in_grid,
+                         float max_laser_range,
+                         const Eigen::Transform<double, 3, 1> &robot_pose);
         //inline std::tuple<bool, T &> get_cell(long int x, long int z);
         void update_costs(float robot_semi_width, bool color_all_cells=true);
         inline std::tuple<bool, T &> get_cell(const Key &k);
