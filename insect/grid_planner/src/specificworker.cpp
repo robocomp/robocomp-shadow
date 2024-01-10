@@ -77,6 +77,7 @@ void SpecificWorker::initialize(int period)
             {
                 qInfo() << "[MOUSE] New global target arrived:" << p;
                 Target target;
+                current_path.clear();
                 if(grid.get_dim().contains(p))
                     target.set(p, true); /// false = in robot's frame; true = in global frame
                 else
@@ -107,7 +108,7 @@ void SpecificWorker::compute()
     /// clear grid and update it
     grid.clear();   // TODO: pass human target to remove occupied cells.
     grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, params.MAX_LIDAR_RANGE, robot_pose_and_change.second); // change
-    grid.update_costs( params.ROBOT_SEMI_WIDTH, false);     // not color all cells
+    grid.update_costs( params.ROBOT_SEMI_WIDTH, true);     // not color all cells
 
     /// get target from buffer
     RoboCompGridPlanner::TPlan returning_plan;
@@ -118,7 +119,7 @@ void SpecificWorker::compute()
     else
     {
         target = Target::invalid();
-        //adapt_grid_size(target, {});    // restore max grid size
+        adapt_grid_size(target, {});    // restore max grid size
     }
     if(cancel_from_mouse)
     {
@@ -367,7 +368,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
 {
     qInfo() << __FUNCTION__;
     /// keep the current path in a static variable
-    static std::vector<Eigen::Vector2f> current_path = {}, original_path = {};
+    static std::vector<Eigen::Vector2f> original_path = {};
     // it has to be reset when a new target arrives
     if (target.completed)
         current_path.clear();
@@ -384,41 +385,93 @@ RoboCompGridPlanner::TPlan SpecificWorker::compute_plan_from_grid(const Target &
     }
 
     /// check if params.ELAPSED_TIME has passed since last path computation. We update path once very ELAPSED_TIME_BETWEEN_PATH_UPDATES mseconds
-    static auto last_time = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
-    if (elapsed_time.count() > params.ELAPSED_TIME_BETWEEN_PATH_UPDATES) // if enough time has passed, compute a new path. It should check for a sudden blockage
-    {
-        // compute the K optimal paths that differ "min_max_dist" among them using the Yen algorithm and the max_distance approximation to Frechet distance
-        std::vector<std::vector<Eigen::Vector2f>> paths;
-        paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(),
-                                     params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
-        if (paths.empty())
-        {
-            qWarning() << __FUNCTION__ << "No paths found in compute_k_paths";
-            return RoboCompGridPlanner::TPlan{.valid=false};
-        }
-        // compute a sorted vector with the <max_distances, index> of current_path to all paths
-        std::vector<std::pair<float, int>> distances_to_current;
-        for (auto &&[i, path]: paths | iter::enumerate)
-            distances_to_current.emplace_back(max_distance(current_path, path), i);
-        std::ranges::sort(distances_to_current, [](auto &a, auto &b)
-        { return a.first < b.first; });
+//    static auto last_time = std::chrono::steady_clock::now();
+//    auto now = std::chrono::steady_clock::now();
+//    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time);
+//    if (elapsed_time.count() > params.ELAPSED_TIME_BETWEEN_PATH_UPDATES) // if enough time has passed, compute a new path. It should check for a sudden blockage
+//    {
+//        // compute the K optimal paths that differ "min_max_dist" among them using the Yen algorithm and the max_distance approximation to Frechet distance
+//        std::vector<std::vector<Eigen::Vector2f>> paths;
+//        paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(),
+//                                     params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
+//        if (paths.empty())
+//        {
+//            qWarning() << __FUNCTION__ << "No paths found in compute_k_paths";
+//            return RoboCompGridPlanner::TPlan{.valid=false};
+//        }
+//        // compute a sorted vector with the <max_distances, index> of current_path to all paths
+//        std::vector<std::pair<float, int>> distances_to_current;
+//        for (auto &&[i, path]: paths | iter::enumerate)
+//            distances_to_current.emplace_back(max_distance(current_path, path), i);
+//        std::ranges::sort(distances_to_current, [](auto &a, auto &b)
+//        { return a.first < b.first; });
+//
+//        // assign current_path to the closest path
+//        current_path = paths[distances_to_current.front().second];
+//        original_path = current_path;
+//        //draw_paths(paths, &viewer->scene);
+//    } else  // if not enough time has passed, transform current_path to global frame
+//    {
 
-        // assign current_path to the closest path
-        current_path = paths[distances_to_current.front().second];
-        original_path = current_path;
-        //draw_paths(paths, &viewer->scene);
-    } else  // if not enough time has passed, transform current_path to global frame
-    {
+        // lambda to compute the lenght of a path
+        auto path_length = [](const std::vector<Eigen::Vector2f> &path)
+        {
+            float acum = 0.f;
+            for(const auto &pp: path | iter::sliding_window(2))
+                acum += (pp[1]-pp[0]).norm();
+            return acum;
+        };
         // transform current_path to global frame
         std::vector<Eigen::Vector2f> local_current_path;
         local_current_path.reserve(current_path.size());
+
+//        const auto &inv = robot_pose_and_change.first.inverse().matrix();
+
         const auto &inv = robot_pose_and_change.first.inverse().matrix();
+//        std::ranges::transform(original_path, std::back_inserter(local_current_path), [inv](auto &p)
+//                { return (inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>();});
         std::ranges::transform(original_path, std::back_inserter(local_current_path), [inv](auto &p)
-                { return (inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>();});
-        current_path = local_current_path;
+        {
+            return (inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>();
+        });
+
+        // compute closest point to robot
+        auto closest_point_to_robot = std::ranges::min_element(local_current_path, [](auto &a, auto &b){ return a.norm() < b.norm();});
+        if(closest_point_to_robot->norm() < params.ROBOT_WIDTH)
+        {
+            std::vector<Eigen::Vector2f> trimmed(closest_point_to_robot, local_current_path.end());
+            current_path = trimmed;
+        }
+        else current_path = local_current_path;
+
+
+
+    // compute valid paths
+
+    //if(not paths.empty())
+    {
+        // if current_path not blocked and there is not other much shorted path available
+        if (not grid.is_path_blocked(current_path))
+        {
+//                std::vector<std::pair<std::vector<Eigen::Vector2f>, float>> path_lenghts;
+//                std::ranges::transform(paths, std::back_inserter(path_lenghts),
+//                                       [path_length](auto &p) { return std::make_pair(p, path_length(p)); });
+//                std::ranges::sort(path_lenghts, [](auto &a, auto &b) { return a.second < b.second; });
+//
+//                // and there is a shorter path. ATAJO
+//                if (path_lenghts.front().second < path_length(current_path) * 0.6)
+//                    current_path = path_lenghts.front().first;
+//                // else do nothing;
+        } else
+        {
+            // else, current_path is NOT valid so we need a fresh new one  BLOCK
+            auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), target.pos_eigen(), params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
+            current_path = paths.front();
+            qInfo() << "====================================================dasdf=============";
+        }
+        //}
     }
+
     draw_path(current_path, &viewer->scene);
 
     /// fill subtarget and returning_plan

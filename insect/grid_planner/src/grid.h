@@ -174,8 +174,9 @@ public:
         {
             int tile_size = 100;
             const QString free_color = "white";
+            const QString unknown_color = "LightGrey";
             const QString occupied_color = "DarkRed";
-            const float occupancy_threshold = 0.45;
+            const float occupancy_threshold = 0.5;
         };
         Params params;
 
