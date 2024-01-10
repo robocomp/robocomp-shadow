@@ -60,7 +60,7 @@ FastGICP::FastGICP()
 //    return trajectory;
 //}
 
-Eigen::Isometry3d FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud)
+std::pair<Eigen::Isometry3d, Eigen::Matrix<double, 4, 4>> FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud)
 {
     if(source_cloud->empty())
     { std::cout << "Empty cloud. Returning" << std::endl; return {};}
@@ -95,14 +95,15 @@ Eigen::Isometry3d FastGICP::align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_clo
     fgicp.swapSourceAndTarget();
 
     // accumulate pose
-    poses.emplace_back(poses.back() * fgicp.getFinalTransformation().cast<double>());
+    auto current_change = fgicp.getFinalTransformation().cast<double>();
+    poses.emplace_back(poses.back() * current_change);
     //auto t2 = std::chrono::high_resolution_clock::now();
     //double fitness_score = fgicp.getFitnessScore();
     //double single = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1e6;
     //std::cout << "multi:" << single << "[msec] " << "source:" << source_cloud->size()
     //    << "[pts] score:" << fitness_score << " length: " << trajectory->size() << std::endl;;
 
-    return poses.back();
+    return std::make_pair(poses.back(), current_change);
 }
 
 void FastGICP::reset()

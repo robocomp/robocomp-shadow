@@ -47,6 +47,8 @@ class SpecificWorker : public GenericWorker
 
         RoboCompFullPoseEstimation::FullPoseEuler LidarOdometry_getFullPoseEuler();
         RoboCompFullPoseEstimation::FullPoseMatrix LidarOdometry_getFullPoseMatrix();
+        RoboCompLidarOdometry::PoseAndChange LidarOdometry_getPoseAndChange();
+
         void LidarOdometry_reset();
 
     public slots:
@@ -71,7 +73,7 @@ class SpecificWorker : public GenericWorker
 
         // Lidar odometry
         FastGICP fastgicp;
-        DoubleBuffer<Eigen::Transform<double, 3, 1>, RoboCompFullPoseEstimation::FullPoseMatrix> buffer_odometry;
+        DoubleBuffer<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Matrix<double, 4, 4>>, RoboCompLidarOdometry::PoseAndChange> buffer_odometry;
 
         // Graphics
         AbstractGraphicViewer *viewer;

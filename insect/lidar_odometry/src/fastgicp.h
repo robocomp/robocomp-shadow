@@ -32,7 +32,7 @@ class FastGICP
     public:
         FastGICP();
         //pcl::PointCloud<pcl::PointXY>::Ptr  align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
-        Eigen::Isometry3d align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
+        std::pair<Eigen::Isometry3d, Eigen::Matrix<double, 4, 4>> align(pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud);
         void reset();
 
     private:
