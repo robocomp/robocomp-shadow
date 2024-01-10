@@ -55,7 +55,7 @@ class SpecificWorker : public GenericWorker
         AbstractGraphicViewer *viewer;
 
         // Robot
-        Eigen::Transform<double, 3, 1> robot_pose; // robot pose in a global reference frame computed with lidar odometry
+        std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>> robot_pose_and_change; // robot pose in a global reference frame computed with lidar odometry
 
         struct Params
         {
@@ -165,7 +165,7 @@ class SpecificWorker : public GenericWorker
         void draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
 
         // Do some work
-        Eigen::Transform<double, 3, 1> get_robot_pose();    // robot pose from external component
+        std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>> get_robot_pose_and_change();    // robot pose from external component
         RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
                                                          float threshold_dist, float threshold_angle); // get close point in current path
         Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
@@ -179,7 +179,7 @@ class SpecificWorker : public GenericWorker
     // publish
         void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
 
-    bool is_robot_at_target(const Target &target_, const Target &original_target_);
+         bool is_robot_at_target(const Target &target_, const Target &original_target_);
 };
 
 #endif

@@ -724,8 +724,23 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
                 cell.tile->setBrush(brush);
             }
 }
-void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::Vector2f &robot_in_grid, float max_laser_range)
+void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
+                       const Eigen::Vector2f &robot_in_grid,
+                       float max_laser_range,
+                       const Eigen::Transform<double, 3, 1> &robot_change)
 {
+    static std::vector<Key> cells_occupied_in_last_update = {};
+    const auto &inv = robot_change.matrix();
+    for(const auto &key : cells_occupied_in_last_update)
+    {
+        Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
+                                     1000.f).head(2);
+        auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
+        if(success)
+            v.free = false;
+    }
+
+    // now, update the map with the new points
     for(const auto &point : points)
     {
         float length = (point.head(2)-robot_in_grid).norm();
@@ -742,6 +757,12 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points, const Eigen::
         if((p-point.head(2)).norm() < static_cast<float>(params.tile_size))  // in case last miss overlaps tip
             add_hit(point.head(2));
     }
+
+    // copy occupied points to cells_occupied_in_last_update
+    cells_occupied_in_last_update.clear();
+    for(auto &&[k, v] : fmap | iter::filter([](auto &cell){ return not cell.second.free;}))
+            cells_occupied_in_last_update.emplace_back(k);
+
 }
 
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
