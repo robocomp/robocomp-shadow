@@ -137,6 +137,11 @@ Grid::Key Grid::point_to_key(long int x, long int z) const
 {
     // Key can be invalid for current grid. Check with get_cell()
     // bottom is top since Y axis is inverted
+    if (not dim.contains(QPointF{static_cast<double>(x), static_cast<double>(z)}))
+    {
+        qWarning() << __FUNCTION__ << "Point not found in grid: (" << x << z << ")";
+        return Key ();
+    }
     double kx = rint((static_cast<double>(x) - dim.left()) / params.tile_size);
     double kz = rint((static_cast<double>(z) - dim.top()) / params.tile_size);
     auto k = Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
@@ -729,15 +734,24 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
                        float max_laser_range,
                        const Eigen::Transform<double, 3, 1> &robot_change)
 {
+    // Define static variable to store previous values of robot_change
+    static Eigen::Transform<double, 3, 1> robot_change_prev = Eigen::Transform<double, 3, 1>::Identity();
     static std::vector<Key> cells_occupied_in_last_update = {};
-    const auto &inv = robot_change.matrix();
-    for(const auto &key : cells_occupied_in_last_update)
+
+    //Compare robot_change with previous value
+
+    if(robot_change.matrix() != robot_change_prev.matrix())
     {
-        Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
-                                     1000.f).head(2);
-        auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
-        if(success)
-            v.free = false;
+//        qInfo() << __FUNCTION__ << "Robot moved. Updating map";
+        const auto &inv = robot_change.matrix();
+        for(const auto &key : cells_occupied_in_last_update)
+        {
+            Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
+                                         1000.f).head(2);
+            auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
+            if(success)
+                v.free = false;
+        }
     }
 
     // now, update the map with the new points
@@ -762,7 +776,7 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
     cells_occupied_in_last_update.clear();
     for(auto &&[k, v] : fmap | iter::filter([](auto &cell){ return not cell.second.free;}))
             cells_occupied_in_last_update.emplace_back(k);
-
+    robot_change_prev = robot_change;
 }
 
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
@@ -771,9 +785,9 @@ void Grid::clear()
 {
     for (auto &[key, value]: fmap)
     {
-        value.tile->setBrush(QBrush(QColor(params.free_color)));
+        value.tile->setBrush(QBrush(QColor(params.unknown_color)));
         value.free = true;
-        value.cost = 1;
+        value.cost = 4;
     }
 }
 void Grid::reset()

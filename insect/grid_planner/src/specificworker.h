@@ -152,6 +152,7 @@ class SpecificWorker : public GenericWorker
         };
         DoubleBuffer<Target, Target> target_buffer;
 
+        std::vector<Eigen::Vector2f> current_path;
         // Frechet distance calculus
         double frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
