@@ -65,7 +65,7 @@ void Grid::initialize(  QRectF dim_,
             aux.id = id++;
             aux.free = true;
             aux.visited = false;
-            aux.cost = 1.0;
+            aux.cost = params.unknown_cost;
             QGraphicsRectItem *tile = scene->addRect(-params.tile_size / 2.f, -params.tile_size / 2.f, params.tile_size, params.tile_size,
                                                      QPen(my_color), QBrush(my_color));
             //tile->setZValue(50);
@@ -343,6 +343,7 @@ inline void Grid::add_miss(const Eigen::Vector2f &p)
             if(not v.free)
                 this->flipped++;
             v.free = true;
+            v.cost = params.free_cost;
             v.tile->setBrush(QBrush(QColor(params.free_color)));
         }
         v.misses = std::clamp(v.misses, 0.f, 20.f);
@@ -699,7 +700,7 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
                 ={{100, 75, orange_brush, &Grid::neighboors_8},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
-                  {25, 3,  green_brush, &Grid::neighboors_16}};
+                  {25, 5,  green_brush, &Grid::neighboors_16}};
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
                 ={{100, 75, white, &Grid::neighboors_8},
                   {75, 50, white, &Grid::neighboors_8},
@@ -711,7 +712,7 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
     // if not free, set cost to 100. These are cells detected by the  Lidar.
     for (auto &&[k, v]: iter::filterfalse([](auto &v) { return std::get<1>(v).free; }, fmap))
     {
-        v.cost = 100;
+        v.cost = params.occupied_cost;
         v.tile->setBrush(occ_brush);
     }
 
@@ -740,19 +741,19 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
 
     //Compare robot_change with previous value
 
-    if(robot_change.matrix() != robot_change_prev.matrix())
-    {
-//        qInfo() << __FUNCTION__ << "Robot moved. Updating map";
-        const auto &inv = robot_change.matrix();
-        for(const auto &key : cells_occupied_in_last_update)
-        {
-            Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
-                                         1000.f).head(2);
-            auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
-            if(success)
-                v.free = false;
-        }
-    }
+//    if(robot_change.matrix() != robot_change_prev.matrix())
+//    {
+////        qInfo() << __FUNCTION__ << "Robot moved. Updating map";
+//        const auto &inv = robot_change.matrix();
+//        for(const auto &key : cells_occupied_in_last_update)
+//        {
+//            Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
+//                                         1000.f).head(2);
+//            auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
+//            if(success)
+//                v.free = false;
+//        }
+//    }
 
     // now, update the map with the new points
     for(const auto &point : points)
@@ -772,11 +773,11 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
             add_hit(point.head(2));
     }
 
-    // copy occupied points to cells_occupied_in_last_update
-    cells_occupied_in_last_update.clear();
-    for(auto &&[k, v] : fmap | iter::filter([](auto &cell){ return not cell.second.free;}))
-            cells_occupied_in_last_update.emplace_back(k);
-    robot_change_prev = robot_change;
+//    // copy occupied points to cells_occupied_in_last_update
+//    cells_occupied_in_last_update.clear();
+//    for(auto &&[k, v] : fmap | iter::filter([](auto &cell){ return not cell.second.free;}))
+//            cells_occupied_in_last_update.emplace_back(k);
+//    robot_change_prev = robot_change;
 }
 
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
@@ -787,7 +788,7 @@ void Grid::clear()
     {
         value.tile->setBrush(QBrush(QColor(params.unknown_color)));
         value.free = true;
-        value.cost = 4;
+        value.cost = params.unknown_cost;
     }
 }
 void Grid::reset()

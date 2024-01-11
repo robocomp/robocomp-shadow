@@ -101,7 +101,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "src/object_track
 # Controller
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "cd ~/robocomp/components/robocomp-shadow/insect/controller_web"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "src/controller.py etc/config"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "src/controller.py etc/config"
 
 #Grid
 

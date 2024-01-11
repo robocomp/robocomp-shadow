@@ -173,10 +173,14 @@ public:
         struct Params
         {
             int tile_size = 100;
+            const float free_cost = 1.f;
+            const float unknown_cost = 3.f;
+            const float occupied_cost = 100.f;
             const QString free_color = "white";
             const QString unknown_color = "LightGrey";
             const QString occupied_color = "DarkRed";
             const float occupancy_threshold = 0.5;
+
         };
         Params params;
 
