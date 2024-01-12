@@ -1,6 +1,6 @@
 import "Camera360RGB.idsl";
 import "OmniRobot.idsl";
-import "VisualElements.idsl";
+import "VisualElementsPub.idsl";
 import "MaskElements.idsl";
 import "MPC.idsl";
 import "SegmentatorTrackingPub.idsl";
@@ -10,7 +10,8 @@ Component controller
 {
     Communications
     {
-        requires Camera360RGB, OmniRobot, MPC, VisualElements, MaskElements;
+        requires Camera360RGB, OmniRobot, MPC, MaskElements;
+        subscribesTo VisualElementsPub;
         publishes SegmentatorTrackingPub;
     };
     language python;

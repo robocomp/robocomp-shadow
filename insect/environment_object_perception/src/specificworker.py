@@ -39,6 +39,15 @@ import itertools
 import copy
 # import math
 
+print(os.path.abspath(__file__) )
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/HashTrack')
+from hash import HashTracker
+from basetrack import TrackState
+import matching
+from ultralytics import YOLO
+import torch
+import itertools
+
 sys.path.append('/home/robocomp/software/JointBDOE')
 
 from utils.torch_utils import select_device
@@ -46,26 +55,6 @@ from utils.general import check_img_size, scale_coords, non_max_suppression
 from utils.datasets import LoadImages
 from models.experimental import attempt_load
 from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/HashTrack')
-from hash import HashTracker
-from basetrack import TrackState
-import matching
-from ultralytics import YOLO
-import torch
-
-_OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
-                 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
-                 'sheep',
-                 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase',
-                 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard',
-                 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
-                 'banana', 'apple',
-                 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-                 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard',
-                 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
-                 'scissors',
-                 'teddy bear', 'hair drier', 'toothbrush']
 
 console = Console(highlight=False)
 
@@ -173,15 +162,14 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 50
-            self.thread_period = 50
+            self.Period = 200
+            self.thread_period = 200
             self.display = False
             
-            self.yolo_model_name = 'yolov8m-seg.engine'
-            # self.yolo_model_name = 'yolov8n-pose.pt'
+            self.yolo_model_name = 'yolov8s-seg.engine'
             
             self.model_v8 = YOLO(self.yolo_model_name)
-            
+
             self.device = select_device("0", batch_size=1)
             self.model = attempt_load(
                 "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
@@ -240,12 +228,12 @@ class SpecificWorker(GenericWorker):
             self.fps = 0
             
             # interface swap objects
-            self.objects_read = []
-            self.objects_write = []
+            self.objects_read = ifaces.RoboCompVisualElementsPub.TObjects()
+            self.objects_write = ifaces.RoboCompVisualElementsPub.TObjects()
             
             # ID to track
             self.tracked_element = None
-            self.tracked_id = -1
+            self.tracked_id = None
             
             # Last error between the actual and the required ROIs for derivative control
             self.last_ROI_error = 0
@@ -261,7 +249,6 @@ class SpecificWorker(GenericWorker):
             self.rgb_queue_len = 1
             
             self.rgb_read_queue = deque(maxlen=self.rgb_queue_len)
-            self.lidar_read_queue = deque(maxlen=1)
             self.inference_read_queue = deque(maxlen=1)
 
             self.event = Event()
@@ -276,8 +263,7 @@ class SpecificWorker(GenericWorker):
             self.inference_execution_thread = Thread(target=self.inference_thread, args=[self.event],
                                       name="inference_read_queue", daemon=True)
             self.inference_execution_thread.start()
-
-            self.inference_started = False
+            
             
             #TRACKER
             self.tracker = HashTracker(frame_rate=20)
@@ -317,44 +303,68 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
+
         if self.inference_read_queue:
             start = time.time()
-            out_v8, orientation_bboxes, orientations, img0, delta, alive_time, period, roi, depth = self.inference_read_queue.pop()
-            people, objects = self.get_segmentator_data(out_v8, img0, depth)
-            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
+            out_v8_front, color_front, orientation_bboxes_front, orientations_front, out_v8_back, color_back, orientation_bboxes_back, orientations_back, depth_front, depth_back, delta, alive_time, period, front_roi, back_roi = self.inference_read_queue.pop()
+            objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
+            objects_back = self.get_segmentator_data(out_v8_back, color_back, depth_back)
+
+            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(objects_front["bboxes"], orientation_bboxes_front)
             for i in range(len(matches)):
-                people["orientations"][matches[i][0]] = np.deg2rad(orientations[matches[i][1]][0])
+                objects_front["orientations"][matches[i][0]] = np.deg2rad(orientations_front[matches[i][1]][0])
+            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(objects_back["bboxes"], orientation_bboxes_back)
+            for i in range(len(matches)):
+                objects_back["orientations"][matches[i][0]] = np.deg2rad(orientations_back[matches[i][1]][0])
 
-            for key in objects:
-                objects[key].extend(people[key])
+            tracks_front = self.tracker.update(np.array(objects_front["confidences"]),
+                                np.array(objects_front["bboxes"]),
+                                np.array(objects_front["classes"]),
+                                np.array(objects_front["masks"], dtype=object),
+                                np.array(objects_front["hashes"]),
+                                np.array(objects_front["poses"]),
+                                np.array(objects_front["orientations"]))
+            
+            tracks_back = self.tracker.update(np.array(objects_back["confidences"]),
+                                np.array(objects_back["bboxes"]),
+                                np.array(objects_back["classes"]),
+                                np.array(objects_back["masks"], dtype=object),
+                                np.array(objects_back["hashes"]),
+                                np.array(objects_back["poses"]),
+                                np.array(objects_back["orientations"]))
 
-            tracks = self.tracker.update(np.array(objects["confidences"]),
-                                np.array(objects["bboxes"]),
-                                np.array(objects["classes"]),
-                                np.array(objects["masks"]),
-                                np.array(objects["hashes"]),
-                                np.array(objects["poses"]),
-                                np.array(objects["orientations"]))
+            # Compare tracks_front and tracks_back to remove tracks with same ID
+            for track_front in tracks_front:
+                for track_back in tracks_back:
+                    if track_front.track_id == track_back.track_id:
+                        if track_front.score > track_back.score:
+                            tracks_back.remove(track_back)
+                        else:
+                            tracks_front.remove(track_front)
+                        break
 
-            # print("TRACKS", tracks)
+            front_objects = self.to_visualelements_interface(tracks_front, alive_time, front_roi)
+            back_objects = self.to_visualelements_interface(tracks_back, alive_time, back_roi)
 
-            self.objects_write = self.to_visualelements_interface(tracks, alive_time, roi)
+            # Fuse front_objects and back_objects and equal it to self.objects_write
+            self.objects_write = front_objects
+            self.objects_write.objects += back_objects.objects
+
             self.visualelementspub_proxy.setVisualObjects(self.objects_write)
 
-            if self.tracked_id != -1:
-                self.set_roi_dimensions(self.objects_write)
-
-                # If display is enabled, show the tracking results on the image
+            # If display is enabled, show the tracking results on the image
             if self.display:
-                img = self.display_data_tracks(img0, self.objects_read.objects)
+                img_front = self.display_data_tracks(color_front, self.objects_write_front.objects)
+                img_back = self.display_data_tracks(color_back, self.objects_write_back.objects)
                 # img_int = img.astype('float32') / 255.0
                 # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
-                
-                cv2.imshow("ROI", img)
+                cv2.imshow("back", img_back)
+                cv2.imshow("front", img_front)
                 cv2.waitKey(1)
 
             # Show FPS and handle Keyboard Interruption
             try:
+                
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
@@ -375,63 +385,70 @@ class SpecificWorker(GenericWorker):
                 # if self.lidar_read_queue:
 
                     start = time.time()
-                    # Get ROI from the camera.
-                    roi_xcenter = self.roi_xcenter
-                    roi_ycenter = self.roi_ycenter
-                    roi_xsize = self.roi_xsize
-                    roi_ysize = self.roi_ysize
-                    
-                    roi_data = {"roi_xcenter" : self.roi_xcenter, "roi_ycenter" : self.roi_ycenter, "roi_xsize" : self.roi_xsize, "roi_ysize" : self.roi_ysize}
-                    image = self.camera360rgbd_proxy.getROI(
-                            roi_data["roi_xcenter"], roi_data["roi_ycenter"], roi_data["roi_xsize"],
-                            roi_data["roi_ysize"], roi_data["roi_xsize"], roi_data["roi_ysize"]
-                        )
-                    roi_data = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image.roi.xcenter, ycenter=image.roi.ycenter, xsize=image.roi.xsize, ysize=image.roi.ysize, finalxsize=image.roi.finalxsize, finalysize=image.roi.finalysize)
+                    # Get ROIs from the camera.
 
-                    color = np.frombuffer(image.rgb, dtype=np.uint8).reshape(image.height, image.width, 3)
-                    depth = np.frombuffer(image.depth, dtype=np.float32).reshape(image.height, image.width, 3)
+                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 640, 640)
+                    image_back = self.camera360rgbd_proxy.getROI(0, 480, 960, 960, 640, 640)
+
+                    roi_data_front = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_front.roi.xcenter, ycenter=image_front.roi.ycenter, xsize=image_front.roi.xsize, ysize=image_front.roi.ysize, finalxsize=image_front.roi.finalxsize, finalysize=image_front.roi.finalysize)
+                    roi_data_back = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_back.roi.xcenter, ycenter=image_back.roi.ycenter, xsize=image_back.roi.xsize, ysize=image_back.roi.ysize, finalxsize=image_back.roi.finalxsize, finalysize=image_back.roi.finalysize)
+
+                    color_front = np.frombuffer(image_front.rgb, dtype=np.uint8).reshape(image_front.height, image_front.width, 3)
+                    depth_front = np.frombuffer(image_front.depth, dtype=np.float32).reshape(image_front.height, image_front.width, 3)
+                    color_back = np.frombuffer(image_back.rgb, dtype=np.uint8).reshape(image_back.height, image_back.width, 3)
+                    depth_back = np.frombuffer(image_back.depth, dtype=np.float32).reshape(image_back.height, image_back.width, 3)
 
                     # Process image for orientation DNN
-                    img_ori = letterbox(color, 640, stride=self.stride, auto=True)[0]
-                    img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-                    img_ori = np.ascontiguousarray(img_ori)
-                    img_ori = torch.from_numpy(img_ori).to(self.device)
-                    img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
-
-                    if len(img_ori.shape) == 3:
-                        img_ori = img_ori[None]  # expand for batch dim
+                    front_img_tensor = self.convert_image_to_tensor(color_front)
+                    back_img_tensor = self.convert_image_to_tensor(color_back)
 
                     # Calculate time difference.
-                    delta = int(1000 * time.time() - image.alivetime)
+                    delta = int(1000 * time.time() - image_front.alivetime)
+                    data_package = [color_front, front_img_tensor, color_back, back_img_tensor, depth_front, depth_back, delta, image_front.period, image_front.alivetime, roi_data_front, roi_data_back]
 
-                    data_package = [color, img_ori, delta, image.period, roi_data, image.alivetime, depth]
+                    # image = self.camera360rgbd_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                    # color = np.frombuffer(image.rgb, dtype=np.uint8).reshape(image.height, image.width, 3)
+                    # depth = np.frombuffer(image.depth, dtype=np.float32).reshape(image.height, image.width, 3)
+                    # color_front, color_back, depth_front, depth_back = self.get_back_and_front(color, depth)
+
+                    # # Calculate time difference.
+                    # delta = int(1000 * time.time() - image.alivetime)
+
+                    # data_package = [color_front, color_back, depth_front, depth_back, delta, image.period, image.alivetime]
+
                     self.rgb_read_queue.append(data_package)
-                    # self.t3 = time.time() - start
+                    if (time.time() - start) > 0.1:
+                        print("Time exceded get image")
                     event.wait(self.thread_period / 1000)
-                    # If the current ROI is not the target ROI, call the method to move towards the target ROI.
-                    if (
-                            roi_xcenter != self.target_roi_xcenter or
-                            roi_ycenter != self.target_roi_ycenter or
-                            roi_xsize != self.target_roi_xsize or
-                            roi_ysize != self.target_roi_xsize
-                    ):
-                        self.from_act_roi_to_target()
-                    # print("EXPENDD 6", time.time() - start)
+
 
             except Ice.Exception as e:
                 traceback.print_exc()
                 print(e, "Error communicating with Camera360RGBD")
                 return
 
+    def convert_image_to_tensor(self, image):
+        img_ori = letterbox(image, 640, stride=self.stride, auto=True)[0]
+        img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        img_ori = np.ascontiguousarray(img_ori)
+        img_ori = torch.from_numpy(img_ori).to(self.device)
+        img_ori = img_ori / 255.0  # 0 - 255 to 0.0 - 1.0
+
+        if len(img_ori.shape) == 3:
+            img_ori = img_ori[None]  # expand for batch dim
+        return img_ori
+
     def inference_thread(self, event: Event):
         while not event.is_set():
             if self.rgb_read_queue:
                 start = time.time()
-                rgb, rgb_ori, delta, period, roi, alivetime, depth = self.rgb_read_queue.pop()
-                out_v8, orientation_bboxes, orientations = self.inference_over_image(rgb, rgb_ori)
-                self.inference_read_queue.append([out_v8, orientation_bboxes, orientations, rgb, delta, alivetime, period, roi, depth])
-
-            event.wait(10 / 1000)
+                color_front, front_img_tensor, color_back, back_img_tensor, depth_front, depth_back, delta, period, alive_time, front_roi, back_roi = self.rgb_read_queue.pop()
+                out_v8_front, orientation_bboxes_front, orientations_front = self.inference_over_image(color_front, front_img_tensor)
+                out_v8_back, orientation_bboxes_back, orientations_back = self.inference_over_image(color_back, back_img_tensor)
+                self.inference_read_queue.append([out_v8_front, color_front, orientation_bboxes_front, orientations_front, out_v8_back, color_front, orientation_bboxes_back, orientations_back, depth_front, depth_back, delta, alive_time, period, front_roi, back_roi])
+                if (time.time() - start) > 0.1:
+                    print("Time exceded inference")
+            # event.wait(10 / 1000)
 
     def get_mask_with_modified_background(self, mask, image):
         """
@@ -447,65 +464,10 @@ class SpecificWorker(GenericWorker):
 
         return masked_image
 
-    # Modify actual ROI data to converge in the target ROI dimensions
-    def from_act_roi_to_target(self):
-        """
-            This method modifies the actual Region of Interest (ROI) to approach the target ROI. It calculates the differences
-            between the actual and target ROIs and then adjusts the actual ROI based on these differences. The adjustment is
-            performed in both the x and y dimensions, and both for size and center location.
-
-            The method also updates the last ROI error value to be used in future calculations.
-            """
-        # Get errors from ROI sizes and centers
-        x_diff = abs(self.target_roi_xcenter - self.roi_xcenter)
-        y_diff = abs(self.target_roi_ycenter - self.roi_ycenter)
-        x_size_diff = abs(self.target_roi_xsize - self.roi_xsize)
-        y_size_diff = abs(self.target_roi_ysize - self.roi_ysize)
-
-        # aux_x_diff defined for setting pixel speed and calculate derivated component
-        aux_x_diff = x_diff if x_diff < self.rgb_original.width / 2 else self.rgb_original.width - x_diff
-        x_der_diff = int(self.k2 * abs(self.last_ROI_error - aux_x_diff))
-
-        x_mod_speed = np.clip(int(self.k1 * aux_x_diff), 0, 22) + x_der_diff
-        y_mod_speed = np.clip(int(self.k1 * y_diff), 0, 20)
-
-        x_size_mod_speed = np.clip(int(0.03 * x_size_diff), 0, 8)
-        y_size_mod_speed = np.clip(int(0.03 * y_size_diff), 0, 8)
-
-        if self.roi_xcenter < self.target_roi_xcenter:
-            self.roi_xcenter -= x_mod_speed if x_diff > self.rgb_original.width / 2 else -x_mod_speed
-        elif self.roi_xcenter > self.target_roi_xcenter:
-            self.roi_xcenter += x_mod_speed if x_diff > self.rgb_original.width / 2 else -x_mod_speed
-
-        self.roi_xcenter %= self.rgb_original.width
-
-        if self.roi_ycenter < self.target_roi_ycenter:
-            self.roi_ycenter += y_mod_speed
-        elif self.roi_ycenter > self.target_roi_ycenter:
-            self.roi_ycenter -= y_mod_speed
-
-        if self.roi_xsize < self.target_roi_xsize:
-            self.roi_xsize += x_size_mod_speed
-        elif self.roi_xsize > self.target_roi_xsize:
-            self.roi_xsize -= x_size_mod_speed
-
-        if self.roi_ysize < self.target_roi_ysize:
-            self.roi_ysize += y_size_mod_speed
-        elif self.roi_ysize > self.target_roi_ysize:
-            self.roi_ysize -= y_size_mod_speed
-
-        self.last_ROI_error = aux_x_diff
-
     def inference_over_image(self, img0, img_ori):
         # Make inference with both models
-        # init1 = time.time()
         orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
-        # print("TIEMPO ORI", time.time() - init1)
-        # init2 = time.time()
-        # out_v8 = self.model_v8.predict(img0, classes=[0], show_conf=True)
         out_v8 = self.model_v8.predict(img0, show_conf=True)
-        # print("TIEMPO V8", time.time() - init2)
-        # print("TIEMPO INFERENCIA", time.time() - init1)
         return out_v8, orientation_bboxes, orientations
 
     def to_visualelements_interface(self, tracks, image_timestamp, roi):
@@ -549,12 +511,10 @@ class SpecificWorker(GenericWorker):
                 "z_pos": str(z_pose),
                 "orientation": str(round(float(track.orientation), 2))
             }
-
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
             objects.append(object_)
         # print("IMAGE TIMESTAMP", image_timestamp)
         visual_elements = ifaces.RoboCompVisualElementsPub.TData(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=objects)
-
         return visual_elements
 
     def mask_to_TImage(self, mask, roi):
@@ -562,8 +522,6 @@ class SpecificWorker(GenericWorker):
         return ifaces.RoboCompCamera360RGB.TImage(image=mask.tobytes(), height=y, width=x, roi=roi)
 
     def associate_orientation_with_segmentation(self, seg_bboxes, ori_bboxes):
-        # print("LEN SEG", len(seg_bboxes))
-        # print("LEN ORI", len(ori_bboxes))
         dists = matching.v_iou_distance(seg_bboxes, ori_bboxes)
         matches, unmatched_a, unmatched_b = matching.linear_assignment(dists, 0.9)
         return matches, unmatched_a, unmatched_b
@@ -585,7 +543,6 @@ class SpecificWorker(GenericWorker):
         return pose_bboxes, pose_confidences, skeletons, [0] * len(boxes)
 
     def get_segmentator_data(self, results, color_image, depth_image):
-        people = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : [], "orientations": [], "hashes" : []}
         objects = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : [], "orientations": [], "hashes" : []}
         roi_ysize, roi_xsize, _ = color_image.shape
         for result in results:
@@ -597,10 +554,9 @@ class SpecificWorker(GenericWorker):
                     for i in range(len(boxes)):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
                         # print("element_confidence", element_confidence)
-                        if element_confidence > 0.2:
+                        if element_confidence > 0.4:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
                             element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
-
                             image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
                             act_mask = masks[i].astype(np.int32)
                             cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
@@ -611,25 +567,15 @@ class SpecificWorker(GenericWorker):
                             height, width, _ = image_mask_element.shape
                             depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
                             element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
-
-                            if element_class == 0:
-                                people["poses"].append(element_pose)
-                                people["bboxes"].append(element_bbox)
-                                people["confidences"].append(element_confidence)
-                                people["masks"].append(color_image_mask)
-                                people["classes"].append(element_class)   
-                                people["hashes"].append(element_hash)  
-                            else:
-                                objects["bboxes"].append(element_bbox)
-                                objects["poses"].append(element_pose)
-                                objects["confidences"].append(element_confidence)
-                                objects["masks"].append(color_image_mask)             
-                                objects["classes"].append(element_class) 
-                                objects["hashes"].append(element_hash)  
+                            objects["bboxes"].append(element_bbox)
+                            objects["poses"].append(element_pose)
+                            objects["confidences"].append(element_confidence)
+                            objects["masks"].append(element_mask)             
+                            objects["classes"].append(element_class) 
+                            objects["hashes"].append(element_hash)  
                             
-        people["orientations"] = [-4] * len(people["bboxes"])
         objects["orientations"] = [-4] * len(objects["bboxes"])
-        return people, objects
+        return objects
 
     def get_mask_distance(self, mask, depth_image, bbox):
         segmentation_points = np.argwhere(np.all(mask == 1, axis=-1))[:, [1, 0]]
@@ -696,7 +642,7 @@ class SpecificWorker(GenericWorker):
             The method goes through the list of objects and when it finds the object that matches the tracked_id,
             it calculates the desired ROI based on the object's position and size. The ROI is then stored in the class's attributes.
             """
-        for object in objects.objects:
+        for object in objects:
             if object.id == self.tracked_id:
                 roi = object.image.roi
                 x_roi_offset = roi.xcenter - roi.xsize / 2
@@ -704,21 +650,20 @@ class SpecificWorker(GenericWorker):
                 x_factor = roi.xsize / roi.finalxsize
                 y_factor = roi.ysize / roi.finalysize
 
-                left = int(float(object.attributes["bbox_left"]) * x_factor + x_roi_offset)
-                right = int(float(object.attributes["bbox_right"]) * x_factor + x_roi_offset)
+                left = int(object.left * x_factor + x_roi_offset)
+                right = (object.right * x_factor + x_roi_offset)
 
-                top = int(float(object.attributes["bbox_top"]) * y_factor + y_roi_offset)
-                bot = int(float(object.attributes["bbox_bot"]) * y_factor + y_roi_offset)
+                top = int(object.top * y_factor + y_roi_offset)
+                bot = int(object.bot * y_factor + y_roi_offset)
 
                 self.target_roi_xcenter = (left + (right - left)/2) % self.rgb_original.width
                 self.target_roi_ycenter = (top + (bot - top)/2)
                 self.target_roi_ysize = np.clip(int((bot - top)*2), 0, self.rgb_original.height)
                 self.target_roi_xsize = self.target_roi_ysize
-                print("ROI SETTED")
                 return
         
         self.tracked_element = None
-        self.tracked_id = -1
+        self.tracked_id = None
         self.target_roi_xcenter = self.rgb_original.width // 2
         self.target_roi_ycenter = self.rgb_original.height // 2
         self.target_roi_xsize = self.rgb_original.width // 2
@@ -796,9 +741,7 @@ class SpecificWorker(GenericWorker):
     #
     # IMPLEMENTATION of getVisualObjects method from VisualElements interface
     #
-    def VisualElements_getVisualObjects(self):
-        if not self.inference_started:
-            return ifaces.RoboCompVisualElements.TObjects()
+    def VisualElements_getVisualObjects(self, objects):
         return self.objects_read
     # ===================================================================
     # ===================================================================
@@ -810,20 +753,20 @@ class SpecificWorker(GenericWorker):
         self.tracker.set_chosen_track(track.id)
         if track.id == -1:
             self.tracked_element = None
-            self.tracked_id = -1
+            self.tracked_id = None
             self.target_roi_xcenter = self.rgb_original.width // 2
             self.target_roi_ycenter = self.rgb_original.height // 2
             self.target_roi_xsize = self.rgb_original.width // 2
             self.target_roi_ysize = self.rgb_original.height
             return
 
-        # for track_obj in self.objects_read.objects:
-        #     if track_obj.id == track.id:
-        #         self.target_roi_xcenter_list = queue.Queue(10)
-        #         self.tracked_element = track_obj
-        self.tracked_id = track.id
-
-                # return
+        for track_obj in self.objects_read:
+            if track_obj.id == track.id:
+                self.target_roi_xcenter_list = queue.Queue(10)
+                self.tracked_element = track_obj
+                self.tracked_id = track.id
+                
+                return
     def update_plot(self,frame):
         pass
         # self.ax.clear()  # Limpia el plot actual
@@ -840,20 +783,6 @@ class SpecificWorker(GenericWorker):
         # plt.subplots_adjust(bottom=0.30)
 
         # return self.ax,
-
-    #
-    # IMPLEMENTATION of setVisualObjects method from VisualElements interface
-    #
-    def VisualElements_setVisualObjects(self, objects):
-    
-        #
-        # write your CODE here
-        #
-        pass
-
-
-    # ===================================================================
-    # ===================================================================
     ######################
     # From the RoboCompByteTrack you can call this methods:
     # self.bytetrack_proxy.allTargets(...)
