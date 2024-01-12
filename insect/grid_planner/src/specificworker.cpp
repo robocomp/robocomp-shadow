@@ -105,16 +105,10 @@ void SpecificWorker::compute()
     /// get robot pose
     this->robot_pose_and_change = get_robot_pose_and_change();
 
-
-
     /// clear grid and update it
     grid.clear();   // TODO: pass human target to remove occupied cells.
-    fps.print("FPS:");
-    return;
     grid.update_map(points, Eigen::Vector2f{0.0, 0.0}, params.MAX_LIDAR_RANGE, robot_pose_and_change.second); // change
-
     grid.update_costs( params.ROBOT_SEMI_WIDTH, true);     // not color all cells
-
 
     /// get target from buffer
     RoboCompGridPlanner::TPlan returning_plan;
@@ -200,8 +194,8 @@ void SpecificWorker::compute()
             send_and_publish_plan(returning_plan);
         }
     }
-    viewer->update();
-
+    //viewer->update();
+    fps.print("FPS:");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
