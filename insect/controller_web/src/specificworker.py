@@ -28,6 +28,7 @@ import interfaces as ifaces
 # Import other dependencies
 import numpy as np
 import sys
+from collections import deque
 import cv2
 import queue
 from flask import Flask, Response, render_template, request, jsonify
@@ -57,6 +58,7 @@ class SpecificWorker(GenericWorker):
 
         # Create queues and locks
         self.frame_queue = queue.Queue()
+        self.visual_elements_queue = deque(maxlen=1)
         self.frame_lock = threading.Lock()
         self.MAX_QUEUE_SIZE = 2  # Adjust as necessary
         self.box_queue = queue.Queue()
@@ -199,7 +201,7 @@ class SpecificWorker(GenericWorker):
             return jsonify({'status': 'success'})
         
         #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.240', 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.114', 'port': 5000}) # '192.168.50.153' orin ip
         self.flask_thread.start()
 
     def __del__(self):
@@ -222,30 +224,28 @@ class SpecificWorker(GenericWorker):
         except:
             print("Camara no responde")
 
-        try:
-            self.labels = []
-            self.visual_elements = self.visualelements_proxy.getVisualObjects()
+        # try:
+        self.labels = []
+        if self.visual_elements_queue:
+            self.visual_elements = self.visual_elements_queue.pop()
             self.boxes = self.visual_elements.objects
             boxes = self.adapt_bbox(self.boxes, image)
-        except:
-            print("No Objects")
+            # except:
+            #     print("No Objects")
 
-        target = ifaces.RoboCompVisualElements.TObject()
-        target.id = self.target
-        for b in self.boxes:
-            if b.id == self.target:
-                target = b
-        try:
-            self.segmentatortrackingpub_proxy.setTrack(target)
+            target = ifaces.RoboCompVisualElementsPub.TObject()
+            target.id = self.target
+            for b in self.boxes:
+                if b.id == self.target:
+                    target = b
+            try:
+                self.segmentatortrackingpub_proxy.setTrack(target)
 
-        except Ice.Exception as e:
-            traceback.print_exc()
-            print(e)
+            except Ice.Exception as e:
+                traceback.print_exc()
+                print(e)
 
-        self.create_queues(image, boxes)
-
-        return True
-
+            self.create_queues(image, boxes)
 
     def adapt_bbox(self, objects, image):
         boxes = []
@@ -261,7 +261,6 @@ class SpecificWorker(GenericWorker):
             roi_ycenter = roi.ycenter
             roi_xsize = roi.xsize
             roi_ysize = roi.ysize
-            print(obj.metrics)
 
             # Calcula el factor de escala y offset
             x_roi_offset = roi_xcenter - roi_xsize / 2
@@ -269,16 +268,23 @@ class SpecificWorker(GenericWorker):
             x_factor = roi_xsize / final_xsize
             y_factor = roi_ysize / final_ysize
 
+            obj_left = int(float(obj.attributes["bbox_left"]))
+            obj_right = int(float(obj.attributes["bbox_right"]))
+            obj_top = int(float(obj.attributes["bbox_top"]))
+            obj_bot = int(float(obj.attributes["bbox_bot"]))
+            obj_x, obj_y, obj_z = float(obj.attributes["x_pos"]), float(obj.attributes["y_pos"]), float(obj.attributes["z_pos"])
+            obj_orientation = float(obj.attributes["orientation"])
+
             # Redimensiona las coordenadas del bounding box
-            left = int(obj.left * x_factor + x_roi_offset) % image.width
-            right = int(obj.right * x_factor + x_roi_offset) % image.width
-            top = int(obj.top * y_factor + y_roi_offset)
-            bot = int(obj.bot * y_factor + y_roi_offset)
+            left = int(obj_left * x_factor + x_roi_offset) % image.width
+            right = int(obj_right * x_factor + x_roi_offset) % image.width
+            top = int(obj_top * y_factor + y_roi_offset)
+            bot = int(obj_bot * y_factor + y_roi_offset)
 
             # Crea una nueva caja redimensionada y añádela a la lista
             new_box = {'x': left, 'y': top, 'width': right - left, 'height': bot - top, 'id': obj.id}
             boxes.append(new_box)
-            self.labels.append({'id': obj.id, 'orientation': obj.person.orientation, 'x': round(obj.x, 0), 'y': round(obj.y, 0), 'z': round(obj.z, 0),
+            self.labels.append({'id': obj.id, 'orientation': obj_orientation, 'x': round(obj_x, 0), 'y': round(obj_y, 0), 'z': round(obj_z, 0),
                            'top': top, 'bot': bot, 'right': right, 'left': left, 'type': obj.type})
 
         return boxes
@@ -367,7 +373,7 @@ class SpecificWorker(GenericWorker):
             right = round((self.act_roi.xcenter + (self.act_roi.xsize // 2))*reescale_x)
             top = round((self.act_roi.ycenter - (self.act_roi.ysize // 2))*reescale_y)
             bot = round((self.act_roi.ycenter + (self.act_roi.ysize // 2))*reescale_y)
-            print(left,right,top,bot)
+
             cv2.rectangle(img, (left, top), (right, bot), (255, 0, 0), 2)
 
         for label in self.labels:
@@ -391,7 +397,7 @@ class SpecificWorker(GenericWorker):
             element_id = label['id']
             element_orientation = round(label['orientation'],2)
 
-            text = f'{element_x} - {element_y} - {element_z} - {element_id} - {element_orientation}'
+            text = f'{element_x} - {element_y} - {element_id} - {element_orientation}'
             txt_color = (0, 0, 0) if np.mean(self._COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
@@ -444,6 +450,22 @@ class SpecificWorker(GenericWorker):
         print(f"Testing RoboCompVisualElements.TObject from ifaces.RoboCompVisualElements")
         test = ifaces.RoboCompVisualElements.TObject()
         QTimer.singleShot(200, QApplication.instance().quit)
+
+
+    # =============== Methods for Component SubscribesTo ================
+    # ===================================================================
+
+    #
+    # SUBSCRIPTION to setVisualObjects method from VisualElementsPub interface
+    #
+    def VisualElementsPub_setVisualObjects(self, data):
+        self.visual_elements_queue.append(data)
+
+
+    # ===================================================================
+    # ===================================================================
+
+
 
     ######################
     # From the RoboCompCamera360RGB you can call this methods:

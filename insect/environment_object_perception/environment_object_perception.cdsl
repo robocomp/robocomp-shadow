@@ -3,7 +3,7 @@ import "Camera360RGB.idsl";
 import "VisualElementsPub.idsl";
 import "SegmentatorTrackingPub.idsl";
 
-Component object_tracking
+Component environment_object_perception
 {
     Communications
     {
