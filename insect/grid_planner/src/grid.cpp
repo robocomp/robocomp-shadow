@@ -100,69 +100,67 @@ inline void Grid::insert(const Key &key, const T &value)
 }
 inline std::tuple<bool, Grid::T&> Grid::get_cell(const Key &k)
 {
-    //if (not dim.contains(k.toQPointF()))
-    if (not dim.contains(QPointF{static_cast<double>(k.first), static_cast<double>(k.second)}))
-        return std::forward_as_tuple(false, T());
+    if (fmap.contains(k))
+        return std::forward_as_tuple(true, fmap.at(k));
     else
-    {
-        if (fmap.contains(k))
-            return std::forward_as_tuple(true, fmap.at(k));
-        else
-        {
-            //qInfo() << __FUNCTION__ << "Key not found in grid: (" << k.first << k.second << ")";
-            // finds the first element with a key not less than k
-            auto low_x = std::ranges::lower_bound(keys, k, [](const Key &k, const Key &p)
-            { return k.first <= p.first; });
-            if (low_x == keys.end() and not keys.empty())
-                low_x = std::prev(keys.end());
-            std::vector<Key> y_keys;
-            std::copy_if(low_x, std::end(keys), std::back_inserter(y_keys), [low_x](const Key &k)
-            { return k.first == low_x->first; });
-            auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p)
-            { return k.second < p.second; });     // z is y
-            if (low_y != y_keys.end())
-            {
-                //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.first << k.second << ") but found ("
-                //           << low_x->x << low_y->z << ")";
-                Key new_key = point_to_key(low_x->first, low_y->second);
-                if (fmap.contains(new_key))
-                    return std::forward_as_tuple(true, fmap.at(new_key));
-                else
-                    return std::forward_as_tuple(false, T());
-            } else return std::forward_as_tuple(false, T());
-        }
-    }
+        return std::forward_as_tuple(false, T());
+
+//    else
+//    {
+//        //qInfo() << __FUNCTION__ << "Key not found in grid: (" << k.first << k.second << ")";
+//        // finds the first element with a key not less than k
+//        auto low_x = std::ranges::lower_bound(keys, k, [](const Key &k, const Key &p)
+//        { return k.first <= p.first; });
+//        if (low_x == keys.end() and not keys.empty())
+//            low_x = std::prev(keys.end());
+//        std::vector<Key> y_keys;
+//        std::copy_if(low_x, std::end(keys), std::back_inserter(y_keys), [low_x](const Key &k)
+//        { return k.first == low_x->first; });
+//        auto low_y = std::ranges::lower_bound(y_keys, k, [](const Key &k, const Key &p)
+//        { return k.second < p.second; });     // z is y
+//        if (low_y != y_keys.end())
+//        {
+//            //qWarning() << __FUNCTION__ << " (2) No key found in grid: Requested (" << k.first << k.second << ") but found ("
+//            //           << low_x->x << low_y->z << ")";
+//            Key new_key = point_to_key(low_x->first, low_y->second);
+//            if (fmap.contains(new_key))
+//                return std::forward_as_tuple(true, fmap.at(new_key));
+//            else
+//                return std::forward_as_tuple(false, T());
+//        } else return std::forward_as_tuple(false, T());
+//    }
 }
 Grid::Key Grid::point_to_key(long int x, long int z) const
 {
-    // Key can be invalid for current grid. Check with get_cell()
-    // bottom is top since Y axis is inverted
     if (not dim.contains(QPointF{static_cast<double>(x), static_cast<double>(z)}))
     {
-        qWarning() << __FUNCTION__ << "Point not found in grid: (" << x << z << ")";
-        return Key ();
+        qWarning() << __FUNCTION__ << "Long not found in grid: (" << x << z << ")";
+        return Key{};
     }
     double kx = rint((static_cast<double>(x) - dim.left()) / params.tile_size);
     double kz = rint((static_cast<double>(z) - dim.top()) / params.tile_size);
     auto k = Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
-    if(not fmap.contains(k))
-        qInfo() << __FUNCTION__ << "Key not found in grid: (" << x << z << ") -> (" << k.first << k.second << ")";
     return k;
 };
 Grid::Key Grid::point_to_key(const QPointF &p) const
 {
-    // Key can be invalid for current grid. Check with get_cell()
-    // bottom is top since Y axis is inverted
+    if (not dim.contains(QPointF{p.x(), p.y()}))
+    {
+        qWarning() << __FUNCTION__ << "QPoint not found in grid: (" << p.x() << p.y() << ")";
+        return Key{};
+    }
     double kx = rint((p.x() - dim.left()) / params.tile_size);
     double kz = rint((p.y() - dim.top()) / params.tile_size);
     auto k = Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
-    if(not fmap.contains(k))
-        qInfo() << __FUNCTION__ << "QPoint not found in grid: (" << p.x() << p.y() << ") -> (" << k.first << k.second << ")";
     return k;
 };
 Grid::Key Grid::point_to_key(const Eigen::Vector2f &p) const
 {
-    // Key can be invalid for current grid. Check with get_cell()
+    if (not dim.contains(QPointF{p.x(), p.y()}))
+    {
+        //qWarning() << __FUNCTION__ << "Eigen Vector not found in grid: (" << p.x() << p.y() << ")";
+        return Key{};
+    }
     double kx = ceil((p.x() - dim.left()) / params.tile_size);
     double kz = ceil((p.y() - dim.top()) / params.tile_size);
     return Key{ static_cast<long>(dim.left() + kx * params.tile_size), static_cast<long>(dim.top() + kz * params.tile_size)};
@@ -330,47 +328,37 @@ void Grid::add_miss_naif(const Eigen::Vector2f &p)
 }
 inline void Grid::add_miss(const Eigen::Vector2f &p)
 {
-    // admissible conditions
-    if (not dim.contains(QPointF{p.x(), p.y()}))
-        return;
-
-    auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(p.x()), static_cast<long int>(p.y())));
+    auto &&[success, v] = get_cell(point_to_key(p));
     if(success)
     {
         v.misses++;
-        if((float)v.hits/(v.hits+v.misses) < params.occupancy_threshold)
+        if(v.hits/(v.hits+v.misses) < params.occupancy_threshold)
         {
-            if(not v.free)
-                this->flipped++;
+//            if(not v.free)
+//                this->flipped++;
             v.free = true;
             v.cost = params.free_cost;
             v.tile->setBrush(QBrush(QColor(params.free_color)));
         }
         v.misses = std::clamp(v.misses, 0.f, 20.f);
-        this->updated++;
+        //this->updated++;
     }
-////    else
-////        qWarning() << __FUNCTION__ << "Cell not found" << "[" << p.x() << p.y() << "]";
 }
 inline void Grid::add_hit(const Eigen::Vector2f &p)
 {
-    // admissible conditions
-    if (not dim.contains(QPointF{p.x(), p.y()}))
-        return;
-
-    auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(p.x()), static_cast<long int>(p.y())));
+    auto &&[success, v] = get_cell(point_to_key(p));
     if(success)
     {
         v.hits++;
         if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold)
         {
-            if(v.free)
-                this->flipped++;
+//            if(v.free)
+//                this->flipped++;
             v.free = false;
             v.tile->setBrush(QBrush(QColor(params.occupied_color)));
         }
         v.hits = std::clamp(v.hits, 0.f, 20.f);
-        this->updated++;
+        //this->updated++;
     }
 }
 double Grid::log_odds(double prob)
@@ -758,8 +746,8 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
     // now, update the map with the new points
     for(const auto &point : points)
     {
-        float length = (point.head(2)-robot_in_grid).norm();
-        int num_steps = ceil(static_cast<double>(length/(static_cast<float>(params.tile_size))));
+        double length = (point.head(2)-robot_in_grid).norm();
+        int num_steps = ceil(length/(static_cast<float>(params.tile_size)));
         Eigen::Vector2f p;
         for(const auto &&step : iter::range(0.0, 1.0-(1.0/num_steps), 1.0/num_steps))
         {
