@@ -26,7 +26,6 @@
 #define SPECIFICWORKER_H
 
 #include <genericworker.h>
-#include "grid.h"
 #include "doublebuffer/DoubleBuffer.h"
 #include <Eigen/Eigen>
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
@@ -70,7 +69,7 @@ class SpecificWorker : public GenericWorker
             float MAX_LIDAR_LOW_RANGE = 10000;  // mm
             float MAX_LIDAR_HIGH_RANGE = 10000;  // mm
             float MAX_LIDAR_RANGE = 10000;  // mm used in the grid
-            int LIDAR_LOW_DECIMATION_FACTOR = 1;
+            int LIDAR_LOW_DECIMATION_FACTOR = 2;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-6000, -6000, 12000, 12000};
             float CARROT_DISTANCE = 400;   // mm
@@ -83,22 +82,18 @@ class SpecificWorker : public GenericWorker
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
+            // colors
+            QColor TARGET_COLOR= {"orange"};
+            QColor LIDAR_COLOR = {"LightBlue"};
+            QColor PATH_COLOR = {"orange"};
         };
         Params params;
-
-        // grid
-        Grid grid;
 
         // FPS
         FPSCounter fps;
 
         // Timer
         rc::Timer<> clock;
-
-        // Lidar Thread
-        DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
-        std::thread read_lidar_th;
-        void read_lidar();
 
         // Target
         struct Target
@@ -108,22 +103,23 @@ class SpecificWorker : public GenericWorker
             bool completed = false;
             Eigen::Vector2f point = Eigen::Vector2f(0, 0);
             QPointF qpoint;
+            Eigen::Vector2f original;    // original target in global coordinates
+            bool new_target = false;   // true if target has been updated from outside
             void set(const QPointF &p, bool global_ = false)
             {
                 point = Eigen::Vector2f(p.x(), p.y());
                 qpoint = p;
-                global = global_;
                 active = true;
-                completed = false;
             }
             void set(const Eigen::Vector2f &p, bool global_ = false)
             {
                 point = p;
-                global = global_;
                 qpoint = QPointF(p.x(), p.y());
                 active = true;
-                completed = false;
             }
+            void set_original(const Eigen::Vector2f &t) { original = t; }
+            void set_new(bool v) { new_target = v; }
+            bool is_new() const { return new_target;}
             void unset() { active = false; }
 
             [[nodiscard]] bool is_valid() const { return active; };
@@ -146,45 +142,54 @@ class SpecificWorker : public GenericWorker
                 qInfo() << "    global: " << global;
                 qInfo() << "    active: " << active;
                 qInfo() << "    dist to robot: " << point.norm();
+                qInfo() << "    angle to robot: " << angle_to_robot();
+                qInfo() << "    original: " << original.x() << " " << original.y();
+                qInfo() << "    new: " << new_target;
+                qInfo() << "    completed: " << completed;
             }
             static Target invalid() { Target t; t.active=false; return t; };
+            Eigen::Vector2f get_original() const { return original; };
 
         };
         DoubleBuffer<Target, Target> target_buffer;
 
         std::vector<Eigen::Vector2f> current_path;
         // Frechet distance calculus
-        double frechet_distance(const std::vector<Eigen::Vector2f>& pathA, const std::vector<Eigen::Vector2f>& pathB);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
 
         // Draw
-        void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);
-        void draw_lidar(const RoboCompLidar3D::TPoints &points, int decimate=1);
+        void draw_paths(const RoboCompGridder::TPaths &paths, QGraphicsScene *scene, bool erase_only=false);
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only=false);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
         void draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
+        void draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate=1);
+
+        // Lidar Thread
+        DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
+        std::thread read_lidar_th;
+        void read_lidar();
 
         // Do some work
-        std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>> get_robot_pose_and_change();    // robot pose from external component
+        std::optional<pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> get_robot_pose_and_change();    // robot pose from external component
         RoboCompGridPlanner::TPoint get_carrot_from_path(const std::vector<Eigen::Vector2f> &path,
                                                          float threshold_dist, float threshold_angle); // get close point in current path
-        Eigen::Vector2f  border_subtarget(const Eigen::Vector2f &target);
+        Eigen::Vector2f  compute_closest_target_to_grid_border(const Eigen::Vector2f &target);
         Target transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, const Target &target);
-        RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
-        RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
-        void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);   // EXPERIMENTAL
+        RoboCompGridder::Result compute_line_of_sight_target(const Target &target);
+        RoboCompGridder::Result compute_plan_from_grid(const Target &target);
         RoboCompGridPlanner::TPlan
-        convert_plan_to_control(const RoboCompGridPlanner::TPlan &plan, const Target &target);
-        bool is_robot_at_target(const Target &target_, const Target &original_target_);
+        convert_plan_to_control(const RoboCompGridder::Result &res, const Target &target);
+        bool robot_is_at_target(const Target &target_);
+        void inject_ending_plan();
+        RoboCompGridder::Result compute_path(const Eigen::Vector2f &source, const Target &target);
 
         // publish
-        void send_and_publish_plan(RoboCompGridPlanner::TPlan plan);
+        void send_and_publish_plan(const RoboCompGridPlanner::TPlan &plan);
 
         // state-machine
         enum class State {IDLE, COMPUTE, WAIT, STOP, ERROR};
         State state = State::IDLE;
-
 };
 
 #endif

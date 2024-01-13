@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>grid_planner</string>
+   <string>robot_driver</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>

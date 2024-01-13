@@ -134,8 +134,8 @@ int ::sm_grid_planner::run(int argc, char* argv[])
 
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner1_proxy;
+	RoboCompGridder::GridderPrxPtr gridder_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
-	RoboCompLidar3D::Lidar3DPrxPtr lidar3d1_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
 
 	string proxy, tmp;
@@ -175,6 +175,22 @@ int ::sm_grid_planner::run(int argc, char* argv[])
 
 	try
 	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "GridderProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy GridderProxy\n";
+		}
+		gridder_proxy = Ice::uncheckedCast<RoboCompGridder::GridderPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Gridder: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("GridderProxy initialized Ok!");
+
+
+	try
+	{
 		if (not GenericMonitor::configGetString(communicator(), prefix, "Lidar3DProxy", proxy, ""))
 		{
 			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Lidar3DProxy\n";
@@ -187,22 +203,6 @@ int ::sm_grid_planner::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	rInfo("Lidar3DProxy initialized Ok!");
-
-
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "Lidar3D1Proxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Lidar3DProxy\n";
-		}
-		lidar3d1_proxy = Ice::uncheckedCast<RoboCompLidar3D::Lidar3DPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Lidar3D1: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("Lidar3DProxy1 initialized Ok!");
 
 
 	try
@@ -238,7 +238,7 @@ int ::sm_grid_planner::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(gridplanner_proxy,gridplanner1_proxy,lidar3d_proxy,lidar3d1_proxy,lidarodometry_proxy);
+	tprx = std::make_tuple(gridplanner_proxy,gridplanner1_proxy,gridder_proxy,lidar3d_proxy,lidarodometry_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

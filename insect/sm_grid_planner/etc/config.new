@@ -7,8 +7,8 @@ SegmentatorTrackingPubTopic.Endpoints=tcp -p 0
 # Proxies for required interfaces
 GridPlannerProxy = gridplanner:tcp -h localhost -p 0
 GridPlanner1Proxy = gridplanner:tcp -h localhost -p 0
+GridderProxy = gridder:tcp -h localhost -p 0
 Lidar3DProxy = lidar3d:tcp -h localhost -p 0
-Lidar3D1Proxy = lidar3d:tcp -h localhost -p 0
 LidarOdometryProxy = lidarodometry:tcp -h localhost -p 0
 
 
