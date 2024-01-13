@@ -29,7 +29,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 {
 	this->startup_check_flag = startup_check;
 }
-
 /**
 * \brief Default destructor
 */
@@ -37,12 +36,10 @@ SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
 }
-
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
 	return true;
 }
-
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
@@ -185,31 +182,45 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     //TODO: improve this method to try to find a path even if the target is not free by using the closest free point
     //TODO: if target is human, set safe area around as free
 
-    qInfo() << __FUNCTION__ << "New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
+    auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
     mutex_path.lock();
         auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                           params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
     mutex_path.unlock();
 
-    draw_path(paths.front(), &viewer->scene);
-    this->lcdNumber_length->display((int)paths.front().size());
+    if(not paths.empty())
+    {
+        draw_paths(paths, &viewer->scene);
+        this->lcdNumber_length->display((int)paths.front().size());
+    }
 
     // fill Result with data
     RoboCompGridder::Result result;
     result.paths.resize(paths.size());
     for(const auto &[i, path]: paths | iter::enumerate)
-        for(const auto &[j, point]: path | iter::enumerate)
-        {  result.paths[i][j].x = point.x(); result.paths[i][j].y = point.y(); }
+    {
+        result.paths[i].resize(path.size());
+        for (const auto &[j, point]: path | iter::enumerate)
+        {
+            result.paths[i][j].x = point.x(); result.paths[i][j].y = point.y();
+        }
+    }
     result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms";
     return result;
 }
 bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius)
 {
     std::lock_guard<std::mutex> lock(mutex_path);
-        return grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+        bool res = grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                                     robot_radius);
+        if(res)
+            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is FREE";
+        else
+            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is BLOCKED";
+        return res;
 }
-
 RoboCompGridder::TPoint SpecificWorker::Gridder_getClosestFreePoint(RoboCompGridder::TPoint source)
 {
     std::lock_guard<std::mutex> lock(mutex_path);
@@ -218,7 +229,6 @@ RoboCompGridder::TPoint SpecificWorker::Gridder_getClosestFreePoint(RoboCompGrid
     else
         return {0, 0};  // non valid closest point
 }
-
 RoboCompGridder::TDimensions SpecificWorker::Gridder_getDimensions()
 {
     return {static_cast<float>(params.GRID_MAX_DIM.x()),
@@ -226,7 +236,6 @@ RoboCompGridder::TDimensions SpecificWorker::Gridder_getDimensions()
             static_cast<float>(params.GRID_MAX_DIM.width()),
             static_cast<float>(params.GRID_MAX_DIM.height())};
 }
-
 bool SpecificWorker::Gridder_IsPathBlocked(RoboCompGridder::TPath path)
 {
     std::lock_guard<std::mutex> lock(mutex_path);
@@ -235,6 +244,7 @@ bool SpecificWorker::Gridder_IsPathBlocked(RoboCompGridder::TPath path)
         path_.emplace_back(p.x, p.y);
     return grid.is_path_blocked(path_);
 }
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
