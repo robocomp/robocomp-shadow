@@ -161,12 +161,12 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
         return RoboCompGridPlanner::TPlan{.valid=false};
     }
 
-    if(static_cast<int>(plan.path.size()) < params.NUM_STEPS)
+    if(static_cast<int>(plan.path.size()) < params.NUM_STEPS) // not enough points
     {
-        //qWarning() << __FUNCTION__ << "Path too short. Returning original path";
+        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
         return plan;
     }
-    qInfo() << __FUNCTION__ << plan.path[params.NUM_STEPS - 1].x << plan.path[params.NUM_STEPS - 1].y;
+    //qInfo() << __FUNCTION__ << plan.path[params.NUM_STEPS - 1].x << plan.path[params.NUM_STEPS - 1].y;
     path_buffer.put(std::move(plan.path), [nsteps=params.NUM_STEPS](auto &&new_path, auto &path)
     {  std::transform(new_path.begin(), new_path.begin()+nsteps, std::back_inserter(path),
                       [](auto &&p){ return Eigen::Vector2f{p.x, p.y}; });});
@@ -174,7 +174,7 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
     const auto& control_and_path = control_buffer.get();
     if(control_and_path.first.empty() and control_and_path.second.empty())
     {
-        qWarning() << __FUNCTION__ << "Empty control or path";
+        qWarning() << __FUNCTION__ << "No solution. Empty control or path";
         return RoboCompGridPlanner::TPlan{.valid=false};
     }
     else

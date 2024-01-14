@@ -101,6 +101,8 @@ namespace rc
         specific_options["print_level"] = 0;
         specific_options["acceptable_tol"] = 1e-8;
         specific_options["acceptable_obj_change_tol"] = 1e-6;
+        generic_options["verbose"] = false;  // Minimize verbosity
+        //specific_options["ipopt.print_level"] = 0;  // Specific to Ipopt solver
         opti.solver("ipopt", generic_options, specific_options);
 
         // ---- state variables ---------
@@ -164,8 +166,8 @@ namespace rc
 
         // control constraints -----------
         opti.subject_to(opti.bounded(consts.min_advance_value, adv, consts.max_advance_value));     // control is limited meters
-        opti.subject_to(opti.bounded(consts.min_advance_value, side, consts.max_advance_value));     // control is limited meters
-        opti.subject_to(opti.bounded(-consts.max_rotation_value, rot, consts.max_rotation_value));  // control is limited
+        opti.subject_to(opti.bounded(consts.min_side_value, side, consts.max_side_value));     // control is limited meters
+        opti.subject_to(opti.bounded(consts.min_rotation_value, rot, consts.max_rotation_value));  // control is limited
 
         // forward velocity constraints -----------
         //opti.subject_to(adv >= 0);
@@ -194,18 +196,18 @@ namespace rc
         casadi::Slice all;
 
         // Warm start
-        if (previous_values_of_solution.empty())
-        {
-            previous_values_of_solution.resize(consts.num_steps+1);
-            double landa = 1.0 / (target_robot.norm() / consts.num_steps);
-            for (auto &&[i, step]: iter::range(0.0, 1.0, landa) | iter::enumerate)
-            {
-                auto paso = target_robot * step;
-                previous_values_of_solution[3 * i] = paso.x();
-                previous_values_of_solution[3 * i + 1] = paso.y();
-                previous_values_of_solution[3 * i + 2] = 0.0;
-            }
-        }
+//        if (previous_values_of_solution.empty())
+//        {
+//            previous_values_of_solution.resize(consts.num_steps+1);
+//            double landa = 1.0 / (target_robot.norm() / consts.num_steps);
+//            for (auto &&[i, step]: iter::range(0.0, 1.0, landa) | iter::enumerate)
+//            {
+//                auto paso = target_robot * step;
+//                previous_values_of_solution[3 * i] = paso.x();
+//                previous_values_of_solution[3 * i + 1] = paso.y();
+//                previous_values_of_solution[3 * i + 2] = 0.0;
+//            }
+//        }
 
         /// cost function as sum of several terms weighted by a factor
 
@@ -264,7 +266,11 @@ namespace rc
 
             // print output -----
             std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-            std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
+            std::cout << "Elapsed time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
+            qInfo() << __FUNCTION__ << "Iterations:" << (int) solution.stats()["iter_count"];
+            qInfo() << __FUNCTION__ << "Status:" << QString::fromStdString(solution.stats().at("return_status"));
+
+            // extract control vector
             std::vector<Eigen::Vector3f> control_vector(consts.num_steps);
             const auto &advs = std::vector<double>(solution.value(adv));
             const auto &sides = std::vector<double>(solution.value(side));
@@ -273,24 +279,22 @@ namespace rc
                 control_vector[i] = Eigen::Vector3f{static_cast<float>(advs.at(i)*1000.f),  // move back to mm
                                                     static_cast<float>(sides.at(i)*1000.f),
                                                     static_cast<float>(rots.at(i))};
-            std::vector<Eigen::Vector2f> path_vector(consts.num_steps);
+            // extract path vector
+            std::vector<Eigen::Vector2f> path_vector; path_vector.reserve(consts.num_steps);
             const auto &state_sol = std::vector<double>(solution.value(pos));
             for(auto &&p: iter::chunked(state_sol, 2))
                 path_vector.emplace_back(p[0]*1000.f,p[1]*1000.f);
 
-//            if(scene != nullptr)
-//                draw_path(std::vector<double>(solution.value(state)), robot_polygon, scene);
+            double acum = 0.0;
+            for(const auto &[i, p]: path_vector | iter::enumerate)
+                acum += (p - path_robot[i]).norm();
+            qInfo() << __FUNCTION__ << " Error " << acum;
 
-            qInfo() << __FUNCTION__ << "Iterations:" << (int) solution.stats()["iter_count"];
-            qInfo() << __FUNCTION__ << "Status:" << QString::fromStdString(solution.stats().at("return_status"));
-
-            //advance = advance * gaussian(rotation);
-            //return std::make_tuple(advance, vside, rotation, solution);
             return std::make_pair(control_vector, path_vector);
         }
-        catch (...)
+        catch (const casadi::CasadiException& e)
         {
-            std::cout << "No solution found" << std::endl;
+            std::cout << "CasADi exception caught: " << e.what() << std::endl;
             previous_values_of_solution.clear();
             previous_control_of_solution.clear();
             return {};
