@@ -21,7 +21,6 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/slice.hpp>
 
-
 /**
 * \brief Default constructor
 */
@@ -29,7 +28,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 {
 	this->startup_check_flag = startup_check;
 }
-
 /**
 * \brief Default destructor
 */
@@ -37,7 +35,6 @@ SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
 }
-
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
 //	try
@@ -49,7 +46,6 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 //	catch(const std::exception &e) { qFatal("Error reading config params"); }
 	return true;
 }
-
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
@@ -59,7 +55,12 @@ void SpecificWorker::initialize(int period)
 	else
     {
         // Opti
-        auto opti = mpc.initialize_omni(params.NUM_STEPS);
+        //auto opti = mpc.initialize_omni(params.NUM_STEPS);
+        for(auto i: iter::range(params.MIN_NUM_STEPS, params.NUM_STEPS+1))
+        {
+            mpcs.emplace_back();
+            mpcs.back().opti = mpcs.back().initialize_omni(i);
+        }
 
         // Lidar thread is created
         read_lidar_th = std::thread(&SpecificWorker::read_lidar, this);
@@ -69,7 +70,6 @@ void SpecificWorker::initialize(int period)
         timer.start(Period);
 	}
 }
-
 void SpecificWorker::compute()
 {
     /// read LiDAR
@@ -81,7 +81,9 @@ void SpecificWorker::compute()
     /// read path
     if(auto path = path_buffer.try_get(); path.has_value())
     {
-        if(auto result = mpc.update(path.value(), obstacles); result.has_value())
+        int idx = path.value().size() - params.MIN_NUM_STEPS;
+        qInfo() << "Path size: " << path.value().size() << " idx: " << idx;
+        if(auto result = mpcs[idx].update(path.value(), obstacles); result.has_value())
         {
             auto control_and_path = result.value();
             //qInfo() << adv << side << rot;
@@ -161,13 +163,15 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
         return RoboCompGridPlanner::TPlan{.valid=false};
     }
 
-    if(static_cast<int>(plan.path.size()) < params.NUM_STEPS) // not enough points
+    if(static_cast<int>(plan.path.size()) < params.MIN_NUM_STEPS)
     {
-        qWarning() << __FUNCTION__ << "Path too short. Returning original path";
+        qWarning() << __FUNCTION__ << "Path with one element or less. Returning original path";
         return plan;
     }
     //qInfo() << __FUNCTION__ << plan.path[params.NUM_STEPS - 1].x << plan.path[params.NUM_STEPS - 1].y;
-    path_buffer.put(std::move(plan.path), [nsteps=params.NUM_STEPS](auto &&new_path, auto &path)
+
+    int nsteps = std::clamp(static_cast<int>(plan.path.size()), params.MIN_NUM_STEPS, params.NUM_STEPS);
+    path_buffer.put(std::move(plan.path), [nsteps](auto &&new_path, auto &path)
     {  std::transform(new_path.begin(), new_path.begin()+nsteps, std::back_inserter(path),
                       [](auto &&p){ return Eigen::Vector2f{p.x, p.y}; });});
 

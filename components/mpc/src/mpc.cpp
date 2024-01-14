@@ -173,10 +173,6 @@ namespace rc
         //opti.subject_to(adv >= 0);
 
         opti.subject_to(state(all, 0) == std::vector<double>{0.0, 0.0, 0.0}); //TODO: check if this is needed
-
-        // slack vector declaration
-        //slack_vector = opti.variable(consts.NUM_STEPS);
-
         return opti;
     };
     std::optional<std::pair<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector2f>>>  // control and state vectors
@@ -267,8 +263,9 @@ namespace rc
             // print output -----
             std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
             std::cout << "Elapsed time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
-            qInfo() << __FUNCTION__ << "Iterations:" << (int) solution.stats()["iter_count"];
-            qInfo() << __FUNCTION__ << "Status:" << QString::fromStdString(solution.stats().at("return_status"));
+            qInfo() << __FUNCTION__ << "Iterations: " << (int) solution.stats()["iter_count"];
+            qInfo() << __FUNCTION__ << "Status: " << QString::fromStdString(solution.stats().at("return_status"));
+            qInfo() << __FUNCTION__ << "STEPS: " << consts.num_steps << path_robot.size();
 
             // extract control vector
             std::vector<Eigen::Vector3f> control_vector(consts.num_steps);
