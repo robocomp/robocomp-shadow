@@ -68,8 +68,11 @@ void SpecificWorker::initialize(int period)
             qInfo() << "[MOUSE] New global target arrived:" << p;
             auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), Eigen::Vector2f{p.x(), p.y()},
                                          params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
-            draw_path(paths.front(), &viewer->scene);
-            this->lcdNumber_length->display((int)paths.front().size());
+            if(not paths.empty())
+            {
+                draw_path(paths.front(), &viewer->scene);
+                this->lcdNumber_length->display((int) paths.front().size());
+            }
         });
         connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
         {
