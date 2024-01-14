@@ -48,10 +48,15 @@ public slots:
     private:
         bool startup_check_flag;
         FPSCounter fps;
+
+        // we need a vector of MPCs to be able to handle plans with less than NUM_STEPS points
         rc::MPC mpc;
+        std::vector<rc::MPC> mpcs;
+
         struct Params
         {
             int NUM_STEPS = 8;
+            int MIN_NUM_STEPS = 2;
             int PERIOD = 50; // ms
             std::string LIDAR_NAME_LOW = "bpearl";
             std::string LIDAR_NAME_HIGH = "helios";
