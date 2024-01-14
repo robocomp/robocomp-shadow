@@ -137,10 +137,6 @@ void SpecificWorker::compute()
     }
     else { fps.print("No Target - FPS:"); return;}
 
-    /// transform target to robot's frame
-    target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
-    draw_global_target(target.pos_eigen(), &viewer->scene);
-
     /// check if target has been cancelled
     if(cancel_from_mouse or target.is_completed())
     {
@@ -148,6 +144,10 @@ void SpecificWorker::compute()
         cancel_from_mouse = false;
         return;
     }
+
+    /// transform target to robot's frame
+    target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
+    draw_global_target(target.pos_eigen(), &viewer->scene);
 
     /// check if target has been reached
     if(robot_is_at_target(target))
@@ -158,29 +158,24 @@ void SpecificWorker::compute()
 
     /// compute path
     RoboCompGridder::Result returning_plan = compute_path(Eigen::Vector2f::Zero(), target);
-    draw_paths(returning_plan.paths, &viewer->scene);
-
     if (not returning_plan.valid)
     {
         inject_ending_plan();
         return;
     }
-//
-//    /// MPC
-//    RoboCompGridPlanner::TPlan final_plan;
-//    if(params.USE_MPC) /// convert plan to list of control actions calling MPC
-//        final_plan = convert_plan_to_control(returning_plan, target);
-//
-//    if (not final_plan.valid)
-//    {
-//        inject_ending_plan();
-//        return;
-//    }
-//
+    else draw_paths(returning_plan.paths, &viewer->scene);
+
+    /// MPC
+    RoboCompGridPlanner::TPlan final_plan;
+    if(params.USE_MPC) /// convert plan to list of control actions calling MPC
+        final_plan = convert_plan_to_control(returning_plan, target);
+    this->lcdNumber_length->display((int)final_plan.path.size());
+
 //    /// send plan to remote interface and publish it to rcnode
 //    send_and_publish_plan(final_plan);
 
-    fps.print("FPS:");
+    hz = fps.print("FPS:", 3000);
+    this->lcdNumber_hz->display(this->hz);
 }
 //void SpecificWorker::compute()
 //{
@@ -382,7 +377,7 @@ SpecificWorker::Target SpecificWorker::transform_target_to_global_frame(const Ei
 }
 RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Target &target)
 {
-    qInfo() << __FUNCTION__;
+    //qInfo() << __FUNCTION__;
     RoboCompGridder::Result returning_plan;
     returning_plan.valid = true;
 
@@ -400,7 +395,11 @@ RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Targe
         returning_plan.paths.emplace_back(plan);
     }
     else
+    {
+        qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
         returning_plan.valid = false;
+        returning_plan.error_msg = "[compute_line_of_sight_target] Target too close";
+    }
     return returning_plan;
 }
 RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &target)
@@ -451,7 +450,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             RoboCompGridder::TPath lpath; lpath.reserve(current_path.size());
             for (auto &&p: current_path)
                 lpath.push_back(RoboCompGridder::TPoint{p.x(), p.y()});
-            if(not gridder_proxy->IsPathBlocked(lpath))
+            if(not gridder_proxy->IsPathBlocked(lpath)) // not blocked. Transform current_path
             {
                 //qInfo() << __FUNCTION__ <<  "Not blocked. Transforming";
                 std::vector<Eigen::Vector2f> local_path;
@@ -561,25 +560,22 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
     try
     {
         auto mod_plan = gridplanner1_proxy->modifyPlan(plan);   // call MPC
-        if(mod_plan.valid)
+        if(mod_plan.valid and not mod_plan.controls.empty())
         {
-            std::vector<Eigen::Vector2f> path;
-            std::ranges::transform(mod_plan.path, std::back_inserter(path), [](auto &p)
-                    { return Eigen::Vector2f{p.x, p.y}; });
-            if(not mod_plan.controls.empty())
-                qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
+            qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             plan = mod_plan;
+            draw_smoothed_path(plan.path, &viewer->scene, params.SMOOTHED_PATH_COLOR);
         }
         else    // no valid plan found
         {
-            qWarning() << __FUNCTION__ << "No valid optimization found in MPC";
-            plan.valid = false; // invalid plan
+            qWarning() << __FUNCTION__ << "No valid optimization found in MPC. Returning original plan";
+            draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR);
         }
     }
     catch (const Ice::Exception &e)
     {
-        std::cout << __FUNCTION__ << "Error reading from MPC. Check component status" << e << std::endl;
-        plan.valid = false;
+        std::cout << __FUNCTION__ << "Error reading from MPC. Check component status. Returning original plan" << e << std::endl;
+        draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR);
     }
     return plan;
 }
@@ -705,7 +701,7 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
 {
     static std::vector<QGraphicsEllipseItem*> points;
     for(auto p : points)
-        scene->removeItem(p);
+    { scene->removeItem(p); delete p; }
     points.clear();
 
     if(erase_only) return;
@@ -720,21 +716,23 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
         points.push_back(ptr);
     }
 }
-void SpecificWorker::draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
+void SpecificWorker::draw_smoothed_path(const RoboCompGridPlanner::Points &path,
+                                        QGraphicsScene *scene, const QColor &color, bool erase_only)
 {
     static std::vector<QGraphicsEllipseItem*> points;
     for(auto p : points)
-        scene->removeItem(p);
+    { scene->removeItem(p); delete p; }
     points.clear();
 
     if(erase_only) return;
 
+    QPen pen = QPen(color);
+    QBrush brush = QBrush(color);
     float s = 100;
-    auto color = QColor("magenta");
     for(const auto &p: path)
     {
-        auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
-        ptr->setPos(QPointF{p.x(), p.y()});
+        auto ptr = scene->addEllipse(-s/2, -s/2, s, s, pen, brush);
+        ptr->setPos(QPointF{p.x, p.y});
         points.push_back(ptr);
     }
 }
@@ -743,7 +741,7 @@ void SpecificWorker::draw_paths(const RoboCompGridder::TPaths &paths, QGraphicsS
     static std::vector<QGraphicsEllipseItem*> points;
     static QColor colors[] = {QColor("green"), QColor("blue"), QColor("red"), QColor("orange"), QColor("magenta"), QColor("cyan")};
     for(auto p : points)
-        scene->removeItem(p);
+    { scene->removeItem(p); delete p; }
     points.clear();
 
     if(erase_only) return;
