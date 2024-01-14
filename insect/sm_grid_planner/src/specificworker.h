@@ -82,15 +82,18 @@ class SpecificWorker : public GenericWorker
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
+
             // colors
             QColor TARGET_COLOR= {"orange"};
             QColor LIDAR_COLOR = {"LightBlue"};
             QColor PATH_COLOR = {"orange"};
+            QColor SMOOTHED_PATH_COLOR = {"magenta"};
         };
         Params params;
 
         // FPS
         FPSCounter fps;
+        int hz = 0;
 
         // Timer
         rc::Timer<> clock;
@@ -162,7 +165,7 @@ class SpecificWorker : public GenericWorker
         void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only=false);
         void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
-        void draw_smoothed_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
+        void draw_smoothed_path(const RoboCompGridPlanner::Points &path, QGraphicsScene *scene, const QColor &color, bool erase_only=false);
         void draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate=1);
 
         // Lidar Thread
