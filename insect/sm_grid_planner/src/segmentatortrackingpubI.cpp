@@ -29,7 +29,7 @@ SegmentatorTrackingPubI::~SegmentatorTrackingPubI()
 }
 
 
-void SegmentatorTrackingPubI::setTrack(RoboCompVisualElements::TObject target, const Ice::Current&)
+void SegmentatorTrackingPubI::setTrack(RoboCompVisualElementsPub::TObject target, const Ice::Current&)
 {
 	worker->SegmentatorTrackingPub_setTrack(target);
 }

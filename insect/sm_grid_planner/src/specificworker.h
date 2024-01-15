@@ -39,7 +39,7 @@ class SpecificWorker : public GenericWorker
         SpecificWorker(TuplePrx tprx, bool startup_check);
         ~SpecificWorker() override;
         bool setParams(RoboCompCommonBehavior::ParameterList params) override;
-        void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target) override;
+        void SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub::TObject target);
 
     public slots:
         void compute() override;

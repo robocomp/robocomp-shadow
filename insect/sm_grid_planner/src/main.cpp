@@ -83,8 +83,10 @@
 
 #include <segmentatortrackingpubI.h>
 
+#include <Camera360RGB.h>
 #include <FullPoseEstimation.h>
-#include <VisualElements.h>
+#include <Person.h>
+#include <VisualElementsPub.h>
 
 
 
