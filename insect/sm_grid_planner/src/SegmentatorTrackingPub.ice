@@ -8,12 +8,12 @@
 //******************************************************************
 #ifndef ROBOCOMPSEGMENTATORTRACKINGPUB_ICE
 #define ROBOCOMPSEGMENTATORTRACKINGPUB_ICE
-#include <VisualElements.ice>
+#include <VisualElementsPub.ice>
 module RoboCompSegmentatorTrackingPub
 {
 	interface SegmentatorTrackingPub
 	{
-		idempotent void setTrack (RoboCompVisualElements::TObject target);
+		idempotent void setTrack (RoboCompVisualElementsPub::TObject target);
 	};
 };
 
