@@ -193,13 +193,7 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
                                             std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
                                           params.MIN_DISTANCE_BETWEEN_PATHS);
     mutex_path.unlock();
-
-    if(not paths.empty())
-    {
-        draw_paths(paths, &viewer->scene);
-        this->lcdNumber_length->display((int)paths.front().size());
-    }
-
+    
     // fill Result with data
     RoboCompGridder::Result result;
     result.paths.resize(paths.size());
