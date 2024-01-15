@@ -92,17 +92,20 @@ void SpecificWorker::initialize(int period)
                     target = Target::invalid();
                     return;
                 }
-                target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
+                target_buffer.put(std::move(target));
+                // wait until odometry is properly reset: matrix trace = 4 aka identity matrix
                 try
                 {
                     lidarodometry_proxy->reset();   // empty buffer
-                    sleep(0.5); // small delay to allow the lidar odometry to reset
-                    if(auto rp = get_robot_pose_and_change(); rp.has_value())
-                    {
-                        std::cout << "Reset robot pose: " << std::endl;
-                        std::cout << rp->first.matrix() << std::endl;
-                        qInfo() << "Matrix norm:" << rp->first.matrix().norm();
-                    }
+                    std::optional<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> rp;
+                    auto start = std::chrono::high_resolution_clock::now();
+                    do
+                    {   rp = get_robot_pose_and_change();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    } while (rp->first.matrix().diagonal().sum() < 3.7 and
+                             std::chrono::duration_cast<std::chrono::milliseconds>(start - std::chrono::high_resolution_clock::now()).count() < 4000);
+                    if(rp->first.matrix().diagonal().sum() < 3.7)
+                        qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
                 }
                 catch (const Ice::Exception &e)
                 {
@@ -379,13 +382,13 @@ SpecificWorker::Target SpecificWorker::transform_target_to_global_frame(const Ei
 {
     // transform target to robot's frame
     const Eigen::Vector2f &tp = target.get_original();
-    qInfo() << __FUNCTION__ <<  "Original target: " << tp.x() << tp.y();
+    //qInfo() << __FUNCTION__ <<  "Original target: " << tp.x() << tp.y();
     Eigen::Vector2f target_in_robot =
             (robot_pose.inverse().matrix() * Eigen::Vector4d(tp.x() / 1000.0, tp.y() / 1000.0, 0.0, 1.0) * 1000.0).head(2).cast<float>();
-    qInfo() << __FUNCTION__ <<  "transformed target: " << target_in_robot.x() << target_in_robot.y();
+    //qInfo() << __FUNCTION__ <<  "transformed target: " << target_in_robot.x() << target_in_robot.y();
     Target target_aux = target;     // keep original target's attributes
     target_aux.set(target_in_robot);
-    qInfo() << __FUNCTION__ <<  "final target: " << target_aux.pos_eigen().x() << target_aux.pos_eigen().y();
+    //qInfo() << __FUNCTION__ <<  "final target: " << target_aux.pos_eigen().x() << target_aux.pos_eigen().y();
     return target_aux;
 }
 RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Target &target)
@@ -551,7 +554,6 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
         returning_plan.valid = false;
         returning_plan.error_msg = "Not path found in [compute_plan_from_grid]";
     }
-    qInfo() << __FUNCTION__ <<  "----------------------------------------";
     return returning_plan;
 }
 RoboCompGridPlanner::TPlan
@@ -774,7 +776,6 @@ void SpecificWorker::draw_global_target(const Eigen::Vector2f &point, QGraphicsS
 
     if(erase_only) return;
 
-    qInfo() << __FUNCTION__ << point.x() << point.y();
     QPen pen = QPen(params.TARGET_COLOR);
     QBrush brush = QBrush(params.TARGET_COLOR);
     int s = 150;
