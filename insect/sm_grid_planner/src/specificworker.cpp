@@ -438,8 +438,10 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
         try
         {
             auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
-                                                RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
-                                                params.NUM_PATHS_TO_SEARCH, true, false);
+                                                         RoboCompGridder::TPoint{target.pos_eigen().x(),target.pos_eigen().y()},
+                                                         params.NUM_PATHS_TO_SEARCH,
+                                                         true,
+                                                         false);
             if(not result.valid or result.paths.empty())   //TODO: try a few times
             {
                 qWarning() << __FUNCTION__ << "No path found while initializing current_path";
@@ -837,14 +839,6 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TO
         t.set(tt, false); /// false = in robot's frame
         //qInfo() << "TARGET OUT OF GRID" << tt.x() << tt.y();
     }
-
-//    if (target.x < params.xMax and target.x > params.xMin and target.y > params.yMin and target.y < params.yMax)
-//        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame
-//    else
-//    {
-//        t.set(compute_closest_target_to_grid_border(target), false); /// false = in robot's frame
-//        qInfo() << "TARGET OUT OF GRID" << border_subtarget(target).x() << compute_closest_target_to_grid_border(target).y();
-//    }
     target_buffer.put(std::move(t));
 }
 
