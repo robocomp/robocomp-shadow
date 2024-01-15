@@ -31,13 +31,11 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <Camera360RGB.h>
 #include <FullPoseEstimation.h>
 #include <GridPlanner.h>
 #include <Gridder.h>
 #include <Lidar3D.h>
 #include <LidarOdometry.h>
-#include <Person.h>
 #include <SegmentatorTrackingPub.h>
 #include <VisualElementsPub.h>
 
