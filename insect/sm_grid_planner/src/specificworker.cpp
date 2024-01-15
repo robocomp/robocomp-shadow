@@ -110,6 +110,10 @@ void SpecificWorker::initialize(int period)
         {
             qInfo() <<  "RIGHT CLICK. Cancelling target";
             cancel_from_mouse = true;
+            // erase paths in scene
+            draw_smoothed_path({}, &viewer->scene, QColor(),true);
+            draw_global_target({}, &viewer->scene, true);
+            draw_paths({}, &viewer->scene, true);
         });
 
         timer.start(params.PERIOD);
@@ -176,7 +180,7 @@ void SpecificWorker::compute()
     this->lcdNumber_length->display((int)final_plan.path.size());
 
 //    /// send plan to remote interface and publish it to rcnode
-    //send_and_publish_plan(final_plan);
+    send_and_publish_plan(final_plan);
 
     hz = fps.print("FPS:", 3000);
     this->lcdNumber_hz->display(this->hz);
@@ -450,72 +454,60 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder", .valid=false};
         }
     }
-    else // if target is not new and not blocked, transform current_path according to robot's new position
+    else // Transform target and check if it is blocked, transform current_path according to robot's new position
     {
-        try
-        {
-            RoboCompGridder::TPath lpath; lpath.reserve(current_path.size());
-            for (auto &&p: current_path)
-                lpath.push_back(RoboCompGridder::TPoint{p.x(), p.y()});
-            if(not gridder_proxy->IsPathBlocked(lpath)) // not blocked. Transform current_path
-            {
-                //qInfo() << __FUNCTION__ <<  "Not blocked. Transforming";
-                std::vector<Eigen::Vector2f> local_path;
-                local_path.reserve(current_path.size());
-                // get the inverse of the robot current pose wrt the last reset
-                const auto &inv = robot_pose_and_change.first.inverse().matrix();
-                // it has to be the original path, not the current_path, since the robot_pose is accumulated from the last reset to lidar_odometry
-                // the type in the lambda return must be explicit, otherwise it does not work
-                std::ranges::transform(original_path, std::back_inserter(local_path), [inv](auto &p)
-                { return Eigen::Vector2f{(inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>()};});
+        // Transforming
+        std::vector<Eigen::Vector2f> local_path;
+        local_path.reserve(current_path.size());
+        // get the inverse of the robot current pose wrt the last reset
+        const auto &inv = robot_pose_and_change.first.inverse().matrix();
+        // it has to be the original path, not the current_path, since the robot_pose is accumulated from the last reset to lidar_odometry
+        // the type in the lambda return must be explicit, otherwise it does not work
+        std::ranges::transform(original_path, std::back_inserter(local_path), [inv](auto &p)
+        { return Eigen::Vector2f{(inv * Eigen::Vector4d(p.x() / 1000.f, p.y() / 1000.f, 0.0, 1.0) * 1000.f).head(2).cast<float>()};});
 
-                // remove points in the path that fall behind the robot
-                std::vector<Eigen::Vector2f> trimmed;
-                for(const auto &pp: local_path | iter::sliding_window(2))
-                    if (pp[0].norm() < pp[1].norm() )
-                        trimmed.emplace_back(pp[0]);
-                current_path = trimmed;
-            }
-            else // blocked. Compute a new path. TODO: check for a really shorter path (atajo)
+        // remove points in the path that fall behind the robot
+        std::vector<Eigen::Vector2f> trimmed;
+        for(const auto &pp: local_path | iter::sliding_window(2))
+            if (pp[0].norm() < pp[1].norm() )
+                trimmed.emplace_back(pp[0]);
+        current_path = trimmed;
+
+        // check if it is blocked
+        RoboCompGridder::TPath lpath; lpath.reserve(current_path.size());
+        for (auto &&p: current_path)
+                lpath.push_back(RoboCompGridder::TPoint{p.x(), p.y()});
+        if(gridder_proxy->IsPathBlocked(lpath)) // not blocked. Transform current_path
+            try
             {
-                try
+                qInfo() << __FUNCTION__ << " Blocked. Computing new path";
+                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
+                                                      RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
+                                                      1, true, false);
+                if(not result.valid or result.paths.empty())  //TODO: try a few times
                 {
-                    qInfo() << __FUNCTION__ << " Blocked. Computing new path";
-                    auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
-                                                          RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
-                                                          1, true, false);
-                    if(not result.valid or result.paths.empty())  //TODO: try a few times
-                    {
-                        qWarning() << __FUNCTION__ << "No path found while initializing current_path";
-                        current_path = original_path = {};
-                        return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
-                    }
-                    else
-                    {
-                        current_path.clear();
-                        for (const auto &p: result.paths.front())
-                            current_path.emplace_back(p.x, p.y);
-                        original_path = current_path;
-                        for(auto &&p : result.paths)
-                            qInfo() << __FUNCTION__ << " [BLOCKED] New paths: " << p.size();
-                        qInfo() << __FUNCTION__ << " [BLOCKED] Original path length: " << original_path.size();
-                    }
-                }
-                catch (const Ice::Exception &e)
-                {
-                    std::cout << "Error reading plans from Gridder" << e << std::endl;
+                    qWarning() << __FUNCTION__ << "No path found while initializing current_path";
                     current_path = original_path = {};
-                    return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder", .valid=false};
+                    return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
+                }
+                else
+                {
+                    current_path.clear();
+                    for (const auto &p: result.paths.front())
+                        current_path.emplace_back(p.x, p.y);
+                    original_path = current_path;
+                    for(auto && [i, p] : result.paths | iter::enumerate)
+                        qInfo() << __FUNCTION__ << " [BLOCKED] New path: " << i << p.size();
+                    qInfo() << __FUNCTION__ << " [BLOCKED] Original path length: " << original_path.size();
                 }
             }
-        }
-        catch (const Ice::Exception &e)
-        {
-            std::cout << "Error reading from Gridder" << e << std::endl;
-            current_path = original_path = {};
-            return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading from Gridder", .valid=false};
-        }
-    }
+            catch (const Ice::Exception &e)
+            {
+                std::cout << "Error reading plans from Gridder" << e << std::endl;
+                current_path = original_path = {};
+                return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder", .valid=false};
+            }
+    }   // TODO:: check for ATAJO
 
     // if current_path not blocked and there is no other much shorter path available
 //    if (not grid.is_path_blocked(current_path))
@@ -554,6 +546,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
         returning_plan.valid = false;
         returning_plan.error_msg = "Not path found in [compute_plan_from_grid]";
     }
+    qInfo() << __FUNCTION__ <<  "----------------------------------------";
     return returning_plan;
 }
 RoboCompGridPlanner::TPlan
@@ -725,8 +718,8 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
         points.push_back(ptr);
     }
 }
-void SpecificWorker::draw_smoothed_path(const RoboCompGridPlanner::Points &path,
-                                        QGraphicsScene *scene, const QColor &color, bool erase_only)
+void SpecificWorker::draw_smoothed_path(const RoboCompGridPlanner::Points &path, QGraphicsScene *scene,
+                                        const QColor &color, bool erase_only)
 {
     static std::vector<QGraphicsEllipseItem*> points;
     for(auto p : points)
@@ -768,23 +761,15 @@ void SpecificWorker::draw_paths(const RoboCompGridder::TPaths &paths, QGraphicsS
         }
     }
 }
-void SpecificWorker::draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only)
-{
-    static QGraphicsEllipseItem* subtarget;
-    scene->removeItem(subtarget);
-
-    if(erase_only) return;
-    int s = 120;
-    subtarget = scene->addEllipse(-s/2, -s/2, s, s, QPen(QColor("cyan")), QBrush(QColor("cyan")));
-    subtarget->setPos(QPointF(point.x(), point.y()));
-}
-void SpecificWorker::draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene)
+void SpecificWorker::draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only)
 {
     static QGraphicsEllipseItem *item = nullptr;
     if(item != nullptr)
         scene->removeItem(item);
-    delete item;
 
+    if(erase_only) return;
+
+    qInfo() << __FUNCTION__ << point.x() << point.y();
     QPen pen = QPen(params.TARGET_COLOR);
     QBrush brush = QBrush(params.TARGET_COLOR);
     int s = 150;
