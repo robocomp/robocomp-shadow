@@ -248,7 +248,7 @@ RoboCompFullPoseEstimation::FullPoseMatrix SpecificWorker::LidarOdometry_getFull
 void SpecificWorker::LidarOdometry_reset()
 {
     last_read.store(std::chrono::high_resolution_clock::now());
-    fastgicp.reset();
+    fastgicp.reset();   // TODO: this might crash without a mutex
 }
 RoboCompLidarOdometry::PoseAndChange SpecificWorker::LidarOdometry_getPoseAndChange()
 {
