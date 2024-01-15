@@ -77,6 +77,7 @@ void SpecificWorker::initialize(int period)
         connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
         {
             qInfo() <<  "RIGHT CLICK. Cancelling target";
+            draw_path({}, &viewer->scene, true);
             cancel_from_mouse = true;
         });
 
@@ -189,7 +190,8 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
     mutex_path.lock();
         auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
-                                          params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
+                                            std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
+                                          params.MIN_DISTANCE_BETWEEN_PATHS);
     mutex_path.unlock();
 
     if(not paths.empty())
@@ -218,10 +220,10 @@ bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source,
     std::lock_guard<std::mutex> lock(mutex_path);
         bool res = grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                                     robot_radius);
-        if(res)
-            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is FREE";
-        else
-            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is BLOCKED";
+//        if(res)
+//            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is FREE";
+//        else
+//            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is BLOCKED";
         return res;
 }
 RoboCompGridder::TPoint SpecificWorker::Gridder_getClosestFreePoint(RoboCompGridder::TPoint source)
