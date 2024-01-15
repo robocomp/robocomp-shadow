@@ -96,7 +96,7 @@ void SpecificWorker::initialize(int period)
                 try
                 {
                     lidarodometry_proxy->reset();   // empty buffer
-                    sleep(0.5);
+                    sleep(0.5); // small delay to allow the lidar odometry to reset
                     if(auto rp = get_robot_pose_and_change(); rp.has_value())
                     {
                         std::cout << "Reset robot pose: " << std::endl;
