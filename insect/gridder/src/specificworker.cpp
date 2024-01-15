@@ -66,8 +66,11 @@ void SpecificWorker::initialize(int period)
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
         {
             qInfo() << "[MOUSE] New global target arrived:" << p;
-            auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(), Eigen::Vector2f{p.x(), p.y()},
-                                         params.NUM_PATHS_TO_SEARCH, params.MIN_DISTANCE_BETWEEN_PATHS);
+            auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(),
+                                              Eigen::Vector2f{p.x(), p.y()},
+                                              params.NUM_PATHS_TO_SEARCH,
+                                              params.MIN_DISTANCE_BETWEEN_PATHS,
+                                              true, false);
             if(not paths.empty())
             {
                 draw_path(paths.front(), &viewer->scene);
@@ -190,10 +193,12 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
     mutex_path.lock();
         auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
-                                            std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
-                                          params.MIN_DISTANCE_BETWEEN_PATHS);
+                                          std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
+                                          params.MIN_DISTANCE_BETWEEN_PATHS,
+                                          try_closest_free_point,
+                                          target_is_human);
     mutex_path.unlock();
-    
+
     // fill Result with data
     RoboCompGridder::Result result;
     result.paths.resize(paths.size());

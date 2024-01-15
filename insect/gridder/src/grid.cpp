@@ -405,7 +405,9 @@ std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_,
 std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vector2f &source_,
                                                                 const Eigen::Vector2f &target_,
                                                                 unsigned int num_paths,
-                                                                float threshold)
+                                                                float threshold,
+                                                                bool try_closest_free_point,
+                                                                bool target_is_human)
 {
     // computes at most k paths that differ in max_distance by at least "threshold".
     // the paths are computed using the Yen's algorithm: https://en.wikipedia.org/wiki/Yen%27s_algorithm
@@ -413,8 +415,32 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // until k paths are found or the initial path is exhausted
     //qInfo() << __FUNCTION__;
 
+    // set grid cells around human target to free
+    if(target_is_human)
+    {
+        auto target_key = point_to_key(target_);
+        for(auto &&[k, v] : neighboors_8(target_key))
+            set_free(k);
+    }
+
+    // if target is occupied, try to find the closest free point
+    Eigen::Vector2f target = target_;
+    if(not is_free(target_) and try_closest_free_point)
+    {
+        if(auto free = closest_free(QPointF{target_.x(), target_.y()}); free.has_value())
+        {
+            qInfo() << __FUNCTION__ << "Target is occupied. Using closest free point: " << free.value().x() << free.value().y();
+            target = Eigen::Vector2f{free.value().x(), free.value().y()};
+        }
+        else
+        {
+            qInfo() << __FUNCTION__ << "Target is occupied. Could not find closest free point. Returning empty path";
+            return {};
+        }
+    }
+
     // get an initial shortest path
-    auto initial_path = compute_path(source_, target_);
+    auto initial_path = compute_path(source_, target);
     if(initial_path.empty()) return {};
 
     // initialize vector of paths and aux variables
@@ -433,7 +459,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
         {
             // mark cell as occupied
             set_occupied(point_to_key(*current_step));
-            auto path = compute_path(source_, target_);
+            auto path = compute_path(source_, target);
             if(not path.empty())
             {
                 // check that the new path is different enough from the previous ones
@@ -533,12 +559,12 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
     static QBrush green_brush(QColor("LightGreen"));
     static QBrush white(QColor("White"));
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges
-                ={{100, 75, orange_brush, &Grid::neighboors_8},
+                ={{100, 75, orange_brush, &Grid::neighboors_16},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
                   {25, 5,  green_brush, &Grid::neighboors_16}};
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
-                ={{100, 75, white, &Grid::neighboors_8},
+                ={{100, 75, white, &Grid::neighboors_16},
                   {75, 50, white, &Grid::neighboors_8},
                   {50, 25, white, &Grid::neighboors_8},
                   {25, 5,  white, &Grid::neighboors_16}};
