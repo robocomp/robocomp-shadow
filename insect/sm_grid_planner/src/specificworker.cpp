@@ -159,8 +159,8 @@ void SpecificWorker::compute()
     }
 
     /// transform target to robot's frame
-    target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
-    draw_global_target(target.pos_eigen(), &viewer->scene);
+    // target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
+    // draw_global_target(target.pos_eigen(), &viewer->scene);
 
     /// check if target has been reached
     if(robot_is_at_target(target))
@@ -818,22 +818,42 @@ int SpecificWorker::startup_check()
 ///////////////////// Interfaces
 ///////////////////////////////////////////////////////////////////////////////////////////////
 /// SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
-void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target)
+void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub::TObject target)
 {
     // qInfo()<< "TARGET " << target.x << target.y;
     Target t;
     QRectF dim;
+
     try{ auto grid = gridder_proxy->getDimensions(); dim = QRectF{grid.left, grid.top, grid.width, grid.height}; }
     catch (const Ice::Exception &e)
     {
         std::cout << __FUNCTION__ << " Error reading from Gridder. Using grid dimension from PARAMS" << e << std::endl;
         dim = params.GRID_MAX_DIM;
     }
-    if(dim.contains(QPointF{target.x, target.y}))
-        t.set(Eigen::Vector2f{target.x, target.y}, false); /// false = in robot's frame; true = in global frame
+
+    auto x_pos = target.attributes.find("x_pos");
+    auto y_pos = target.attributes.find("y_pos");
+
+    if ( x_pos == target.attributes.end() and y_pos == target.attributes.end()) 
+    {
+        qInfo() << "No element chosed to track";
+        return;
+    }
+
+    // std::cout << x_pos->first << x_pos->second << std::endl;
+    // std::cout << y_pos->first << y_pos->second << std::endl;
+
+    std::cout << x_pos->first << std::stof(x_pos->second)/1000 << std::endl;
+    std::cout << y_pos->first << std::stof(y_pos->second)/1000 << std::endl;
+
+    auto x_pos_meters = std::stof(x_pos->second);
+    auto y_pos_meters = std::stof(y_pos->second);
+
+    if(dim.contains(QPointF{x_pos_meters, y_pos_meters}))
+        t.set(Eigen::Vector2f{x_pos_meters, y_pos_meters}, false); /// false = in robot's frame; true = in global frame
     else
     {
-        Eigen::Vector2f tt = compute_closest_target_to_grid_border(Eigen::Vector2f{target.x, target.y});
+        Eigen::Vector2f tt = compute_closest_target_to_grid_border(Eigen::Vector2f{x_pos_meters, y_pos_meters});
         t.set(tt, false); /// false = in robot's frame
         //qInfo() << "TARGET OUT OF GRID" << tt.x() << tt.y();
     }

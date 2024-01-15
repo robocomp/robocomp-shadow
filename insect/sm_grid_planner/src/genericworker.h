@@ -31,13 +31,15 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
+#include <Camera360RGB.h>
 #include <FullPoseEstimation.h>
 #include <GridPlanner.h>
 #include <Gridder.h>
 #include <Lidar3D.h>
 #include <LidarOdometry.h>
+#include <Person.h>
 #include <SegmentatorTrackingPub.h>
-#include <VisualElements.h>
+#include <VisualElementsPub.h>
 
 
 #define CHECK_PERIOD 5000
@@ -66,7 +68,7 @@ public:
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
 
-	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElements::TObject target) = 0;
+	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub::TObject target) = 0;
 
 protected:
 
