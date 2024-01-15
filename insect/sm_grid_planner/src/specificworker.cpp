@@ -81,7 +81,7 @@ void SpecificWorker::initialize(int period)
                     auto gdim = gridder_proxy->getDimensions();
                     dim = QRectF{gdim.left, gdim.top, gdim.width, gdim.height};
                     if (dim.contains(p))
-                        target.set(p, true); /// false = in robot's frame; true = in global frame
+                        target.set(p, true);
                     else
                         target.set(compute_closest_target_to_grid_border(Eigen::Vector2f{p.x(), p.y()}), true); /// false = in robot's frame
                     target.set_original(target.pos_eigen());
@@ -94,7 +94,11 @@ void SpecificWorker::initialize(int period)
                     return;
                 }
                 target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
-                try{ lidarodometry_proxy->reset(); }
+                try
+                {
+                    lidarodometry_proxy->reset();
+                    get_robot_pose_and_change();    // empty buffer
+                }
                 catch (const Ice::Exception &e)
                 {
                     std::cout << "[MOUSE] Error reading from LidarOdometry" << e << std::endl;
@@ -172,7 +176,7 @@ void SpecificWorker::compute()
     this->lcdNumber_length->display((int)final_plan.path.size());
 
 //    /// send plan to remote interface and publish it to rcnode
-    send_and_publish_plan(final_plan);
+    //send_and_publish_plan(final_plan);
 
     hz = fps.print("FPS:", 3000);
     this->lcdNumber_hz->display(this->hz);
@@ -430,11 +434,14 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                 current_path = original_path = {};
                 return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found while initializing current_path", .valid=false};
             }
+            for(auto &&p : result.paths)
+                qInfo() << __FUNCTION__ << " [NEW] New paths: " << p.size();
+            qInfo() << __FUNCTION__ << " [NEW] Original path length: " << original_path.size();
             current_path.clear();
             for(const auto &p: result.paths.front())
                 current_path.emplace_back(p.x, p.y);
             original_path = current_path;
-            qInfo() << __FUNCTION__  << " New target: " << current_path.size() << original_path.size();
+            qInfo() << __FUNCTION__  << " [NEW] New current path: " << current_path.size() << original_path.size();
         }
         catch (const Ice::Exception &e)
         {
@@ -476,7 +483,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                     qInfo() << __FUNCTION__ << " Blocked. Computing new path";
                     auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
                                                           RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
-                                                          params.NUM_PATHS_TO_SEARCH, true, false);
+                                                          1, true, false);
                     if(not result.valid or result.paths.empty())  //TODO: try a few times
                     {
                         qWarning() << __FUNCTION__ << "No path found while initializing current_path";
@@ -490,8 +497,8 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                             current_path.emplace_back(p.x, p.y);
                         original_path = current_path;
                         for(auto &&p : result.paths)
-                            qInfo() << __FUNCTION__ << " New paths: " << p.size();
-                        qInfo() << __FUNCTION__ << " Original path length: " << original_path.size();
+                            qInfo() << __FUNCTION__ << " [BLOCKED] New paths: " << p.size();
+                        qInfo() << __FUNCTION__ << " [BLOCKED] Original path length: " << original_path.size();
                     }
                 }
                 catch (const Ice::Exception &e)
