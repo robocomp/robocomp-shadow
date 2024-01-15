@@ -172,7 +172,7 @@ void SpecificWorker::compute()
     this->lcdNumber_length->display((int)final_plan.path.size());
 
 //    /// send plan to remote interface and publish it to rcnode
-//    send_and_publish_plan(final_plan);
+    send_and_publish_plan(final_plan);
 
     hz = fps.print("FPS:", 3000);
     this->lcdNumber_hz->display(this->hz);
@@ -382,7 +382,7 @@ RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Targe
     returning_plan.valid = true;
 
     // fill path with equally spaced points from the robot to the target at a distance of consts.ROBOT_LENGTH
-    int npoints = floor(target.pos_eigen().norm() / params.ROBOT_SEMI_LENGTH);
+    int npoints = ceil(target.pos_eigen().norm() / params.ROBOT_SEMI_LENGTH);
     if(npoints > 1)
     {
         Eigen::Vector2f dir = target.pos_eigen().normalized();  // direction vector from robot to target
@@ -489,7 +489,9 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                         for (const auto &p: result.paths.front())
                             current_path.emplace_back(p.x, p.y);
                         original_path = current_path;
-                        qInfo() << __FUNCTION__ << " New target: " << current_path.size() << original_path.size();
+                        for(auto &&p : result.paths)
+                            qInfo() << __FUNCTION__ << " New paths: " << p.size();
+                        qInfo() << __FUNCTION__ << " Original path length: " << original_path.size();
                     }
                 }
                 catch (const Ice::Exception &e)
@@ -562,7 +564,7 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
         auto mod_plan = gridplanner1_proxy->modifyPlan(plan);   // call MPC
         if(mod_plan.valid and not mod_plan.controls.empty())
         {
-            qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
+            //qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             plan = mod_plan;
             draw_smoothed_path(plan.path, &viewer->scene, params.SMOOTHED_PATH_COLOR);
         }
