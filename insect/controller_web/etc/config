@@ -1,3 +1,6 @@
+# Endpoints for subscriptions interfaces
+VisualElementsPubTopic.Endpoints=tcp -p 13011
+
 # Proxies for required interfaces
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 MPCProxy = mpc:tcp -h localhost -p 12341
