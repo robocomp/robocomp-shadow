@@ -60,7 +60,6 @@ void SpecificWorker::initialize(int period)
         viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
         viewer->show();
 
-
         // Lidar thread is created
         read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
@@ -96,8 +95,14 @@ void SpecificWorker::initialize(int period)
                 target_buffer.put(std::move(target)); // false = in robot's frame - true = in global frame
                 try
                 {
-                    lidarodometry_proxy->reset();
-                    get_robot_pose_and_change();    // empty buffer
+                    lidarodometry_proxy->reset();   // empty buffer
+                    sleep(0.5);
+                    if(auto rp = get_robot_pose_and_change(); rp.has_value())
+                    {
+                        std::cout << "Reset robot pose: " << std::endl;
+                        std::cout << rp->first.matrix() << std::endl;
+                        qInfo() << "Matrix norm:" << rp->first.matrix().norm();
+                    }
                 }
                 catch (const Ice::Exception &e)
                 {
@@ -139,10 +144,7 @@ void SpecificWorker::compute()
     /// get target from buffer
     Target target = Target::invalid();
     if(auto res = target_buffer.try_get(); res.has_value())
-    {
         target = res.value();
-        draw_global_target(target.pos_eigen(), &viewer->scene);
-    }
     else { fps.print("No Target - FPS:"); return;}
 
     /// check if target has been cancelled
@@ -316,7 +318,7 @@ RoboCompGridder::Result SpecificWorker::compute_path(const Eigen::Vector2f &sour
 }
 void SpecificWorker::inject_ending_plan()
 {
-    qWarning() << __FUNCTION__ << "No valid path found. Cancelling target";
+    qWarning() << __FUNCTION__ << "Cancelling target due to robot at target, target cancelled by user or no valid path found";
     RoboCompGridPlanner::TPlan returning_plan;
     returning_plan.valid = true;
     returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=0.f});
@@ -377,10 +379,13 @@ SpecificWorker::Target SpecificWorker::transform_target_to_global_frame(const Ei
 {
     // transform target to robot's frame
     const Eigen::Vector2f &tp = target.get_original();
+    qInfo() << __FUNCTION__ <<  "Original target: " << tp.x() << tp.y();
     Eigen::Vector2f target_in_robot =
             (robot_pose.inverse().matrix() * Eigen::Vector4d(tp.x() / 1000.0, tp.y() / 1000.0, 0.0, 1.0) * 1000.0).head(2).cast<float>();
+    qInfo() << __FUNCTION__ <<  "transformed target: " << target_in_robot.x() << target_in_robot.y();
     Target target_aux = target;     // keep original target's attributes
     target_aux.set(target_in_robot);
+    qInfo() << __FUNCTION__ <<  "final target: " << target_aux.pos_eigen().x() << target_aux.pos_eigen().y();
     return target_aux;
 }
 RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Target &target)
