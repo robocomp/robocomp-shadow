@@ -162,8 +162,7 @@ class SpecificWorker : public GenericWorker
 
         // Draw
         void draw_paths(const RoboCompGridder::TPaths &paths, QGraphicsScene *scene, bool erase_only=false);
-        void draw_subtarget(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only=false);
-        void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene);
+        void draw_global_target(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only=false);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
         void draw_smoothed_path(const RoboCompGridPlanner::Points &path, QGraphicsScene *scene, const QColor &color, bool erase_only=false);
         void draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate=1);
