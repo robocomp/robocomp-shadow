@@ -69,8 +69,12 @@ public:
                         float grid_angle = 0.f);
 
         // paths
-        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_,
-                                                                  unsigned num_paths, float threshold_dist);
+        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_,
+                                                                  const Eigen::Vector2f &target_,
+                                                                  unsigned num_paths,
+                                                                  float threshold_dist,
+                                                                  bool try_closest_free_point,
+                                                                  bool target_is_human);
 
         // map maintainance
         void update_map( const std::vector<Eigen::Vector3f> &points,
