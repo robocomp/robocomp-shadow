@@ -75,9 +75,9 @@ public slots:
             float MIN_DISTANCE_TO_TARGET = ROBOT_WIDTH / 2.f; // mm
             std::string LIDAR_NAME_LOW = "bpearl";
             std::string LIDAR_NAME_HIGH = "helios";
-            float MAX_LIDAR_LOW_RANGE = 8000;  // mm
-            float MAX_LIDAR_HIGH_RANGE = 8000;  // mm
-            float MAX_LIDAR_RANGE = 8000;  // mm used in the grid
+            float MAX_LIDAR_LOW_RANGE = 15000;  // mm
+            float MAX_LIDAR_HIGH_RANGE = 15000;  // mm
+            float MAX_LIDAR_RANGE = MAX_LIDAR_LOW_RANGE;  // mm used in the grid
             int LIDAR_LOW_DECIMATION_FACTOR = 1;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-5000, -5000, 10000, 10000};
