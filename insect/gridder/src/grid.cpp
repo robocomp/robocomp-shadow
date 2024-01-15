@@ -348,11 +348,21 @@ std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_,
         qWarning() << "Could not find target position in Grid. Returning empty path";
         return {};
     }
+    else if(not target_cell.free)
+    {
+        qWarning() << "Target position is occupied in Grid. Returning empty path";
+        return {};
+    }
     Key source_key = point_to_key(source_);
     const auto &[succ_src, source_cell] = get_cell(source_key);
     if(not succ_src)
     {
         qWarning() << "Could not find source position in Grid. Returning empty path";
+        return {};
+    }
+    else if(not source_cell.free)
+    {
+        qWarning() << "Source position is occupied in Grid. Returning empty path";
         return {};
     }
     if (source_key == target_key)
@@ -416,16 +426,20 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     //qInfo() << __FUNCTION__;
 
     // set grid cells around human target to free
-    if(target_is_human)
+    //if (target_is_human)
     {
-        auto target_key = point_to_key(target_);
-        for(auto &&[k, v] : neighboors_8(target_key))
-            set_free(k);
+        for (auto &&[k, v]: neighboors_16(point_to_key(target_)))
+        {
+            v.free = true;
+            v.cost = 1;
+        }
+        set_free(point_to_key(target_));
+        set_cost(point_to_key(target_), 1);
     }
 
     // if target is occupied, try to find the closest free point
     Eigen::Vector2f target = target_;
-    if(not is_free(target_) and try_closest_free_point)
+    if(not is_free(target_))
     {
         if(auto free = closest_free(QPointF{target_.x(), target_.y()}); free.has_value())
         {
@@ -438,10 +452,14 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
             return {};
         }
     }
-
+    qInfo() << __FUNCTION__ <<  is_free(target);
     // get an initial shortest path
     auto initial_path = compute_path(source_, target);
-    if(initial_path.empty()) return {};
+    if (initial_path.empty())
+    {
+        qWarning() << __FUNCTION__ << "Initial path to " << target_.x() << target_.y() << "not found. Returning empty path";
+        return {};
+    };
 
     // initialize vector of paths and aux variables
     std::vector<std::vector<Eigen::Vector2f>> paths_list;
@@ -811,6 +829,8 @@ std::tuple<bool, QVector2D> Grid::vector_to_closest_obstacle(QPointF center)
     }
     return std::make_tuple(obstacleFound,closestVector);
 }
+
+// TODO: This does not work for arbitrary sources
 bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width)
 {
     // checks if the robot can move from source to target in a straight line without colliding with an obstacle
@@ -836,9 +856,12 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
     bool success = true;
     for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
     {
-        Eigen::Vector2f src = Eigen::Vector2f{params.tile_size * i, 0.f} - source;
+        Eigen::Vector2f src = Eigen::Vector2f{params.tile_size * i, 0.f};
         success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
-                        { return is_free(src + (step * i)); });
+        {
+           bool r = is_free(src + (step * i));
+           return r;
+        });
     }
     return success;
 }
