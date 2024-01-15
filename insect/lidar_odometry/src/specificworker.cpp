@@ -105,6 +105,7 @@ void SpecificWorker::compute()
     // gets accumulated pose and instantaneous change (first, second)
     auto robot_pose = fastgicp.align(pcl_cloud_source);
 
+    
     buffer_odometry.put(std::move(robot_pose), [](auto &&input, auto &output)
             {
 

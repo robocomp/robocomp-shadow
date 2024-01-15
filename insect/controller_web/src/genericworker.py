@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2023 by YOUR NAME HERE
+#    Copyright (C) 2024 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -45,7 +45,6 @@ class GenericWorker(QtCore.QObject):
         self.mpc_proxy = mprx["MPCProxy"]
         self.maskelements_proxy = mprx["MaskElementsProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
-        self.visualelements_proxy = mprx["VisualElementsProxy"]
         self.segmentatortrackingpub_proxy = mprx["SegmentatorTrackingPub"]
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)

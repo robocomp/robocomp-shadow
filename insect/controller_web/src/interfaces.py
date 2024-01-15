@@ -19,8 +19,8 @@ Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
 import RoboCompPerson
 Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
 import RoboCompSegmentatorTrackingPub
-Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
-import RoboCompVisualElements
+Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
+import RoboCompVisualElementsPub
 
 class ImgType(list):
     def __init__(self, iterable=list()):
@@ -130,43 +130,26 @@ class TConnections(list):
         super(TConnections, self).insert(index, item)
 
 setattr(RoboCompPerson, "TConnections", TConnections)
-class TMetrics(list):
-    def __init__(self, iterable=list()):
-        super(TMetrics, self).__init__(iterable)
-
-    def append(self, item):
-        assert isinstance(item, float)
-        super(TMetrics, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, float)
-        super(TMetrics, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, float)
-        super(TMetrics, self).insert(index, item)
-
-setattr(RoboCompVisualElements, "TMetrics", TMetrics)
 class TObjects(list):
     def __init__(self, iterable=list()):
         super(TObjects, self).__init__(iterable)
 
     def append(self, item):
-        assert isinstance(item, RoboCompVisualElements.TObject)
+        assert isinstance(item, RoboCompVisualElementsPub.TObject)
         super(TObjects, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
-            assert isinstance(item, RoboCompVisualElements.TObject)
+            assert isinstance(item, RoboCompVisualElementsPub.TObject)
         super(TObjects, self).extend(iterable)
 
     def insert(self, index, item):
-        assert isinstance(item, RoboCompVisualElements.TObject)
+        assert isinstance(item, RoboCompVisualElementsPub.TObject)
         super(TObjects, self).insert(index, item)
 
-setattr(RoboCompVisualElements, "TObjects", TObjects)
+setattr(RoboCompVisualElementsPub, "TObjects", TObjects)
 
+import visualelementspubI
 
 
 
@@ -216,8 +199,6 @@ class Requires:
 
         self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
 
-        self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
-
     def get_proxies_map(self):
         return self.mprx
 
@@ -244,6 +225,8 @@ class Subscribes:
     def __init__(self, ice_connector, topic_manager, default_handler):
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
+
+        self.VisualElementsPub = self.create_adapter("VisualElementsPubTopic", visualelementspubI.VisualElementsPubI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)

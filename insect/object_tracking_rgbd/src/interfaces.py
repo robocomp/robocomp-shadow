@@ -9,12 +9,10 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGBD.ice")
 import RoboCompCamera360RGBD
-Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
-import RoboCompPerson
 Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
 import RoboCompSegmentatorTrackingPub
-Ice.loadSlice("-I ./src/ --all ./src/VisualElements.ice")
-import RoboCompVisualElements
+Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
+import RoboCompVisualElementsPub
 
 class ImgType(list):
     def __init__(self, iterable=list()):
@@ -52,62 +50,25 @@ class ImgType(list):
         super(ImgType, self).insert(index, item)
 
 setattr(RoboCompCamera360RGBD, "ImgType", ImgType)
-class TConnections(list):
+class TObjects(list):
     def __init__(self, iterable=list()):
-        super(TConnections, self).__init__(iterable)
+        super(TObjects, self).__init__(iterable)
 
     def append(self, item):
-        assert isinstance(item, RoboCompPerson.TConnection)
-        super(TConnections, self).append(item)
+        assert isinstance(item, RoboCompVisualElementsPub.TObject)
+        super(TObjects, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
-            assert isinstance(item, RoboCompPerson.TConnection)
-        super(TConnections, self).extend(iterable)
+            assert isinstance(item, RoboCompVisualElementsPub.TObject)
+        super(TObjects, self).extend(iterable)
 
     def insert(self, index, item):
-        assert isinstance(item, RoboCompPerson.TConnection)
-        super(TConnections, self).insert(index, item)
+        assert isinstance(item, RoboCompVisualElementsPub.TObject)
+        super(TObjects, self).insert(index, item)
 
-setattr(RoboCompPerson, "TConnections", TConnections)
-class TMetrics(list):
-    def __init__(self, iterable=list()):
-        super(TMetrics, self).__init__(iterable)
+setattr(RoboCompVisualElementsPub, "TObjects", TObjects)
 
-    def append(self, item):
-        assert isinstance(item, float)
-        super(TMetrics, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, float)
-        super(TMetrics, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, float)
-        super(TMetrics, self).insert(index, item)
-
-setattr(RoboCompVisualElements, "TMetrics", TMetrics)
-class TObjectList(list):
-    def __init__(self, iterable=list()):
-        super(TObjectList, self).__init__(iterable)
-
-    def append(self, item):
-        assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjectList, self).append(item)
-
-    def extend(self, iterable):
-        for item in iterable:
-            assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjectList, self).extend(iterable)
-
-    def insert(self, index, item):
-        assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjectList, self).insert(index, item)
-
-setattr(RoboCompVisualElements, "TObjectList", TObjectList)
-
-import visualelementsI
 import segmentatortrackingpubI
 
 
@@ -117,6 +78,8 @@ class Publishes:
         self.ice_connector = ice_connector
         self.mprx={}
         self.topic_manager = topic_manager
+
+        self.visualelementspub = self.create_topic("VisualElementsPub", RoboCompVisualElementsPub.VisualElementsPubPrx)
 
 
     def create_topic(self, topic_name, ice_proxy):
@@ -209,7 +172,6 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
-        self.visualelements = self.create_adapter("VisualElements", visualelementsI.VisualElementsI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
