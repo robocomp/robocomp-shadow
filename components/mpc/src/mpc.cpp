@@ -155,7 +155,7 @@ namespace rc
             auto s2 = control(1,k+1);
             auto sacc = (s2-s1)/dt;
             //auto x_next = state(all, k) + dt * integrate(state(all,k), control(all,k));
-            opti.subject_to(opti.bounded(-0.5, sacc, 0.5));
+            opti.subject_to(opti.bounded(-0.2, sacc, 0.2));
 
             // rot
             auto w1 = control(2,k);
@@ -228,10 +228,10 @@ namespace rc
         }
 
         // minimze sum of rotations
-        //        auto sum_rot = opti_local.parameter();
-        //        opti_local.set_value(sum_rot, 0.0);
-        //        for (auto k: iter::range(consts.NUM_STEPS))
-        //            sum_rot += casadi::MX::sumsqr(rot(k));
+                auto sum_rot = opti_local.parameter();
+                opti_local.set_value(sum_rot, 0.0);
+                for (auto k: iter::range(consts.num_steps))
+                    sum_rot += casadi::MX::sumsqr(rot(k));
 
         // minimze angle of robot's nose wrt to next point in path
         auto sum_angle = opti_local.parameter();
@@ -245,7 +245,11 @@ namespace rc
         for (auto k: iter::range(consts.num_steps))
             sum_dist_target += casadi::MX::sumsqr(pos(all, k) - e2v(target_robot.cast<double>()));
 
-        opti_local.minimize( sum_dist_path + sum_angle*2 + sum_dist_target*0.1 + 1.0/(sum_dist_obstacle+0.0001));
+        opti_local.minimize( sum_dist_path +
+                             sum_angle * 8 +
+                             sum_dist_target * 0.05 +
+                             2.0/(sum_dist_obstacle+0.0001)
+                             + sum_rot);
 
         // solve NLP ------
         try
@@ -257,8 +261,8 @@ namespace rc
                 std::cout << "NOT succeeded" << std::endl;
                 return {};
             }
-            previous_values_of_solution = std::vector<double>(solution.value(state));
-            previous_control_of_solution = std::vector<double>(solution.value(control));
+            //previous_values_of_solution = std::vector<double>(solution.value(state));
+            //previous_control_of_solution = std::vector<double>(solution.value(control));
 
             // print output -----
             std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
@@ -292,8 +296,8 @@ namespace rc
         catch (const casadi::CasadiException& e)
         {
             std::cout << "CasADi exception caught: " << e.what() << std::endl;
-            previous_values_of_solution.clear();
-            previous_control_of_solution.clear();
+            //previous_values_of_solution.clear();
+            //previous_control_of_solution.clear();
             return {};
         }
     }
