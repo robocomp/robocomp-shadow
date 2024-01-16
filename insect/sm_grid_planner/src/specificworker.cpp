@@ -77,8 +77,8 @@ void SpecificWorker::initialize(int period)
                 QRectF dim;
                 try
                 {
-                    auto gdim = gridder_proxy->getDimensions();
-                    dim = QRectF{gdim.left, gdim.top, gdim.width, gdim.height};
+                    params.gdim = gridder_proxy->getDimensions();
+                    dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
                     if (dim.contains(p))
                         target.set(p, true);
                     else
@@ -149,6 +149,9 @@ void SpecificWorker::compute()
     if(auto res = target_buffer.try_get(); res.has_value())
         target = res.value();
     else { fps.print("No Target - FPS:"); return;}
+    //draw target
+    draw_global_target(target.pos_eigen(), &viewer->scene);
+
     qInfo() << __FUNCTION__ << "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
     /// check if target has been cancelled
@@ -160,8 +163,8 @@ void SpecificWorker::compute()
     }
 
     /// transform target to robot's frame
-    // target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
-    // draw_global_target(target.pos_eigen(), &viewer->scene);
+    target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
+    draw_point_color(target.pos_eigen(), &viewer->scene, false, QColor{"pink"});
 
     /// check if target has been reached
     if(robot_is_at_target(target))
@@ -188,6 +191,33 @@ void SpecificWorker::compute()
 ////    /// send plan to remote interface and publish it to rcnode
     if(not this->pushButton_stop->isChecked())
         send_and_publish_plan(final_plan);
+
+
+
+
+
+    target_buffer.put(std::move(target));
+//    try
+//    {
+//        lidarodometry_proxy->reset();   // empty buffer
+//        std::optional<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> rp;
+//        auto start = std::chrono::high_resolution_clock::now();
+//        do
+//        {   rp = get_robot_pose_and_change();
+//            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+//        } while (rp->first.matrix().diagonal().sum() < 3.7 and
+//                 std::chrono::duration_cast<std::chrono::milliseconds>(start - std::chrono::high_resolution_clock::now()).count() < 4000);
+//        if(rp->first.matrix().diagonal().sum() < 3.7)
+//            qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
+//    }
+//    catch (const Ice::Exception &e)
+//    {
+//        std::cout << "[MOUSE] Error reading from LidarOdometry" << e << std::endl;
+//        target = Target::invalid();
+//        return;
+//    };
+
+
 
     hz = fps.print("FPS:", 3000);
     this->lcdNumber_hz->display(this->hz);
@@ -306,16 +336,28 @@ void SpecificWorker::read_lidar()
 } // Thread to read the lidar
 RoboCompGridder::Result SpecificWorker::compute_path(const Eigen::Vector2f &source, const Target &target)
 {
-    //qInfo() << __FUNCTION__;
+
+    
+    RoboCompGridder::TPoint closest_point;
+    Target target_plan = target;
+
     RoboCompGridder::Result returning_plan;
     try
     {
+        auto dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+
+        if (not dim.contains(QPointF{target.pos_eigen().x(),target.pos_eigen().y()}))
+        {
+            closest_point = gridder_proxy->getClosestFreePoint(RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()});
+            target_plan.pos_eigen() = Eigen::Vector2f{closest_point.x, closest_point.y};
+        }
+
         if (gridder_proxy->LineOfSightToTarget(RoboCompGridder::TPoint{source.x(), source.y()},
-                                               RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
+                                               RoboCompGridder::TPoint{target_plan.pos_eigen().x(), target_plan.pos_eigen().y()},
                                                params.ROBOT_SEMI_WIDTH))
-            returning_plan = compute_line_of_sight_target(target);
+            returning_plan = compute_line_of_sight_target(target_plan);
         else
-            returning_plan = compute_plan_from_grid(target);
+            returning_plan = compute_plan_from_grid(target_plan);
     }
     catch (const Ice::Exception &e)
     { std::cout << "Error reading Line of Sight from Gridder" << e << std::endl; }
@@ -788,6 +830,22 @@ void SpecificWorker::draw_global_target(const Eigen::Vector2f &point, QGraphicsS
     item = scene->addEllipse(-s/2, -s/2, s, s, pen, brush);
     item->setPos(QPointF(point.x(), point.y()));
 }
+
+void SpecificWorker::draw_point_color(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only, QColor color)
+{
+    static QGraphicsEllipseItem *item = nullptr;
+    if(item != nullptr)
+        scene->removeItem(item);
+
+    if(erase_only) return;
+
+    QPen pen = QPen(color);
+    QBrush brush = QBrush(color);
+    int s = 150;
+    item = scene->addEllipse(-s/2, -s/2, s, s, pen, brush);
+    item->setPos(QPointF(point.x(), point.y()));
+}
+
 void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate)
 {
     static std::vector<QGraphicsItem *> draw_points;
@@ -811,6 +869,8 @@ void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int 
         }
     }
 }
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
@@ -867,6 +927,11 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub:
         t.set_original(pp);
         t.set_new(true);
     }
+    //Reset lidar odometry
+    try
+    { lidarodometry_proxy->reset(); }
+    catch (const Ice::Exception &e)
+    { std::cout << __FUNCTION__ << " Error resetting LidarOdometry" << e << std::endl; }
 
     target_buffer.put(std::move(t));
 }
