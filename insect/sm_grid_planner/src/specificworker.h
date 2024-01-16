@@ -72,6 +72,7 @@ class SpecificWorker : public GenericWorker
             int LIDAR_LOW_DECIMATION_FACTOR = 2;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-6000, -6000, 12000, 12000};
+            RoboCompGridder::TDimensions gdim;
             float CARROT_DISTANCE = 400;   // mm
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
@@ -166,6 +167,7 @@ class SpecificWorker : public GenericWorker
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
         void draw_smoothed_path(const RoboCompGridPlanner::Points &path, QGraphicsScene *scene, const QColor &color, bool erase_only=false);
         void draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate=1);
+        void draw_point_color(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only, QColor color);
 
         // Lidar Thread
         DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
