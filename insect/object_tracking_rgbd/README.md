@@ -7,7 +7,12 @@ To install the software for getting orientation:
 - Copy them to /home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights
 - Rename the chosen one to "best.pt"
 
-You can download yolov8-seg.pt from https://github.com/ultralytics/ultralytics 
+To download the YOLO weights and convert them to TRT, run: 
+- python3 pt_converter.py. 
+You can choose the model by modifying the script.
+
+When executing the component, some versions of Torch return the error "AttributeError("'{}' object has no attribute '{}'".format(
+AttributeError: 'Upsample' object has no attribute 'recompute_scale_factor'". To fix it, modify the file "upsampling.py" and remove the parameter "recompute_scale_factor=self.recompute_scale_factor" in the "forward" function.
 
 ## Configuration parameters
 As any other component, *yolov8_360* needs a configuration file to start. In
