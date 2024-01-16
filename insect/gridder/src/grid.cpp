@@ -327,6 +327,9 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 ////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
 std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
 {
+
+    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
+
     // computes a path from source to target using the Dijkstra algorithm
     // TODO: If failure, return the cause in a string
 
@@ -409,7 +412,7 @@ std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_,
             }
         }
     }
-    //qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
+    qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
     return {};
 };
 std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vector2f &source_,
@@ -424,19 +427,28 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // starting from an initial path and setting to occupied succesive cells in the path, new paths are computed
     // until k paths are found or the initial path is exhausted
     //qInfo() << __FUNCTION__;
-
+    qInfo() << __FUNCTION__ <<  " Target before free" << is_free(target_);
     // set grid cells around human target to free
-    //if (target_is_human)
+   // if (target_is_human)
     {
-        for (auto &&[k, v]: neighboors_16(point_to_key(target_)))
+        for (auto &[k, v]: neighboors_16(point_to_key(target_), true))
         {
+            qInfo() << k.first << k.second << v.free;
             v.free = true;
             v.cost = 1;
+            qInfo() << "after" << k.first << k.second << v.free;
         }
-        set_free(point_to_key(target_));
-        set_cost(point_to_key(target_), 1);
+        const auto &[k, v] =  get_cell(point_to_key(target_));
+        //set_free(point_to_key(target_));
+        //set_cost(point_to_key(target_), 1);
+        v.free = true;
+        v.cost = 1;
     }
+    for(const auto &[k, v] : neighboors_16(point_to_key(target_), true))
+        qInfo() <<  k.first << k.second << v.free;
+    qInfo() << "-----------------------";
 
+    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
     // if target is occupied, try to find the closest free point
     Eigen::Vector2f target = target_;
     if(not is_free(target_))
@@ -452,7 +464,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
             return {};
         }
     }
-    qInfo() << __FUNCTION__ <<  is_free(target);
+
     // get an initial shortest path
     auto initial_path = compute_path(source_, target);
     if (initial_path.empty())
@@ -490,10 +502,10 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     }
     return paths_list;
 }
-std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, const std::vector<int> &xincs,const std::vector<int> &zincs,
+std::vector<std::pair<Grid::Key, Grid::T&>> Grid::neighboors(const Grid::Key &k, const std::vector<int> &xincs,const std::vector<int> &zincs,
                                                             bool all)
 {
-    std::vector<std::pair<Key, T>> neigh;
+    std::vector<std::pair<Key, T&>> neigh;
     // list of increments to access the neighboors of a given position
     for (auto &&[itx, itz]: iter::zip(xincs, zincs))
     {
@@ -515,14 +527,14 @@ std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors(const Grid::Key &k, 
     }
     return neigh;
 }
-std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors_8(const Grid::Key &k, bool all)
+std::vector<std::pair<Grid::Key, Grid::T&>> Grid::neighboors_8(const Grid::Key &k, bool all)
 {
     const int &I = params.tile_size;
     static const std::vector<int> xincs = {I, I, I, 0, -I, -I, -I, 0};
     static const std::vector<int> zincs = {I, 0, -I, -I, -I, 0, I, I};
     return this->neighboors(k, xincs, zincs, all);
 }
-std::vector<std::pair<Grid::Key, Grid::T>> Grid::neighboors_16(const Grid::Key &k, bool all)
+std::vector<std::pair<Grid::Key, Grid::T&>> Grid::neighboors_16(const Grid::Key &k, bool all)
 {
     const int &I = params.tile_size;
     static const std::vector<int> xincs = {0,   I,   2*I,  2*I, 2*I, 2*I, 2*I, I, 0, -I, -2*I, -2*I,-2*I,-2*I,-2*I, -I};
@@ -576,12 +588,12 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
     static QBrush gray_brush(QColor("LightGray"));
     static QBrush green_brush(QColor("LightGreen"));
     static QBrush white(QColor("White"));
-    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges
                 ={{100, 75, orange_brush, &Grid::neighboors_16},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
                   {25, 5,  green_brush, &Grid::neighboors_16}};
-    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
                 ={{100, 75, white, &Grid::neighboors_16},
                   {75, 50, white, &Grid::neighboors_8},
                   {50, 25, white, &Grid::neighboors_8},
@@ -779,7 +791,7 @@ std::optional<QPointF> Grid::closest_free_4x4(const QPointF &p)
                 if (not cell.second.free)
                     return false;
                 Key key = point_to_key(QPointF(cell.first.first, cell.first.second));
-                std::vector<std::pair<Grid::Key, Grid::T>> L1 = neighboors_16(key, false);
+                std::vector<std::pair<Grid::Key, Grid::T&>> L1 = neighboors_16(key, false);
                 return (L1.size() == 16);
             });
 }
