@@ -68,7 +68,7 @@ void SpecificWorker::initialize(int period)
             qInfo() << "[MOUSE] New global target arrived:" << p;
             auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(),
                                               Eigen::Vector2f{p.x(), p.y()},
-                                              params.NUM_PATHS_TO_SEARCH,
+                                              1,
                                               params.MIN_DISTANCE_BETWEEN_PATHS,
                                               true, false);
             if(not paths.empty())
