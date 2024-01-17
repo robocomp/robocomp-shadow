@@ -177,6 +177,10 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 50
             self.display = False
             
+            for file in os.listdir(os.path.dirname(os.path.abspath(__file__))):
+                if file.endswith('.engine'):
+                    print("AAAAAAAAAA", file)
+            
             self.yolo_model_name = 'yolov8m-seg.engine'
             # self.yolo_model_name = 'yolov8n-pose.pt'
             
