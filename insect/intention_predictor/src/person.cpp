@@ -27,23 +27,27 @@ void Person::init_item(QGraphicsScene *scene, float x, float y, float angle)
     auto pilar_cone_item = scene->addPolygon(this->pilar_cone, QPen(QColor("magenta"), 10, Qt::SolidLine, Qt::RoundCap));
     pilar_cone_item->setParentItem(item);
 }
+void Person::set_person_data(RoboCompVisualElementsPub::TObject person)
+{
+    target = person;
+}
 // Method to check if there is an object in a TObjects list with the same id
 void Person::update_attributes(const RoboCompVisualElementsPub::TObjects &list)
 {
     // Check if TAttributes in target is empty
-    if (target.attributes.empty())
-    {
-        if (auto r = std::ranges::find_if(list, [this](const auto &o) { return o.type == 0; }); r != list.end())
-        {
-            target = *r;
-            return;
-        }
-        else
-        {
-            qWarning() << __FUNCTION__ << "No person found to fill empty target";
-            return;
-        }
-    }
+//    if (target.attributes.empty())
+//    {
+//        if (auto r = std::ranges::find_if(list, [this](const auto &o) { return o.type == 0; }); r != list.end())
+//        {
+//            target = *r;
+//            return;
+//        }
+//        else
+//        {
+//            qWarning() << __FUNCTION__ << "No person found to fill empty target";
+//            return;
+//        }
+//    }
     // Check if target is in list and update
     if(auto r = std::ranges::find_if(list, [this](const auto &o) { return o.id == target.id; }); r!= list.end())
     {
@@ -136,9 +140,35 @@ void Person::set_target_element(bool value)
 {
     is_target = value;
 }
+void Person::set_updated(bool value)
+{
+    updated = value;
+}
+// Method to update the last update time
+void Person::update_last_update_time()
+{
+    last_update_time = std::chrono::high_resolution_clock::now();
+}
+// Method to get the last update time
+std::chrono::high_resolution_clock::time_point Person::get_last_update_time() const
+{
+    return last_update_time;
+}
 int Person::get_id() const
 {
     return target.id;
+}
+QGraphicsItem* Person::get_item() const
+{
+    return item;
+}
+RoboCompVisualElementsPub::TObject Person::get_target() const
+{
+    return target;
+}
+bool Person::is_target_element() const
+{
+    return is_target;
 }
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person)

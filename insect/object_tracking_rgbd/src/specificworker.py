@@ -335,7 +335,7 @@ class SpecificWorker(GenericWorker):
             tracks = self.tracker.update(np.array(objects["confidences"]),
                                 np.array(objects["bboxes"]),
                                 np.array(objects["classes"]),
-                                np.array(objects["masks"]),
+                                np.array(objects["masks"], dtype="object"),
                                 np.array(objects["hashes"]),
                                 np.array(objects["poses"]),
                                 np.array(objects["orientations"]))
@@ -350,7 +350,7 @@ class SpecificWorker(GenericWorker):
 
                 # If display is enabled, show the tracking results on the image
             if self.display:
-                img = self.display_data_tracks(img0, self.objects_read.objects)
+                img = self.display_data_tracks(img0, self.objects_write.objects)
                 # img_int = img.astype('float32') / 255.0
                 # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 
@@ -755,11 +755,11 @@ class SpecificWorker(GenericWorker):
             img (numpy array): The image with overlaid object data.
         """
         for element in elements:
-            x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
+            x0, y0, x1, y1 = map(int, [int(float(element.attributes["bbox_left"])), int(float(element.attributes["bbox_top"])), int(float(element.attributes["bbox_right"])), int(float(element.attributes["bbox_bot"]))])
             cls_ind = element.type
             color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
             # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
-            text = f'{element.x} - {element.y} - {element.id} - {element.person.orientation} - {_OBJECT_NAMES[element.type]}'
+            text = f'{float(element.attributes["x_pos"])} - {float(element.attributes["y_pos"])} - {element.id} - {float(element.attributes["orientation"])} - {_OBJECT_NAMES[element.type]}'
             txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
@@ -826,6 +826,7 @@ class SpecificWorker(GenericWorker):
         #         self.target_roi_xcenter_list = queue.Queue(10)
         #         self.tracked_element = track_obj
         self.tracked_id = track.id
+        print("TRACKED ID", self.tracked_id)
 
                 # return
     def update_plot(self,frame):
