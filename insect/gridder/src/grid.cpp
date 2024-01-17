@@ -325,6 +325,103 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 }
 
 ////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
+
+std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_target(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
+{
+    // Declarate error msg string
+    std::string error_msg = "No error";
+    // dim to string
+    std::string dim_str = "dim: " + std::to_string(dim.left()) + " " + std::to_string(dim.top()) + " " + std::to_string(dim.width()) + " " + std::to_string(dim.height());
+
+    // Admission rules
+    if (not dim.contains(QPointF(target_.x(), target_.y())))
+    {
+        error_msg = "Target " + std::to_string(target_.x()) + " " + std::to_string(target_.y()) + "Target out of limits " + dim_str + " Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    if (not dim.contains(QPointF(source_.x(), source_.y())))
+    {
+        error_msg = "Source " + std::to_string(source_.x()) + " " + std::to_string(source_.y()) + "Robot  out of limits " + dim_str + " Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    Key target_key = point_to_key(target_);
+    const auto &[succ_trg, target_cell] = get_cell(target_key);
+    if(not succ_trg)
+    {
+        error_msg = "Could not find target position in Grid. Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    else if(not target_cell.free)
+    {
+        error_msg = "Target position is occupied in Grid. Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    Key source_key = point_to_key(source_);
+    const auto &[succ_src, source_cell] = get_cell(source_key);
+    if(not succ_src)
+    {
+        error_msg = "Could not find source position in Grid. Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    else if(not source_cell.free)
+    {
+        error_msg = "Source position is occupied in Grid. Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    if (source_key == target_key)
+    {
+        error_msg = "Robot already at target. Returning empty path";
+        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
+    }
+    error_msg = "Valid source and target";
+    return std::make_tuple(true, error_msg, source_key, target_key);
+}
+
+std::vector<Eigen::Vector2f > Grid::compute_path_key(const Key &source_key, const Key &target_key)
+{
+    const auto &[succ_trg, target_cell] = get_cell(target_key);
+    const auto &[succ_src, source_cell] = get_cell(source_key);
+    // Dijkstra algorithm
+    // initial distances vector
+    std::vector<uint32_t> min_distance(fmap.size(), std::numeric_limits<uint32_t>::max());
+    // initialize source position to 0
+    min_distance[source_cell.id] = 0;
+    // vector de pares<std::uint32_t, Key> initialized to (-1, Key())
+    std::vector<std::pair<std::uint32_t, Key>> previous(fmap.size(), std::make_pair(-1, Key()));
+    // lambda to compare two vertices: a < b if a.id<b.id or
+    auto comp = [this](std::pair<std::uint32_t, Key> x, std::pair<std::uint32_t, Key> y){ return x.first <= y.first; };
+    // Open List
+    std::set<std::pair<std::uint32_t, Key>, decltype(comp)> active_vertices(comp);
+    active_vertices.insert({0, source_key});
+    while (not active_vertices.empty())
+    {
+        Key where = active_vertices.begin()->second;
+        if (where == target_key)  // target found
+        {
+            auto p = recover_path(previous, source_key, target_key);
+            p = decimate_path(p);  // reduce size of path to half
+            // TODO: reduce path steps to a multiple of the robot's size
+            return p;
+        }
+        active_vertices.erase(active_vertices.begin());
+        for (auto ed : neighboors_8(where))
+        {
+            //qInfo() << __FUNCTION__ << min_distance[ed.second.id] << ">" << min_distance[fmap.at(where).id] << "+" << ed.second.cost;
+            const auto &[succ, where_cell] = get_cell(where);
+            if (min_distance[ed.second.id] > min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost))
+            {
+                active_vertices.erase({min_distance[ed.second.id], ed.first});
+                min_distance[ed.second.id] = min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost);
+                min_distance[ed.second.id] = min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost);
+                previous[ed.second.id] = std::make_pair(where_cell.id, where);
+                active_vertices.insert({min_distance[ed.second.id], ed.first}); // Djikstra
+                //active_vertices.insert( { min_distance[ed.second.id] + heuristicL2(ed.first, target_key), ed.first } ); //A*
+            }
+        }
+    }
+    qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_key.first << "," << target_key.second << ") not  found. Returning empty path";
+    return {};
+};
 std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
 {
 
@@ -466,7 +563,22 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     }
 
     // get an initial shortest path
-    auto initial_path = compute_path(source_, target);
+    std::vector<Eigen::Vector2f> initial_path;
+    auto validated = validate_source_target(source_, target);
+    std::string message = std::get<1>(validated);
+
+    if(std::get<0>(validated))
+        initial_path = compute_path_key(std::get<2>(validated), std::get<3>(validated));
+
+    qInfo() << "//----------------------------------------------------------------------------------------------//";
+    qInfo() << __FUNCTION__ << message.c_str();
+
+
+
+
+//    auto initial_path = compute_path(source_, target);
+
+
     if (initial_path.empty())
     {
         qWarning() << __FUNCTION__ << "Initial path to " << target_.x() << target_.y() << "not found. Returning empty path";
@@ -489,6 +601,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
         {
             // mark cell as occupied
             set_occupied(point_to_key(*current_step));
+
             auto path = compute_path(source_, target);
             if(not path.empty())
             {
@@ -501,6 +614,29 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
         }
     }
     return paths_list;
+}
+//Method to compute line of sight path from source to target
+std::vector<Eigen::Vector2f> Grid::compute_path_line_of_sight(const Key &source_key, const Key &target_key, const int distance)
+{
+    std::vector<Eigen::Vector2f> los_path;
+    Eigen::Vector2f source = Eigen::Vector2f{static_cast<float>(source_key.first), static_cast<float>(source_key.second)};
+    Eigen::Vector2f target = Eigen::Vector2f{static_cast<float>(target_key.first), static_cast<float>(target_key.second)};
+
+    // fill path with equally spaced points from the robot to the target at a distance of consts.ROBOT_LENGTH
+    int npoints = ceil(target.norm() / distance);
+    if(npoints > 1)
+    {
+        Eigen::Vector2f dir = target.normalized();  // direction vector from robot to target
+        for (const auto &i: iter::range(npoints))
+        {
+            Eigen::Vector2f p = dir * (distance * i);
+            los_path.emplace_back(p);
+        }
+    }
+    else
+        los_path.emplace_back(target);
+
+    return los_path;
 }
 std::vector<std::pair<Grid::Key, Grid::T&>> Grid::neighboors(const Grid::Key &k, const std::vector<int> &xincs,const std::vector<int> &zincs,
                                                             bool all)
@@ -877,6 +1013,8 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
     }
     return success;
 }
+
+
 
 
 // MORRALLA
