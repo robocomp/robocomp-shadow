@@ -152,7 +152,7 @@ void SpecificWorker::compute()
     //draw target
     draw_global_target(target.pos_eigen(), &viewer->scene);
 
-    qInfo() << __FUNCTION__ << "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
+//    qInfo() << __FUNCTION__ << "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
     /// check if target has been cancelled
     if(cancel_from_mouse or target.is_completed())
@@ -336,31 +336,30 @@ void SpecificWorker::read_lidar()
 } // Thread to read the lidar
 RoboCompGridder::Result SpecificWorker::compute_path(const Eigen::Vector2f &source, const Target &target)
 {
-
-    
     RoboCompGridder::TPoint closest_point;
     Target target_plan = target;
-
     RoboCompGridder::Result returning_plan;
+
     try
     {
-        auto dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+//        auto dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+//
+//        if (not dim.contains(QPointF{target.pos_eigen().x(),target.pos_eigen().y()}))
+//        {
+//            closest_point = gridder_proxy->getClosestFreePoint(RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()});
+//            target_plan.pos_eigen() = Eigen::Vector2f{closest_point.x, closest_point.y};
+//        }
 
-        if (not dim.contains(QPointF{target.pos_eigen().x(),target.pos_eigen().y()}))
-        {
-            closest_point = gridder_proxy->getClosestFreePoint(RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()});
-            target_plan.pos_eigen() = Eigen::Vector2f{closest_point.x, closest_point.y};
-        }
-
-        if (gridder_proxy->LineOfSightToTarget(RoboCompGridder::TPoint{source.x(), source.y()},
-                                               RoboCompGridder::TPoint{target_plan.pos_eigen().x(), target_plan.pos_eigen().y()},
-                                               params.ROBOT_SEMI_WIDTH))
-            returning_plan = compute_line_of_sight_target(target_plan);
-        else
-            returning_plan = compute_plan_from_grid(target_plan);
+//        if (gridder_proxy->LineOfSightToTarget(RoboCompGridder::TPoint{source.x(), source.y()},
+//                                               RoboCompGridder::TPoint{target_plan.pos_eigen().x(), target_plan.pos_eigen().y()},
+//                                               params.ROBOT_SEMI_WIDTH))
+//            returning_plan = compute_line_of_sight_target(target_plan);
+//        else
+        returning_plan = compute_plan_from_grid(target_plan);
     }
     catch (const Ice::Exception &e)
-    { std::cout << "Error reading Line of Sight from Gridder" << e << std::endl; }
+    { std::cout << "Error reading path from Gridder" << e << std::endl; }
+//    { std::cout << "Error reading Line of Sight from Gridder" << e << std::endl; }
 
     return returning_plan;
 }
@@ -490,18 +489,19 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                                                          true);
             if(not result.valid or result.paths.empty())   //TODO: try a few times
             {
-                qWarning() << __FUNCTION__ << "No path found while initializing current_path";
+//                qWarning() << __FUNCTION__ << "No path found while initializing current_path";
+                qWarning() << __FUNCTION__ << "Message from Gridder:" + QString::fromStdString(result.error_msg);
                 current_path = original_path = {};
-                return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found while initializing current_path", .valid=false};
+                return RoboCompGridder::Result{.error_msg = result.error_msg, .valid=false};
             }
             for(auto &&p : result.paths)
-                qInfo() << __FUNCTION__ << " [NEW] New paths: " << p.size();
-            qInfo() << __FUNCTION__ << " [NEW] Original path length: " << original_path.size();
+//                qInfo() << __FUNCTION__ << " [NEW] New paths: " << p.size();
+//            qInfo() << __FUNCTION__ << " [NEW] Original path length: " << original_path.size();
             current_path.clear();
             for(const auto &p: result.paths.front())
                 current_path.emplace_back(p.x, p.y);
             original_path = current_path;
-            qInfo() << __FUNCTION__  << " [NEW] New current path: " << current_path.size() << original_path.size();
+//            qInfo() << __FUNCTION__  << " [NEW] New current path: " << current_path.size() << original_path.size();
         }
         catch (const Ice::Exception &e)
         {
