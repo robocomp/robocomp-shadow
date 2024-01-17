@@ -136,6 +136,8 @@ void SpecificWorker::read_lidar()
     }
 } // Thread to read the lidar
 
+
+
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
 {
@@ -188,19 +190,46 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
 {
     //TODO: improve this method to try to find a path even if the target is not free by using the closest free point
     //TODO: if target is human, set safe area around as free
+    RoboCompGridder::Result result;
+    std::vector<std::vector<Eigen::Vector2f>> paths;
 
     auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
+//    mutex_path.lock();
+//
+//        auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+//                                          std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
+//                                          params.MIN_DISTANCE_BETWEEN_PATHS,
+//                                          try_closest_free_point,
+//                                          target_is_human);
+//    mutex_path.unlock();
+
     mutex_path.lock();
-        auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+        auto [success, msg, source_key, target_key] = grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y});
+
+        if (success)
+            //check if is line of sight to target free
+            if (grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+                                                     params.ROBOT_SEMI_WIDTH))
+                paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
+            else
+                paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                           std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
                                           params.MIN_DISTANCE_BETWEEN_PATHS,
                                           try_closest_free_point,
                                           target_is_human);
     mutex_path.unlock();
 
+
+    result.error_msg = msg;
+    //If not succes return result with empty paths, error message and timestamp
+    if (not success)
+    {
+        result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        return result;
+    }
+
     // fill Result with data
-    RoboCompGridder::Result result;
     result.paths.resize(paths.size());
     for(const auto &[i, path]: paths | iter::enumerate)
     {
@@ -248,7 +277,6 @@ bool SpecificWorker::Gridder_IsPathBlocked(RoboCompGridder::TPath path)
         path_.emplace_back(p.x, p.y);
     return grid.is_path_blocked(path_);
 }
-
 //////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {

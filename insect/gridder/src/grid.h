@@ -69,6 +69,7 @@ public:
                         float grid_angle = 0.f);
 
         // paths
+        std::vector<Eigen::Vector2f> compute_path_line_of_sight(const Key &source_key, const Key &target_key, const int distance);
         std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_,
                                                                   const Eigen::Vector2f &target_,
                                                                   unsigned num_paths,
@@ -145,7 +146,8 @@ public:
         bool is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width);
         float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
         float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
-
+        std::tuple<bool, std::string, Key, Key>
+        validate_source_target(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
     private:
         FMap fmap;
         QGraphicsScene *scene;
@@ -153,7 +155,9 @@ public:
         std::vector<Key> keys;  // vector of keys to compute closest matches
         Dimensions dim = QRectF();
 
+
         std::vector<Eigen::Vector2f> compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
+        std::vector<Eigen::Vector2f> compute_path_key(const Key &source_key, const Key &target_key);
         std::vector<Eigen::Vector2f> recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
         inline double heuristicL2(const Key &a, const Key &b) const;
         double heuristicL1(const Key &a, const Key &b) const;
@@ -174,6 +178,8 @@ public:
 
         };
         Params params;
+
+
 
 };
 #endif // GRID_H
