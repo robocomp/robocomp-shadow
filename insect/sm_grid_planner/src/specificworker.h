@@ -76,7 +76,7 @@ class SpecificWorker : public GenericWorker
             float CARROT_DISTANCE = 400;   // mm
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
-            int PERIOD = 50;    // ms (20 Hz) for compute timer
+            int PERIOD = 100;    // ms (20 Hz) for compute timer
             float MIN_ANGLE_TO_TARGET = 1.f;   // rad
             int MPC_HORIZON = 8;
             bool USE_MPC = true;
