@@ -71,19 +71,41 @@ void SpecificWorker::initialize(int period)
         read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
-//        wanted_person = Person(gridder_proxy);
+        wanted_person = Person(gridder_proxy);
+//        wanted_person.set_target_element(true);
 //        wanted_person.init_item(&viewer->scene, 0.f, 1000.f, 0.f);
 
         // mouse
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
         {
             qInfo() << "[MOUSE] New click left arrived:" << p;
+            QGraphicsItem *item = viewer->scene.itemAt(p, QTransform());
+            if (item == nullptr) return;
+            if(item == wanted_person.get_item())
+            {
+                qInfo() << "Target clicked";
+                wanted_person.set_target_element(true);
+                try
+                {
+                    segmentatortrackingpub_pubproxy->setTrack(wanted_person.get_target());
+                }
+                catch (const Ice::Exception &e)
+                { std::cout << "Error setting target" << e << std::endl; }
+
+            }
             return;
         });
         //Right click
         connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
         {
             qInfo() << "[MOUSE] New click right arrived:" << p;
+            wanted_person.set_target_element(false);
+            try
+            {
+                segmentatortrackingpub_pubproxy->setTrack(RoboCompVisualElementsPub::TObject{.id = -1});
+            }
+            catch (const Ice::Exception &e)
+            { std::cout << "Error setting target" << e << std::endl; }
         });
         timer.start(Period);
 	}
@@ -103,79 +125,80 @@ void SpecificWorker::compute()
 
     // Process visual elements
     process_visual_elements(ve);
-
 }
 
 //////////////////////////////// SpecificWorker /////////////////////////////////////////////////
 void SpecificWorker::process_visual_elements(const RoboCompVisualElementsPub::TData &data)
 {
+    std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
     // Check if there is data in data.objects
     if (data.objects.empty()) {qWarning() << "No VE data"; return;}
-    // Create a vector for storing updated people ids
-    std::vector<int> updated_people_ids;
-
-    // Iterate over the objects
-    for (const auto &o : data.objects)
+    // Print visual elements ids
+    qInfo() << "Visual elements ids: ";
+    for (const auto &person: people)
     {
-        // Print element id
-        std::cout << "Element id: " << o.id << std::endl;
+        qInfo() << person.get_id();
+    }
+
+    // Print update phase
+    qInfo() << "Update phase";
+    for (const auto &object: data.objects)
+    {
         // Check if the object is a person
-        if (o.type == 0)
+        if (object.type != 0) continue;
+        // Check if the person is already in the people vector
+        if(auto it = std::ranges::find_if(people, [&object](const Person &p) { return p.get_id() == object.id; }); it != people.end())
         {
-            // Check if the person is the wanted person
-            if (o.id == wanted_person.get_id())
-            {
-                // Update the attributes of the person
-                wanted_person.update_attributes(data.objects);
-                // Check if the person is inside the pilar cone
-                wanted_person.is_inside_pilar_cone(data.objects);
-                // Draw the paths
-                wanted_person.draw_paths(&viewer->scene, false, true);
-            }
-            else
-            {
-                // Check if the person is already in the people vector and store the iterator
-                auto it = std::find_if(people.begin(), people.end(), [&o](const Person &p) { return p.get_id() == o.id; });
-                // Check if the person is in the people vector and add it to the vector of iterators
-                if (it != people.end())
-                {
-                    // Update the attributes of the person
-                    it->update_attributes(data.objects);
-                    // Check if the person is inside the pilar cone
-                    it->is_inside_pilar_cone(data.objects);
-                    // Draw the paths
-                    it->draw_paths(&viewer->scene, false, false);
-                    // Print the id of the person
-                    std::cout << "Person id: " << it->get_id() << std::endl;
-                    // Add the iterator to the vector of iterators
-//                    updated_people_ids.push_back(it->get_id());
-                }
-                else
-                {
-                    // Create a new person
-                    Person new_person(gridder_proxy);
-                    // Initialize the item
-                    new_person.init_item(&viewer->scene, std::stof(o.attributes.at("x_pos")), std::stof(o.attributes.at("y_pos")), std::stof(o.attributes.at("orientation")));
-                    // Update the attributes of the person
-                    new_person.update_attributes(data.objects);
-                    // Check if the person is inside the pilar cone
-                    new_person.is_inside_pilar_cone(data.objects);
-                    // Draw the paths
-                    new_person.draw_paths(&viewer->scene, false, false);
-                    // Add the person to the people vector
-                    people.push_back(new_person);
-                    // Print new person inserted
-                    std::cout << "New person inserted" << std::endl;
-                }
-            }
+            // Print update
+            qInfo() << "Update person with id: " << object.id;
+            // Update the attributes of the person
+            it->update_attributes(data.objects);
+            // Check if the person is inside the pilar cone
+            it->is_inside_pilar_cone(data.objects);
+            // Draw the paths
+            it->draw_paths(&viewer->scene, false, false);
+            it->update_last_update_time();
+        }
+        // Emplace the object in the remaining objects vector
+        else
+        {
+            remaining_objects.push_back(object);
         }
     }
-    for (const auto &id : updated_people_ids)
+    // Print insert phase
+    qInfo() << "Insert phase";
+    // Iterate over the remaining objects and create a new person
+    for (const auto &object: remaining_objects)
     {
-        qInfo() << id << " ";
+        // Create a new person
+        Person new_person(gridder_proxy);
+        // Initialize the item
+        new_person.set_person_data(object);
+        qInfo() << std::stof(object.attributes.at("x_pos")) << " " << std::stof(object.attributes.at("y_pos")) << " " << std::stof(object.attributes.at("orientation"));
+        new_person.init_item(&viewer->scene, std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), std::stof(object.attributes.at("orientation")));
+        // Update the attributes of the person
+        new_person.update_attributes(data.objects);
+        // Check if the person is inside the pilar cone
+        new_person.is_inside_pilar_cone(data.objects);
+        // Draw the paths
+        new_person.draw_paths(&viewer->scene, false, false);
+        new_person.update_last_update_time();
+        // Add the person to the people vector
+        people.emplace_back(new_person);
+        qInfo() << "Inserted person with id: " << object.id;
     }
-    // Delete people that were not updated
-//    people.erase(std::remove_if(people.begin(), people.end(), [&updated_people_ids](const Person &p) { return std::find(updated_people_ids.begin(), updated_people_ids.end(), p.get_id()) == updated_people_ids.end(); }), people.end());
+    // Print insert phase
+    qInfo() << "Remove phase";
+    // Check if last time a person was updated is more than 2 seconds
+    for (auto &person: people)
+    {
+        if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - person.get_last_update_time()).count() > 2)
+        {
+            qInfo() << "Person with id: " << person.get_id() << " has been removed";
+            person.remove_item(&viewer->scene);
+            people.erase(std::ranges::find_if(people, [&person](const Person &p) { return p.get_id() == person.get_id(); }));
+        }
+    }
 }
 int SpecificWorker::startup_check()
 {

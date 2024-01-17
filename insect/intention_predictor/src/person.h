@@ -17,6 +17,8 @@ class Person
     RoboCompVisualElementsPub::TObject target;
     QGraphicsItem *item = nullptr;
     bool is_target = false;
+    bool updated = false;
+    std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
 
     // Pilar cone
     QPolygonF pilar_cone;
@@ -33,6 +35,7 @@ class Person
         Person();
         // Method to initialize item from scene
         void init_item(QGraphicsScene *scene, float x, float y, float angle);
+        void set_person_data(RoboCompVisualElementsPub::TObject person);
         // Method to check if there is an object in a TObjects list with the same id
         void update_attributes(const RoboCompVisualElementsPub::TObjects &list);
         // Method to check if there are TObjects inside the pilar cone
@@ -43,6 +46,15 @@ class Person
         void set_target_element(bool value);
         // Method to get the id of the person
         int get_id() const;
+        QGraphicsItem* get_item() const;
+        RoboCompVisualElementsPub::TObject get_target() const;
+        bool is_target_element() const;
+        // method to set updated
+        void set_updated(bool value);
+        // Method to update the last update time
+        void update_last_update_time();
+        // Method to get the last update time
+        std::chrono::high_resolution_clock::time_point get_last_update_time() const;
         // Method to draw paths
         void draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person);
         // Method to remove item from scene
