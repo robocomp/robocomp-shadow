@@ -200,10 +200,6 @@ class SpecificWorker(GenericWorker):
             print("########### CHOSEN ID :", self.target)
             return jsonify({'status': 'success'})
         
-        #                                                                Caja-blanca IP
-        self.flask_thread = Thread(target=self.app.run, kwargs={'host': '192.168.50.249', 'port': 5000}) # '192.168.50.153' orin ip
-        self.flask_thread.start()
-
     def __del__(self):
         """Destructor"""
 
@@ -213,6 +209,9 @@ class SpecificWorker(GenericWorker):
         # except:
         #	traceback.print_exc()
         #	print("Error reading config params")
+        self.server_ip = params["server_ip"]
+        self.flask_thread = Thread(target=self.app.run, kwargs={'host': self.server_ip, 'port': 5000}) # '192.168.50.153' orin ip
+        self.flask_thread.start()
         return True
 
 

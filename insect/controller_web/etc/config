@@ -12,6 +12,8 @@ VisualElementsProxy = visualelements:tcp -h localhost -p 10252 # yolo
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -h localhost -p 9999
 
+server_ip = 192.168.50.114
+
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0
