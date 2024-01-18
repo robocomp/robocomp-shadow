@@ -13,6 +13,9 @@ TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
 InnerModelPath = innermodel.xml
 
+cone_radius = 4000
+cone_angle = 0.9
+
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0

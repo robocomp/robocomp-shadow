@@ -13,7 +13,7 @@ Person::Person()
 {
     gridder_proxy = nullptr;
 }
-void Person::init_item(QGraphicsScene *scene, float x, float y, float angle)
+void Person::init_item(QGraphicsScene *scene, float x, float y, float angle, float cone_radius, float cone_angle) // Radius in mm, cone_angle in rad
 {
     item = scene->addEllipse(-200, -200, 400, 400, QPen("orange"), QBrush("orange"));
     auto line = scene->addLine(0, 0, 0, 200, QPen(QColor("black"), 10, Qt::SolidLine, Qt::RoundCap));
@@ -22,9 +22,11 @@ void Person::init_item(QGraphicsScene *scene, float x, float y, float angle)
     item->setRotation(angle);
 
     // Create pilar cone as a isosceles triangle with base at item origin and bisector orientation aligned with item orientation
-
-    pilar_cone << QPointF(0, 0) << QPointF(2000, 4000) << QPointF(-2000, 4000);
-    auto pilar_cone_item = scene->addPolygon(this->pilar_cone, QPen(QColor("magenta"), 10, Qt::SolidLine, Qt::RoundCap));
+    qInfo() << "cone_radius: " << cone_radius << " cone_angle: " << cone_angle;
+    float x_cone = cone_radius * sin(cone_angle / 2.f);
+    float y_cone = cone_radius * cos(cone_angle / 2.f);
+    pilar_cone << QPointF(0, 0) << QPointF(x_cone, y_cone) << QPointF(-x_cone, y_cone);
+    auto pilar_cone_item = scene->addPolygon(this->pilar_cone, QPen(QColor("green"), 20, Qt::SolidLine, Qt::RoundCap));
     pilar_cone_item->setParentItem(item);
 }
 void Person::set_person_data(RoboCompVisualElementsPub::TObject person)
@@ -140,10 +142,6 @@ void Person::set_target_element(bool value)
 {
     is_target = value;
 }
-void Person::set_updated(bool value)
-{
-    updated = value;
-}
 // Method to update the last update time
 void Person::update_last_update_time()
 {
@@ -170,10 +168,19 @@ bool Person::is_target_element() const
 {
     return is_target;
 }
+// Method to set the insertion time
+void Person::set_insertion_time()
+{
+    insertion_time = std::chrono::high_resolution_clock::now();
+}
+// Method to get the insertion time
+std::chrono::high_resolution_clock::time_point Person::get_insertion_time() const
+{
+    return insertion_time;
+}
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person)
 {
-    static std::vector<QGraphicsEllipseItem*> points;
     for(auto p : points)
     { scene->removeItem(p); delete p; }
     points.clear();
@@ -191,16 +198,49 @@ void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_pers
         pen = QPen("black");
         brush = QBrush("black");
     }
-    float s = 100;
-    for(const auto &p: paths)
-    {
-        for(const auto &pp: p.second)
-        {
-            auto ptr = scene->addEllipse(-s/2, -s/2, s, s, pen, brush);
-            ptr->setPos(QPointF(pp.x(), pp.y()));
-            points.push_back(ptr);
+
+    const double arrowSize = 100;
+
+    for (const auto &p : paths) {
+        for (auto it = p.second.begin(); it != p.second.end(); ++it) {
+            if (std::next(it) != p.second.end()) {
+                // Puntos actual y siguiente
+                Eigen::Vector2f p1 = *it;
+                Eigen::Vector2f p2 = *std::next(it);
+
+                // Convertir Eigen::Vector2f a QPointF
+                QPointF qp1(p1.x(), p1.y());
+                QPointF qp2(p2.x(), p2.y());
+
+                // Calcular la línea entre los puntos actual y siguiente
+                QLineF line(qp1, qp2);
+
+                // Crear una flecha como un polígono
+                QPolygonF arrowHead;
+                arrowHead << line.p2()
+                          << line.p2() - QPointF(sin(line.angle() * M_PI / 180 + M_PI / 3) * arrowSize,
+                                                 cos(line.angle() * M_PI / 180 + M_PI / 3) * arrowSize)
+                          << line.p2() - QPointF(sin(line.angle() * M_PI / 180 + M_PI - M_PI / 3) * arrowSize,
+                                                 cos(line.angle() * M_PI / 180 + M_PI - M_PI / 3) * arrowSize);
+
+                // Agregar la línea al escenario
+//                scene->addLine(line, pen);
+
+                // Agregar la cabeza de la flecha (el polígono) al escenario
+                auto ptr = scene->addPolygon(arrowHead, pen, brush);
+                points.push_back(ptr);
+            }
         }
     }
+//    for(const auto &p: paths)
+//    {
+//        for(const auto &pp: p.second)
+//        {
+//            auto ptr = scene->addEllipse(-s/2, -s/2, s, s, pen, brush);
+//            ptr->setPos(QPointF(pp.x(), pp.y()));
+//            points.push_back(ptr);
+//        }
+//    }
 }
 // Method to remove item from scene
 void Person::remove_item(QGraphicsScene *scene)

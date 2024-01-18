@@ -8,7 +8,7 @@ TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 # Endpoints for subscriptions interfaces
 SegmentatorTrackingPubTopic.Endpoints=tcp -p 12168
 
-display = false
+display = true
 depth = false
 yolo_model = yolov8s.trt
 
