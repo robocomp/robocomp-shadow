@@ -15,6 +15,12 @@ GridderProxy = gridder:tcp -h localhost -p 13541
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
+# Params
+
+display = true
+
+
+
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0

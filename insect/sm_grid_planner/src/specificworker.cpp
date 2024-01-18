@@ -40,8 +40,19 @@ SpecificWorker::~SpecificWorker()
     std::cout << "Destroying SpecificWorker" << std::endl;
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
-
 {
+    try
+    {
+        this->params.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
+    }
+    catch (const std::exception &e)
+    {
+        qWarning("Error reading config params. Withdrawing to defaults");
+    }
+
+    qInfo() << "Config parameters:";
+    qInfo() << "    display" << this->params.DISPLAY;
+
     return true;
 }
 void SpecificWorker::initialize(int period)
@@ -54,22 +65,17 @@ void SpecificWorker::initialize(int period)
     }
     else
     {
-        // Viewer
-        viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
-        //QRectF(params.xMin, params.yMin, params.grid_width, params.grid_length));
-        viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
-        viewer->show();
+        if(params.DISPLAY)
+        {
+            // Viewer
 
-        // Lidar thread is created
-        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
-        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+            viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
+            //QRectF(params.xMin, params.yMin, params.grid_width, params.grid_length));
+            viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
+            viewer->show();
 
-        // reset lidar odometry
-        try{ lidarodometry_proxy->reset(); }
-        catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;}
-
-        // mouse
-        connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
+            // mouse
+            connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
             {
                 qInfo() << "[MOUSE] New global target arrived:" << p;
                 Target target;
@@ -114,16 +120,37 @@ void SpecificWorker::initialize(int period)
                     return;
                 };
             });
-        connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
-        {
-            qInfo() <<  "RIGHT CLICK. Cancelling target";
-            cancel_from_mouse = true;
-            // erase paths in scene
-            draw_smoothed_path({}, &viewer->scene, QColor(),true);
-            draw_global_target({}, &viewer->scene, true);
-            draw_paths({}, &viewer->scene, true);
-        });
+            connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
+            {
+                qInfo() <<  "RIGHT CLICK. Cancelling target";
+                cancel_from_mouse = true;
+                // erase paths in scene
+                draw_smoothed_path({}, &viewer->scene, QColor(),true);
+                draw_global_target({}, &viewer->scene, true);
+                draw_paths({}, &viewer->scene, true);
+            });
+        }
 
+        // Lidar thread is created
+        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
+        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+
+        // reset lidar odometry
+        try{ lidarodometry_proxy->reset(); }
+        catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;}
+
+        //Set grid dimensions
+        try
+        {
+            gridder_proxy->setGridDimensions(RoboCompGridder::TDimensions{-7500, -7500, 15000, 15000});
+        }
+        catch (const Ice::Exception &e)
+        {
+            std::cout << "Error setting grid dim" << e << std::endl;
+            return;
+        }
+        if(not params.DISPLAY)
+            hide();
         timer.start(params.PERIOD);
     }
 }
@@ -133,7 +160,7 @@ void SpecificWorker::compute()
     auto res_ = buffer_lidar_data.try_get();
     if (not res_.has_value())  {   /*qWarning() << "No data Lidar";*/ return; }
     auto points = res_.value();
-    draw_lidar(points, params.LIDAR_LOW_DECIMATION_FACTOR);
+    if(params.DISPLAY) draw_lidar(points, params.LIDAR_LOW_DECIMATION_FACTOR);
 
     /// get robot pose
     if(auto res_ = get_robot_pose_and_change(); res_.has_value())
@@ -149,8 +176,7 @@ void SpecificWorker::compute()
     if(auto res = target_buffer.try_get(); res.has_value())
         target = res.value();
     else { fps.print("No Target - FPS:"); return;}
-    //draw target
-    draw_global_target(target.pos_eigen(), &viewer->scene);
+    if(params.DISPLAY) draw_global_target(target.pos_eigen(), &viewer->scene);
 
 //    qInfo() << __FUNCTION__ << "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
@@ -164,7 +190,7 @@ void SpecificWorker::compute()
 
     /// transform target to robot's frame
     target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
-    draw_point_color(target.pos_eigen(), &viewer->scene, false, QColor{"pink"});
+    if(params.DISPLAY) draw_point_color(target.pos_eigen(), &viewer->scene, false, QColor{"pink"});
 
     /// check if target has been reached
     if(robot_is_at_target(target))
@@ -180,6 +206,7 @@ void SpecificWorker::compute()
         inject_ending_plan();
         return;
     }
+
     else draw_paths(returning_plan.paths, &viewer->scene);
 
 //    /// MPC
@@ -191,9 +218,6 @@ void SpecificWorker::compute()
 ////    /// send plan to remote interface and publish it to rcnode
     if(not this->pushButton_stop->isChecked())
         send_and_publish_plan(final_plan);
-
-
-
 
 
     target_buffer.put(std::move(target));
@@ -216,8 +240,6 @@ void SpecificWorker::compute()
 //        target = Target::invalid();
 //        return;
 //    };
-
-
 
     hz = fps.print("FPS:", 3000);
     this->lcdNumber_hz->display(this->hz);
