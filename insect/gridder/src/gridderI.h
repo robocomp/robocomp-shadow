@@ -38,6 +38,7 @@ public:
 	RoboCompGridder::TPoint getClosestFreePoint(RoboCompGridder::TPoint source, const Ice::Current&);
 	RoboCompGridder::TDimensions getDimensions(const Ice::Current&);
 	RoboCompGridder::Result getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths, bool try_closest_free_point, bool target_is_human, const Ice::Current&);
+	bool setGridDimensions(RoboCompGridder::TDimensions dimensions, const Ice::Current&);
 
 private:
 
