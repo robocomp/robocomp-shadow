@@ -54,3 +54,8 @@ RoboCompGridder::Result GridderI::getPaths(RoboCompGridder::TPoint source, RoboC
 	return worker->Gridder_getPaths(source, target, max_paths, try_closest_free_point, target_is_human);
 }
 
+bool GridderI::setGridDimensions(RoboCompGridder::TDimensions dimensions, const Ice::Current&)
+{
+	return worker->Gridder_setGridDimensions(dimensions);
+}
+
