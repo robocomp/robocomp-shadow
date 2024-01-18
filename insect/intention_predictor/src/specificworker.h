@@ -58,6 +58,10 @@ private:
     std::thread read_lidar_th;
     void read_lidar();
 
+    // Pilar cone parameters
+    float cone_radius = 3000;
+    float cone_angle = 1;
+
     struct Params
     {
         float ROBOT_WIDTH = 460;  // mm
@@ -99,8 +103,11 @@ private:
 
     // Visual elements
     DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_visual_elements;
+    DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_room_elements;
     void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate);
+    void draw_room(const RoboCompVisualElementsPub::TObject &obj);
     void process_visual_elements(const RoboCompVisualElementsPub::TData &data);
+    void process_room_elements(const RoboCompVisualElementsPub::TData &data);
 };
 
 #endif
