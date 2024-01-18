@@ -119,7 +119,7 @@ void SpecificWorker::compute()
     /// Room detector
     auto current_room = room_detector.detect({filtered_line}, viewer);  // TODO: use upper lines in Helios
     current_room.print();
-
+    
     // publish
     publish_room_and_doors(current_room, doors);
 
@@ -144,8 +144,9 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
 void SpecificWorker::publish_room_and_doors(const rc::Room &room, const DoorDetector::Doors &doors)
 {
     // Order walls by angle to robot
-    
     RoboCompVisualElementsPub::TData data;
+    //set data publisher string to forcefield
+    data.publisher = "forcefield";
     {
         RoboCompVisualElementsPub::TAttributes attr;
         attr.emplace(std::make_pair("name", "room"));
@@ -158,7 +159,8 @@ void SpecificWorker::publish_room_and_doors(const rc::Room &room, const DoorDete
         RoboCompVisualElementsPub::TObject o{.id=0, .type=5, .attributes=attr};
         data.objects.emplace_back(std::move(o));
     }
-    // doors
+
+    // Doors
     for(const auto & [i, d]: doors | iter::enumerate)
     {
         RoboCompVisualElementsPub::TAttributes attr;
@@ -248,8 +250,6 @@ int SpecificWorker::startup_check()
     QTimer::singleShot(200, qApp, SLOT(quit()));
     return 0;
 }
-
-
 
 //        int row = (o.top + o.bot)/2;
 //        int col = (o.left + o.right)/2;
