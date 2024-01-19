@@ -147,7 +147,7 @@ void SpecificWorker::initialize(int period)
         catch (const Ice::Exception &e)
         {
             std::cout << "Error setting grid dim" << e << std::endl;
-            return;
+            std::terminate();
         }
         if(not params.DISPLAY)
             hide();
