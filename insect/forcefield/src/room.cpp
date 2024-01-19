@@ -246,6 +246,8 @@ namespace rc
     }
     float Room::get_rotation() const
     {
-        return qDegreesToRadians(rect.angle);
+//        return qDegreesToRadians(rect.angle);
+        return rect.angle;
+
     }
 } //rc

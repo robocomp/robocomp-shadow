@@ -73,18 +73,18 @@ void SpecificWorker::initialize(int period)
         restoreGeometry(settings.value("geometry").toByteArray());
 
         //QCustomPlot
-        custom_plot.setParent(this->customplot);
-        custom_plot.xAxis->setLabel("time");
-        custom_plot.yAxis->setLabel("sice_a adv_a track");
-        custom_plot.xAxis->setRange(0, 200);
-        custom_plot.yAxis->setRange(-500, 500);
-        track_err = custom_plot.addGraph();
-        track_err->setPen(QColor("blue"));
-        side_acc = custom_plot.addGraph();
-        side_acc->setPen(QColor("orange"));
-        adv_acc = custom_plot.addGraph();
-        adv_acc->setPen(QColor("green"));
-        custom_plot.resize(this->customplot->size());
+//        custom_plot.setParent(this->customplot);
+//        custom_plot.xAxis->setLabel("time");
+//        custom_plot.yAxis->setLabel("sice_a adv_a track");
+//        custom_plot.xAxis->setRange(0, 200);
+//        custom_plot.yAxis->setRange(-500, 500);
+//        track_err = custom_plot.addGraph();
+//        track_err->setPen(QColor("blue"));
+//        side_acc = custom_plot.addGraph();
+//        side_acc->setPen(QColor("orange"));
+//        adv_acc = custom_plot.addGraph();
+//        adv_acc->setPen(QColor("green"));
+//        custom_plot.resize(this->customplot->size());
         //custom_plot.show();
 
         // room_detector
@@ -97,15 +97,15 @@ void SpecificWorker::initialize(int period)
         // timers
         Period = 50;
         timer.start(Period);
+        if( not consts.DISPLAY) hide();
         std::cout << "Worker initialized OK" << std::endl;
 	}
 }
-
 void SpecificWorker::compute()
 {
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
-    if (res_.has_value() == false) {  return; }
+    if (not res_.has_value()) { return; }
 
     auto ldata = res_.value();
     //draw_lidar(ldata);
@@ -114,11 +114,11 @@ void SpecificWorker::compute()
     /// Door detector
     auto doors = door_detector.detect(lines, &viewer->scene);
     auto filtered_line = door_detector.filter_out_points_beyond_doors(lines[0], doors);
-    draw_line(filtered_line, &viewer->scene);
+    //draw_line(filtered_line, &viewer->scene);
 
     /// Room detector
     auto current_room = room_detector.detect({filtered_line}, viewer);  // TODO: use upper lines in Helios
-    current_room.print();
+    //current_room.print();
     
     // publish
     publish_room_and_doors(current_room, doors);

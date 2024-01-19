@@ -140,6 +140,6 @@ DoorDetector::Line DoorDetector::filter_out_points_beyond_doors(const Line &floo
     std::ranges::sort(remove_points, std::greater<>());
     for(const auto i: remove_points)
         inside_points.erase(inside_points.begin()+i);
-    qInfo() << __FUNCTION__ << "Before" << floor_line.size() << "After" << inside_points.size() << "Removed" << remove_points.size();
+    //qInfo() << __FUNCTION__ << "Before" << floor_line.size() << "After" << inside_points.size() << "Removed" << remove_points.size();
     return inside_points;
 }
