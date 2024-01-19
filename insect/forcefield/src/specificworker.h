@@ -35,7 +35,7 @@
 #include <timer/timer.h>
 //#include "sm_search_and_approach.h"
 #include <random>
-#include <qcustomplot/qcustomplot.h>
+//#include <qcustomplot/qcustomplot.h>
 #include "door_detector.h"
 #include "room_detector.h"
 #include "room.h"
@@ -65,6 +65,7 @@ class SpecificWorker : public GenericWorker
         {
             std::string lidar_name = "helios";
             std::vector<std::pair<float, float>> ranges_list = {{1000, 2500}};
+            bool DISPLAY = false;
         };
         Constants consts;
 

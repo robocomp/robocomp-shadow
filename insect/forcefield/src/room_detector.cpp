@@ -104,14 +104,14 @@ namespace rc
         // draw
         draw_lines_on_2D_tab(elines, viewer);
         draw_triple_corners_on_2D_tab(all_corners, "green", viewer);
-        qInfo() << "Room detector: ";
-        qInfo() << "    num. points:" << floor_line_cart.size();
-        qInfo() << "    center: [" << room_center.x() << "," << room_center.y() << "]";
-        qInfo() << "    size: [" << estimated_size.x() << "," << estimated_size.y() << "]";
-        qInfo() << "    num. lines:" << elines.size();
-        qInfo() << "    num. parallel lines:" << par_lines.size();
-        qInfo() << "    num. corners:" << corners.size();
-        qInfo() << "    num. triple corners:" << all_corners.size();
+//        qInfo() << "Room detector: ";
+//        qInfo() << "    num. points:" << floor_line_cart.size();
+//        qInfo() << "    center: [" << room_center.x() << "," << room_center.y() << "]";
+//        qInfo() << "    size: [" << estimated_size.x() << "," << estimated_size.y() << "]";
+//        qInfo() << "    num. lines:" << elines.size();
+//        qInfo() << "    num. parallel lines:" << par_lines.size();
+//        qInfo() << "    num. corners:" << corners.size();
+//        qInfo() << "    num. triple corners:" << all_corners.size();
 
         return std::make_tuple(elines, par_lines, corners, all_corners);
     }
