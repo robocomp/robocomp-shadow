@@ -10,25 +10,24 @@
 #include <Gridder.h>
 #include <Eigen/Eigen>
 
-
 class Person
 {
     private:
-    RoboCompVisualElementsPub::TObject target;
-    QGraphicsItem *item = nullptr;
-    bool is_target = false;
-    std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
+        RoboCompVisualElementsPub::TObject target;
+        QGraphicsItem *item = nullptr;
+        bool is_target = false;
+        std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
 
-    // Pilar cone
-    QPolygonF pilar_cone;
-    RoboCompVisualElementsPub::TObjects objects_inside_pilar_cone;
+        // Pilar cone
+        QPolygonF pilar_cone;
+        RoboCompVisualElementsPub::TObjects objects_inside_pilar_cone;
 
-    // Gridder proxy pointer
-    RoboCompGridder::GridderPrxPtr gridder_proxy;
+        // Gridder proxy pointer
+        RoboCompGridder::GridderPrxPtr gridder_proxy;
 
-    // Paths to visual elements
-    std::vector<std::pair<int, std::vector<Eigen::Vector2f>>> paths;
-    std::vector<QGraphicsPolygonItem*> points;
+        // Paths to visual elements
+        std::vector<std::pair<int, std::vector<Eigen::Vector2f>>> paths;
+        std::vector<QGraphicsPolygonItem*> points;
 
     public:
         Person(RoboCompGridder::GridderPrxPtr g_proxy);
@@ -63,6 +62,7 @@ class Person
         void draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person);
         // Method to remove item from scene
         void remove_item(QGraphicsScene *scene);
+        void print() const;
 };
 
 #endif //PEOPLE_PATH_PREDICTOR_PERSON_H

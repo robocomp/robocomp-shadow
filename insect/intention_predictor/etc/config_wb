@@ -1,4 +1,4 @@
-CommonBehavior.Endpoints=tcp -p 10000
+CommonBehavior.Endpoints=tcp -p 10710
 
 # Endpoints for subscriptions interfaces
 VisualElementsPubTopic.Endpoints=tcp -p 15368
@@ -11,7 +11,6 @@ Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
-InnerModelPath = innermodel.xml
 
 cone_radius = 4000
 cone_angle = 0.9

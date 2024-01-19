@@ -19,10 +19,10 @@ void Person::init_item(QGraphicsScene *scene, float x, float y, float angle, flo
     auto line = scene->addLine(0, 0, 0, 200, QPen(QColor("black"), 10, Qt::SolidLine, Qt::RoundCap));
     line->setParentItem(item);
     item->setPos(x, y);
-    item->setRotation(angle);
+    item->setRotation(qRadiansToDegrees(angle));
 
     // Create pilar cone as a isosceles triangle with base at item origin and bisector orientation aligned with item orientation
-    qInfo() << "cone_radius: " << cone_radius << " cone_angle: " << cone_angle;
+    //qInfo() << "cone_radius: " << cone_radius << " cone_angle: " << cone_angle;
     float x_cone = cone_radius * sin(cone_angle / 2.f);
     float y_cone = cone_radius * cos(cone_angle / 2.f);
     pilar_cone << QPointF(0, 0) << QPointF(x_cone, y_cone) << QPointF(-x_cone, y_cone);
@@ -248,4 +248,12 @@ void Person::remove_item(QGraphicsScene *scene)
 {
     scene->removeItem(item);
     delete item;
+}
+
+void Person::print() const
+{
+    qInfo() << "Person id: " << target.id;
+    qInfo() << "    x_pos: " << std::stof(target.attributes.at("x_pos"));
+    qInfo() << "    y_pos: " << std::stof(target.attributes.at("y_pos"));
+    qInfo() << "    orientation: " << std::stof(target.attributes.at("orientation"));
 }

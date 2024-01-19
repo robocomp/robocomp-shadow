@@ -13,7 +13,7 @@ SET ( HEADERS
   person.h
 )
 
-add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+add_definitions(-O3 -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
 SET (LIBS ${LIBS}  )
 
