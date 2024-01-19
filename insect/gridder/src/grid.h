@@ -174,7 +174,7 @@ public:
             const QString free_color = "white";
             const QString unknown_color = "LightGrey";
             const QString occupied_color = "DarkRed";
-            const float occupancy_threshold = 0.5;
+            const float occupancy_threshold = 0.48;
 
         };
         Params params;

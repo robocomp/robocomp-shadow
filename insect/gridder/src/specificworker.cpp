@@ -83,7 +83,8 @@ void SpecificWorker::initialize(int period)
             draw_path({}, &viewer->scene, true);
             cancel_from_mouse = true;
         });
-
+        if(not params.DISPLAY)
+            hide();
 		timer.start(params.PERIOD);
 	}
 }
@@ -207,19 +208,21 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     mutex_path.lock();
         auto [success, msg, source_key, target_key] = grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y});
         if (success)
+        {
             //check if is line of sight to target free
-            if (grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+            if (grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y},
+                                                     Eigen::Vector2f{target.x, target.y},
                                                      params.ROBOT_SEMI_WIDTH))
             {
                 paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
                 msg = "VLOS Path";
-            }
-            else
+            } else
                 paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
-                                          std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
-                                          params.MIN_DISTANCE_BETWEEN_PATHS,
-                                          try_closest_free_point,
-                                          target_is_human);
+                                             std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
+                                             params.MIN_DISTANCE_BETWEEN_PATHS,
+                                             try_closest_free_point,
+                                             target_is_human);
+        }
     mutex_path.unlock();
 
     result.error_msg = msg;

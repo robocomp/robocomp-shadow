@@ -328,11 +328,9 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
 
 std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_target(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
 {
-    // Declarate error msg string
     std::string error_msg = "No error";
     // dim to string
     std::string dim_str = "dim: " + std::to_string(dim.left()) + " " + std::to_string(dim.top()) + " " + std::to_string(dim.width()) + " " + std::to_string(dim.height());
-
 
     //Free cells around the source of path
     {
@@ -405,7 +403,7 @@ std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_tar
 
 std::vector<Eigen::Vector2f > Grid::compute_path_key(const Key &source_key, const Key &target_key)
 {
-    const auto &[succ_trg, target_cell] = get_cell(target_key);
+    //const auto &[succ_trg, target_cell] = get_cell(target_key);
     const auto &[succ_src, source_cell] = get_cell(source_key);
     // Dijkstra algorithm
     // initial distances vector
