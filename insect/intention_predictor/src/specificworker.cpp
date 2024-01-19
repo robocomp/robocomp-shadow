@@ -115,6 +115,7 @@ void SpecificWorker::initialize(int period)
             try
             {
                 segmentatortrackingpub_pubproxy->setTrack(RoboCompVisualElementsPub::TObject{.id = -1});
+                draw_path({}, &viewer->scene, false);
             }
             catch (const Ice::Exception &e)
             { std::cout << "Error setting target" << e << std::endl; }
@@ -179,7 +180,19 @@ void SpecificWorker::process_visual_elements(const RoboCompVisualElementsPub::TD
                     it->is_inside_pilar_cone(data.objects);
                     // Draw the paths
                     if(it->is_target_element())
+                    {
+                        auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
+                                                              RoboCompGridder::TPoint{std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos"))},
+                                                              1,
+                                                              true,
+                                                              true);
+                        std::vector<Eigen::Vector2f> path;
+                        for(const auto &p: result.paths.front())
+                            path.emplace_back(p.x, p.y);
+                        draw_path(path, &viewer->scene, false);
                         it->draw_paths(&viewer->scene, false, true);
+                    }
+
                     else
                         it->draw_paths(&viewer->scene, false, false);
                 }
@@ -312,6 +325,23 @@ void SpecificWorker::draw_room(const RoboCompVisualElementsPub::TObject &obj)
     else
         qWarning() << "The object does not contain the key name";
 
+}
+void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
+{
+    for(auto p : points)
+        scene->removeItem(p);
+    points.clear();
+
+    if(erase_only) return;
+
+    float s = 100;
+    auto color = QColor("green");
+    for(const auto &p: path)
+    {
+        auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
+        ptr->setPos(QPointF(p.x(), p.y()));
+        points.push_back(ptr);
+    }
 }
 //////////////////////////////// Interfaces /////////////////////////////////////////////////
 void SpecificWorker::VisualElementsPub_setVisualObjects(RoboCompVisualElementsPub::TData data)

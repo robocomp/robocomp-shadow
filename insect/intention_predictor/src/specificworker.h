@@ -101,11 +101,15 @@ private:
     Person wanted_person;
     std::vector<Person> people;
 
+    // Robot path
+    std::vector<QGraphicsEllipseItem*> points;
+
     // Visual elements
     DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_visual_elements;
     DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_room_elements;
     void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate);
     void draw_room(const RoboCompVisualElementsPub::TObject &obj);
+    void draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only);
     void process_visual_elements(const RoboCompVisualElementsPub::TData &data);
     void process_room_elements(const RoboCompVisualElementsPub::TData &data);
 };
