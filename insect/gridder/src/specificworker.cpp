@@ -38,18 +38,6 @@ SpecificWorker::~SpecificWorker()
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
-    try
-    {
-        this->params.DISPLAY = params.at("display").value == "True" or params.at("display").value == "true";
-    }
-    catch (const std::exception &e)
-    {
-        qWarning("Error reading config params. Withdrawing to defaults");
-    }
-
-    qInfo() << "Config parameters:";
-    qInfo() << "    display" << this->params.DISPLAY;
-
 	return true;
 }
 void SpecificWorker::initialize(int period)
@@ -66,6 +54,13 @@ void SpecificWorker::initialize(int period)
         viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
         viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
         viewer->show();
+
+        // Grid
+        grid.initialize(params.GRID_MAX_DIM, static_cast<int>(params.TILE_SIZE), &viewer->scene);
+
+        // Lidar thread is created
+        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
+        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
         // mouse
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
@@ -89,18 +84,6 @@ void SpecificWorker::initialize(int period)
             cancel_from_mouse = true;
         });
 
-
-
-        // Grid
-        grid.initialize(params.GRID_MAX_DIM, static_cast<int>(params.TILE_SIZE), &viewer->scene);
-
-        // Lidar thread is created
-        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
-        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
-
-
-        if (not params.DISPLAY)
-            hide();
 		timer.start(params.PERIOD);
 	}
 }
@@ -223,12 +206,14 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
 
     mutex_path.lock();
         auto [success, msg, source_key, target_key] = grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y});
-
         if (success)
             //check if is line of sight to target free
             if (grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                                      params.ROBOT_SEMI_WIDTH))
+            {
                 paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
+                msg = "VLOS Path";
+            }
             else
                 paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
                                           std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
@@ -236,7 +221,6 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
                                           try_closest_free_point,
                                           target_is_human);
     mutex_path.unlock();
-
 
     result.error_msg = msg;
     //If not succes return result with empty paths, error message and timestamp
@@ -259,13 +243,6 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms";
     return result;
-}
-bool SpecificWorker::Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions)
-{
-    qInfo() << __FUNCTION__ << " Setting grid dimensions to [" << dimensions.left << dimensions.top << dimensions.width << dimensions.height << "]";
-    params.GRID_MAX_DIM = QRectF(dimensions.left, dimensions.top, dimensions.width, dimensions.height);
-    //TODO: update grid, clear and reinitialize
-    return true;
 }
 bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius)
 {
@@ -292,6 +269,14 @@ RoboCompGridder::TDimensions SpecificWorker::Gridder_getDimensions()
             static_cast<float>(params.GRID_MAX_DIM.y()),
             static_cast<float>(params.GRID_MAX_DIM.width()),
             static_cast<float>(params.GRID_MAX_DIM.height())};
+}
+
+bool SpecificWorker::Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions)
+{
+    qInfo() << __FUNCTION__ << " Setting grid dimensions to [" << dimensions.left << dimensions.top << dimensions.width << dimensions.height << "]";
+    params.GRID_MAX_DIM = QRectF(dimensions.left, dimensions.top, dimensions.width, dimensions.height);
+    //TODO: update grid, clear and reinitialize
+    return true;
 }
 bool SpecificWorker::Gridder_IsPathBlocked(RoboCompGridder::TPath path)
 {

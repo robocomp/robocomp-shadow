@@ -333,6 +333,32 @@ std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_tar
     // dim to string
     std::string dim_str = "dim: " + std::to_string(dim.left()) + " " + std::to_string(dim.top()) + " " + std::to_string(dim.width()) + " " + std::to_string(dim.height());
 
+
+    //Free cells around the source of path
+    {
+        for (auto &[k, v]: neighboors_16(point_to_key(source_), true))
+        {
+//            qInfo() << k.first << k.second << v.free;
+            v.free = true;
+            v.cost = 1;
+        }
+        const auto &[k, v] =  get_cell(point_to_key(source_));
+        v.free = true;
+        v.cost = 1;
+    }
+    //Free cells around the target
+    {
+        for (auto &[k, v]: neighboors_16(point_to_key(target_), true))
+        {
+//            qInfo() << k.first << k.second << v.free;
+            v.free = true;
+            v.cost = 1;
+        }
+        const auto &[k, v] =  get_cell(point_to_key(target_));
+        v.free = true;
+        v.cost = 1;
+    }
+
     // Admission rules
     if (not dim.contains(QPointF(target_.x(), target_.y())))
     {
@@ -524,28 +550,31 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // starting from an initial path and setting to occupied succesive cells in the path, new paths are computed
     // until k paths are found or the initial path is exhausted
     //qInfo() << __FUNCTION__;
-    qInfo() << __FUNCTION__ <<  " Target before free" << is_free(target_);
+//    qInfo() << __FUNCTION__ <<  " Target before free" << is_free(target_);
     // set grid cells around human target to free
    // if (target_is_human)
-    {
-        for (auto &[k, v]: neighboors_16(point_to_key(target_), true))
-        {
-            qInfo() << k.first << k.second << v.free;
-            v.free = true;
-            v.cost = 1;
-            qInfo() << "after" << k.first << k.second << v.free;
-        }
-        const auto &[k, v] =  get_cell(point_to_key(target_));
-        //set_free(point_to_key(target_));
-        //set_cost(point_to_key(target_), 1);
-        v.free = true;
-        v.cost = 1;
-    }
-    for(const auto &[k, v] : neighboors_16(point_to_key(target_), true))
-        qInfo() <<  k.first << k.second << v.free;
-    qInfo() << "-----------------------";
 
-    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
+//    //Setting source cells free
+//    {
+//        for (auto &[k, v]: neighboors_16(point_to_key(source_), true))
+//        {
+//            qInfo() << k.first << k.second << v.free;
+//            v.free = true;
+//            v.cost = 1;
+////            qInfo() << "after" << k.first << k.second << v.free;
+//        }
+//        const auto &[k, v] =  get_cell(point_to_key(source_));
+//        //set_free(point_to_key(target_));
+//        //set_cost(point_to_key(target_), 1);
+//        v.free = true;
+//        v.cost = 1;
+//    }
+
+//    for(const auto &[k, v] : neighboors_16(point_to_key(target_), true))
+//        qInfo() <<  k.first << k.second << v.free;
+//    qInfo() << "-----------------------";
+
+//    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
     // if target is occupied, try to find the closest free point
     Eigen::Vector2f target = target_;
     if(not is_free(target_))
@@ -623,13 +652,13 @@ std::vector<Eigen::Vector2f> Grid::compute_path_line_of_sight(const Key &source_
     Eigen::Vector2f target = Eigen::Vector2f{static_cast<float>(target_key.first), static_cast<float>(target_key.second)};
 
     // fill path with equally spaced points from the robot to the target at a distance of consts.ROBOT_LENGTH
-    int npoints = ceil(target.norm() / distance);
+    int npoints = ceil((target-source).norm() / distance);
     if(npoints > 1)
     {
-        Eigen::Vector2f dir = target.normalized();  // direction vector from robot to target
+        Eigen::Vector2f dir = (target-source).normalized();  // direction vector from robot to target
         for (const auto &i: iter::range(npoints))
         {
-            Eigen::Vector2f p = dir * (distance * i);
+            Eigen::Vector2f p = source + dir * (distance * i);
             los_path.emplace_back(p);
         }
     }
@@ -983,35 +1012,53 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
 {
     // checks if the robot can move from source to target in a straight line without colliding with an obstacle
 
-    // Admission rules
-    if (not dim.contains(QPointF{target.x(), target.y()}))
-    {
-        qInfo() << "[GRID]" << __FUNCTION__ << "Target " << target.x() << target.y() << "out of limits " << dim;
-        return false;
-    }
-    if (not dim.contains(QPointF{source.x(), source.y()}))
-    {
-        qInfo() << "[GRID]" << __FUNCTION__ << "Source " << target.x() << target.y() << "out of limits " << dim;
-        return false;
-    }
+//    // Admission rules
+//    if (not dim.contains(QPointF{target.x(), target.y()}))
+//    {
+//        qInfo() << "[GRID]" << __FUNCTION__ << "Target " << target.x() << target.y() << "out of limits " << dim;
+//        return false;
+//    }
+//    if (not dim.contains(QPointF{source.x(), source.y()}))
+//    {
+//        qInfo() << "[GRID]" << __FUNCTION__ << "Source " << target.x() << target.y() << "out of limits " << dim;
+//        return false;
+//    }
 
-    // check if there is a straight line from source to target that is free
-    float num_steps = (target - source).norm() / static_cast<float>(params.tile_size);
+
+    //check if there is a straight line from source to target that is free
+
+//    float num_steps = (target - source).norm() / static_cast<float>(params.tile_size);
+//    Eigen::Vector2f step((target - source) / num_steps);
+//
+//    // compute how many parallel lines we need to cover the robot's width
+//    int num_lines_to_side = ceil(robot_semi_width / params.tile_size);
+//    bool success = true;
+//    for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
+//    {
+//        Eigen::Vector2f src = Eigen::Vector2f{params.tile_size * i, 0.f};
+//        success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
+//        {
+//           bool r = is_free(src + (step * i));
+//           return r;
+//        });
+//    }
+//    return success;
+
+    float num_steps = ceil((target - source).norm() / static_cast<float>(params.tile_size));
     Eigen::Vector2f step((target - source) / num_steps);
 
-    // compute how many parallel lines we need to cover the robot's width
-    int num_lines_to_side = ceil(robot_semi_width / params.tile_size);
     bool success = true;
-    for (auto &&i: iter::range(-num_lines_to_side, num_lines_to_side + 1, 1))
+    for (auto &&i: iter::range(num_steps))
     {
-        Eigen::Vector2f src = Eigen::Vector2f{params.tile_size * i, 0.f};
-        success = success and std::ranges::all_of(iter::range(0.f, num_steps, 1.f), [this, src, step](auto &&i)
-        {
-           bool r = is_free(src + (step * i));
-           return r;
-        });
+           bool r = is_free(source + (step * i));
+           if (not r)
+           {
+               success = false;
+               return success;
+           }
     }
     return success;
+
 }
 
 

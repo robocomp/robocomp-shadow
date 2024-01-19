@@ -52,7 +52,7 @@ class SpecificWorker : public GenericWorker
                                                  int max_paths,
                                                  bool try_closest_free_point,
                                                  bool target_is_human);
-	bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
+	    bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 
 public slots:
         void compute();
@@ -81,13 +81,12 @@ public slots:
             float MAX_LIDAR_RANGE = MAX_LIDAR_LOW_RANGE;  // mm used in the grid
             int LIDAR_LOW_DECIMATION_FACTOR = 1;
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
-            QRectF GRID_MAX_DIM{-7500, -7500, 15000, 15000};
+            QRectF GRID_MAX_DIM{-5000, -5000, 10000, 10000};
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 50;    // ms (20 Hz) for compute timer
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
-            bool DISPLAY;
         };
         Params params;
 
