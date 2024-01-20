@@ -90,7 +90,7 @@ void SpecificWorker::initialize(int period)
             {
                 if (person.get_item() == selectedItem)
                 {
-                    qInfo() << "Target selected";
+                    qInfo() << "[MOUSE] Target selected";
                     person.set_target_element(true);
                     try
                     { segmentatortrackingpub_pubproxy->setTrack(person.get_target()); }
@@ -304,7 +304,7 @@ void SpecificWorker::draw_room(const RoboCompVisualElementsPub::TObject &obj)
             //save the attributes of the room width, depth,height,center_x,center_y,rotation
             float width = std::stof(obj.attributes.at("width"));
             float depth = std::stof(obj.attributes.at("depth"));
-            float height = std::stof(obj.attributes.at("height"));
+            //float height = std::stof(obj.attributes.at("height"));
             float center_x = std::stof(obj.attributes.at("center_x"));
             float center_y = std::stof(obj.attributes.at("center_y"));
             float rotation = std::stof(obj.attributes.at("rotation"));
