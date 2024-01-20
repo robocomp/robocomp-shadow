@@ -102,12 +102,12 @@
             <enum>QFrame::StyledPanel</enum>
            </property>
            <property name="text">
-            <string>Path cost</string>
+            <string>Dist to target</string>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QLCDNumber" name="lcdNumber_cost">
+          <widget class="QLCDNumber" name="lcdNumber_dist_to_target">
            <property name="font">
             <font>
              <weight>75</weight>
