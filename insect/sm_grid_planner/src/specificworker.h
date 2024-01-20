@@ -54,7 +54,8 @@ class SpecificWorker : public GenericWorker
         AbstractGraphicViewer *viewer;
 
         // Robot
-        std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>> robot_pose_and_change; // robot pose in a global reference frame computed with lidar odometry
+        using RobotPose = std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>;
+        // robot pose in a global reference frame computed with lidar odometry
 
         struct Params
         {
@@ -84,10 +85,12 @@ class SpecificWorker : public GenericWorker
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
             bool DISPLAY = true;
+            size_t MAX_PATH_STEPS = 1000;
+            float TRACKING_DISTANCE_TO_TARGET = 1000; // mm
 
             // colors
             QColor TARGET_COLOR= {"orange"};
-            QColor LIDAR_COLOR = {"LightBlue"};
+            QColor LIDAR_COLOR = {"green"};
             QColor PATH_COLOR = {"orange"};
             QColor SMOOTHED_PATH_COLOR = {"magenta"};
         };
@@ -110,6 +113,7 @@ class SpecificWorker : public GenericWorker
             QPointF qpoint;
             Eigen::Vector2f original;    // original target in global coordinates
             bool new_target = false;   // true if target has been updated from outside
+            bool is_being_tracked = false;   // true if target is being tracked
             void set(const QPointF &p, bool global_ = false)
             {
                 point = Eigen::Vector2f(p.x(), p.y());
@@ -126,7 +130,8 @@ class SpecificWorker : public GenericWorker
             void set_new(bool v) { new_target = v; }
             bool is_new() const { return new_target;}
             void unset() { active = false; }
-
+            void set_being_tracked(bool v) { is_being_tracked = v; }
+            [[nodiscard]] bool is_tracked() const { return is_being_tracked; }
             [[nodiscard]] bool is_valid() const { return active; };
             [[nodiscard]] Eigen::Vector2f pos_eigen() const { return point; }
             [[nodiscard]] QPointF pos_qt() const { return qpoint; }
@@ -157,10 +162,10 @@ class SpecificWorker : public GenericWorker
 
         };
         DoubleBuffer<Target, Target> target_buffer;
-
         std::vector<Eigen::Vector2f> current_path;
+
         // Frechet distance calculus
-        float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
+        float distance_between_paths(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
 
         // Draw
         void draw_paths(const RoboCompGridder::TPaths &paths, QGraphicsScene *scene, bool erase_only=false);
@@ -182,12 +187,13 @@ class SpecificWorker : public GenericWorker
         Eigen::Vector2f  compute_closest_target_to_grid_border(const Eigen::Vector2f &target);
         Target transform_target_to_global_frame(const Eigen::Transform<double, 3, 1> &robot_pose, const Target &target);
         RoboCompGridder::Result compute_line_of_sight_target(const Target &target);
-        RoboCompGridder::Result compute_plan_from_grid(const Target &target);
+        RoboCompGridder::Result compute_plan_from_grid(const Target &target, const RobotPose &robot_pose_and_change);
         RoboCompGridPlanner::TPlan
         convert_plan_to_control(const RoboCompGridder::Result &res, const Target &target);
         bool robot_is_at_target(const Target &target_);
         void inject_ending_plan();
-        RoboCompGridder::Result compute_path(const Eigen::Vector2f &source, const Target &target);
+        RoboCompGridder::Result compute_path(const Eigen::Vector2f &source, const Target &target, const RobotPose &robot_pose_and_change);
+        double path_length(const std::vector<Eigen::Vector2f> &path) const;
 
         // publish
         void send_and_publish_plan(const RoboCompGridPlanner::TPlan &plan);
