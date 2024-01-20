@@ -53,6 +53,7 @@ void SpecificWorker::initialize(int period)
         // Viewer
         viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
         viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
+        viewer->setSceneRect(params.GRID_MAX_DIM);
         viewer->show();
 
         // Grid
@@ -66,8 +67,8 @@ void SpecificWorker::initialize(int period)
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
         {
             qInfo() << "[MOUSE] New global target arrived:" << p;
-            auto paths = grid.compute_k_paths(Eigen::Vector2f::Zero(),
-                                              Eigen::Vector2f{p.x(), p.y()},
+            auto paths = grid.compute_k_paths(Grid::Key{0, 0},
+                                              Grid::Key{p.x(), p.y()},
                                               1,
                                               params.MIN_DISTANCE_BETWEEN_PATHS,
                                               true, false);
@@ -88,7 +89,6 @@ void SpecificWorker::initialize(int period)
 		timer.start(params.PERIOD);
 	}
 }
-
 void SpecificWorker::compute()
 {
     /// read LiDAR
@@ -136,8 +136,6 @@ void SpecificWorker::read_lidar()
         std::this_thread::sleep_for(wait_period);
     }
 } // Thread to read the lidar
-
-
 
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
@@ -195,68 +193,76 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
     std::vector<std::vector<Eigen::Vector2f>> paths;
 
     auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]";
-//    mutex_path.lock();
-//
-//        auto paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
-//                                          std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
-//                                          params.MIN_DISTANCE_BETWEEN_PATHS,
-//                                          try_closest_free_point,
-//                                          target_is_human);
-//    mutex_path.unlock();
-
+    qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]"
+                            << " max_paths: " << max_paths;
     mutex_path.lock();
-        auto [success, msg, source_key, target_key] = grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y});
+        auto [success, msg, source_key, target_key] =
+                grid.validate_source_target(Eigen::Vector2f{source.x, source.y},
+                                            source.radius,
+                                            Eigen::Vector2f{target.x, target.y},
+                                            source.radius);
         if (success)
         {
             //check if is line of sight to target free
-            if (grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y},
-                                                     Eigen::Vector2f{target.x, target.y},
+            if (grid.is_line_of_sigth_to_target_free(source_key,
+                                                     target_key,
                                                      params.ROBOT_SEMI_WIDTH))
             {
                 paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
-                msg = "VLOS Path";
-            } else
-                paths = grid.compute_k_paths(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
+                if(paths.empty())
+                    msg = "VLOS path not found";
+                else
+                    msg = "VLOS path";
+            }
+            else
+            {
+                paths = grid.compute_k_paths(source_key, target_key,
                                              std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
                                              params.MIN_DISTANCE_BETWEEN_PATHS,
                                              try_closest_free_point,
                                              target_is_human);
+                if(paths.empty())
+                    msg = "Djikstra path not found";
+                else
+                    msg = "Djikstra path";
+            }
         }
     mutex_path.unlock();
-
     result.error_msg = msg;
-    //If not succes return result with empty paths, error message and timestamp
+    result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // If not success return result with empty paths, error message and timestamp
     if (not success)
+        return result;
+    else
     {
-        result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        // fill Result with data
+        result.paths.resize(paths.size());
+        for (const auto &[i, path]: paths | iter::enumerate)
+        {
+            result.paths[i].resize(path.size());
+            for (const auto &[j, point]: path | iter::enumerate)
+            {
+                result.paths[i][j].x = point.x();
+                result.paths[i][j].y = point.y();
+            }
+        }
+        qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " <<
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms" << "Status:" << msg.c_str();
         return result;
     }
-
-    // fill Result with data
-    result.paths.resize(paths.size());
-    for(const auto &[i, path]: paths | iter::enumerate)
-    {
-        result.paths[i].resize(path.size());
-        for (const auto &[j, point]: path | iter::enumerate)
-        {
-            result.paths[i][j].x = point.x(); result.paths[i][j].y = point.y();
-        }
-    }
-    result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms";
-    return result;
 }
 bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius)
 {
     std::lock_guard<std::mutex> lock(mutex_path);
-        bool res = grid.is_line_of_sigth_to_target_free(Eigen::Vector2f{source.x, source.y}, Eigen::Vector2f{target.x, target.y},
-                                                    robot_radius);
-//        if(res)
-//            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is FREE";
-//        else
-//            qInfo() << __FUNCTION__ <<  "Line of sight from [" << source.x << source.y << "] to [" << target.x << target.y << "] is BLOCKED";
-        return res;
+    auto [success, msg, source_key, target_key] =
+            grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, source.radius,
+                                        Eigen::Vector2f{target.x, target.y}, target.radius);
+    if(success)
+        return grid.is_line_of_sigth_to_target_free(source_key, target_key, robot_radius);
+    else
+        return false;
 }
 RoboCompGridder::TPoint SpecificWorker::Gridder_getClosestFreePoint(RoboCompGridder::TPoint source)
 {
@@ -264,7 +270,7 @@ RoboCompGridder::TPoint SpecificWorker::Gridder_getClosestFreePoint(RoboCompGrid
     if(const auto &p = grid.closest_free({source.x, source.y}); p.has_value())
         return {static_cast<float>(p->x()), static_cast<float>(p->y())};
     else
-        return {0, 0};  // non valid closest point
+        return {0, 0};  // non valid closest point  TODO: Change return type so failure to find can be signaled
 }
 RoboCompGridder::TDimensions SpecificWorker::Gridder_getDimensions()
 {
@@ -273,7 +279,6 @@ RoboCompGridder::TDimensions SpecificWorker::Gridder_getDimensions()
             static_cast<float>(params.GRID_MAX_DIM.width()),
             static_cast<float>(params.GRID_MAX_DIM.height())};
 }
-
 bool SpecificWorker::Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions)
 {
     qInfo() << __FUNCTION__ << " Setting grid dimensions to [" << dimensions.left << dimensions.top << dimensions.width << dimensions.height << "]";

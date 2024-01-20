@@ -324,38 +324,15 @@ void Grid::modify_cost_in_grid(const QPolygonF &poly, float cost)
                 set_cost(point_to_key(static_cast<long>(x), static_cast<long>(y)), cost);
 }
 
-////////////////////////////////////// PATH //////////////////////////////////////////////////////////////
-
-std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_target(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
+////////////////////////////////////// PATH //////////////////////////////////////////////////////////////t_)
+std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_target(const Eigen::Vector2f &source_,
+                                                                                    float s_radius,
+                                                                                    const Eigen::Vector2f &target_,
+                                                                                    float t_radius)
 {
     std::string error_msg = "No error";
     // dim to string
     std::string dim_str = "dim: " + std::to_string(dim.left()) + " " + std::to_string(dim.top()) + " " + std::to_string(dim.width()) + " " + std::to_string(dim.height());
-
-    //Free cells around the source of path
-    {
-        for (auto &[k, v]: neighboors_16(point_to_key(source_), true))
-        {
-//            qInfo() << k.first << k.second << v.free;
-            v.free = true;
-            v.cost = 1;
-        }
-        const auto &[k, v] =  get_cell(point_to_key(source_));
-        v.free = true;
-        v.cost = 1;
-    }
-    //Free cells around the target
-    {
-        for (auto &[k, v]: neighboors_16(point_to_key(target_), true))
-        {
-//            qInfo() << k.first << k.second << v.free;
-            v.free = true;
-            v.cost = 1;
-        }
-        const auto &[k, v] =  get_cell(point_to_key(target_));
-        v.free = true;
-        v.cost = 1;
-    }
 
     // Admission rules
     if (not dim.contains(QPointF(target_.x(), target_.y())))
@@ -368,30 +345,17 @@ std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_tar
         error_msg = "Source " + std::to_string(source_.x()) + " " + std::to_string(source_.y()) + "Robot  out of limits " + dim_str + " Returning empty path";
         return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
     }
+
+    // Get keys
     Key target_key = point_to_key(target_);
-    const auto &[succ_trg, target_cell] = get_cell(target_key);
-    if(not succ_trg)
-    {
-        error_msg = "Could not find target position in Grid. Returning empty path";
-        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
-    }
-    else if(not target_cell.free)
-    {
-        error_msg = "Target position is occupied in Grid. Returning empty path";
-        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
-    }
-    Key source_key = point_to_key(source_);
-    const auto &[succ_src, source_cell] = get_cell(source_key);
-    if(not succ_src)
-    {
-        error_msg = "Could not find source position in Grid. Returning empty path";
-        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
-    }
-    else if(not source_cell.free)
-    {
-        error_msg = "Source position is occupied in Grid. Returning empty path";
-        return std::make_tuple(false, error_msg, Grid::Key() , Grid::Key());
-    }
+    Key source_key = point_to_key(source_);     // TODO: check if this can come back NULL
+
+    //Free cells around the source of path
+    set_submap_free(source_key, s_radius);   // robot_semiwidth
+    set_submap_free(target_key, t_radius);   // object_semiwidth
+
+//
+    // check if source and target are the same
     if (source_key == target_key)
     {
         error_msg = "Robot already at target. Returning empty path";
@@ -399,6 +363,10 @@ std::tuple< bool, ::std::string, Grid::Key, Grid::Key> Grid::validate_source_tar
     }
     error_msg = "Valid source and target";
     return std::make_tuple(true, error_msg, source_key, target_key);
+}
+void Grid::restore_source_target(const Grid::Key &source_key, const Grid::Key &target_key)
+{
+    // TODO: we need to store the previous state of the cells to restore them
 }
 
 std::vector<Eigen::Vector2f > Grid::compute_path_key(const Key &source_key, const Key &target_key)
@@ -443,16 +411,12 @@ std::vector<Eigen::Vector2f > Grid::compute_path_key(const Key &source_key, cons
             }
         }
     }
-    qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_key.first << "," << target_key.second << ") not  found. Returning empty path";
+    //qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_key.first << "," << target_key.second << ") not  found. Returning empty path";
     return {};
 };
 std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_)
 {
-
-    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
-
     // computes a path from source to target using the Dijkstra algorithm
-    // TODO: If failure, return the cause in a string
 
     // Admission rules
     if (not dim.contains(QPointF(target_.x(), target_.y())))
@@ -536,8 +500,8 @@ std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_,
     qInfo() << __FUNCTION__ << "Path from (" << source_key.first << "," << source_key.second << ") to (" <<  target_.x() << "," << target_.y() << ") not  found. Returning empty path";
     return {};
 };
-std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vector2f &source_,
-                                                                const Eigen::Vector2f &target_,
+std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Key &source_,
+                                                                const Key &target_,
                                                                 unsigned int num_paths,
                                                                 float threshold,
                                                                 bool try_closest_free_point,
@@ -547,68 +511,12 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     // the paths are computed using the Yen's algorithm: https://en.wikipedia.org/wiki/Yen%27s_algorithm
     // starting from an initial path and setting to occupied succesive cells in the path, new paths are computed
     // until k paths are found or the initial path is exhausted
-    //qInfo() << __FUNCTION__;
-//    qInfo() << __FUNCTION__ <<  " Target before free" << is_free(target_);
-    // set grid cells around human target to free
-   // if (target_is_human)
-
-//    //Setting source cells free
-//    {
-//        for (auto &[k, v]: neighboors_16(point_to_key(source_), true))
-//        {
-//            qInfo() << k.first << k.second << v.free;
-//            v.free = true;
-//            v.cost = 1;
-////            qInfo() << "after" << k.first << k.second << v.free;
-//        }
-//        const auto &[k, v] =  get_cell(point_to_key(source_));
-//        //set_free(point_to_key(target_));
-//        //set_cost(point_to_key(target_), 1);
-//        v.free = true;
-//        v.cost = 1;
-//    }
-
-//    for(const auto &[k, v] : neighboors_16(point_to_key(target_), true))
-//        qInfo() <<  k.first << k.second << v.free;
-//    qInfo() << "-----------------------";
-
-//    qInfo() << __FUNCTION__ <<  " Target is free" << is_free(target_);
-    // if target is occupied, try to find the closest free point
-    Eigen::Vector2f target = target_;
-    if(not is_free(target_))
-    {
-        if(auto free = closest_free(QPointF{target_.x(), target_.y()}); free.has_value())
-        {
-            qInfo() << __FUNCTION__ << "Target is occupied. Using closest free point: " << free.value().x() << free.value().y();
-            target = Eigen::Vector2f{free.value().x(), free.value().y()};
-        }
-        else
-        {
-            qInfo() << __FUNCTION__ << "Target is occupied. Could not find closest free point. Returning empty path";
-            return {};
-        }
-    }
 
     // get an initial shortest path
-    std::vector<Eigen::Vector2f> initial_path;
-    auto validated = validate_source_target(source_, target);
-    std::string message = std::get<1>(validated);
-
-    if(std::get<0>(validated))
-        initial_path = compute_path_key(std::get<2>(validated), std::get<3>(validated));
-
-    qInfo() << "//----------------------------------------------------------------------------------------------//";
-    qInfo() << __FUNCTION__ << message.c_str();
-
-
-
-
-//    auto initial_path = compute_path(source_, target);
-
-
+    std::vector<Eigen::Vector2f> initial_path = compute_path_key(source_, target_);
     if (initial_path.empty())
     {
-        qWarning() << __FUNCTION__ << "Initial path to " << target_.x() << target_.y() << "not found. Returning empty path";
+        qWarning() << __FUNCTION__ << "Initial path to " << target_.first << target_.second << "not found. Returning empty path";
         return {};
     };
 
@@ -616,7 +524,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
     std::vector<std::vector<Eigen::Vector2f>> paths_list;
     paths_list.push_back(initial_path);
     auto current_step= initial_path.cbegin();   // source
-    Key deleted_key = point_to_key(source_);
+    Key deleted_key = source_;
 
     // loop until k paths are found or the initial path is exhausted
     while(paths_list.size() < num_paths  and current_step != initial_path.cend())
@@ -629,7 +537,7 @@ std::vector<std::vector<Eigen::Vector2f>> Grid::compute_k_paths(const Eigen::Vec
             // mark cell as occupied
             set_occupied(point_to_key(*current_step));
 
-            auto path = compute_path(source_, target);
+            auto path = compute_path_key(source_, target_);
             if(not path.empty())
             {
                 // check that the new path is different enough from the previous ones
@@ -752,12 +660,12 @@ void Grid::update_costs(float robot_semi_width, bool color_all_cells)
     static QBrush green_brush(QColor("LightGreen"));
     static QBrush white(QColor("White"));
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges
-                ={{100, 75, orange_brush, &Grid::neighboors_16},
+                ={{100, 75, orange_brush, &Grid::neighboors_8},
                   {75, 50, yellow_brush, &Grid::neighboors_8},
                   {50, 25, gray_brush, &Grid::neighboors_8},
                   {25, 5,  green_brush, &Grid::neighboors_16}};
     static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
-                ={{100, 75, white, &Grid::neighboors_16},
+                ={{100, 75, white, &Grid::neighboors_8},
                   {75, 50, white, &Grid::neighboors_8},
                   {50, 25, white, &Grid::neighboors_8},
                   {25, 5,  white, &Grid::neighboors_16}};
@@ -1004,27 +912,35 @@ std::tuple<bool, QVector2D> Grid::vector_to_closest_obstacle(QPointF center)
     }
     return std::make_tuple(obstacleFound,closestVector);
 }
-
-// TODO: This does not work for arbitrary sources
-bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width)
+bool Grid::is_line_of_sigth_to_target_free(const Key &source, const Key &target, float robot_semi_width)
 {
-    // checks if the robot can move from source to target in a straight line without colliding with an obstacle
-
-//    // Admission rules
-//    if (not dim.contains(QPointF{target.x(), target.y()}))
-//    {
-//        qInfo() << "[GRID]" << __FUNCTION__ << "Target " << target.x() << target.y() << "out of limits " << dim;
-//        return false;
-//    }
-//    if (not dim.contains(QPointF{source.x(), source.y()}))
-//    {
-//        qInfo() << "[GRID]" << __FUNCTION__ << "Source " << target.x() << target.y() << "out of limits " << dim;
-//        return false;
-//    }
-
 
     //check if there is a straight line from source to target that is free
+    Eigen::Vector2f source_ = Eigen::Vector2f{static_cast<float>(source.first), static_cast<float>(source.second)};
+    Eigen::Vector2f target_ = Eigen::Vector2f{static_cast<float>(target.first), static_cast<float>(target.second)};
+    float num_steps = ceil((target_ - source_).norm() / static_cast<float>(params.tile_size));
+    Eigen::Vector2f step((target_ - source_) / num_steps);
+    bool success = true;
+    for (auto &&i: iter::range(num_steps))
+           if(not is_free(source_ + (step * i)))
+           {
+               success = false;
+               break;
+           }
+    return success;
+}
+void Grid::set_submap_free(const Grid::Key &center, float radius)
+{
+    // set all cells in a square of side "side" around center to free
+    for (auto &&[k, v]: iter::filter([center, radius](auto &v)
+               { return std::labs(v.first.first - center.first) <= radius and std::labs(v.first.second - center.second) <= radius; }, fmap))
+    {
+        v.free = true; v.cost = params.free_cost;
+    }
+}
 
+
+// LOS with wide band
 //    float num_steps = (target - source).norm() / static_cast<float>(params.tile_size);
 //    Eigen::Vector2f step((target - source) / num_steps);
 //
@@ -1041,25 +957,6 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
 //        });
 //    }
 //    return success;
-
-    float num_steps = ceil((target - source).norm() / static_cast<float>(params.tile_size));
-    Eigen::Vector2f step((target - source) / num_steps);
-
-    bool success = true;
-    for (auto &&i: iter::range(num_steps))
-    {
-           bool r = is_free(source + (step * i));
-           if (not r)
-           {
-               success = false;
-               return success;
-           }
-    }
-    return success;
-
-}
-
-
 
 
 // MORRALLA
@@ -1087,4 +984,21 @@ bool Grid::is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const 
 //            else
 //                return std::forward_as_tuple(false, T());
 //        } else return std::forward_as_tuple(false, T());
+//    }
+
+
+// if target is occupied, try to find the closest free point
+//    Eigen::Vector2f target = target_;
+//    if(not is_free(target_))
+//    {
+//        if(auto free = closest_free(QPointF{target_.x(), target_.y()}); free.has_value())
+//        {
+//            qInfo() << __FUNCTION__ << "Target is occupied. Using closest free point: " << free.value().x() << free.value().y();
+//            target = Eigen::Vector2f{free.value().x(), free.value().y()};
+//        }
+//        else
+//        {
+//            qInfo() << __FUNCTION__ << "Target is occupied. Could not find closest free point. Returning empty path";
+//            return {};
+//        }
 //    }
