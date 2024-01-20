@@ -142,6 +142,7 @@ std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::order_paths(
 void Person::set_target_element(bool value)
 {
     is_target = value;
+    item->setBrush(QBrush("red"));
 }
 // Method to update the last update time
 void Person::update_last_update_time()

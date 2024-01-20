@@ -14,11 +14,11 @@ class Person
 {
     private:
         RoboCompVisualElementsPub::TObject target;
-        QGraphicsItem *item = nullptr;
+        QGraphicsEllipseItem *item = nullptr;
         bool is_target = false;
         std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
 
-        // Pilar cone
+        // Pilar Cone
         QPolygonF pilar_cone;
         RoboCompVisualElementsPub::TObjects objects_inside_pilar_cone;
 
