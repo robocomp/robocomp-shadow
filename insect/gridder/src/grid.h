@@ -70,8 +70,8 @@ public:
 
         // paths
         std::vector<Eigen::Vector2f> compute_path_line_of_sight(const Key &source_key, const Key &target_key, const int distance);
-        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Eigen::Vector2f &source_,
-                                                                  const Eigen::Vector2f &target_,
+        std::vector<std::vector<Eigen::Vector2f>> compute_k_paths(const Key &source_,
+                                                                  const Key &target_,
                                                                   unsigned num_paths,
                                                                   float threshold_dist,
                                                                   bool try_closest_free_point,
@@ -103,6 +103,7 @@ public:
         { return fmap.begin(); };
         // TODO: add line, rectangle, circle, espiral, submap, iterators to access regions of the grid
         // as in https://github.com/ANYbotics/grid_map/blob/master/grid_map_core/src/iterators/GridMapIterator.cpp
+
         // cell access
         inline void insert(const Key &key, const T &value);
         void set_free(const Key &k);
@@ -143,11 +144,12 @@ public:
 
         // path related
         bool is_path_blocked(const std::vector<Eigen::Vector2f> &path);
-        bool is_line_of_sigth_to_target_free(const Eigen::Vector2f &source, const Eigen::Vector2f &target, float robot_semi_width);
-        float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
-        float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
-        std::tuple<bool, std::string, Key, Key>
-        validate_source_target(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
+        bool is_line_of_sigth_to_target_free(const Key &source, const Key &target, float robot_semi_width);
+        std::tuple< bool, ::std::string, Grid::Key, Grid::Key>
+        validate_source_target(const Eigen::Vector2f &source_, float s_radius,
+                               const Eigen::Vector2f &target_, float t_radius);
+        void restore_source_target(const Key &source_key, const Key &target_key);
+
     private:
         FMap fmap;
         QGraphicsScene *scene;
@@ -155,7 +157,8 @@ public:
         std::vector<Key> keys;  // vector of keys to compute closest matches
         Dimensions dim = QRectF();
 
-
+        float frechet_distance(const std::vector<Eigen::Vector2f> &A, const std::vector<Eigen::Vector2f> &B);
+        float max_distance(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB);
         std::vector<Eigen::Vector2f> compute_path(const Eigen::Vector2f &source_, const Eigen::Vector2f &target_);
         std::vector<Eigen::Vector2f> compute_path_key(const Key &source_key, const Key &target_key);
         std::vector<Eigen::Vector2f> recover_path(const std::vector<std::pair<std::uint32_t, Key>> &previous, const Key &source, const Key &target);
@@ -164,6 +167,7 @@ public:
         std::vector<Eigen::Vector2f> decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step=2);
         std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
+        void set_submap_free(const Key &center,  float radius);
 
         struct Params
         {
@@ -174,12 +178,9 @@ public:
             const QString free_color = "white";
             const QString unknown_color = "LightGrey";
             const QString occupied_color = "DarkRed";
-            const float occupancy_threshold = 0.48;
+            const float occupancy_threshold = 0.485;
 
         };
         Params params;
-
-
-
 };
 #endif // GRID_H
