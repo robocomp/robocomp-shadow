@@ -42,36 +42,43 @@ using namespace std::chrono;
 
 class SpecificWorker : public GenericWorker
 {
-Q_OBJECT
-public:
-	SpecificWorker(TuplePrx tprx, bool startup_check);
-	~SpecificWorker();
-	bool setParams(RoboCompCommonBehavior::ParameterList params);
+    Q_OBJECT
+    public:
+        SpecificWorker(TuplePrx tprx, bool startup_check);
+        ~SpecificWorker();
+        bool setParams(RoboCompCommonBehavior::ParameterList params);
+        RoboCompCamera360RGBD::TRGBD Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
 
-	RoboCompCamera360RGBD::TRGBD Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
+    public slots:
+        void compute();
+        int startup_check();
+        void initialize(int period);
 
+    private:
+        struct Params
+        {
+            bool DISPLAY = false;
+        };
+        Params params;
 
-public slots:
-	void compute();
-	int startup_check();
-	void initialize(int period);
+        FixedSizeDeque<RoboCompCamera360RGB::TImage> camera_queue{20};
+        FixedSizeDeque<RoboCompLidar3D::TDataImage> lidar_queue{20};
+        cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
+        bool startup_check_flag;
 
-private:
-    FixedSizeDeque<RoboCompCamera360RGB::TImage> camera_queue{20};
-    FixedSizeDeque<RoboCompLidar3D::TDataImage> lidar_queue{20};
-    cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
-	bool startup_check_flag;
-    DoubleBuffer<cv::Mat, cv::Mat> buffer_rgb_image;
-    DoubleBuffer<cv::Mat, cv::Mat> buffer_depth_image;
-    int MAX_WIDTH, MAX_HEIGHT;
-    bool enabled_camera = false;
-    bool enabled_lidar = false;
-    long long capture_time;
-    FPSCounter fps;
+        int MAX_WIDTH, MAX_HEIGHT;
+        bool enabled_camera = false;
+        bool enabled_lidar = false;
+        long long capture_time;
 
-    cv::Mat rgb_frame_write, depth_frame_write;
-    mutable std::mutex swap_mutex;
-};
+        // fps
+        FPSCounter fps;
+
+        // camera buffers
+        cv::Mat rgb_frame_write, depth_frame_write;
+
+        mutable std::mutex swap_mutex;
+    };
 
 
 
