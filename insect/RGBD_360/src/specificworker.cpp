@@ -160,6 +160,8 @@ void SpecificWorker::compute()
         lidar_queue.clean_old(chosen_lidar);
         camera_queue.clean_old(chosen_rgb);
     }
+
+    fps.print("FPS:", 3000);
 }
 
 int SpecificWorker::startup_check()
