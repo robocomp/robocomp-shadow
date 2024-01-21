@@ -41,10 +41,17 @@ SpecificWorker::~SpecificWorker()
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
+    // Create a locale with dot as the decimal separator
+    std::locale dotLocale("C");
+    // Store the current global locale
+    std::locale originalLocale = std::locale::global(dotLocale);
+
     cone_radius = std::stof(params["cone_radius"].value);
     cone_angle = std::stof(params["cone_angle"].value);
-    qInfo() << "Cone radius: " << cone_radius;
-    qInfo() << "Cone angle: " << cone_angle;
+
+    qInfo() << "Params read from config: ";
+    qInfo() << "    cone radius: " << cone_radius;
+    qInfo() << "    cone angle: " << cone_angle;
     return true;
 }
 void SpecificWorker::initialize(int period)
@@ -131,13 +138,16 @@ void SpecificWorker::compute()
 
     // Read visual elements from buffer_visual_elements
     auto ve_ = buffer_visual_elements.try_get();
-    if (ve_.has_value())
-        process_visual_elements(ve_.value());
+    if (ve_.has_value() and not ve_.value().objects.empty())
+    {
+        process_people(ve_.value());
+        process_room_objects(ve_.value());
+    }
 
     // Read room elements from buffer_room_elements
     auto re_ = buffer_room_elements.try_get();
     if (re_.has_value())
-        process_room_elements(re_.value());
+        process_room(re_.value());
 
     // print_people();
     this->lcdNumber_people->display((int)people.size());
@@ -146,37 +156,32 @@ void SpecificWorker::compute()
 }
 
 //////////////////////////////// SpecificWorker /////////////////////////////////////////////////
-void SpecificWorker::process_visual_elements(const RoboCompVisualElementsPub::TData &data)
+void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data)
 {
+    /// Go through three phases: match, add and remove.
+    // Match phase. Check if the new objects are already in the existing objects vector
     std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
-    // Check if there is data in data.objects
-    if (data.objects.empty()) {  qWarning() << __FUNCTION__  << " No VE data"; return; }
-
-    // qInfo() << "match phase";
-    for (const auto &object: data.objects | iter::filter([](auto &a){return a.type == 0;}))  // people
+    auto now = std::chrono::high_resolution_clock::now();
+    for (const auto &object: data.objects | iter::filter([this](auto &obj){return obj.type == params.PERSON;}))  // people
     {
         // Check if the person is already in the people vector
-        if(auto it = std::ranges::find_if(people, [&object](const Person &p) { return p.get_id() == object.id; }); it != people.end())
+        if(auto person_in_list = std::ranges::find_if(people, [&object](const Person &p)
+                    { return p.get_id() == object.id; }); person_in_list != people.end())
         {
-            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - it->get_insertion_time()).count() <= 1)
-                it->update_last_update_time();
-            else
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - person_in_list->get_insertion_time()).count() >
+                params.SECS_TO_GET_IN)
             {
-                if(it->get_item() == nullptr) // gets in! Initialize item
-                    it->init_item(&viewer->scene, std::stof(object.attributes.at("x_pos")),
-                                                  std::stof(object.attributes.at("y_pos")),
-                                                  std::stof(object.attributes.at("orientation")),
-                                                  cone_radius,
-                                                  cone_angle);
-                else    // a veteran. update attributes
+                if (person_in_list->get_item() == nullptr) // First time after admission. Initialize item
+                    person_in_list->init_item(&viewer->scene, std::stof(object.attributes.at("x_pos")),
+                                              std::stof(object.attributes.at("y_pos")),
+                                              std::stof(object.attributes.at("orientation")),
+                                              cone_radius,
+                                              cone_angle);
+                else    // A veteran. Update attributes
                 {
-                    // Update the attributes of the person
-                    it->update_attributes(data.objects);
-                    it->update_last_update_time();
-                    // Check if the person is inside the pilar cone
-                    it->is_inside_pilar_cone(data.objects);
-                    // Draw the paths
-                    if(it->is_target_element())
+                    person_in_list->update_attributes(data.objects);    //TODO: change to object
+                    person_in_list->is_inside_pilar_cone(data.objects);
+                    if (person_in_list->is_target_element())  // If is target, get paths and draw them
                     {
                         try
                         {
@@ -185,25 +190,24 @@ void SpecificWorker::process_visual_elements(const RoboCompVisualElementsPub::TD
                                                                           std::stof(object.attributes.at("x_pos")),
                                                                           std::stof(object.attributes.at("y_pos"))},
                                                                   1, true, true);
-                            if(result.valid and not result.paths.empty())
+                            if (result.valid and not result.paths.empty())
                             {
                                 std::vector<Eigen::Vector2f> path;
                                 for (const auto &p: result.paths.front())
                                     path.emplace_back(p.x, p.y);
                                 draw_path(path, &viewer->scene, false);
-                                it->draw_paths(&viewer->scene, false, true);
+                                person_in_list->draw_paths(&viewer->scene, false, true);
                             }
                         }
                         catch (const Ice::Exception &e)
-                        { std::cout << "Error reading plans from Gridder" << e << std::endl; }
-                    }
-                    else
-                        it->draw_paths(&viewer->scene, false, false);
+                        { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
+                    } else    // remove paths from drawing
+                        person_in_list->draw_paths(&viewer->scene, false, false);
                 }
+                person_in_list->update_last_update_time();  // update time for all
             }
         }
-        // Emplace the object in the remaining objects vector
-        else
+        else     // Emplace the object in the remaining objects vector
             remaining_objects.push_back(object);
     }
 
@@ -220,17 +224,63 @@ void SpecificWorker::process_visual_elements(const RoboCompVisualElementsPub::TD
 
     // Remove phase. Check for people not updated in more than 2 seconds
     for (auto &person: people)
-    {
-        if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - person.get_last_update_time()).count() > 1)
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - person.get_last_update_time()).count() > params.SECS_TO_GET_OUT)
         {
             //qInfo() << "Person with id: " << person.get_id() << " has been removed";
             person.draw_paths(&viewer->scene, true, false);
             person.remove_item(&viewer->scene);
             people.erase(std::ranges::find_if(people, [&person](const Person &p) { return p.get_id() == person.get_id(); }));
         }
-    }
 }
-void SpecificWorker::process_room_elements(const RoboCompVisualElementsPub::TData &data)
+void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData &data)
+{
+    /// Go through three phases: match, add and remove.
+    // Match phase. Check if the new objects are already in the existing objects vector
+    std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
+    auto now = std::chrono::high_resolution_clock::now();
+    for (const auto &object: data.objects | iter::filter([this](auto &obj){return obj.type == params.STOP_SIGN;}))  // people
+    {
+        // Check if the object is already in the objects vector
+        if(auto object_in_list = std::ranges::find_if(objects, [&object](const Object &o)
+            { return o.get_id() == object.id; }); object_in_list != objects.end())
+        {
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - object_in_list->get_insertion_time()).count() >
+                params.SECS_TO_GET_IN)
+            {
+                if (object_in_list->get_item() == nullptr) // First time after admission. Initialize item
+                    object_in_list->init_item(&viewer->scene, std::stof(object.attributes.at("x_pos")),
+                                              std::stof(object.attributes.at("y_pos")),
+                                              500, 500);
+                else    // A veteran. Update attributes
+                    object_in_list->update_attributes(object);
+
+                object_in_list->update_last_update_time();  // update time for all
+            }
+        }
+        else     // Emplace the object in the remaining objects vector
+            remaining_objects.push_back(object);
+    }
+
+    // Add phase. Process remaining objects by adding new objects to the list
+    for (const auto &rem_object: remaining_objects)
+    {
+        // Create a new object
+        Object new_object;
+        new_object.set_object_data(rem_object);
+        new_object.set_insertion_time();
+        objects.emplace_back(new_object);
+    }
+
+    // Remove phase. Check for people not updated in more than 2 seconds
+    for (auto &object: objects)
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - object.get_last_update_time()).count() > params.SECS_TO_GET_OUT)
+        {
+            //qInfo() << "Person with id: " << person.get_id() << " has been removed";
+            object.remove_item(&viewer->scene);
+            objects.erase(std::ranges::find_if(objects, [&object](const Object &p) { return p.get_id() == object.get_id(); }));
+        }
+}
+void SpecificWorker::process_room(const RoboCompVisualElementsPub::TData &data)
 {
     // Check if there is data in data.objects
     if (data.objects.empty())

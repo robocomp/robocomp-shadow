@@ -15,19 +15,31 @@ Person::Person()
 }
 void Person::init_item(QGraphicsScene *scene, float x, float y, float angle, float cone_radius, float cone_angle) // Radius in mm, cone_angle in rad
 {
-    item = scene->addEllipse(-200, -200, 400, 400, QPen("orange"), QBrush("orange"));
+    item = scene->addEllipse(-200, -200, 400, 400, QPen(QColor("black"), 20), QBrush("orange"));
     auto line = scene->addLine(0, 0, 0, 200, QPen(QColor("black"), 10, Qt::SolidLine, Qt::RoundCap));
     line->setParentItem(item);
     item->setPos(x, y);
     item->setRotation(qRadiansToDegrees(angle));
 
-    // Create pilar cone as a isosceles triangle with base at item origin and bisector orientation aligned with item orientation
+    // Create pilar cone as an isosceles triangle with base at item origin and bisector orientation aligned with item orientation
     //qInfo() << "cone_radius: " << cone_radius << " cone_angle: " << cone_angle;
     float x_cone = cone_radius * sin(cone_angle / 2.f);
     float y_cone = cone_radius * cos(cone_angle / 2.f);
     pilar_cone << QPointF(0, 0) << QPointF(x_cone, y_cone) << QPointF(-x_cone, y_cone);
     auto pilar_cone_item = scene->addPolygon(this->pilar_cone, QPen(QColor("green"), 20, Qt::SolidLine, Qt::RoundCap));
     pilar_cone_item->setParentItem(item);
+
+    // add a text item with the id
+    auto text = scene->addText(QString::number(target.id));
+    text->setParentItem(item);
+    text->setPos(-text->boundingRect().width()*5, text->boundingRect().height()*17
+    );
+    text->setDefaultTextColor(QColor("black"));
+    text->setScale(10);
+    // Create a QTransform for vertical reflection
+    QTransform transform; transform.scale(1, -1);
+    text->setTransform(transform);
+
 }
 void Person::set_person_data(RoboCompVisualElementsPub::TObject person)
 {
@@ -83,11 +95,7 @@ void Person::is_inside_pilar_cone(const RoboCompVisualElementsPub::TObjects &lis
     // Map Pilar cone to parent rotation and translation
     auto pilar_cone_ = this->pilar_cone;
     auto pilar_cone_conv = item->mapToParent(pilar_cone_);
-    // Print pilar cone points
-//    for (const auto &p : pilar_cone_conv)
-//    {
-//        qInfo() << p.x() << " " << p.y();
-//    }
+
     // Clear paths vector
     paths.clear();
     // Check if there are objects inside the pilar cone
@@ -100,20 +108,15 @@ void Person::is_inside_pilar_cone(const RoboCompVisualElementsPub::TObjects &lis
         {
             if (pilar_cone_conv.containsPoint(QPointF(std::stof(o.attributes.at("x_pos")), std::stof(o.attributes.at("y_pos"))), Qt::OddEvenFill))
             {
-//                qInfo() << o.type << "TRUE" << std::stof(o.attributes.at("x_pos")) << " " << std::stof(o.attributes.at("y_pos"));
-                if (auto path = order_paths(o); path.has_value())
-                {
-                    paths.push_back(path.value());
-                }
+                //if (auto path = search_for_paths(o); path.has_value())
+                //{
+                //    paths.push_back(path.value());
+                //}
             }
-//            else
-//            {
-//                qInfo() << "FALSE";
-//            }
         }
     }
 }
-std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::order_paths(const RoboCompVisualElementsPub::TObject &object)
+std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::search_for_paths(const RoboCompVisualElementsPub::TObject &object)
 {
     try
     {
@@ -122,7 +125,7 @@ std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::order_paths(
                                               1,
                                               true,
                                               true);
-        qInfo() << __FUNCTION__ << "result: " << result.error_msg.c_str();
+        qInfo() << __FUNCTION__ << "result: " << result.error_msg.c_str() << " to " << object.id;
         if(not result.valid or result.paths.empty())   //TODO: try a few times
         {
             qWarning() << __FUNCTION__ << "No path found while initializing current_path";
@@ -142,7 +145,10 @@ std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::order_paths(
 void Person::set_target_element(bool value)
 {
     is_target = value;
-    item->setBrush(QBrush("red"));
+    if(value)
+        item->setBrush(QBrush("red"));
+    else
+        item->setBrush(QBrush("orange"));
 }
 // Method to update the last update time
 void Person::update_last_update_time()
@@ -248,7 +254,7 @@ void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_pers
 void Person::remove_item(QGraphicsScene *scene)
 {
     scene->removeItem(item);
-    delete item;
+    delete item; item = nullptr;
 }
 
 void Person::print() const

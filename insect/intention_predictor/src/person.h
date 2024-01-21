@@ -40,7 +40,7 @@ class Person
         // Method to check if there are TObjects inside the pilar cone
         void is_inside_pilar_cone(const RoboCompVisualElementsPub::TObjects &list);
         // Method to order paths
-        std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> order_paths(const RoboCompVisualElementsPub::TObject &object);
+        std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> search_for_paths(const RoboCompVisualElementsPub::TObject &object);
         // Set if the element is the robot target
         void set_target_element(bool value);
         // Method to get the id of the person
