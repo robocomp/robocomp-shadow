@@ -61,7 +61,7 @@ class SpecificWorker : public GenericWorker
 
         // Pilar cone parameters
         float cone_radius = 3000;
-        float cone_angle = 1;
+        float cone_angle = 1;   // rads
 
         struct Params
         {
@@ -89,6 +89,12 @@ class SpecificWorker : public GenericWorker
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
+            unsigned int SECS_TO_GET_IN = 1; // secs
+            unsigned int SECS_TO_GET_OUT = 2; // sec//
+
+            // YOLO
+            int STOP_SIGN = 11;
+            int PERSON = 0;
 
             // colors
             QColor TARGET_COLOR= {"orange"};
@@ -98,10 +104,45 @@ class SpecificWorker : public GenericWorker
         };
         Params params;
 
+        struct Object
+        {
+            Object() = default;
+            RoboCompVisualElementsPub::TObject obj;
+            QGraphicsRectItem *item = nullptr;
+            bool is_target = false;
+            std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
+
+            int get_id() const {return obj.id;}
+            QGraphicsItem *get_item() const {return item;}
+            void init_item(QGraphicsScene *scene, float x, float y, float width, float height)
+            {
+                item = scene->addRect(-width / 2.f, -height / 2.f, width, height,
+                                      QPen(QColor("magenta")), QBrush(QColor("magenta")));
+                item->setPos(x, y);
+                // add a text item with the id
+                auto text = scene->addText(QString::number(obj.id));
+                text->setParentItem(item);
+                text->setPos(-text->boundingRect().width() * 5, text->boundingRect().height() * 17);
+                text->setDefaultTextColor(QColor("black"));
+                text->setScale(10);
+                QTransform transform; transform.scale(1, -1);
+                text->setTransform(transform);
+            }
+            void update_last_update_time() { last_update_time = std::chrono::high_resolution_clock::now(); };
+            void set_insertion_time() { insertion_time = std::chrono::high_resolution_clock::now(); update_last_update_time();}
+            std::chrono::high_resolution_clock::time_point get_insertion_time() const {return insertion_time;};
+            std::chrono::high_resolution_clock::time_point get_last_update_time() const {return last_update_time;};
+            void update_attributes(const RoboCompVisualElementsPub::TObject &object){};
+            void set_object_data(const RoboCompVisualElementsPub::TObject &object){ obj = object;};
+            void remove_item(QGraphicsScene *scene) { scene->removeItem(item); delete item; item = nullptr;};
+        };
+
         // People
         Person wanted_person;
         using People = std::vector<Person>;
+        using Objects = std::vector<Object>;
         People people;
+        Objects objects;
 
         // Robot path
         std::vector<QGraphicsEllipseItem*> points;
@@ -112,13 +153,15 @@ class SpecificWorker : public GenericWorker
         void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate);
         void draw_room(const RoboCompVisualElementsPub::TObject &obj);
         void draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only);
-        void process_visual_elements(const RoboCompVisualElementsPub::TData &data);
-        void process_room_elements(const RoboCompVisualElementsPub::TData &data);
+        void process_people(const RoboCompVisualElementsPub::TData &data);
+        void process_room(const RoboCompVisualElementsPub::TData &data);
         void print_people(const People &ppol);
 
         // fps
         FPSCounter fps;
         int hz = 0;
+
+    void process_room_objects(const RoboCompVisualElementsPub::TData &data);
 };
 
 #endif
