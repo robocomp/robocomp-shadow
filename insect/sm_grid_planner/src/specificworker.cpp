@@ -172,7 +172,14 @@ void SpecificWorker::compute()
     if(cancel_from_mouse or target.is_completed())
     {
         inject_ending_plan();
+        if(cancel_from_mouse)
+        {
+            draw_smoothed_path({}, &viewer->scene, QColor(),true);
+            draw_global_target({}, &viewer->scene, true);
+            draw_paths({}, &viewer->scene, true);
+        }
         cancel_from_mouse = false;
+
         return;
     }
 
@@ -763,6 +770,13 @@ void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int 
 /// SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
 void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub::TObject target)
 {
+    //Cancel target from intention_predictor publisher
+    if(target.id == -1)
+    {
+        cancel_from_mouse = true;
+        return;
+    }
+    
     Target t;
     QRectF dim;
     try{ auto grid = gridder_proxy->getDimensions(); dim = QRectF{grid.left, grid.top, grid.width, grid.height}; }
