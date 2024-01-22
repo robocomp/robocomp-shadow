@@ -31,6 +31,7 @@
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <fps/fps.h>
 #include <timer/timer.h>
+#include <qcustomplot/qcustomplot.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -175,7 +176,7 @@ class SpecificWorker : public GenericWorker
         void draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate=1);
         void draw_point_color(const Eigen::Vector2f &point, QGraphicsScene *scene, bool erase_only, QColor color);
 
-        // Lidar Thread
+    // Lidar Thread
         DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
         std::thread read_lidar_th;
         void read_lidar();
@@ -201,6 +202,12 @@ class SpecificWorker : public GenericWorker
         // state-machine
         enum class State {IDLE, COMPUTE, WAIT, STOP, ERROR};
         State state = State::IDLE;
+
+        // QCustomPlot
+        QCustomPlot custom_plot;
+        QCPGraph *side_vel, *adv_vel, *track_dist;
+        void draw_timeseries(float side, float adv, float track);
+
 };
 
 #endif
