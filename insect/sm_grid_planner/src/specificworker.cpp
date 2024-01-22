@@ -396,8 +396,10 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
     {
         try
         {
-            auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=0.f, .y=0.f, .radius=250 },
-                                                         RoboCompGridder::TPoint{.x=target.pos_eigen().x(),.y=target.pos_eigen().y(), .radius=300 },
+            auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=0.f, .y=0.f, .radius=250 },    // TODO: move to params
+                                                         RoboCompGridder::TPoint{.x=target.pos_eigen().x(),
+                                                                                       .y=target.pos_eigen().y(),
+                                                                                       .radius=400},
                                                          params.NUM_PATHS_TO_SEARCH,
                                                          true,
                                                          true);
@@ -452,9 +454,11 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             try
             {
                 qInfo() << __FUNCTION__ << " Blocked. Computing new path";
-                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
-                                                      RoboCompGridder::TPoint{target.pos_eigen().x(), target.pos_eigen().y()},
-                                                      1, true, true);
+                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=0.f, .y=0.f, .radius=250},
+                                                              RoboCompGridder::TPoint{.x=target.pos_eigen().x(),
+                                                                                            .y=target.pos_eigen().y(),
+                                                                                            .radius=400},
+                                                           1, true, true);
                 if(not result.valid or result.paths.empty())  //TODO: try a few times
                 {
                     qWarning() << __FUNCTION__ << " No path found after blocked current_path";
