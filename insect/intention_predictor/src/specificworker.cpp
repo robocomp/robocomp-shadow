@@ -80,42 +80,30 @@ void SpecificWorker::initialize(int period)
         connect(viewer, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
         {
             qInfo() << "[MOUSE] New click left arrived:" << p;
-            // Check item at position corresponding to person representation (person can't be selected if cone layes is superposed)
+            // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
+            // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
             QList<QGraphicsItem *> itemsAtPosition = viewer->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
             QGraphicsItem *selectedItem = nullptr;
-            for (QGraphicsItem *item : itemsAtPosition)
-            {
-                if((Eigen::Vector2f(item->pos().x(), item->pos().y()) - Eigen::Vector2f(p.x(), p.y())).norm() < 100)
-                {
-                    selectedItem = item;
-                    break;
-                }
-            }
-            if (selectedItem == nullptr) return;
+
+            if(auto res = std::ranges::find_if(itemsAtPosition, [p](auto it)
+                    { return (Eigen::Vector2f(it->pos().x(), it->pos().y()) - Eigen::Vector2f(p.x(), p.y())).norm() < 100;}); res != itemsAtPosition.end())
+                selectedItem = *res;
+            else return;
+            
             // check person with the same item
-            for (auto &person: people)
+            if(auto person = std::ranges::find_if(people, [selectedItem](const Person &p)
+                { return p.get_item() == selectedItem; }); person != people.end())
             {
-                if (person.get_item() == selectedItem)
-                {
-                    qInfo() << "[MOUSE] Target selected";
-                    person.set_target_element(true);
-                    try
-                    { segmentatortrackingpub_pubproxy->setTrack(person.get_target()); }
-                    catch (const Ice::Exception &e)
-                    { std::cout << "Error setting target" << e << std::endl; }
-                }
-                else
-                    person.set_target_element(false);
+                qInfo() << "[MOUSE] Target selected";
+                person->set_target_element(true);
             }
         });
         //Right click
         connect(viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
         {
-            qInfo() << "[MOUSE] New click right arrived:" << p;
+            qInfo() << "[MOUSE] New right click arrived:" << p;
             for (auto &person: people)
-            {
                 person.set_target_element(false);
-            }
             try
             {
                 segmentatortrackingpub_pubproxy->setTrack(RoboCompVisualElementsPub::TObject{.id = -1});
@@ -143,6 +131,9 @@ void SpecificWorker::compute()
         process_people(ve_.value());
         process_room_objects(ve_.value());
     }
+
+    // if there is a target person, compute the path from robot
+    postprocess_target_person(people);
 
     // Read room elements from buffer_room_elements
     auto re_ = buffer_room_elements.try_get();
@@ -181,28 +172,6 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
                 {
                     person_in_list->update_attributes(data.objects);    //TODO: change to object
                     person_in_list->is_inside_pilar_cone(data.objects);
-                    if (person_in_list->is_target_element())  // If is target, get paths and draw them
-                    {
-                        try
-                        {
-                            auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
-                                                                  RoboCompGridder::TPoint{
-                                                                          std::stof(object.attributes.at("x_pos")),
-                                                                          std::stof(object.attributes.at("y_pos"))},
-                                                                  1, true, true);
-                            if (result.valid and not result.paths.empty())
-                            {
-                                std::vector<Eigen::Vector2f> path;
-                                for (const auto &p: result.paths.front())
-                                    path.emplace_back(p.x, p.y);
-                                draw_path(path, &viewer->scene, false);
-                                person_in_list->draw_paths(&viewer->scene, false, true);
-                            }
-                        }
-                        catch (const Ice::Exception &e)
-                        { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
-                    } else    // remove paths from drawing
-                        person_in_list->draw_paths(&viewer->scene, false, false);
                 }
                 person_in_list->update_last_update_time();  // update time for all
             }
@@ -232,13 +201,53 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
             people.erase(std::ranges::find_if(people, [&person](const Person &p) { return p.get_id() == person.get_id(); }));
         }
 }
+void SpecificWorker::postprocess_target_person(const People &people_)
+{
+    // search for the target person in people list
+    if(auto target_person = std::ranges::find_if(people_, [](const Person &p){return p.is_target_element();}); target_person != people_.end())
+    {
+        auto x_ = target_person->get_attribute("x_pos");
+        auto y_ = target_person->get_attribute("y_pos");
+        if(x_.has_value()  and y_.has_value())
+        {
+            try
+            {
+                Eigen::Vector2f t{x_.value(), y_.value()};
+                if(t.norm() > 500.f)    // TODO: move to params
+                    t = t.normalized() * (t.norm() - 500.f);
+                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
+                                                      RoboCompGridder::TPoint{t.x(), t.y()},
+                                                      1, true, true);
+                if (result.valid and not result.paths.empty())
+                {
+                    std::vector<Eigen::Vector2f> path;
+                    for (const auto &p: result.paths.front())
+                        path.emplace_back(p.x, p.y);
+                    draw_path(path, &viewer->scene, false); // draws path from robot to target person
+                    //target_person->draw_paths(&viewer->scene, false, true);  // draws paths from person to objects
+                }
+            }
+            catch (const Ice::Exception &e)
+            { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
+            // publish target to driver
+            try
+            { segmentatortrackingpub_pubproxy->setTrack(target_person->get_target()); }
+            catch (const Ice::Exception &e)
+            { std::cout << "Error setting target: " << e << std::endl; }
+        }
+        else
+            qWarning() << __FUNCTION__ << " Error. The object does not contain the key x_pos or y_pos";
+    }
+}
 void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData &data)
 {
     /// Go through three phases: match, add and remove.
     // Match phase. Check if the new objects are already in the existing objects vector
     std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
     auto now = std::chrono::high_resolution_clock::now();
-    for (const auto &object: data.objects | iter::filter([this](auto &obj){return obj.type == params.STOP_SIGN;}))  // people
+    // Get the index of the element in YOLO_NAMES = "chair"
+    size_t idx = std::distance(YOLO_NAMES.begin(), std::ranges::find(YOLO_NAMES, "chair"));
+    for (const auto &object: data.objects | iter::filter([idx](auto &obj){return obj.type == idx;}))
     {
         // Check if the object is already in the objects vector
         if(auto object_in_list = std::ranges::find_if(objects, [&object](const Object &o)
