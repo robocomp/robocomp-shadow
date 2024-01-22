@@ -20,6 +20,7 @@ void Person::init_item(QGraphicsScene *scene, float x, float y, float angle, flo
     line->setParentItem(item);
     item->setPos(x, y);
     item->setRotation(qRadiansToDegrees(angle));
+    item->setZValue(100);  // set it higher than the grid
 
     // Create pilar cone as an isosceles triangle with base at item origin and bisector orientation aligned with item orientation
     //qInfo() << "cone_radius: " << cone_radius << " cone_angle: " << cone_angle;
@@ -82,6 +83,21 @@ void Person::update_attributes(const RoboCompVisualElementsPub::TObjects &list)
             return;
         }
     }
+}
+std::optional<float> Person::get_attribute(const string &attribute_name) const
+{
+    if (target.attributes.contains(attribute_name))
+        return std::stof(target.attributes.at(attribute_name));
+    else
+        return {};
+}
+bool Person::set_attribute(const std::string &attribute_name, float value)
+{
+    if (target.attributes.contains(attribute_name))
+        target.attributes.at(attribute_name) = std::to_string(value);
+    else
+        return false;
+    return true;
 }
 // Method to check if there are TObjects inside the pilar cone
 void Person::is_inside_pilar_cone(const RoboCompVisualElementsPub::TObjects &list)
@@ -150,12 +166,10 @@ void Person::set_target_element(bool value)
     else
         item->setBrush(QBrush("orange"));
 }
-// Method to update the last update time
 void Person::update_last_update_time()
 {
     last_update_time = std::chrono::high_resolution_clock::now();
 }
-// Method to get the last update time
 std::chrono::high_resolution_clock::time_point Person::get_last_update_time() const
 {
     return last_update_time;
@@ -170,6 +184,21 @@ QGraphicsItem* Person::get_item() const
 }
 RoboCompVisualElementsPub::TObject Person::get_target() const
 {
+    RoboCompVisualElementsPub::TObject aux = this->target;
+    if (aux.attributes.contains("x_pos") and aux.attributes.contains("y_pos"))
+    {
+        auto x = std::stof(aux.attributes.at("x_pos"));
+        auto y = std::stof(aux.attributes.at("y_pos"));
+        // compute a new point closer to the robot by 500mm
+        Eigen::Vector2f t{x, y};
+        if(t.norm() > 500.f)    // TODO: move to params
+        {
+            t = t.normalized() * (t.norm() - 500.f);
+            aux.attributes["x_pos"] = std::to_string(t.x());
+            aux.attributes["y_pos"] = std::to_string(t.y());
+            return aux;
+        }
+    }
     return target;
 }
 bool Person::is_target_element() const
@@ -186,9 +215,11 @@ std::chrono::high_resolution_clock::time_point Person::get_insertion_time() cons
 {
     return insertion_time;
 }
+
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
-void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person)
+void Person::draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person) const
 {
+    static std::vector<QGraphicsPolygonItem*> points;
     for(auto p : points)
     { scene->removeItem(p); delete p; }
     points.clear();
@@ -264,3 +295,4 @@ void Person::print() const
     qInfo() << "    y_pos: " << std::stof(target.attributes.at("y_pos"));
     qInfo() << "    orientation: " << std::stof(target.attributes.at("orientation"));
 }
+

@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -95,6 +93,8 @@ class SpecificWorker : public GenericWorker
             // YOLO
             int STOP_SIGN = 11;
             int PERSON = 0;
+            int BENCH = 13;
+            int CHAIR = 56;
 
             // colors
             QColor TARGET_COLOR= {"orange"};
@@ -104,7 +104,17 @@ class SpecificWorker : public GenericWorker
         };
         Params params;
 
-        struct Object
+        std::vector<std::string> YOLO_NAMES = {"person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+        "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse",
+        "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase",
+        "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
+        "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
+        "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
+        "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+        "scissors", "teddy bear", "hair drier", "toothbrush"};
+
+    struct Object
         {
             Object() = default;
             RoboCompVisualElementsPub::TObject obj;
@@ -152,7 +162,7 @@ class SpecificWorker : public GenericWorker
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_room_elements;
         void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate);
         void draw_room(const RoboCompVisualElementsPub::TObject &obj);
-        void draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only);
+        void draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
         void process_people(const RoboCompVisualElementsPub::TData &data);
         void process_room(const RoboCompVisualElementsPub::TData &data);
         void print_people(const People &ppol);
@@ -161,7 +171,8 @@ class SpecificWorker : public GenericWorker
         FPSCounter fps;
         int hz = 0;
 
-    void process_room_objects(const RoboCompVisualElementsPub::TData &data);
+        void process_room_objects(const RoboCompVisualElementsPub::TData &data);
+        void postprocess_target_person(const People &people_);
 };
 
 #endif
