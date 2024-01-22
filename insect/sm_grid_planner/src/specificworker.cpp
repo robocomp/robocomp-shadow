@@ -128,6 +128,21 @@ void SpecificWorker::initialize(int period)
                 draw_global_target({}, &viewer->scene, true);
                 draw_paths({}, &viewer->scene, true);
             });
+
+            // QCustomPlot
+            custom_plot.setParent(this->customplot);
+            custom_plot.xAxis->setLabel("time");
+            custom_plot.yAxis->setLabel("sice_a adv_a track");
+            custom_plot.xAxis->setRange(0, 200);
+            custom_plot.yAxis->setRange(-200, 200);
+            track_dist = custom_plot.addGraph();
+            track_dist->setPen(QColor("blue"));
+            side_vel = custom_plot.addGraph();
+            side_vel->setPen(QColor("orange"));
+            adv_vel = custom_plot.addGraph();
+            adv_vel->setPen(QColor("green"));
+            custom_plot.resize(this->customplot->size());
+            custom_plot.show();
         }
 
         // Lidar thread is created
@@ -218,16 +233,23 @@ void SpecificWorker::compute()
     {
         // move forward through path until the distance to the target is equal to params.TRACKING_DISTANCE_TO_TARGET
         float acum = 0.f;
-        for(auto &&pp: returning_plan.paths.front() | iter::reversed | iter::sliding_window(2))
+        bool success = false;
+        for(auto &&pp: returning_plan.paths.front() |
+                                     iter::reversed |
+                                     iter::sliding_window(2) |
+                                     iter::filter([acum, dist = params.TRACKING_DISTANCE_TO_TARGET](auto &pp) mutable
+                                            { acum += (Eigen::Vector2f{pp[0].x, pp[0].y} - Eigen::Vector2f{pp[1].x, pp[1].y}).norm();
+                                              return acum > dist;}))
         {
-            Eigen::Vector2f p{pp[0].x, pp[0].y};
-            Eigen::Vector2f q{pp[1].x, pp[1].y};
-            acum += (p-q).norm();
-            if(acum > params.TRACKING_DISTANCE_TO_TARGET)
-            {
-                target.set(p, false);
+                target.set(Eigen::Vector2f{pp[1].x, pp[1].y}, false);
+                success = true;
                 break;
-            }
+        }
+        if(not success)
+        {
+            qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
+            inject_ending_plan();
+            return;
         }
     }
 
@@ -237,20 +259,6 @@ void SpecificWorker::compute()
         final_plan = convert_plan_to_control(returning_plan, target);
     if(params.DISPLAY)(this->lcdNumber_length->display((int)final_plan.path.size()));
 
-    // if target is tracking, compute gains
-//    if(target.is_tracked() and not final_plan.controls.empty())
-//    {
-//        float gain = 1.f;
-//        if(target.distance_to_robot() < params.TRACKING_DISTANCE_TO_TARGET)
-//            gain = 1.1f;
-//        if(target.distance_to_robot() > params.TRACKING_DISTANCE_TO_TARGET)
-//            gain = 0.9f;
-//
-//        final_plan.controls[0].adv *= gain;
-//        final_plan.controls[0].side *= gain;
-//        final_plan.controls[0].rot *= gain;
-//    }
-
    /// send plan to remote interface and publish it to rcnode
     if(not this->pushButton_stop->isChecked())
         send_and_publish_plan(final_plan);
@@ -259,8 +267,12 @@ void SpecificWorker::compute()
     target_buffer.put(std::move(target));
 
     hz = fps.print("FPS:", 3000);
-    if(params.DISPLAY) this->lcdNumber_hz->display(this->hz);
-
+    if(params.DISPLAY)
+    {
+        this->lcdNumber_hz->display(this->hz);
+        this->lcdNumber_dist_to_target->display((int)target.distance_to_robot());
+        draw_timeseries(final_plan.controls.front().side/10, final_plan.controls.front().adv/10, (target.distance_to_robot())/10);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -766,6 +778,15 @@ void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int 
             draw_points.push_back(o);
         }
     }
+}
+void SpecificWorker::draw_timeseries(float side, float adv, float track)
+{
+    static int cont = 0;
+    side_vel->addData(cont, side);
+    track_dist->addData(cont, track);
+    adv_vel->addData(cont++, adv);
+    custom_plot.xAxis->setRange(cont++, 200, Qt::AlignRight);
+    custom_plot.replot();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
