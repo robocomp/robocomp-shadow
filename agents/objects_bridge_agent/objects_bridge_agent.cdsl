@@ -3,7 +3,7 @@ import "SegmentatorTrackingPub.idsl";
 import "Gridder.idsl";
 import "Lidar3D.idsl";
 
-Component intention_predictor
+Component objects_bridge_agent
 {
     Communications
     {

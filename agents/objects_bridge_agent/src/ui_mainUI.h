@@ -10,13 +10,13 @@
 #define UI_MAINUI_H
 
 #include <QtCore/QVariant>
+#include <QtGui/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QFrame>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QLCDNumber>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QSpacerItem>
+#include <QtWidgets/QMainWindow>
+#include <QtWidgets/QMenu>
+#include <QtWidgets/QMenuBar>
+#include <QtWidgets/QSplitter>
+#include <QtWidgets/QStatusBar>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QWidget>
 
@@ -25,153 +25,65 @@ QT_BEGIN_NAMESPACE
 class Ui_guiDlg
 {
 public:
-    QVBoxLayout *verticalLayout_2;
+    QAction *actionStart_Stop;
+    QWidget *centralwidget;
     QVBoxLayout *verticalLayout;
-    QHBoxLayout *horizontalLayout_4;
-    QHBoxLayout *horizontalLayout;
-    QLabel *label;
-    QLCDNumber *lcdNumber_hz;
-    QPushButton *pushButton_stop;
-    QSpacerItem *horizontalSpacer;
-    QHBoxLayout *horizontalLayout_2;
-    QLabel *label_2;
-    QLCDNumber *lcdNumber_people;
-    QHBoxLayout *horizontalLayout_3;
-    QLabel *label_3;
-    QLCDNumber *lcdNumber_room;
-    QHBoxLayout *horizontalLayout_5;
-    QLabel *label_4;
-    QLCDNumber *lcdNumber_elapsed;
-    QFrame *frame;
+    QSplitter *splitter_1;
+    QSplitter *splitter_2;
+    QMenuBar *menubar;
+    QMenu *menuSimulation;
+    QStatusBar *statusbar;
 
-    void setupUi(QWidget *guiDlg)
+    void setupUi(QMainWindow *guiDlg)
     {
         if (guiDlg->objectName().isEmpty())
             guiDlg->setObjectName(QString::fromUtf8("guiDlg"));
         guiDlg->resize(800, 600);
-        verticalLayout_2 = new QVBoxLayout(guiDlg);
-        verticalLayout_2->setObjectName(QString::fromUtf8("verticalLayout_2"));
-        verticalLayout = new QVBoxLayout();
+        actionStart_Stop = new QAction(guiDlg);
+        actionStart_Stop->setObjectName(QString::fromUtf8("actionStart_Stop"));
+        centralwidget = new QWidget(guiDlg);
+        centralwidget->setObjectName(QString::fromUtf8("centralwidget"));
+        verticalLayout = new QVBoxLayout(centralwidget);
         verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
-        horizontalLayout_4 = new QHBoxLayout();
-        horizontalLayout_4->setObjectName(QString::fromUtf8("horizontalLayout_4"));
-        horizontalLayout = new QHBoxLayout();
-        horizontalLayout->setObjectName(QString::fromUtf8("horizontalLayout"));
-        label = new QLabel(guiDlg);
-        label->setObjectName(QString::fromUtf8("label"));
-        label->setFrameShape(QFrame::StyledPanel);
-
-        horizontalLayout->addWidget(label);
-
-        lcdNumber_hz = new QLCDNumber(guiDlg);
-        lcdNumber_hz->setObjectName(QString::fromUtf8("lcdNumber_hz"));
-        QFont font;
-        font.setFamilies({QString::fromUtf8("Ubuntu")});
-        font.setPointSize(12);
-        font.setBold(true);
-        lcdNumber_hz->setFont(font);
-
-        horizontalLayout->addWidget(lcdNumber_hz);
-
-
-        horizontalLayout_4->addLayout(horizontalLayout);
-
-        pushButton_stop = new QPushButton(guiDlg);
-        pushButton_stop->setObjectName(QString::fromUtf8("pushButton_stop"));
-        pushButton_stop->setCheckable(true);
-        pushButton_stop->setChecked(true);
-
-        horizontalLayout_4->addWidget(pushButton_stop);
-
-        horizontalSpacer = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
-
-        horizontalLayout_4->addItem(horizontalSpacer);
-
-        horizontalLayout_2 = new QHBoxLayout();
-        horizontalLayout_2->setObjectName(QString::fromUtf8("horizontalLayout_2"));
-        label_2 = new QLabel(guiDlg);
-        label_2->setObjectName(QString::fromUtf8("label_2"));
-        label_2->setFrameShape(QFrame::StyledPanel);
-
-        horizontalLayout_2->addWidget(label_2);
-
-        lcdNumber_people = new QLCDNumber(guiDlg);
-        lcdNumber_people->setObjectName(QString::fromUtf8("lcdNumber_people"));
-        QFont font1;
-        font1.setBold(true);
-        lcdNumber_people->setFont(font1);
-
-        horizontalLayout_2->addWidget(lcdNumber_people);
-
-
-        horizontalLayout_4->addLayout(horizontalLayout_2);
-
-        horizontalLayout_3 = new QHBoxLayout();
-        horizontalLayout_3->setObjectName(QString::fromUtf8("horizontalLayout_3"));
-        label_3 = new QLabel(guiDlg);
-        label_3->setObjectName(QString::fromUtf8("label_3"));
-        label_3->setFrameShape(QFrame::StyledPanel);
-
-        horizontalLayout_3->addWidget(label_3);
-
-        lcdNumber_room = new QLCDNumber(guiDlg);
-        lcdNumber_room->setObjectName(QString::fromUtf8("lcdNumber_room"));
-        lcdNumber_room->setFont(font1);
-
-        horizontalLayout_3->addWidget(lcdNumber_room);
-
-        horizontalLayout_5 = new QHBoxLayout();
-        horizontalLayout_5->setObjectName(QString::fromUtf8("horizontalLayout_5"));
-        label_4 = new QLabel(guiDlg);
-        label_4->setObjectName(QString::fromUtf8("label_4"));
-        label_4->setFrameShape(QFrame::StyledPanel);
-
-        horizontalLayout_5->addWidget(label_4);
-
-        lcdNumber_elapsed = new QLCDNumber(guiDlg);
-        lcdNumber_elapsed->setObjectName(QString::fromUtf8("lcdNumber_elapsed"));
-        lcdNumber_elapsed->setFont(font1);
-
-        horizontalLayout_5->addWidget(lcdNumber_elapsed);
-
-
-        horizontalLayout_3->addLayout(horizontalLayout_5);
-
-
-        horizontalLayout_4->addLayout(horizontalLayout_3);
-
-
-        verticalLayout->addLayout(horizontalLayout_4);
-
-        frame = new QFrame(guiDlg);
-        frame->setObjectName(QString::fromUtf8("frame"));
-        QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        splitter_1 = new QSplitter(centralwidget);
+        splitter_1->setObjectName(QString::fromUtf8("splitter_1"));
+        splitter_1->setOrientation(Qt::Horizontal);
+        splitter_2 = new QSplitter(splitter_1);
+        splitter_2->setObjectName(QString::fromUtf8("splitter_2"));
+        QSizePolicy sizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
-        sizePolicy.setHeightForWidth(frame->sizePolicy().hasHeightForWidth());
-        frame->setSizePolicy(sizePolicy);
-        frame->setFrameShape(QFrame::StyledPanel);
-        frame->setFrameShadow(QFrame::Raised);
+        sizePolicy.setHeightForWidth(splitter_2->sizePolicy().hasHeightForWidth());
+        splitter_2->setSizePolicy(sizePolicy);
+        splitter_2->setOrientation(Qt::Vertical);
+        splitter_1->addWidget(splitter_2);
 
-        verticalLayout->addWidget(frame);
+        verticalLayout->addWidget(splitter_1);
 
+        guiDlg->setCentralWidget(centralwidget);
+        menubar = new QMenuBar(guiDlg);
+        menubar->setObjectName(QString::fromUtf8("menubar"));
+        menubar->setGeometry(QRect(0, 0, 780, 25));
+        menuSimulation = new QMenu(menubar);
+        menuSimulation->setObjectName(QString::fromUtf8("menuSimulation"));
+        guiDlg->setMenuBar(menubar);
+        statusbar = new QStatusBar(guiDlg);
+        statusbar->setObjectName(QString::fromUtf8("statusbar"));
+        guiDlg->setStatusBar(statusbar);
 
-        verticalLayout_2->addLayout(verticalLayout);
-
+        menubar->addAction(menuSimulation->menuAction());
+        menuSimulation->addAction(actionStart_Stop);
 
         retranslateUi(guiDlg);
 
         QMetaObject::connectSlotsByName(guiDlg);
     } // setupUi
 
-    void retranslateUi(QWidget *guiDlg)
+    void retranslateUi(QMainWindow *guiDlg)
     {
-        guiDlg->setWindowTitle(QCoreApplication::translate("guiDlg", "intention_predictor", nullptr));
-        label->setText(QCoreApplication::translate("guiDlg", "Hz", nullptr));
-        pushButton_stop->setText(QCoreApplication::translate("guiDlg", "STOP", nullptr));
-        label_2->setText(QCoreApplication::translate("guiDlg", "People", nullptr));
-        label_3->setText(QCoreApplication::translate("guiDlg", "Room", nullptr));
-        label_4->setText(QCoreApplication::translate("guiDlg", "Elapsed", nullptr));
+        guiDlg->setWindowTitle(QCoreApplication::translate("guiDlg", "objects_bridge_agent", nullptr));
+        actionStart_Stop->setText(QCoreApplication::translate("guiDlg", "Start/Stop", nullptr));
+        menuSimulation->setTitle(QCoreApplication::translate("guiDlg", "Simulation", nullptr));
     } // retranslateUi
 
 };

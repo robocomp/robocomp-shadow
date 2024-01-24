@@ -5,7 +5,7 @@
 #define USE_QTGUI
 
 
-#define PROGRAM_NAME    "intention_predictor"
-#define SERVER_FULL_NAME   "RoboComp intention_predictor:: intention_predictor"
+#define PROGRAM_NAME    "objects_bridge_agent"
+#define SERVER_FULL_NAME   "RoboComp objects_bridge_agent:: objects_bridge_agent"
 
 #endif

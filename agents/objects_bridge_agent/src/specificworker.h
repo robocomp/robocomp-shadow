@@ -28,12 +28,12 @@
 #include <genericworker.h>
 #include "doublebuffer/DoubleBuffer.h"
 #include <Eigen/Eigen>
-#include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <fps/fps.h>
 #include <person.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
+#include <custom_widget.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -58,6 +58,7 @@ class SpecificWorker : public GenericWorker
     private:
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;
+    std::unique_ptr<DSR::RT_API> rt;
 
 	//DSR params
 	std::string agent_name;
@@ -73,8 +74,9 @@ class SpecificWorker : public GenericWorker
 	QHBoxLayout mainLayout;
         bool startup_check_flag;
 
-        //Graphics
-        AbstractGraphicViewer *viewer;
+        //local widget
+        Custom_widget custom_widget;
+        DSR::QScene2dViewer* widget_2d;
 
         // Lidar Thread
         DoubleBuffer<std::vector<Eigen::Vector3f>, std::vector<Eigen::Vector3f>> buffer_lidar_data;
@@ -179,8 +181,8 @@ class SpecificWorker : public GenericWorker
                     qInfo() << "    x_pos: " << std::stof(obj.attributes.at("x_pos"));
                     qInfo() << "    y_pos: " << std::stof(obj.attributes.at("y_pos"));
                     qInfo() << "    orientation: " << std::stof(obj.attributes.at("orientation"));
-                    item->setPos(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")));
-                    item->setRotation(qRadiansToDegrees(std::stof(object.attributes.at("orientation")) - atan2(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos"))))+180);
+//                    item->setPos(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")));
+//                    item->setRotation(qRadiansToDegrees(std::stof(object.attributes.at("orientation")) - atan2(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos"))))+180);
                 }
                 else
                 {
@@ -218,6 +220,10 @@ class SpecificWorker : public GenericWorker
 
         void process_room_objects(const RoboCompVisualElementsPub::TData &data);
         void postprocess_target_person(const People &people_);
+
+        void insert_person_in_graph(Person &person);
+
+    void update_person_in_graph(const Person &person);
 };
 
 #endif

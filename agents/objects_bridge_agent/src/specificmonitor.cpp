@@ -104,6 +104,10 @@ void SpecificMonitor::readConfig(RoboCompCommonBehavior::ParameterList &params )
 	params["2d_view"] = aux;
 	configGetString( "","3d_view", aux.value, "none");
 	params["3d_view"] = aux;
+    configGetString( "","cone_angle", aux.value, "0.7");
+    params["cone_angle"] = aux;
+    configGetString( "","cone_radius", aux.value, "3000");
+    params["cone_radius"] = aux;
 }
 
 //Check parameters and transform them to worker structure

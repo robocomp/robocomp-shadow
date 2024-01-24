@@ -3,6 +3,7 @@ SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
   person.cpp
+    custom_widget.h
 )
 
 # Headers set
@@ -13,10 +14,9 @@ SET ( HEADERS
   person.h
 )
 
-add_definitions(-O3 -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+add_definitions(-g -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
-add_definitions(-g  -fmax-errors=1 -std=c++2a -fno-char8_t)
-SET (LIBS ${LIBS}   dsr_core dsr_gui dsr_api fastcdr fastrtps osgDB OpenThreads Eigen3::Eigen)
+SET (LIBS ${LIBS}  dsr_api dsr_core dsr_gui  fastcdr fastrtps osgDB OpenThreads)
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 
