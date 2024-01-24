@@ -62,6 +62,50 @@ void SpecificWorker::initialize(int period)
 		this->startup_check();
 	else
 	{
+	// create graph
+	G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
+	std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
+
+	//dsr update signals
+	//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+	//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+	//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
+	//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
+	//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+	//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+
+	// Graph viewer
+	using opts = DSR::DSRViewer::view;
+	int current_opts = 0;
+	opts main = opts::none;
+	if(tree_view)
+	{
+	    current_opts = current_opts | opts::tree;
+	}
+	if(graph_view)
+	{
+	    current_opts = current_opts | opts::graph;
+	    main = opts::graph;
+	}
+	if(qscene_2d_view)
+	{
+	    current_opts = current_opts | opts::scene;
+	}
+	if(osg_3d_view)
+	{
+	    current_opts = current_opts | opts::osg;
+	}
+	graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+	setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+
+	/***
+	Custom Widget
+	In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
+	The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
+	either with a QtDesigner or directly from scratch in a class of its own.
+	The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
+	***/
+	//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
         // Viewer
         viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
         //QRectF(params.xMin, params.yMin, params.grid_width, params.grid_length));

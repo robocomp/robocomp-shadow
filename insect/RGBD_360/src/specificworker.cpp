@@ -255,8 +255,6 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
         float x_ratio = float(dst_depth.cols) / roiwidth;
         float y_ratio = float(dst_depth.rows) / roiheight;
 
-        std::cout << "RATIOS " << x_ratio << " " << y_ratio << std::endl;
-
         // Crear una imagen de destino con las nuevas dimensiones
         cv::Mat dst = cv::Mat::zeros(roiheight, roiwidth, dst_depth.type());
         

@@ -39,10 +39,8 @@ import itertools
 import copy
 # import math
 
-print(os.path.abspath(__file__) )
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/HashTrack')
-from hash import HashTracker
-from basetrack import TrackState
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/ByteTrack')
+from byte_tracker import BYTETracker
 import matching
 from ultralytics import YOLO
 import torch
@@ -266,7 +264,7 @@ class SpecificWorker(GenericWorker):
             
             
             #TRACKER
-            self.tracker = HashTracker(frame_rate=20)
+            self.tracker = BYTETracker(frame_rate=5)
 
             # Best time stamp
             self.lowest_timestamp = 0
@@ -320,16 +318,12 @@ class SpecificWorker(GenericWorker):
             tracks_front = self.tracker.update(np.array(objects_front["confidences"]),
                                 np.array(objects_front["bboxes"]),
                                 np.array(objects_front["classes"]),
-                                np.array(objects_front["masks"], dtype=object),
-                                np.array(objects_front["hashes"]),
                                 np.array(objects_front["poses"]),
                                 np.array(objects_front["orientations"]))
             
             tracks_back = self.tracker.update(np.array(objects_back["confidences"]),
                                 np.array(objects_back["bboxes"]),
                                 np.array(objects_back["classes"]),
-                                np.array(objects_back["masks"], dtype=object),
-                                np.array(objects_back["hashes"]),
                                 np.array(objects_back["poses"]),
                                 np.array(objects_back["orientations"]))
 
@@ -354,8 +348,8 @@ class SpecificWorker(GenericWorker):
 
             # If display is enabled, show the tracking results on the image
             if self.display:
-                img_front = self.display_data_tracks(color_front, self.objects_write_front.objects)
-                img_back = self.display_data_tracks(color_back, self.objects_write_back.objects)
+                img_front = self.display_data_tracks(color_front, front_objects.objects)
+                img_back = self.display_data_tracks(color_back, back_objects.objects)
                 # img_int = img.astype('float32') / 255.0
                 # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 cv2.imshow("back", img_back)
@@ -487,18 +481,8 @@ class SpecificWorker(GenericWorker):
         """
         objects = []
         for track in tracks:
-            # object_ = ifaces.RoboCompVisualElements.TObject(
-            #     id=int(track.track_id), score=float(track.score),
-            #     left=int(track.bbox[0]), top=int(track.bbox[1]),
-            #     right=int(track.bbox[2]),
-            #     bot=int(track.bbox[3]), type=track.clase,
-            #     image=self.mask_to_TImage(track.image, roi), person = ifaces.RoboCompPerson.TPerson(orientation = round(float(track.orientation), 2)))
-            # # speed_module = math.sqrt(round(track.speed[0], 2) ** 2 + round(track.speed[1], 2) ** 2)
-            # object_.x = object_.x[0]
-            # object_.y = object_.y[0]
-            # object_.metrics = ifaces.RoboCompVisualElements.TMetrics(track.metrics)
-            x_pose = round(track.mean[0], 2) if track.kalman_initiated else round(track._pose[0], 2),
-            y_pose = round(track.mean[1], 2) if track.kalman_initiated else round(track._pose[1], 2),
+            x_pose = round(track.mean[0], 2)
+            y_pose = round(track.mean[1], 2)
             z_pose = 0
             generic_attrs = {
                 "score": str(track.score),
@@ -506,16 +490,18 @@ class SpecificWorker(GenericWorker):
                 "bbox_top": str(int(track.bbox[1])),
                 "bbox_right": str(int(track.bbox[2])),
                 "bbox_bot": str(int(track.bbox[3])),
-                "x_pos": str(x_pose[0]),
-                "y_pos": str(y_pose[0]),
+                "x_pos": str(x_pose),
+                "y_pos": str(y_pose),
                 "z_pos": str(z_pose),
                 "orientation": str(round(float(track.orientation), 2))
             }
-            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
+            print("generic_attrs", generic_attrs)
+            # object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
+            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase,
+                                                               attributes=generic_attrs)
             objects.append(object_)
         # print("IMAGE TIMESTAMP", image_timestamp)
-        visual_elements = ifaces.RoboCompVisualElementsPub.TData(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=objects)
-        return visual_elements
+        return ifaces.RoboCompVisualElementsPub.TData(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=objects)
 
     def mask_to_TImage(self, mask, roi):
         y, x, _ = mask.shape

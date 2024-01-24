@@ -7,7 +7,7 @@ Camera360RGBD.Endpoints=tcp -p 10100
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
-
+display = true
 
 InnerModelPath = innermodel.xml
 

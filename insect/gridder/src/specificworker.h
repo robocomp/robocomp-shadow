@@ -87,7 +87,7 @@ public slots:
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
-            bool DISPLAY = false;
+            bool DISPLAY = true;
         };
         Params params;
 

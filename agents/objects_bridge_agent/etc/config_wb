@@ -1,0 +1,21 @@
+CommonBehavior.Endpoints=tcp -p 10710
+
+# Endpoints for subscriptions interfaces
+VisualElementsPubTopic.Endpoints=tcp -p 15368
+
+
+# Proxies for required interfaces
+GridderProxy = gridder:tcp -h localhost -p 13541
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+
+cone_radius = 4000
+cone_angle = 0.9
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800

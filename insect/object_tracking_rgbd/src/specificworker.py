@@ -173,8 +173,8 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 50
-            self.thread_period = 50
+            self.Period = 100
+            self.thread_period = 100
             self.display = False
             
             for file in os.listdir(os.path.dirname(os.path.abspath(__file__))):
@@ -322,7 +322,7 @@ class SpecificWorker(GenericWorker):
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
         if self.inference_read_queue:
-            start = time.time()
+            # start = time.time()
             out_v8, orientation_bboxes, orientations, img0, delta, alive_time, period, roi, depth = self.inference_read_queue.pop()
             people, objects = self.get_segmentator_data(out_v8, img0, depth)
             matches, unm_a, unm_b = self.associate_orientation_with_segmentation(people["bboxes"], orientation_bboxes)
