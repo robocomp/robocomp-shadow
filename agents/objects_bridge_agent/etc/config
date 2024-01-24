@@ -10,12 +10,12 @@ Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
-agent_id = 0 # Change id
-agent_name = intention_predictor
+agent_id = 123 # Change id
+agent_name = object_bridge_agent
 tree_view = true
 graph_view = true
 2d_view = true
-3d_view = true
+3d_view = false
 #Ice.MessageSizeMax=20004800
 
 InnerModelPath = innermodel.xml

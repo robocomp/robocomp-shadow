@@ -17,6 +17,7 @@ class Person
         QGraphicsEllipseItem *item = nullptr;
         bool is_target = false;
         std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
+        long int dsr_id = -1;
 
         // Pilar Cone
         QPolygonF pilar_cone;
@@ -48,6 +49,8 @@ class Person
         std::chrono::high_resolution_clock::time_point get_last_update_time() const;
         void set_insertion_time();
         std::chrono::high_resolution_clock::time_point get_insertion_time() const;
+        void set_dsr_id(long int id);
+        long int get_dsr_id() const;
         void draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person) const;
         void remove_item(QGraphicsScene *scene);
         void print() const;

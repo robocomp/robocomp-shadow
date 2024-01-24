@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2022 by YOUR NAME HERE
+ *    Copyright (C) 2024 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -32,7 +32,7 @@ GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 	omnirobot_proxy = std::get<6>(tprx);
 	realsensefaceid_proxy = std::get<7>(tprx);
 
-	mutex = new QMutex(QMutex::Recursive);
+	mutex = new QMutex();
 
 
 	#ifdef USE_QTGUI

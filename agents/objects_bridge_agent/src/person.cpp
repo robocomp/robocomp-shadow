@@ -74,9 +74,6 @@ void Person::update_attributes(const RoboCompVisualElementsPub::TObjects &list)
             target.attributes["x_pos"] = r->attributes.at("x_pos");
             target.attributes["y_pos"] = r->attributes.at("y_pos");
             target.attributes["orientation"] = r->attributes.at("orientation");
-
-            item->setPos(std::stof(r->attributes.at("x_pos")), std::stof(r->attributes.at("y_pos")));
-            item->setRotation(qRadiansToDegrees(std::stof(r->attributes.at("orientation")) - atan2(std::stof(r->attributes.at("x_pos")), std::stof(r->attributes.at("y_pos"))))+180);
         }
         else
         {
@@ -215,6 +212,14 @@ void Person::set_insertion_time()
 std::chrono::high_resolution_clock::time_point Person::get_insertion_time() const
 {
     return insertion_time;
+}
+void Person::set_dsr_id(long int id)
+{
+    dsr_id = id;
+}
+long int Person::get_dsr_id() const
+{
+    return dsr_id;
 }
 
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
