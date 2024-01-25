@@ -74,6 +74,9 @@ void Person::update_attributes(const RoboCompVisualElementsPub::TObjects &list)
             target.attributes["x_pos"] = r->attributes.at("x_pos");
             target.attributes["y_pos"] = r->attributes.at("y_pos");
             target.attributes["orientation"] = r->attributes.at("orientation");
+
+            item->setPos(std::stof(r->attributes.at("x_pos")), std::stof(r->attributes.at("y_pos")));
+            item->setRotation(qRadiansToDegrees(std::stof(r->attributes.at("orientation")) - atan2(std::stof(r->attributes.at("x_pos")), std::stof(r->attributes.at("y_pos"))))+180);
         }
         else
         {
