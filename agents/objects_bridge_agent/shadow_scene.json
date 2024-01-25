@@ -29,11 +29,19 @@
                     },
                     "pos_x": {
                         "type": 2,
+<<<<<<< HEAD
                         "value": 0.0
                     },
                     "pos_y": {
                         "type": 2,
                         "value": 0.0
+=======
+                        "value": -174.637238
+                    },
+                    "pos_y": {
+                        "type": 2,
+                        "value": -74.730019
+>>>>>>> e70551ee6909aead203f32fab95db8f097051025
                     },
                     "robot_ref_adv_speed": {
                         "type": 2,
