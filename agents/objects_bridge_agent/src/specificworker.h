@@ -213,6 +213,7 @@ class SpecificWorker : public GenericWorker
         void process_people(const RoboCompVisualElementsPub::TData &data);
         void process_room(const RoboCompVisualElementsPub::TData &data);
         void print_people(const People &ppol);
+        static uint64_t get_actual_time();
 
         // fps
         FPSCounter fps;
@@ -221,9 +222,11 @@ class SpecificWorker : public GenericWorker
         void process_room_objects(const RoboCompVisualElementsPub::TData &data);
         void postprocess_target_person(const People &people_);
 
-        void insert_person_in_graph(Person &person);
+        void insert_person_in_graph(const RoboCompVisualElementsPub::TObject &person);
 
-    void update_person_in_graph(const Person &person);
+        void update_person_in_graph(const RoboCompVisualElementsPub::TObject &person, DSR::Node person_node);
+
+
 };
 
 #endif
