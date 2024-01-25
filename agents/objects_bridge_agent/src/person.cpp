@@ -166,9 +166,10 @@ void Person::set_target_element(bool value)
 }
 void Person::update_last_update_time()
 {
-    last_update_time = std::chrono::high_resolution_clock::now();
+    auto now = std::chrono::high_resolution_clock::now();
+    last_update_time = std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count();
 }
-std::chrono::high_resolution_clock::time_point Person::get_last_update_time() const
+uint64_t Person::get_last_update_time() const
 {
     return last_update_time;
 }
@@ -206,10 +207,12 @@ bool Person::is_target_element() const
 // Method to set the insertion time
 void Person::set_insertion_time()
 {
-    insertion_time = std::chrono::high_resolution_clock::now();
+    // Convert std::chrono::high_resolution_clock::now() to uint64_t
+    auto now = std::chrono::high_resolution_clock::now();
+    insertion_time = std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count();
 }
 // Method to get the insertion time
-std::chrono::high_resolution_clock::time_point Person::get_insertion_time() const
+uint64_t Person::get_insertion_time() const
 {
     return insertion_time;
 }

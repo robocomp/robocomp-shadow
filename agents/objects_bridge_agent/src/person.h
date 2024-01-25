@@ -16,7 +16,7 @@ class Person
         RoboCompVisualElementsPub::TObject target;
         QGraphicsEllipseItem *item = nullptr;
         bool is_target = false;
-        std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
+        uint64_t insertion_time, last_update_time;
         long int dsr_id = -1;
 
         // Pilar Cone
@@ -46,9 +46,9 @@ class Person
         bool is_target_element() const;
         void set_updated(bool value);
         void update_last_update_time();
-        std::chrono::high_resolution_clock::time_point get_last_update_time() const;
+        uint64_t get_last_update_time() const;
         void set_insertion_time();
-        std::chrono::high_resolution_clock::time_point get_insertion_time() const;
+        uint64_t get_insertion_time() const;
         void set_dsr_id(long int id);
         long int get_dsr_id() const;
         void draw_paths(QGraphicsScene *scene, bool erase_only, bool wanted_person) const;
