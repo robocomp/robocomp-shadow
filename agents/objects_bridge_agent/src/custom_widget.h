@@ -45,10 +45,10 @@ public:
     {
         setupUi(this);
         // Viewer
-        viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
-        //QRectF(params.xMin, params.yMin, params.grid_width, params.grid_length));
-        viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
-        viewer->show();
+//        viewer = new AbstractGraphicViewer(this->frame, params.GRID_MAX_DIM);
+//        //QRectF(params.xMin, params.yMin, params.grid_width, params.grid_length));
+//        viewer->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
+//        viewer->show();
     }
 	~Custom_widget()
     {

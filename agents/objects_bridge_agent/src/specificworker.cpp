@@ -30,7 +30,7 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 	// Uncomment if there's too many debug messages
 	// but it removes the possibility to see the messages
 	// shown in the console with qDebug()
-//	QLoggingCategory::setFilterRules("*.debug=false\n");
+	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 /**
 * \brief Default destructor
@@ -73,7 +73,7 @@ void SpecificWorker::initialize(int period)
 	{
 	// create graph
 	G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, "shadow_scene.json"); // Init nodes
-	std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
+	qInfo() << __FUNCTION__ << "Graph loaded. Agent:" << agent_name.c_str() << "ID:" << agent_id << " from "  << "shadow_scene.json";
 
 	//dsr update signals
 	//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
@@ -83,27 +83,18 @@ void SpecificWorker::initialize(int period)
 	//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 	//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
     rt = G->get_rt_api();
+
 	// Graph viewer
 	using opts = DSR::DSRViewer::view;
 	int current_opts = 0;
 	opts main = opts::none;
 	if(tree_view)
-	{
-	    current_opts = current_opts | opts::tree;
-	}
+        current_opts = current_opts | opts::tree;
 	if(graph_view)
-	{
 	    current_opts = current_opts | opts::graph;
-	    main = opts::graph;
-	}
 	if(qscene_2d_view)
-	{
 	    current_opts = current_opts | opts::scene;
-	}
-	if(osg_3d_view)
-	{
-	    current_opts = current_opts | opts::osg;
-	}
+    main = opts::graph;
 	graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 	setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
@@ -114,85 +105,82 @@ void SpecificWorker::initialize(int period)
 	either with a QtDesigner or directly from scratch in a class of its own.
 	The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 	***/
-//	graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
-//    widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
 
-        // Lidar thread is created
-        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
-        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+	//graph_viewer->add_custom_widget_to_dock("Intention Prediction", &custom_widget);
+    widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
+    widget_2d->setSceneRect(-5000, -5000,  10000, 10000);
+    widget_2d->set_draw_axis(true);
 
-        wanted_person = Person(gridder_proxy);
-//        wanted_person.set_target_element(true);
-//        wanted_person.init_item(&viewer->scene, 0.f, 1000.f, 0.f);
+    // Lidar thread is created
+    read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
+    std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
-        // mouse
-//        connect(&custom_widget.viewer->scene, &AbstractGraphicViewer::new_mouse_coordinates, [this](QPointF p)
+    // mouse
+    connect(widget_2d, &DSR::QScene2dViewer::mouse_left_click, [this](QPointF p)
+    {
+        qInfo() << "[MOUSE] New click left arrived:" << p;
+        // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
+        // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
+        QList<QGraphicsItem *> itemsAtPosition = widget_2d->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
+        QGraphicsItem *selectedItem = nullptr;
+
+        if(auto res = std::ranges::find_if(itemsAtPosition, [p](auto it)
+                { return (Eigen::Vector2f(it->pos().x(), it->pos().y()) - Eigen::Vector2f(p.x(), p.y())).norm() < 100;}); res != itemsAtPosition.end())
+            selectedItem = *res;
+        else return;
+
+        // check person with the same item
+//        if(auto person = std::ranges::find_if(people, [selectedItem](const Person &p)
+//            { return p.get_item() == selectedItem; }); person != people.end())
 //        {
-//            qInfo() << "[MOUSE] New click left arrived:" << p;
-//            // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
-//            // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
-//            QList<QGraphicsItem *> itemsAtPosition = widget_2d->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
-//            QGraphicsItem *selectedItem = nullptr;
-//
-//            if(auto res = std::ranges::find_if(itemsAtPosition, [p](auto it)
-//                    { return (Eigen::Vector2f(it->pos().x(), it->pos().y()) - Eigen::Vector2f(p.x(), p.y())).norm() < 100;}); res != itemsAtPosition.end())
-//                selectedItem = *res;
-//            else return;
-//
-//            // check person with the same item
-//            if(auto person = std::ranges::find_if(people, [selectedItem](const Person &p)
-//                { return p.get_item() == selectedItem; }); person != people.end())
-//            {
-//                qInfo() << "[MOUSE] Target selected";
-//                person->set_target_element(true);
-//            }
-//        });
-//        //Right click
-//        connect(custom_widget.viewer, &AbstractGraphicViewer::right_click, [this](QPointF p)
-//        {
-//            qInfo() << "[MOUSE] New right click arrived:" << p;
-//            for (auto &person: people)
-//                person.set_target_element(false);
-//            try
-//            {
-//                segmentatortrackingpub_pubproxy->setTrack(RoboCompVisualElementsPub::TObject{.id = -1});
-//                draw_path({}, &widget_2d->scene, false);
-//            }
-//            catch (const Ice::Exception &e)
-//            { std::cout << "Error setting target" << e << std::endl; }
-//        });
+//            qInfo() << "[MOUSE] Target selected";
+//            person->set_target_element(true);
+//        }
+    });
+    //Right click
+    connect(widget_2d, &DSR::QScene2dViewer::mouse_right_click, [this](int x, int y, uint64_t id)
+    {
+        qInfo() << "[MOUSE] New right click arrived:";
+//        for (auto &person: people)
+//            person.set_target_element(false);
+        try
+        {
+            segmentatortrackingpub_pubproxy->setTrack(RoboCompVisualElementsPub::TObject{.id = -1});
+            draw_path({}, &widget_2d->scene, false);
+        }
+        catch (const Ice::Exception &e)
+        { std::cout << "Error setting target" << e << std::endl; }
+    });
 
-        timer.start(params.PERIOD);
-        qInfo() << "Timer started";
-	}
+    timer.start(params.PERIOD);
+    qInfo() << "Timer started";
+}
 }
 void SpecificWorker::compute()
 {
     /// read LiDAR
-//    auto res_ = buffer_lidar_data.try_get();
-//    if (not res_.has_value())  { /*qWarning() << "No data Lidar";*/ return; }
-//    auto points = res_.value();
-//    draw_lidar(points, params.LIDAR_LOW_DECIMATION_FACTOR);
+    auto res_ = buffer_lidar_data.try_get();
+    if (not res_.has_value())  { /*qWarning() << "No data Lidar";*/ return; }
+    auto points = res_.value();
+    //draw_lidar(points, params.LIDAR_LOW_DECIMATION_FACTOR, &widget_2d->scene);
 
     // Read visual elements from buffer_visual_elements
     auto ve_ = buffer_visual_elements.try_get();
     if (ve_.has_value() and not ve_.value().objects.empty())
     {
         process_people(ve_.value());
-//        process_room_objects(ve_.value());
+        // process_room_objects(ve_.value());
     }
 
     // if there is a target person, compute the path from robot
-//    postprocess_target_person(people);
+    //    postprocess_target_person(people);
 
     // Read room elements from buffer_room_elements
-//    auto re_ = buffer_room_elements.try_get();
-//    if (re_.has_value())
-//        process_room(re_.value());
-    // print_people();
-//    this->custom_widget.lcdNumber_people->display((int)people.size());
+        if(auto re_ = buffer_room_elements.try_get(); re_.has_value())
+            process_room(re_.value());
+
     this->hz = fps.print("FPS:", 3000);
-//    this->custom_widget.lcdNumber_hz->display(this->hz);
+    draw_scenario(points, &widget_2d->scene);
 }
 
 //////////////////////////////// SpecificWorker /////////////////////////////////////////////////
@@ -222,7 +210,6 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
                 {
                     G->add_or_modify_attrib_local<obj_checked_att>(*person_in_graph, true);
                     G->update_node(*person_in_graph);
-                    qInfo() << "Person checked";
                 }
                 update_person_in_graph(object, *person_in_graph);
             }
@@ -237,8 +224,8 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
         // Create a new person
         insert_person_in_graph(object);
     }
-    // Remove phase. Check for people not updated in more than 2 seconds
 
+    // Remove phase. Check for people not updated in more than 2 seconds
     if(auto robot_node = G->get_node("Shadow"); robot_node.has_value())
     {
         for (auto &person: people_nodes)
@@ -246,54 +233,54 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
             {
                 if ((std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count() - update_time.value()) > params.SECS_TO_GET_OUT)
                 {
-                    qInfo() << "Person with id: " << person.id() << " has been removed";
+                    //qInfo() << "Person with id: " << person.id() << " has been removed";
                     G->delete_edge(robot_node.value().id(), person.id(), "RT");
                     G->delete_node(person.id());
                 }
             }
     }
 }
-void SpecificWorker::postprocess_target_person(const People &people_)
-{
+//void SpecificWorker::postprocess_target_person(const People &people_)
+//{
     // search for the target person in people list
-    if(auto target_person = std::ranges::find_if(people_, [](const Person &p){return p.is_target_element();}); target_person != people_.end())
-    {
-        auto x_ = target_person->get_attribute("x_pos");
-        auto y_ = target_person->get_attribute("y_pos");
-        if(x_.has_value()  and y_.has_value())
-        {
-            try
-            {
-                Eigen::Vector2f t{x_.value(), y_.value()};
-                if(t.norm() > 500.f)    // TODO: move to params
-                    t = t.normalized() * (t.norm() - 500.f);
-                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
-                                                      RoboCompGridder::TPoint{t.x(), t.y()},
-                                                      1, true, true);
-                if (result.valid and not result.paths.empty())
-                {
-                    std::vector<Eigen::Vector2f> path;
-                    for (const auto &p: result.paths.front())
-                        path.emplace_back(p.x, p.y);
-//                    draw_path(path, &widget_2d->scene, false); // draws path from robot to target person
-                    //target_person->draw_paths(&viewer->scene, false, true);  // draws paths from person to objects
-                }
-            }
-            catch (const Ice::Exception &e)
-            { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
-            // publish target to driver
-            try
-            { segmentatortrackingpub_pubproxy->setTrack(target_person->get_target()); }
-            catch (const Ice::Exception &e)
-            { std::cout << "Error setting target: " << e << std::endl; }
-        }
-        else
-            qWarning() << __FUNCTION__ << " Error. The object does not contain the key x_pos or y_pos";
-    }
-}
+//    if(auto target_person = std::ranges::find_if(people_, [](const Person &p){return p.is_target_element();}); target_person != people_.end())
+//    {
+//        auto x_ = target_person->get_attribute("x_pos");
+//        auto y_ = target_person->get_attribute("y_pos");
+//        if(x_.has_value()  and y_.has_value())
+//        {
+//            try
+//            {
+//                Eigen::Vector2f t{x_.value(), y_.value()};
+//                if(t.norm() > 500.f)    // TODO: move to params
+//                    t = t.normalized() * (t.norm() - 500.f);
+//                auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{0.f, 0.f},
+//                                                      RoboCompGridder::TPoint{t.x(), t.y()},
+//                                                      1, true, true);
+//                if (result.valid and not result.paths.empty())
+//                {
+//                    std::vector<Eigen::Vector2f> path;
+//                    for (const auto &p: result.paths.front())
+//                        path.emplace_back(p.x, p.y);
+////                    draw_path(path, &widget_2d->scene, false); // draws path from robot to target person
+//                    //target_person->draw_paths(&viewer->scene, false, true);  // draws paths from person to objects
+//                }
+//            }
+//            catch (const Ice::Exception &e)
+//            { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
+//            // publish target to driver
+//            try
+//            { segmentatortrackingpub_pubproxy->setTrack(target_person->get_target()); }
+//            catch (const Ice::Exception &e)
+//            { std::cout << "Error setting target: " << e << std::endl; }
+//        }
+//        else
+//            qWarning() << __FUNCTION__ << " Error. The object does not contain the key x_pos or y_pos";
+//    }
+//}
 void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData &data)
 {
-    /// Go through three phases: match, add and remove.
+ /*   /// Go through three phases: match, add and remove.
     // Match phase. Check if the new objects are already in the existing objects vector
     std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
     auto now = std::chrono::high_resolution_clock::now();
@@ -356,17 +343,65 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
 //            //qInfo() << "Person with id: " << person.get_id() << " has been removed";
 ////            object.remove_item(&widget_2d->scene);
 //            objects.erase(std::ranges::find_if(objects, [&object](const Object &p) { return p.get_id() == object.get_id(); }));
-//        }
+//        }*/
 }
 void SpecificWorker::process_room(const RoboCompVisualElementsPub::TData &data)
 {
-    // Check if there is data in data.objects
+    // Admissibility conditions
     if (data.objects.empty())
     { qWarning() << __FUNCTION__ << " No objects in data"; return; }
 
-    //iterate over the objects and draw the rooms
-//    for (const auto &o : data.objects | iter::filter([](auto &a){return a.attributes.at("name") == "room";}))
-//        draw_room(o);
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+
+    // find the room object in data.objects
+    if(auto room_ = std::ranges::find_if(data.objects, [](auto &o)
+                        { return o.attributes.at("name") == "room";}); room_ != data.objects.end())
+    {
+        // go through the three steps: match, add and remove process
+        // Match phase. Check if the room is already in graph G
+        if(auto room_nodes = G->get_nodes_by_type("room"); not room_nodes.empty())
+        {
+            // update room parameters
+            auto room_node = room_nodes.front();
+            G->add_or_modify_attrib_local<width_att>(room_node, std::stoi(room_->attributes.at("width")));
+            G->add_or_modify_attrib_local<height_att>(room_node, std::stoi(room_->attributes.at("height")));
+            G->add_or_modify_attrib_local<depth_att>(room_node, std::stoi(room_->attributes.at("depth")));
+            G->update_node(room_node);
+            if (auto edge_robot = rt->get_edge_RT(robot_node.value(), room_node.id()); edge_robot.has_value())
+            {
+                std::vector<float> new_robot_orientation, new_robot_pos = {0.0, 0.0, 0.0};
+                G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(), std::vector<float>{
+                            std::stof(room_->attributes.at("center_x")), std::stof(room_->attributes.at("center_y")), 0.f});
+                G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
+                   std::vector<float>{0.0, 0.0, std::stof(room_->attributes.at("rotation"))});
+                G->insert_or_assign_edge(edge_robot.value());
+            }
+        }
+        else // insert room in G
+        {
+            try
+            {
+                DSR::Node new_node = DSR::Node::create<room_node_type>("room");
+                G->add_or_modify_attrib_local<person_id_att>(new_node, 0);  // TODO: current_room
+                G->add_or_modify_attrib_local<width_att>(new_node, std::stoi(room_->attributes.at("width")));
+                G->add_or_modify_attrib_local<height_att>(new_node, std::stoi(room_->attributes.at("height")));
+                G->add_or_modify_attrib_local<depth_att>(new_node, std::stoi(room_->attributes.at("depth")));
+                G->add_or_modify_attrib_local<pos_x_att>(new_node, (float)(rand()%(170)));
+                G->add_or_modify_attrib_local<pos_y_att>(new_node, (float)(rand()%170));
+                G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
+                G->insert_node(new_node);
+                std::vector<float> vector_robot_pos = {0.0, 0.0, 0.0}, orientation_vector = {0.0, 0.0, 0.0};
+                vector_robot_pos = { std::stof(room_->attributes.at("center_x")), std::stof(room_->attributes.at("center_y")), 0.f};
+                orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
+                rt->insert_or_assign_edge_RT(robot_node.value(), new_node.id(), vector_robot_pos, orientation_vector);
+            }
+            catch(const std::exception &e)
+            { std::cout << e.what() << " Error inserting node" << std::endl;}
+            qInfo() << __FUNCTION__ << " Room inserted in graph";
+        }
+    }
 }
 void SpecificWorker::insert_person_in_graph(const RoboCompVisualElementsPub::TObject &person)
 {
@@ -391,7 +426,7 @@ void SpecificWorker::insert_person_in_graph(const RoboCompVisualElementsPub::TOb
                 G->insert_node(new_node);
                 qInfo() << "Person with id: " << person.id << " inserted in graph";
                 // TODO: revise optionals in get_attributes
-                std::vector<float> vector_robot_pos, orientation_vector = {0.0, 0.0, 0.0};
+                std::vector<float> vector_robot_pos = {0.0, 0.0, 0.0}, orientation_vector = {0.0, 0.0, 0.0};
                 if (person.attributes.contains("x_pos") and
                     person.attributes.contains("y_pos"))
                     vector_robot_pos = { std::stof(person.attributes.at("x_pos")), std::stof(person.attributes.at("y_pos")), 0.f};
@@ -408,13 +443,6 @@ void SpecificWorker::update_person_in_graph(const RoboCompVisualElementsPub::TOb
 {
     if(auto robot_node = G->get_node("Shadow"); robot_node.has_value())
     {
-        qInfo() << "Person with id: " << person.id << " is being updated";
-        if(auto node_timestamp = G->get_attrib_by_name<timestamp_alivetime_att>(person_node); node_timestamp.has_value())
-        {
-            // Print timestamp
-            qInfo() << "TIMESTAMP" << node_timestamp.value();
-        }
-        qInfo() << "Person is being updated";
         if (auto edge_robot = rt->get_edge_RT(robot_node.value(), person_node.id()); edge_robot.has_value())
         {
             G->add_or_modify_attrib_local<timestamp_alivetime_att>(person_node, get_actual_time());
@@ -428,11 +456,11 @@ void SpecificWorker::update_person_in_graph(const RoboCompVisualElementsPub::TOb
             G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(), new_robot_orientation);
             G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(), new_robot_pos);
             if (G->insert_or_assign_edge(edge_robot.value()))
-                qInfo() << __FUNCTION__ << "UPDATED" << new_robot_pos[0] << new_robot_pos[1];
-            qInfo() << "    New position: " << new_robot_pos[0] << ", " << new_robot_pos[1] << ", " << new_robot_pos[2];
-            qInfo() << "    New orientation: " << new_robot_orientation[0] << ", " << new_robot_orientation[1] << ", " << new_robot_orientation[2];
-            qInfo() << "    New timestamp: " << get_actual_time();
-
+            //    qInfo() << __FUNCTION__ << "UPDATED" << new_robot_pos[0] << new_robot_pos[1];
+            {}
+            //qInfo() << "    New position: " << new_robot_pos[0] << ", " << new_robot_pos[1] << ", " << new_robot_pos[2];
+            //qInfo() << "    New orientation: " << new_robot_orientation[0] << ", " << new_robot_orientation[1] << ", " << new_robot_orientation[2];
+            //qInfo() << "    New timestamp: " << get_actual_time();
         }
     }
 }
@@ -459,25 +487,28 @@ void SpecificWorker::read_lidar()
         std::this_thread::sleep_for(wait_period);
     }
 } // Thread to read the lidar
-void SpecificWorker::print_people(const People &ppol)
+void SpecificWorker::print_people()
 {
-    qInfo() << " Num people: " << ppol.size();
-    for (const auto &person: ppol)
-        person.print();
-    qInfo() << "-----------------------------";}
+    auto people = G->get_nodes_by_type("person");
+    qInfo() << "People: ";
+    qInfo() << "    Num people: " << people.size();
+    for (const auto &person: people)
+    {
+        qInfo() << "    Person id: " << G->get_attrib_by_name<person_id_att>(person).value();
+    }
+    qInfo() << "-----------------------------";
+}
 uint64_t SpecificWorker::get_actual_time()
 {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 }
+
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
-void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate)
+void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate, QGraphicsScene *scene)
 {
     static std::vector<QGraphicsItem *> draw_points;
     for (const auto &p: draw_points)
-    {
-        widget_2d->scene.removeItem(p);
-        delete p;
-    }
+    { scene->removeItem(p); delete p; }
     draw_points.clear();
 
     QPen pen = QPen(params.LIDAR_COLOR);
@@ -523,6 +554,44 @@ void SpecificWorker::draw_room(const RoboCompVisualElementsPub::TObject &obj)
         qWarning() << __FUNCTION__ << " Error. The object does not contain the key name";
 
 }
+void SpecificWorker::draw_room_graph()
+{
+    static std::pair<uint64_t , QGraphicsItem*> draw_room = {0, nullptr};  // holds draw element
+
+    // admissibility conditions
+    auto room_nodes = G->get_nodes_by_type("room");
+    if(room_nodes.empty()) return;
+
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value()) return;
+
+    auto room_node = room_nodes.front();
+    if (auto edge_robot = rt->get_edge_RT(robot_node.value(), room_node.id()); edge_robot.has_value())
+    {
+        auto tr = G->get_attrib_by_name<rt_translation_att>(edge_robot.value());
+        auto rot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value());
+        auto width_ = G->get_attrib_by_name<width_att>(room_node);
+        auto depth_ = G->get_attrib_by_name<depth_att>(room_node);
+        if (tr.has_value() and rot.has_value() and width_.has_value() and depth_.has_value())
+        {
+            auto x = tr.value().get()[0], y = tr.value().get()[1];
+            auto ang = rot.value().get()[2];
+            if (draw_room.first == room_node.id())  // update room
+            {
+                draw_room.second->setPos(x, y);
+                draw_room.second->setRotation(ang + 90);
+            }
+            else   // add it
+            {
+                auto item = widget_2d->scene.addRect(-width_.value()/2.f, -depth_.value()/2.f, width_.value(), depth_.value(),
+                                                     QPen(QColor("black"), 50));
+                item->setPos(x, y);
+                item->setRotation(ang + 90);
+                draw_room = {room_node.id(), item};
+            }
+        }
+    }
+}
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
 {
     for(auto p : points)
@@ -538,6 +607,63 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
         auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
         ptr->setPos(QPointF(p.x(), p.y()));
         points.push_back(ptr);
+    }
+}
+void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, QGraphicsScene *scene)
+{
+    draw_lidar(points, 3, scene);
+    draw_room_graph();
+
+    float s = 500;
+    auto color = QColor("orange");
+
+    // draw people
+    static std::map<uint64_t , QGraphicsItem *> draw_map;
+    auto people_nodes = G->get_nodes_by_type("person");
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value()) return;
+    for(const auto &person_node : people_nodes)
+    {
+        auto id = person_node.id();
+        if (auto edge_robot = rt->get_edge_RT(robot_node.value(), id); edge_robot.has_value())
+        {
+            auto tr = G->get_attrib_by_name<rt_translation_att>(edge_robot.value());
+            auto rot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value());
+            if (tr.has_value() and rot.has_value())
+            {
+                auto x = tr.value().get()[0], y = tr.value().get()[1];
+                auto ang = qRadiansToDegrees(rot.value().get()[2]);
+                if (draw_map.contains(id))
+                {
+                    draw_map.at(id)->setPos(x, y);
+                    draw_map.at(id)->setRotation(ang);
+                }
+                else    // add person
+                {
+                    auto circle = scene->addEllipse(-s/2, -s/2, s, s, QPen(QColor("black"), 20),
+                                                    QBrush(color));
+                    auto line = scene->addLine(0, 0, 0, 250,
+                                               QPen(QColor("black"), 20, Qt::SolidLine, Qt::RoundCap));
+                    line->setParentItem(circle);
+                    circle->setPos(x, y);
+                    circle->setRotation(ang);
+                    circle->setZValue(100);  // set it higher than the grid so it can be selected with mouse
+                    draw_map.emplace(id, circle);
+                }
+            }
+        }
+    }
+    // check person is not in the graph, but it is in the draw_map. Remove it.
+    for (auto it = draw_map.begin(); it != draw_map.end();)
+    {
+        if (std::ranges::find_if(people_nodes, [&it, this](const DSR::Node &p)
+            { return p.id() == it->first;}) == people_nodes.end())
+        {
+            scene->removeItem(it->second);
+            delete it->second;
+            it = draw_map.erase(it);
+        }
+        else ++it;
     }
 }
 
