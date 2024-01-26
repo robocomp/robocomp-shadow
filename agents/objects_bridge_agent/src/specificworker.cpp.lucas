@@ -181,9 +181,6 @@ void SpecificWorker::compute()
     auto ve_ = buffer_visual_elements.try_get();
     if (ve_.has_value() and not ve_.value().objects.empty())
     {
-        //print something
-        qInfo() << "New visual elements arrived";
-
         process_people(ve_.value(), &custom_widget.viewer->scene);
         process_room_objects(ve_.value(), &custom_widget.viewer->scene);
     }
