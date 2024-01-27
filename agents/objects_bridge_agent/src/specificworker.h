@@ -140,19 +140,15 @@ class SpecificWorker : public GenericWorker
         "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
         "scissors", "teddy bear", "hair drier", "toothbrush"};
 
-        // Robot path
-        std::vector<QGraphicsEllipseItem*> points;
-
         // Visual elements
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_visual_elements;
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_room_elements;
         void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate, QGraphicsScene *scene);
         void draw_room(const RoboCompVisualElementsPub::TObject &obj);
         void draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);
-        void process_people(const RoboCompVisualElementsPub::TData &data);
-        void process_room(const RoboCompVisualElementsPub::TData &data);
-        void print_people();
-        static uint64_t get_actual_time();
+        void draw_scenario(const vector<Eigen::Vector3f> &scenario, QGraphicsScene *scene);
+        void draw_room_graph(QGraphicsScene *scene);
+        void draw_objects_graph(QGraphicsScene *scene);
 
         // fps
         FPSCounter fps;
@@ -161,11 +157,12 @@ class SpecificWorker : public GenericWorker
         // WORK
         void process_room_objects(const RoboCompVisualElementsPub::TData &data);
         //void postprocess_target_person(const People &people_);
-        void insert_person_in_graph(const RoboCompVisualElementsPub::TObject &person);
-        void update_person_in_graph(const RoboCompVisualElementsPub::TObject &person, DSR::Node person_node);
+        void process_people(const RoboCompVisualElementsPub::TData &data);
+        void process_room(const RoboCompVisualElementsPub::TData &data);
+        void print_people();
+        static uint64_t get_actual_time();
 
-        void draw_scenario(const vector<Eigen::Vector3f> &scenario, QGraphicsScene *scene);
-        void draw_room_graph();
+    void draw_people_graph(QGraphicsScene *scene);
 };
 
 #endif
