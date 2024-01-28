@@ -171,12 +171,12 @@ void SpecificWorker::compute()
         process_room_objects(ve_.value());
     }
 
-    // if there is a target person, compute the path from robot
-    //    postprocess_target_person(people);
-
     // Read room element from buffer_room_elements
         if(auto re_ = buffer_room_elements.try_get(); re_.has_value())
             process_room(re_.value());
+
+    // Check if there is a room  and it is oriented
+    check_room_orientation();
 
     this->hz = fps.print("FPS:", 3000);
     draw_scenario(points, &widget_2d->scene);
@@ -499,7 +499,73 @@ uint64_t SpecificWorker::get_actual_time()
 {
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 }
+void SpecificWorker::check_room_orientation()   // TODO: experimental
+{
+    // admissibility conditions
+    auto room_nodes = G->get_nodes_by_type("room");
+    if(room_nodes.empty()) return;
+    auto room_node = room_nodes.front();
 
+    // get list of objects
+    auto object_nodes = G->get_nodes_by_type("chair");  //TODO: should be all
+    if(object_nodes.empty()) { qWarning() << __FUNCTION__ << "No objects in graph" ; return;}
+
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value()) return;
+
+    // if oriented return
+    auto is_oriented_ = G->get_attrib_by_name<room_is_oriented_att>(room_node);
+    if(is_oriented_.has_value() and is_oriented_.value()) return;
+
+    // if not oriented get room width and depth and position wrt to robot
+    auto room_width = G->get_attrib_by_name<width_att>(room_node);
+    auto room_depth = G->get_attrib_by_name<depth_att>(room_node);
+    if(not room_width.has_value() or not room_depth.has_value()) return;
+    auto edge_robot_to_room = rt->get_edge_RT(robot_node.value(), room_node.id());
+    if( not edge_robot_to_room.has_value()) { qWarning() << __FUNCTION__ << "No edge between robot and room"; return;}
+    auto tr = G->get_attrib_by_name<rt_translation_att>(edge_robot_to_room.value());
+    auto rot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot_to_room.value());
+    if (not tr.has_value() or not rot.has_value()) { qWarning() << __FUNCTION__ << "No translation or rotation between robot and room"; return;}
+    auto x = tr.value().get()[0], y = tr.value().get()[1], ang = rot.value().get()[2];
+
+    // now build and Eigen::Transform to encode the room position and orientation wrt to the robot
+    Eigen::Transform<float, 2, Eigen::Affine> room_transform;
+    room_transform.setIdentity();
+    room_transform.translate(Eigen::Vector2f(x, y));
+    room_transform.rotate(Eigen::Rotation2Df(ang));
+
+    // transform the objects' coordinates to the room frame
+    for(const auto &object_node : object_nodes)
+    {
+        if (auto edge_robot = rt->get_edge_RT(robot_node.value(), object_node.id()); edge_robot.has_value())
+        {
+            auto tr_obj = G->get_attrib_by_name<rt_translation_att>(edge_robot.value());
+            auto rot_obj = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value());
+            if (tr_obj.has_value() and rot_obj.has_value() /*and width_.has_value() and depth_.has_value()*/)
+            {
+               // now transform the object to the room frame
+               auto obj_room = room_transform * Eigen::Vector2f(tr.value().get()[0], tr.value().get()[1]);
+               // check if obj_room is very close to the room border
+               if( is_on_a_wall(obj_room.x(), obj_room.y(), room_width.value(), room_depth.value()))
+               {
+                    // set the room as oriented towards the object. To do this we need two things:
+                    // 1. add an edge in G between the room and the object
+                    // 2. reset the odometry but setting the offset of the current transform between the robot and the room,
+                    // so the next current pose sent by the lidar_odometry is the current pose of the robot in the room frame
+
+               }
+            }
+        }
+    }
+}
+bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
+{
+    auto is_approx = [](float a, float b){ return fabs(a - b) < 0.1; };
+
+    if((is_approx(fabs(x), 0.f) and is_approx(fabs(y), depth/2.f)) or is_approx(fabs(y), 0.f) and is_approx(fabs(x), width/2.f))
+        return true;
+    else return false;
+}
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate, QGraphicsScene *scene)
 {
@@ -618,7 +684,7 @@ void SpecificWorker::draw_objects_graph(QGraphicsScene *scene)
                     draw_objects.at(object_node.id())->setRotation(ang + 90);
                 } else   // add it
                 {
-                    auto width = 400, depth = 400;
+                    auto width = 400, depth = 400;  // TODO: get width and depth from graph
                     auto item = scene->addRect(-width / 2.f, -depth / 2.f, width, depth,
                                                          QPen(QColor("magenta"), 50));
                     item->setPos(x, y);

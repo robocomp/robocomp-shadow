@@ -161,8 +161,9 @@ class SpecificWorker : public GenericWorker
         void process_room(const RoboCompVisualElementsPub::TData &data);
         void print_people();
         static uint64_t get_actual_time();
-
-    void draw_people_graph(QGraphicsScene *scene);
+        bool is_on_a_wall(float x, float y, float width, float depth);
+        void draw_people_graph(QGraphicsScene *scene);
+        void check_room_orientation();
 };
 
 #endif
