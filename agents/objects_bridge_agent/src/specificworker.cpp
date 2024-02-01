@@ -106,7 +106,7 @@ void SpecificWorker::initialize(int period)
 	The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 	***/
 
-	//graph_viewer->add_custom_widget_to_dock("Intention Prediction", &custom_widget);
+//    graph_viewer->add_custom_widget_to_dock("Intention_prediction", &custom_widget);
     widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
     widget_2d->setSceneRect(-5000, -5000,  10000, 10000);
     widget_2d->set_draw_axis(true);
@@ -114,13 +114,15 @@ void SpecificWorker::initialize(int period)
     // Lidar thread is created
     read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
     std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
-
+//
     // mouse
     connect(widget_2d, &DSR::QScene2dViewer::mouse_left_click, [this](QPointF p)
     {
         qInfo() << "[MOUSE] New click left arrived:" << p;
-        // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
-        // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
+
+        select_target_from_lclick(p);
+//         Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
+//         TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
         QList<QGraphicsItem *> itemsAtPosition = widget_2d->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
         QGraphicsItem *selectedItem = nullptr;
 
@@ -129,14 +131,16 @@ void SpecificWorker::initialize(int period)
             selectedItem = *res;
         else return;
 
-        // check person with the same item
+////         check person with the same item
 //        if(auto person = std::ranges::find_if(people, [selectedItem](const Person &p)
 //            { return p.get_item() == selectedItem; }); person != people.end())
 //        {
+//
 //            qInfo() << "[MOUSE] Target selected";
 //            person->set_target_element(true);
 //        }
     });
+
     //Right click
     connect(widget_2d, &DSR::QScene2dViewer::mouse_right_click, [this](int x, int y, uint64_t id)
     {
@@ -152,10 +156,14 @@ void SpecificWorker::initialize(int period)
         { std::cout << "Error setting target" << e << std::endl; }
     });
 
-    timer.start(params.PERIOD);
-    qInfo() << "Timer started";
+        timer.start(params.PERIOD);
+        qInfo() << "Timer started";
+    }
+
+//    timer.start(params.PERIOD);
+//    qInfo() << "Timer started";
 }
-}
+
 void SpecificWorker::compute()
 {
     /// read LiDAR
@@ -278,6 +286,7 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
             {
                 //qInfo() << "Person with id: " << person.id() << " has been removed";
                 G->delete_edge(robot_node.id(), person.id(), "RT");
+                G->delete_edge(robot_node.id(), person.id(), "following_action");
                 G->delete_node(person.id());
             }
 }
@@ -379,6 +388,7 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
             {
                 //qInfo() << "Person with id: " << person.id() << " has been removed";
                 G->delete_edge(robot_node.id(), person.id(), "RT");
+                G->delete_edge(robot_node.id(), person.id(), "following_action");
                 G->delete_node(person.id());
             }
 }
@@ -566,6 +576,51 @@ bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
         return true;
     else return false;
 }
+
+//select_target function
+void SpecificWorker::select_target_from_lclick(QPointF &p)
+{
+    //Creation of the on_focus edge in the graph
+    auto rt_edges = G->get_edges_by_type("RT");
+
+    //check if rt_edges is empty
+    if(rt_edges.empty())
+        return;
+
+    //get shadow node
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value())
+        return;
+
+    //Get the x,y values from all the rt_edges
+    for (const auto &rt_edge: rt_edges)
+    {
+        if (auto tr = G->get_attrib_by_name<rt_translation_att>(rt_edge); tr.has_value())
+        {
+            //Check if p is in a radius r of the x,y values
+            if (p.x() < tr.value().get()[0] + 100 && p.x() > tr.value().get()[0] - 100 &&
+                p.y() < tr.value().get()[1] + 100 && p.y() > tr.value().get()[1] - 100)
+            {
+                if(auto node = G->get_node(rt_edge.to()); node.has_value())
+                {
+                    if (auto edge_on_focus = G->get_edges_by_type("following_action"); edge_on_focus.size() > 0)
+                    {
+                        G->delete_edge(edge_on_focus[0].from(), edge_on_focus[0].to(), "following_action");
+                        edge_on_focus[0].to(node.value().id());
+                        G->insert_or_assign_edge(edge_on_focus[0]);
+                    }
+                    else // If does not exists create the edge
+                    {
+                        auto edge = DSR::Edge::create<following_action_edge_type >(robot_node.value().id(), node.value().id());
+                        G->insert_or_assign_edge(edge);
+                    }
+                    G->update_node(robot_node.value());
+                }
+            }
+        }
+    }
+}
+
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &points, int decimate, QGraphicsScene *scene)
 {
