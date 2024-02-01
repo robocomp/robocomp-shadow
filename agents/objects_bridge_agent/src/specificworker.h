@@ -155,7 +155,8 @@ class SpecificWorker : public GenericWorker
         int hz = 0;
 
         //DSR
-        void select_target_from_lclick(QPointF &p);
+        bool select_target_from_lclick(QPointF &p);
+        void delete_target_from_rclick();
 
         // WORK
         void process_room_objects(const RoboCompVisualElementsPub::TData &data);

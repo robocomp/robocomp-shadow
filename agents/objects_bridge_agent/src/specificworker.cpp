@@ -120,7 +120,9 @@ void SpecificWorker::initialize(int period)
     {
         qInfo() << "[MOUSE] New click left arrived:" << p;
 
-        select_target_from_lclick(p);
+        if (not select_target_from_lclick(p))
+            delete_target_from_rclick();
+        
 //         Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
 //         TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
         QList<QGraphicsItem *> itemsAtPosition = widget_2d->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
@@ -145,6 +147,8 @@ void SpecificWorker::initialize(int period)
     connect(widget_2d, &DSR::QScene2dViewer::mouse_right_click, [this](int x, int y, uint64_t id)
     {
         qInfo() << "[MOUSE] New right click arrived:";
+//        delete_target_from_rclick();
+
 //        for (auto &person: people)
 //            person.set_target_element(false);
         try
@@ -578,19 +582,19 @@ bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
 }
 
 //select_target function
-void SpecificWorker::select_target_from_lclick(QPointF &p)
+bool SpecificWorker::select_target_from_lclick(QPointF &p)
 {
     //Creation of the on_focus edge in the graph
     auto rt_edges = G->get_edges_by_type("RT");
 
     //check if rt_edges is empty
     if(rt_edges.empty())
-        return;
+        return false;
 
     //get shadow node
     auto robot_node = G->get_node("Shadow");
     if(not robot_node.has_value())
-        return;
+        return false;
 
     //Get the x,y values from all the rt_edges
     for (const auto &rt_edge: rt_edges)
@@ -615,9 +619,28 @@ void SpecificWorker::select_target_from_lclick(QPointF &p)
                         G->insert_or_assign_edge(edge);
                     }
                     G->update_node(robot_node.value());
+                    return true;
                 }
             }
         }
+    }
+    return false;
+}
+
+//delete_target function
+void SpecificWorker::delete_target_from_rclick()
+{
+    //Delete following_action edge
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value())
+        return;
+
+    auto edge_on_focus = G->get_edges_by_type("following_action");
+
+    if(edge_on_focus.size() > 0)
+    {
+        G->delete_edge(edge_on_focus[0].from(), edge_on_focus[0].to(), "following_action");
+        G->update_node(robot_node.value());
     }
 }
 
