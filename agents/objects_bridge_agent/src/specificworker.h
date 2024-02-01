@@ -154,6 +154,9 @@ class SpecificWorker : public GenericWorker
         FPSCounter fps;
         int hz = 0;
 
+        //DSR
+        void select_target_from_lclick(QPointF &p);
+
         // WORK
         void process_room_objects(const RoboCompVisualElementsPub::TData &data);
         //void postprocess_target_person(const People &people_);
@@ -168,63 +171,63 @@ class SpecificWorker : public GenericWorker
 
 #endif
 
-
-//    struct Object
-//        {
-//            Object() = default;
-//            RoboCompVisualElementsPub::TObject obj;
-//            QGraphicsRectItem *item = nullptr;
-//            bool is_target = false;
-//            std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
+//struct Object
+//    {
+//        Object() = default;
+//        RoboCompVisualElementsPub::TObject obj;
+//        QGraphicsRectItem *item = nullptr;
+//        bool is_target = false;
+//        std::chrono::high_resolution_clock::time_point insertion_time, last_update_time;
 //
-//            int get_id() const {return obj.id;}
-//            QGraphicsItem *get_item() const {return item;}
-//            void init_item(QGraphicsScene *scene, float x, float y, float width, float height)
+//        int get_id() const {return obj.id;}
+//        QGraphicsItem *get_item() const {return item;}
+//        void init_item(QGraphicsScene *scene, float x, float y, float width, float height)
+//        {
+//            item = scene->addRect(-width / 2.f, -height / 2.f, width, height,
+//                                  QPen(QColor("magenta")), QBrush(QColor("magenta")));
+//            item->setPos(x, y);
+//            // add a text item with the id
+//            auto text = scene->addText(QString::number(obj.id));
+//            text->setParentItem(item);
+//            text->setPos(-text->boundingRect().width() * 5, text->boundingRect().height() * 17);
+//            text->setDefaultTextColor(QColor("black"));
+//            text->setScale(10);
+//            QTransform transform; transform.scale(1, -1);
+//            text->setTransform(transform);
+//        }
+//        void update_last_update_time() { last_update_time = std::chrono::high_resolution_clock::now(); };
+//        void set_insertion_time() { insertion_time = std::chrono::high_resolution_clock::now(); update_last_update_time();}
+//        std::chrono::high_resolution_clock::time_point get_insertion_time() const {return insertion_time;};
+//        std::chrono::high_resolution_clock::time_point get_last_update_time() const {return last_update_time;};
+//        void update_attributes(const RoboCompVisualElementsPub::TObject &object)
+//        {
+//            if (object.attributes.contains("x_pos") and
+//                object.attributes.contains("y_pos") and
+//                object.attributes.contains("orientation"))
 //            {
-//                item = scene->addRect(-width / 2.f, -height / 2.f, width, height,
-//                                      QPen(QColor("magenta")), QBrush(QColor("magenta")));
-//                item->setPos(x, y);
-//                // add a text item with the id
-//                auto text = scene->addText(QString::number(obj.id));
-//                text->setParentItem(item);
-//                text->setPos(-text->boundingRect().width() * 5, text->boundingRect().height() * 17);
-//                text->setDefaultTextColor(QColor("black"));
-//                text->setScale(10);
-//                QTransform transform; transform.scale(1, -1);
-//                text->setTransform(transform);
-//            }
-//            void update_last_update_time() { last_update_time = std::chrono::high_resolution_clock::now(); };
-//            void set_insertion_time() { insertion_time = std::chrono::high_resolution_clock::now(); update_last_update_time();}
-//            std::chrono::high_resolution_clock::time_point get_insertion_time() const {return insertion_time;};
-//            std::chrono::high_resolution_clock::time_point get_last_update_time() const {return last_update_time;};
-//            void update_attributes(const RoboCompVisualElementsPub::TObject &object)
-//            {
-//                if (object.attributes.contains("x_pos") and
-//                    object.attributes.contains("y_pos") and
-//                    object.attributes.contains("orientation"))
-//                {
-//                    obj.attributes["x_pos"] = object.attributes.at("x_pos");
-//                    obj.attributes["y_pos"] = object.attributes.at("y_pos");
-//                    obj.attributes["orientation"] = object.attributes.at("orientation");
-//                    // Print attributes
-//                    qInfo() << "    x_pos: " << std::stof(obj.attributes.at("x_pos"));
-//                    qInfo() << "    y_pos: " << std::stof(obj.attributes.at("y_pos"));
-//                    qInfo() << "    orientation: " << std::stof(obj.attributes.at("orientation"));
+//                obj.attributes["x_pos"] = object.attributes.at("x_pos");
+//                obj.attributes["y_pos"] = object.attributes.at("y_pos");
+//                obj.attributes["orientation"] = object.attributes.at("orientation");
+//                // Print attributes
+//                qInfo() << "    x_pos: " << std::stof(obj.attributes.at("x_pos"));
+//                qInfo() << "    y_pos: " << std::stof(obj.attributes.at("y_pos"));
+//                qInfo() << "    orientation: " << std::stof(obj.attributes.at("orientation"));
 ////                    item->setPos(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")));
 ////                    item->setRotation(qRadiansToDegrees(std::stof(object.attributes.at("orientation")) - atan2(std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos"))))+180);
-//                }
-//                else
-//                {
-//                    qWarning() << __FUNCTION__ << "No x_pos or y_pos in target attributes";
-//                    return;
-//                }
-//            };
-//            void set_object_data(const RoboCompVisualElementsPub::TObject &object){ obj = object;};
-//            void remove_item(QGraphicsScene *scene) { scene->removeItem(item); delete item; item = nullptr;};
+//            }
+//            else
+//            {
+//                qWarning() << __FUNCTION__ << "No x_pos or y_pos in target attributes";
+//                return;
+//            }
 //        };
+//        void set_object_data(const RoboCompVisualElementsPub::TObject &object){ obj = object;};
+//        void remove_item(QGraphicsScene *scene) { scene->removeItem(item); delete item; item = nullptr;};
+//    };
 //
-//        // People
-//        using People = std::vector<Person>;
-//        using Objects = std::vector<Object>;
-//        People people;
-//        Objects objects;
+//    // People
+//    using People = std::vector<Person>;
+//    using Objects = std::vector<Object>;
+//    People people;
+//    Objects objects;
+
