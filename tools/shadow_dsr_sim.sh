@@ -76,36 +76,40 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "webots &"
 #Bridge
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cd ~/robocomp/components/webots-bridge"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cmake . && make -j32 && bin/Webots2Robocomp etc/config"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "bin/Webots2Robocomp etc/config"
 
 # Camera
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "cd ~/robocomp/components/robocomp-robolab/components/hardware/camera/ricoh_omni"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "cmake . && make -j32 && bin/RicohOmni etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 2 "bin/RicohOmni etc/config_wb"
 
 sleep 3
 
 #Lidar H
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/components/robocomp-robolab/components/hardware/laser/lidar3D"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cmake . && make -j32 && bin/Lidar3D etc/config_helios_webots"
-
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "bin/Lidar3D etc/config_helios_webots"
 
 # Lidar P
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cd ~/robocomp/components/robocomp-robolab/components/hardware/laser/lidar3D"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cmake . && make -j32 && bin/Lidar3D etc/config_pearl_webots"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "bin/Lidar3D etc/config_pearl_webots"
 
 #360RGBD
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cd ~/robocomp/components/robocomp-shadow/insect/RGBD_360"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cmake . && make -j32 && bin/RGBD_360 etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "bin/RGBD_360 etc/config_wb"
 
 #object
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cd ~/robocomp/components/robocomp-shadow/insect/object_tracking_rgbd"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cmake . && make -j32 && src/object_tracking.py etc/config_wb"
-
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "src/object_tracking.py etc/config_wb"
 # Controller
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "cd ~/robocomp/components/robocomp-shadow/insect/controller_web"
@@ -114,36 +118,43 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "cd ~/robocomp/co
 #Grid
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cd ~/robocomp/components/robocomp-shadow/insect/gridder"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cmake . && make -j32 && bin/gridder etc/config_wb"
-
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "bin/gridder etc/config_wb"
 #MPC
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "cd ~/robocomp/components/robocomp-shadow/components/mpc"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "cmake . && make -j32 && bin/MPC etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "bin/MPC etc/config_wb"
 
 #Bumper
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cd ~/robocomp/components/robocomp-shadow/insect/bumper"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cmake . && make -j32 && bin/bumper etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/bumper etc/config_wb"
 
 #SM_Grid
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "cd ~/robocomp/components/robocomp-shadow/insect/sm_grid_planner"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "cmake . && make -j32 && bin/sm_grid_planner etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "bin/sm_grid_planner etc/config_wb"
 
 #Model
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "cd ~/robocomp/components/robocomp-shadow/agents/objects_bridge_agent"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "bin/objects_bridge_agent etc/config"
 
 #Lidar Odometry
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "cd ~/robocomp/components/robocomp-shadow/insect/lidar_odometry"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "cmake . && make -j32 && bin/lidar_odometry etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "bin/lidar_odometry etc/config_wb"
 
 #Intention
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "cd ~/robocomp/components/robocomp-shadow/agents/intention_predictor_agent"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "cmake . && make -j32 &&  bin/intention_prediction_agent etc/config"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "bin/intention_prediction_agent etc/config"
 
 #Forcefield
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "cd ~/robocomp/components/robocomp-shadow/insect/forcefield"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "cmake . && make -j32 && bin/forcefield etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "bin/forcefield etc/config_wb"
 
 
