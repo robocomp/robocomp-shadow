@@ -183,9 +183,9 @@ void SpecificWorker::draw_paths(const std::vector<std::vector<Eigen::Vector2f>> 
 //////////////////////////////////////////////////////////////////////////////////////////////
 RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint source,
                                                          RoboCompGridder::TPoint target,
-                                                         int max_paths,
-                                                         bool try_closest_free_point,
-                                                         bool target_is_human)
+                                                         int maxPaths,
+                                                         bool tryClosestFreePoint,
+                                                         bool targetIsHuman)
 {
     //TODO: improve this method to try to find a path even if the target is not free by using the closest free point
     //TODO: if target is human, set safe area around as free
@@ -194,7 +194,7 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
 
     auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]"
-                            << " max_paths: " << max_paths;
+                            << " maxPaths: " << maxPaths;
     mutex_path.lock();
         auto [success, msg, source_key, target_key] =
                 grid.validate_source_target(Eigen::Vector2f{source.x, source.y},
@@ -217,10 +217,10 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
             else
             {
                 paths = grid.compute_k_paths(source_key, target_key,
-                                             std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
+                                             std::clamp(maxPaths, 1, params.NUM_PATHS_TO_SEARCH),
                                              params.MIN_DISTANCE_BETWEEN_PATHS,
-                                             try_closest_free_point,
-                                             target_is_human);
+                                             tryClosestFreePoint,
+                                             targetIsHuman);
                 if(paths.empty())
                     msg = "Djikstra path not found";
                 else
@@ -228,7 +228,7 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
             }
         }
     mutex_path.unlock();
-    result.error_msg = msg;
+    result.errorMsg = msg;
     result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     // If not success return result with empty paths, error message and timestamp
@@ -253,14 +253,14 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint
         return result;
     }
 }
-bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius)
+bool SpecificWorker::Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius)
 {
     std::lock_guard<std::mutex> lock(mutex_path);
     auto [success, msg, source_key, target_key] =
             grid.validate_source_target(Eigen::Vector2f{source.x, source.y}, source.radius,
                                         Eigen::Vector2f{target.x, target.y}, target.radius);
     if(success)
-        return grid.is_line_of_sigth_to_target_free(source_key, target_key, robot_radius);
+        return grid.is_line_of_sigth_to_target_free(source_key, target_key, robotRadius);
     else
         return false;
 }
