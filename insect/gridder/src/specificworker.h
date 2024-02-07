@@ -44,14 +44,14 @@ class SpecificWorker : public GenericWorker
         bool setParams(RoboCompCommonBehavior::ParameterList params);
 
         bool Gridder_IsPathBlocked(RoboCompGridder::TPath path);
-        bool Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius);
+        bool Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius);
         RoboCompGridder::TPoint Gridder_getClosestFreePoint(RoboCompGridder::TPoint source);
         RoboCompGridder::TDimensions Gridder_getDimensions();
         RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source,
                                                  RoboCompGridder::TPoint target,
-                                                 int max_paths,
-                                                 bool try_closest_free_point,
-                                                 bool target_is_human);
+                                                 int maxPaths,
+                                                 bool tryClosestFreePoint,
+                                                 bool targetIsHuman);
 	    bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 
 public slots:
