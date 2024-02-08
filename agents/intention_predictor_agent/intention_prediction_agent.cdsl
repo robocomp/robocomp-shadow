@@ -1,0 +1,13 @@
+import "Gridder.idsl";
+
+Component intention_prediction_agent
+{
+    Communications
+    {
+        requires Gridder;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
