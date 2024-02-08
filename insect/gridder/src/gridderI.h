@@ -34,11 +34,12 @@ public:
 	~GridderI();
 
 	bool IsPathBlocked(RoboCompGridder::TPath path, const Ice::Current&);
-	bool LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius, const Ice::Current&);
+	bool LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius, const Ice::Current&);
 	RoboCompGridder::TPoint getClosestFreePoint(RoboCompGridder::TPoint source, const Ice::Current&);
 	RoboCompGridder::TDimensions getDimensions(const Ice::Current&);
-	RoboCompGridder::Result getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths, bool try_closest_free_point, bool target_is_human, const Ice::Current&);
+	RoboCompGridder::Result getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int maxPaths, bool tryClosestFreePoint, bool targetIsHuman, const Ice::Current&);
 	bool setGridDimensions(RoboCompGridder::TDimensions dimensions, const Ice::Current&);
+	RoboCompGridder::Result setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle, const Ice::Current&);
 
 private:
 

@@ -59,11 +59,12 @@ public:
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d1_proxy;
 
 	virtual bool Gridder_IsPathBlocked(RoboCompGridder::TPath path) = 0;
-	virtual bool Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius) = 0;
+	virtual bool Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius) = 0;
 	virtual RoboCompGridder::TPoint Gridder_getClosestFreePoint(RoboCompGridder::TPoint source) = 0;
 	virtual RoboCompGridder::TDimensions Gridder_getDimensions() = 0;
-	virtual RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths, bool try_closest_free_point, bool target_is_human) = 0;
+	virtual RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int maxPaths, bool tryClosestFreePoint, bool targetIsHuman) = 0;
 	virtual bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions) = 0;
+	virtual RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle) = 0;
 
 protected:
 

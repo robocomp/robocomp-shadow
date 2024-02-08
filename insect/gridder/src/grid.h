@@ -150,6 +150,13 @@ public:
                                const Eigen::Vector2f &target_, float t_radius);
         void restore_source_target(const Key &source_key, const Key &target_key);
 
+
+        //Submap operations
+        std::vector<std::tuple<Grid::Key,Grid::T>> copy_submap(const Key &center, float radius);
+        void paste_submap(const std::vector<std::tuple<Grid::Key, Grid::T>> &submap);
+        void set_submap(const Key &center, float radius, bool setFree);
+        void set_submap_free(const Key &center,  float radius);
+
     private:
         FMap fmap;
         QGraphicsScene *scene;
@@ -167,13 +174,13 @@ public:
         std::vector<Eigen::Vector2f> decimate_path(const std::vector<Eigen::Vector2f> &path, unsigned int step=2);
         std::optional<QPointF> closestMatching_spiralMove(const QPointF &p, const std::function<bool(std::pair<Grid::Key, Grid::T>)> &pred);
         void set_all_costs(float value);
-        void set_submap_free(const Key &center,  float radius);
+
 
         struct Params
         {
             int tile_size = 100;
             const float free_cost = 1.f;
-            const float unknown_cost = 3.f;
+            const float unknown_cost = 4.f;
             const float occupied_cost = 100.f;
             const QString free_color = "white";
             const QString unknown_color = "LightGrey";
@@ -182,5 +189,7 @@ public:
 
         };
         Params params;
+
+
 };
 #endif // GRID_H

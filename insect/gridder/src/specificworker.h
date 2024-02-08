@@ -32,6 +32,7 @@
 #include "doublebuffer/DoubleBuffer.h"
 #include <Eigen/Eigen>
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
+#include "Gridder.h"
 #include <fps/fps.h>
 #include <timer/timer.h>
 
@@ -49,11 +50,15 @@ class SpecificWorker : public GenericWorker
         RoboCompGridder::TDimensions Gridder_getDimensions();
         RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source,
                                                  RoboCompGridder::TPoint target,
-                                                 int maxPaths,
+                                                 int max_paths,
                                                  bool tryClosestFreePoint,
                                                  bool targetIsHuman);
-	    bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
+        RoboCompGridder::Result Gridder_getPaths_unlocked(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths,
+        bool tryClosestFreePoint, bool targetIsHuman);
 
+	bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
+	
+	RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle);
 public slots:
         void compute();
         int startup_check();
@@ -87,7 +92,7 @@ public slots:
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
-            bool DISPLAY = true;
+            bool DISPLAY = true ; //TODO: config file
         };
         Params params;
 
@@ -117,6 +122,7 @@ public slots:
         //RoboCompGridPlanner::TPlan compute_line_of_sight_target(const Target &target);
         //RoboCompGridPlanner::TPlan compute_plan_from_grid(const Target &target);
         //void adapt_grid_size(const Target &target,  const RoboCompGridPlanner::Points &path);   // EXPERIMENTAL
+
 
 };
 
