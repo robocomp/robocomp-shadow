@@ -34,9 +34,9 @@ bool GridderI::IsPathBlocked(RoboCompGridder::TPath path, const Ice::Current&)
 	return worker->Gridder_IsPathBlocked(path);
 }
 
-bool GridderI::LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robot_radius, const Ice::Current&)
+bool GridderI::LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius, const Ice::Current&)
 {
-	return worker->Gridder_LineOfSightToTarget(source, target, robot_radius);
+	return worker->Gridder_LineOfSightToTarget(source, target, robotRadius);
 }
 
 RoboCompGridder::TPoint GridderI::getClosestFreePoint(RoboCompGridder::TPoint source, const Ice::Current&)
@@ -49,13 +49,18 @@ RoboCompGridder::TDimensions GridderI::getDimensions(const Ice::Current&)
 	return worker->Gridder_getDimensions();
 }
 
-RoboCompGridder::Result GridderI::getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths, bool try_closest_free_point, bool target_is_human, const Ice::Current&)
+RoboCompGridder::Result GridderI::getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int maxPaths, bool tryClosestFreePoint, bool targetIsHuman, const Ice::Current&)
 {
-	return worker->Gridder_getPaths(source, target, max_paths, try_closest_free_point, target_is_human);
+	return worker->Gridder_getPaths(source, target, maxPaths, tryClosestFreePoint, targetIsHuman);
 }
 
 bool GridderI::setGridDimensions(RoboCompGridder::TDimensions dimensions, const Ice::Current&)
 {
 	return worker->Gridder_setGridDimensions(dimensions);
+}
+
+RoboCompGridder::Result GridderI::setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle, const Ice::Current&)
+{
+	return worker->Gridder_setLocationAndGetPath(source, target, setFree, obstacle);
 }
 

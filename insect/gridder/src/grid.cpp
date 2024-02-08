@@ -197,6 +197,7 @@ inline void Grid::add_miss(const Eigen::Vector2f &p)
     if(success)
     {
         v.misses++;
+//        v.tile->setBrush(QBrush(QColor(params.free_color)));
         if(v.hits/(v.hits+v.misses) < params.occupancy_threshold)
         {
             v.free = true;
@@ -205,6 +206,12 @@ inline void Grid::add_miss(const Eigen::Vector2f &p)
         }
         v.misses = std::clamp(v.misses, 0.f, 20.f);
     }
+    else
+    {
+        //Print kety not found and point if point is inside grid dimmensions
+        if(dim.contains(QPointF{p.x(), p.y()}))
+        qWarning() << __FUNCTION__ << "Key not found in grid: (" << p.x() << p.y() << ")";
+    }
 }
 inline void Grid::add_hit(const Eigen::Vector2f &p)
 {
@@ -212,7 +219,7 @@ inline void Grid::add_hit(const Eigen::Vector2f &p)
     if(success)
     {
         v.hits++;
-        if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold)
+        if((float)v.hits/(v.hits+v.misses) >= params.occupancy_threshold )
         {
             v.free = false;
             v.tile->setBrush(QBrush(QColor(params.occupied_color)));
@@ -702,7 +709,7 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
 {
     // Define static variable to store previous values of robot_change
     //static Eigen::Transform<double, 3, 1> robot_change_prev = Eigen::Transform<double, 3, 1>::Identity();
-    static std::vector<Key> cells_occupied_in_last_update = {};
+//    static std::vector<Key> cells_occupied_in_last_update = {};
 
     //Compare robot_change with previous value
 
@@ -738,11 +745,6 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
             add_hit(point.head(2));
     }
 
-//    // copy occupied points to cells_occupied_in_last_update
-//    cells_occupied_in_last_update.clear();
-//    for(auto &&[k, v] : fmap | iter::filter([](auto &cell){ return not cell.second.free;}))
-//            cells_occupied_in_last_update.emplace_back(k);
-//    robot_change_prev = robot_change;
 }
 
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////
@@ -753,7 +755,10 @@ void Grid::clear()
     {
         value.tile->setBrush(QBrush(QColor(params.unknown_color)));
         value.free = true;
+        value.hits = 0;
+        value.misses = 0;
         value.cost = params.unknown_cost;
+        value.visited = false;
     }
 }
 void Grid::reset()
@@ -938,6 +943,39 @@ void Grid::set_submap_free(const Grid::Key &center, float radius)
         v.free = true; v.cost = params.free_cost;
     }
 }
+//make std vector of tuples with key and T
+std::vector<std::tuple<Grid::Key,Grid::T>> Grid::copy_submap(const Grid::Key &center, float radius)
+{
+    std::vector<std::tuple<Grid::Key,Grid::T>> submap;
+    for (auto &&[k, v]: iter::filter([center, radius](auto &v)
+               { return std::labs(v.first.first - center.first) <= radius and std::labs(v.first.second - center.second) <= radius; }, fmap))
+    {
+        submap.emplace_back(k, v);
+    }
+    return submap;
+}
+//paste submap into grid
+void Grid::paste_submap(const std::vector<std::tuple<Grid::Key,Grid::T>> &submap)
+{
+    for (auto &&[k, v]: submap)
+    {
+        fmap[k] = v;
+    }
+    return;
+}
+//set submap vector of tuple to occupied or free depending on the value of the bool
+
+void Grid::set_submap(const Key &center, float radius, bool setFree)
+{
+    // set all cells in a square of side "side" around center to free or occupied using the bool occupied
+    for (auto &&[k, v]: iter::filter([center, radius](auto &v)
+               { return std::labs(v.first.first - center.first) <= radius and std::labs(v.first.second - center.second) <= radius; }, fmap))
+    {
+        v.free = setFree;
+        v.cost = setFree ?  params.free_cost : params.occupied_cost;
+    }
+}
+
 
 
 // LOS with wide band
