@@ -182,6 +182,28 @@ void SpecificWorker::compute()
         process_people(ve_.value());
         process_room_objects(ve_.value());
     }
+    else
+    {
+        qWarning() << __FUNCTION__ << " No objects in data. Checking objects in graph";
+        // Remove phase. Check for people not updated in more than 2 seconds
+        if (auto robot_node_ = G->get_node("Shadow"); robot_node_.has_value()) {
+            auto robot_node = robot_node_.value();
+            auto now = std::chrono::high_resolution_clock::now();
+            auto people_nodes = G->get_nodes_by_type("person");
+            auto object_nodes = G->get_nodes_by_type("object");
+            // Concatenate people and object nodes
+            people_nodes.insert(people_nodes.end(), object_nodes.begin(), object_nodes.end());
+            for (auto &person: people_nodes)
+                if (auto update_time = G->get_attrib_by_name<timestamp_alivetime_att>(person); update_time.has_value())
+                    if ((std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count() -
+                         update_time.value()) > params.SECS_TO_GET_OUT) {
+                        qInfo() << "Person with id: " << person.id() << " has been removed";
+                        G->delete_edge(robot_node.id(), person.id(), "RT");
+                        G->delete_edge(robot_node.id(), person.id(), "following_action");
+                        G->delete_node(person.id());
+                    }
+        }
+    }
 
     // Read room element from buffer_room_elements
         if(auto re_ = buffer_room_elements.try_get(); re_.has_value())
@@ -240,9 +262,9 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
                     G->add_or_modify_attrib_local<timestamp_alivetime_att>(*person_in_graph, get_actual_time());
                     G->update_node(*person_in_graph);
                     std::vector<float> new_robot_orientation, new_robot_pos = {0.0, 0.0, 0.0};
-                    if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos"))
+                    if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos") and object.attributes.contains("z_pos"))
                         G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(),
-                                             std::vector<float>{ std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), 0.f});
+                                             std::vector<float>{ std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), std::stof(object.attributes.at("z_pos"))});
                     if(object.attributes.contains("orientation"))
                         G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
                                                      std::vector<float>{0.0, 0.0, std::stof(object.attributes.at("orientation"))});
@@ -273,8 +295,8 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
             G->insert_node(new_node);
             qInfo() << __FUNCTION__ << " Person with id: " << object.id << " inserted in graph";
             std::vector<float> vector_robot_pos = {0.0, 0.0, 0.0}, orientation_vector = {0.0, 0.0, 0.0};
-            if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos"))
-                vector_robot_pos = { std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), 0.f};
+            if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos") and object.attributes.contains("z_pos"))
+                vector_robot_pos = { std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), std::stof(object.attributes.at("z_pos"))};
             if(object.attributes.contains("orientation"))
                 orientation_vector = {0.0, 0.0, std::stof(object.attributes.at("orientation"))};
             rt->insert_or_assign_edge_RT(robot_node, new_node.id(), vector_robot_pos, orientation_vector);
@@ -294,17 +316,123 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
                 G->delete_node(person.id());
             }
 }
+// Function for processing chairs
+//void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData &data)
+//{
+//    // admissibility conditions
+//    if(data.objects.empty())
+//    { qWarning() << __FUNCTION__ << " No objects in data"; return; }
+//
+//    auto robot_node_ = G->get_node("Shadow");
+//    if(not robot_node_.has_value())
+//    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+//    auto robot_node = robot_node_.value();
+//
+//    auto robot_level_ = G->get_node_level(robot_node);
+//    if(not robot_level_.has_value())
+//    { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
+//    auto robot_level = robot_level_.value();
+//
+//    // Match phase. Check if the new objects are already in the existing objects vector
+//    std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
+//    auto now = std::chrono::high_resolution_clock::now();
+//    auto object_nodes = G->get_nodes_by_type("chair");
+//    // Get the index of the element in YOLO_NAMES = "chair"
+//    size_t idx = std::distance(YOLO_NAMES.begin(), std::ranges::find(YOLO_NAMES, "chair"));
+//    for (const auto &object: data.objects | iter::filter([idx](auto &obj){return obj.type == static_cast<int>(idx);}))
+//    {
+//        // Check if the object is already in Graph
+//        if(auto object_in_graph = std::ranges::find_if(object_nodes, [&object, this](const DSR::Node &p)
+//            {
+//                auto object_id = G->get_attrib_by_name<obj_id_att>(p);
+//                if( object_id.has_value() and (object_id.value() == object.id)) return true;
+//                else return false;
+//            }); object_in_graph != object_nodes.end())
+//        {
+//            auto node_insertion_time = G->get_attrib_by_name<timestamp_creation_att>(*object_in_graph);
+//            auto object_checked = G->get_attrib_by_name<obj_checked_att>(*object_in_graph);
+//            if( node_insertion_time.has_value() and
+//                object_checked.has_value() and
+//                not object_checked.value() and
+//                ((std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count() - node_insertion_time.value()) > params.SECS_TO_GET_IN))
+//            {
+//                G->add_or_modify_attrib_local<obj_checked_att>(*object_in_graph, true);
+//            }
+//            if (auto edge_robot = rt->get_edge_RT(robot_node, object_in_graph->id()); edge_robot.has_value())
+//            {
+//                G->add_or_modify_attrib_local<timestamp_alivetime_att>(*object_in_graph, get_actual_time());
+//                G->update_node(*object_in_graph);
+//                std::vector<float> new_robot_orientation, new_robot_pos = {0.0, 0.0, 0.0};
+//                if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos"))
+//                    G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(),
+//                                                                      std::vector<float>{ std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), 0.f});
+//                if(object.attributes.contains("orientation"))
+//                    G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
+//                                                                             std::vector<float>{0.0, 0.0, std::stof(object.attributes.at("orientation"))});
+//                G->insert_or_assign_edge(edge_robot.value());
+//            }
+//        }
+//        else     // Emplace the object in the remaining objects vector
+//            remaining_objects.push_back(object);
+//    }
+//
+//    // Add phase. Process remaining objects by adding new persons to the list
+//    for (const auto &object: remaining_objects)
+//    {
+//        std::string node_name = "chair_" + std::to_string(object.id);
+//        DSR::Node new_node = DSR::Node::create<chair_node_type>(node_name);
+//        G->add_or_modify_attrib_local<obj_id_att>(new_node, object.id);
+//        if(object.attributes.contains("width") and object.attributes.contains("height"))
+//        {
+//            G->add_or_modify_attrib_local<pos_x_att>(new_node, stof(object.attributes.at("width")));
+//            G->add_or_modify_attrib_local<pos_y_att>(new_node, stof(object.attributes.at("height")));
+//        }
+//        G->add_or_modify_attrib_local<pos_x_att>(new_node, static_cast<float>(rand()%170));
+//        G->add_or_modify_attrib_local<pos_y_att>(new_node, static_cast<float>(rand()%170));
+//        G->add_or_modify_attrib_local<timestamp_creation_att>(new_node, get_actual_time());
+//        G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
+//        G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
+//        G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
+//        try
+//        {
+//            G->insert_node(new_node);
+//            qInfo() << __FUNCTION__ << " Object with id: " << object.id << " inserted in graph";
+//            std::vector<float> vector_robot_pos = {0.0, 0.0, 0.0}, orientation_vector = {0.0, 0.0, 0.0};
+//            if (object.attributes.contains("center_x") and object.attributes.contains("center_y"))
+//                vector_robot_pos = { std::stof(object.attributes.at("center_x")), std::stof(object.attributes.at("center_y")), 0.f};
+//            if(object.attributes.contains("rotation"))
+//                orientation_vector = {0.0, 0.0, std::stof(object.attributes.at("rotation"))};
+//            rt->insert_or_assign_edge_RT(robot_node, new_node.id(), vector_robot_pos, orientation_vector);
+//        }
+//        catch(const std::exception &e)
+//        { std::cout << e.what() << " Error inserting node" << std::endl;}
+//    }
+//
+//    // Remove phase. Check for people not updated in more than 2 seconds
+//    for (auto &person: object_nodes)
+//        if(auto update_time = G->get_attrib_by_name<timestamp_alivetime_att>(person); update_time.has_value())
+//            if ((std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count() - update_time.value()) > params.SECS_TO_GET_OUT)
+//            {
+//                //qInfo() << "Person with id: " << person.id() << " has been removed";
+//                G->delete_edge(robot_node.id(), person.id(), "RT");
+//                G->delete_edge(robot_node.id(), person.id(), "following_action");
+//                G->delete_node(person.id());
+//            }
+//}
+// function for processing every element detected by YOLO
 void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData &data)
 {
     // admissibility conditions
-    if(data.objects.empty())
-    { qWarning() << __FUNCTION__ << " No objects in data"; return; }
-
     auto robot_node_ = G->get_node("Shadow");
     if(not robot_node_.has_value())
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
     auto robot_node = robot_node_.value();
-
+    auto object_nodes = G->get_nodes_by_type("object");
+    auto now = std::chrono::high_resolution_clock::now();
+    if(data.objects.empty())
+    {
+        qWarning() << __FUNCTION__ << " No objects in data. Checking objects in graph"; return;
+    }
     auto robot_level_ = G->get_node_level(robot_node);
     if(not robot_level_.has_value())
     { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
@@ -312,11 +440,9 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
 
     // Match phase. Check if the new objects are already in the existing objects vector
     std::vector<RoboCompVisualElementsPub::TObject> remaining_objects;
-    auto now = std::chrono::high_resolution_clock::now();
-    auto object_nodes = G->get_nodes_by_type("chair");
     // Get the index of the element in YOLO_NAMES = "chair"
-    size_t idx = std::distance(YOLO_NAMES.begin(), std::ranges::find(YOLO_NAMES, "chair"));
-    for (const auto &object: data.objects | iter::filter([idx](auto &obj){return obj.type == static_cast<int>(idx);}))
+    size_t idx = std::distance(YOLO_NAMES.begin(), std::ranges::find(YOLO_NAMES, "person"));
+    for (const auto &object: data.objects | iter::filter([idx](auto &obj){return obj.type != static_cast<int>(idx) and !obj.attributes.contains("name");}))
     {
         // Check if the object is already in Graph
         if(auto object_in_graph = std::ranges::find_if(object_nodes, [&object, this](const DSR::Node &p)
@@ -340,9 +466,9 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
                 G->add_or_modify_attrib_local<timestamp_alivetime_att>(*object_in_graph, get_actual_time());
                 G->update_node(*object_in_graph);
                 std::vector<float> new_robot_orientation, new_robot_pos = {0.0, 0.0, 0.0};
-                if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos"))
+                if (object.attributes.contains("x_pos") and object.attributes.contains("y_pos") and object.attributes.contains("z_pos"))
                     G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(),
-                                                                      std::vector<float>{ std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), 0.f});
+                                                                      std::vector<float>{ std::stof(object.attributes.at("x_pos")), std::stof(object.attributes.at("y_pos")), std::stof(object.attributes.at("z_pos"))});
                 if(object.attributes.contains("orientation"))
                     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
                                                                              std::vector<float>{0.0, 0.0, std::stof(object.attributes.at("orientation"))});
@@ -356,8 +482,10 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
     // Add phase. Process remaining objects by adding new persons to the list
     for (const auto &object: remaining_objects)
     {
-        std::string node_name = "chair_" + std::to_string(object.id);
-        DSR::Node new_node = DSR::Node::create<chair_node_type>(node_name);
+        // Get string name for the object from YOLO_NAMES
+        std::string node_name = YOLO_NAMES[object.type] + "_" + std::to_string(object.id);
+        qInfo() << QString::fromStdString(node_name);
+        DSR::Node new_node = DSR::Node::create<object_node_type>(node_name);
         G->add_or_modify_attrib_local<obj_id_att>(new_node, object.id);
         if(object.attributes.contains("width") and object.attributes.contains("height"))
         {
@@ -370,6 +498,12 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
         G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
         G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
         G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
+        // Check if the object is an obstacle or a target with target_names and obstacle_names data
+        if(auto target = std::ranges::find(target_names, YOLO_NAMES[object.type]); target != target_names.end())
+            G->add_or_modify_attrib_local<is_an_obstacle_att>(new_node, false);
+        else
+            G->add_or_modify_attrib_local<is_an_obstacle_att>(new_node, true);
+
         try
         {
             G->insert_node(new_node);
@@ -386,14 +520,14 @@ void SpecificWorker::process_room_objects(const RoboCompVisualElementsPub::TData
     }
 
     // Remove phase. Check for people not updated in more than 2 seconds
-    for (auto &person: object_nodes)
-        if(auto update_time = G->get_attrib_by_name<timestamp_alivetime_att>(person); update_time.has_value())
+    for (auto &object: object_nodes)
+        if(auto update_time = G->get_attrib_by_name<timestamp_alivetime_att>(object); update_time.has_value())
             if ((std::chrono::time_point_cast<std::chrono::seconds>(now).time_since_epoch().count() - update_time.value()) > params.SECS_TO_GET_OUT)
             {
-                //qInfo() << "Person with id: " << person.id() << " has been removed";
-                G->delete_edge(robot_node.id(), person.id(), "RT");
-                G->delete_edge(robot_node.id(), person.id(), "following_action");
-                G->delete_node(person.id());
+                qInfo() << "Object with id: " << object.id() << " has been removed";
+                G->delete_edge(robot_node.id(), object.id(), "RT");
+                G->delete_edge(robot_node.id(), object.id(), "following_action");
+                G->delete_node(object.id());
             }
 }
 void SpecificWorker::process_room(const RoboCompVisualElementsPub::TData &data)
