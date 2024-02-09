@@ -7,6 +7,8 @@
 
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <Eigen/Eigen>
+#include "dsr/api/dsr_api.h"
+#include "dsr/gui/dsr_gui.h"
 #include <Gridder.h>
 class PersonCone
 {
@@ -68,6 +70,7 @@ class PersonCone
         QPolygonF get_pilar_cone() const;
         int get_intentions_size() const;
         void remove_item(QGraphicsScene *scene);
+        void remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes);
         void set_intention(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name);
         // Method for getting intention
         std::optional<PersonCone::Intention*> get_intention(const std::string &target_name);

@@ -31,6 +31,8 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
+#include <BulletSim.h>
+#include <Gridder.h>
 #include <Gridder.h>
 
 
@@ -38,7 +40,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompGridder::GridderPrxPtr>;
+using TuplePrx = std::tuple<RoboCompBulletSim::BulletSimPrxPtr,RoboCompGridder::GridderPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -54,6 +56,7 @@ public:
 	QMutex *mutex;
 
 
+	RoboCompBulletSim::BulletSimPrxPtr bulletsim_proxy;
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
 
 

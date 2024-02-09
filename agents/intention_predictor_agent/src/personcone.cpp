@@ -94,38 +94,33 @@ void PersonCone::remove_item(QGraphicsScene *scene)
     scene->removeItem(item);
     delete item; item = nullptr;
 }
+void PersonCone::remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes)
+{
+    // Vector with the intentions names
+    std::vector<std::string> intentions_names;
+    for(const auto &i: intentions)
+    {
+        if(std::find_if(object_nodes.begin(), object_nodes.end(), [&i](const DSR::Node &n){ return n.name() == i.target_name; }) == object_nodes.end())
+        {
+            intentions_names.push_back(i.target_name);
+        }
+    }
+    for(const auto &i: intentions_names)
+    {
+        auto it = std::find_if(intentions.begin(), intentions.end(), [&i](const Intention &intention){ return intention.target_name == i; });
+        if(it != intentions.end())
+        {
+            it->remove_item(scene);
+            intentions.erase(it);
+        }
+    }
+}
 void PersonCone::set_intention(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name)
 {
     Intention i {.target_name = target_name};
     intentions.emplace_back(i);
 }
-//void PersonCone::set_intention(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name)
-//{
-//    auto [x_person, y_person, z_person, ang_person] = person_point;
-//    auto [x_element, y_element, z_element, ang_element] = element_point;
-//    try
-//    {
-//        auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=x_person, .y=y_person, .radius=500},
-//                                              RoboCompGridder::TPoint{.x=x_element, .y=y_element, .radius=500},
-//                                              1, true, true, false);
-//        if (result.valid and not result.paths.empty())
-//        {
-//            std::vector<std::vector<Eigen::Vector2f>> paths;
-//            for(const auto &p: result.paths)
-//            {
-//                std::vector<Eigen::Vector2f> path;
-//                for (const auto &point: p)
-//                    path.emplace_back(point.x, point.y);
-//                paths.emplace_back(path);
-//            }
-//
-//            Intention i {.target_name = target_name, .paths = paths};
-//            intentions.emplace_back(i);
-//        }
-//    }
-//    catch (const Ice::Exception &e)
-//    { std::cout << __FUNCTION__ << " Error reading plans from Gridder. " << e << std::endl; }
-//}
+
 // Method for getting intention pointer
 std::optional<PersonCone::Intention*> PersonCone::get_intention(const std::string &target_name)
 {
@@ -144,7 +139,7 @@ std::optional<std::vector<std::vector<Eigen::Vector2f>>> PersonCone::get_paths(c
     {
         auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=x_person, .y=y_person, .radius=500},
                                               RoboCompGridder::TPoint{.x=x_element, .y=y_element, .radius=500},
-                                              1, true, true, false);
+                                              1, true, true);
         if (result.valid and not result.paths.empty())
         {
             std::vector<std::vector<Eigen::Vector2f>> paths;
@@ -152,7 +147,11 @@ std::optional<std::vector<std::vector<Eigen::Vector2f>>> PersonCone::get_paths(c
             {
                 std::vector<Eigen::Vector2f> path;
                 for (const auto &point: p)
+                {
+//                    qInfo() << "Path point: " << point.x << " " << point.y;
                     path.emplace_back(point.x, point.y);
+                }
+
                 paths.emplace_back(path);
             }
             return paths;

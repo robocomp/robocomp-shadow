@@ -1,10 +1,11 @@
 import "Gridder.idsl";
+import "BulletSim.idsl";
 
 Component intention_prediction_agent
 {
     Communications
     {
-        requires Gridder;
+        requires Gridder, BulletSim;
     };
     language Cpp11;
     gui Qt(QMainWindow);
