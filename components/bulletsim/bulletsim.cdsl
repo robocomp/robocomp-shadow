@@ -1,0 +1,11 @@
+import "BulletSim.idsl";
+
+Component bulletsim
+{
+    Communications
+    {
+    	implements BulletSim;
+    };
+    language python;
+};
+
