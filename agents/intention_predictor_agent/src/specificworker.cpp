@@ -144,6 +144,7 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+    // Check if robot node exists
     if(auto robot_node = G->get_node("Shadow"); robot_node.has_value())
     {
         auto robot_node_ = robot_node.value();
@@ -225,9 +226,7 @@ void SpecificWorker::compute()
                                             intention_->init_item(&widget_2d->scene, x, y, 500, 500, true);
                                     }
                                 }
-                                // draws path from robot to target person
                             }
-
                         }
                         else
                         {
@@ -257,6 +256,7 @@ void SpecificWorker::compute()
                                         float distancia = (Eigen::Vector3f{x, y, z} -
                                                            Eigen::Vector3f{x_ch, y_ch, z_ch}).norm();
                                         // Check if object is inside the cone
+                                        qInfo() << "Checking if object is inside the cone";
                                         auto in_cone = element_inside_cone(Eigen::Vector3f{x_obj, y_obj, z_obj},
                                                                            Eigen::Vector3f{x, y, z},
                                                                            Eigen::Vector3f{x_ch, y_ch, z_ch},
@@ -264,51 +264,57 @@ void SpecificWorker::compute()
                                         if (!in_cone)
                                         {
                                             qInfo() << "Object" << QString::fromStdString(object.name()) << "not seen in cone in path to" << QString::fromStdString(chair.name());
-                                            auto path_to_target = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
-                                                                                  RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
-                                                                                  true, RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=500});
-                                            if (path_to_target.valid and not path_to_target.paths.empty())
+                                            try
                                             {
-                                                std::vector<std::vector<Eigen::Vector2f>> paths;
-                                                for(const auto &p: path_to_target.paths)
+                                                auto path_to_target = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
+                                                                                                           RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
+                                                                                                           true, RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=500});
+                                                if (path_to_target.valid and not path_to_target.paths.empty())
                                                 {
-                                                    RoboCompGridder::TPath path;
-                                                    for (const auto &point: p)
-                                                        path.emplace_back(RoboCompGridder::TPoint{.x=point.x, .y=point.y, .radius=500});
-//
-                                                    auto sim_results = this->bulletsim_proxy->simulatePath(path, 1, RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=0.3});
-                                                    if(sim_results.collision)
+                                                    std::vector<std::vector<Eigen::Vector2f>> paths;
+                                                    for(const auto &p: path_to_target.paths)
                                                     {
-                                                        qInfo() << "Collision detected";
-                                                        DSR::Edge edge = DSR::Edge::create<collision_edge_type>(person.id(), object.id());
-                                                        if (G->insert_or_assign_edge(edge))
+                                                        RoboCompGridder::TPath path;
+                                                        for (const auto &point: p)
+                                                            path.emplace_back(RoboCompGridder::TPoint{.x=point.x, .y=point.y, .radius=500});
+                                                        try
                                                         {
-                                                            std::cout << __FUNCTION__ << " Edge successfully inserted: " << person.id() << "->" << object.id()
-                                                                      << " type: collision" << std::endl;
+                                                            auto sim_results = this->bulletsim_proxy->simulatePath(path, 1,
+                                                                                                                   RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=0.3});
+                                                            if (sim_results.collision) {
+                                                                qInfo() << "Collision detected";
+                                                                DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
+                                                                        person.id(), object.id());
+                                                                if (G->insert_or_assign_edge(edge))
+                                                                {
+                                                                    std::cout << __FUNCTION__
+                                                                              << " Edge successfully inserted: "
+                                                                              << person.id() << "->" << object.id()
+                                                                              << " type: collision" << std::endl;
+                                                                }
+                                                                else
+                                                                {
+                                                                    std::cout << __FUNCTION__
+                                                                              << ": Fatal error inserting new edge: "
+                                                                              << person.id() << "->" << object.id()
+                                                                              << " type: collision" << std::endl;
+                                                                }
+                                                            }
                                                         }
-                                                        else
+                                                        catch (const Ice::Exception &e)
                                                         {
-                                                            std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << person.id() << "->" << object.id()
-                                                                      << " type: collision" << std::endl;
-
-
+                                                            qInfo() << "Error simulating path";
                                                         }
-                                                    }
-                                                    else
-                                                    {
-                                                        qInfo() << "No collision detected";
-                                                        delete_edge(person.id(), object.id(), "collision");
                                                     }
                                                 }
                                             }
+                                            catch (const Ice::Exception &e)
+                                            {
+                                                qInfo() << "Error simulating path";
+                                            }
                                         }
                                         else
-                                        {
-                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "inside cone in path to" << QString::fromStdString(chair.name());
-                                            qInfo() << "No collision detected";
-                                            delete_edge(person.id(), object.id(), "collision");
-                                        }
-
+                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "seen in cone in path to" << QString::fromStdString(chair.name());
                                     }
                                 }
                             }

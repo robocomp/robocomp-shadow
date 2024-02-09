@@ -140,7 +140,10 @@ class SpecificWorker : public GenericWorker
         "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
         "scissors", "teddy bear", "hair drier", "toothbrush"};
 
-        // Visual elements
+        std::vector<std::string> obstacle_names = {"bench", "chair", "dining table", "toilet", "tv", "laptop", "mouse", "remote"};
+        std::vector<std::string> target_names = {"person", "stop sign"};
+
+    // Visual elements
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_visual_elements;
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_room_elements;
         void draw_lidar(const vector<Eigen::Vector3f> &points, int decimate, QGraphicsScene *scene);

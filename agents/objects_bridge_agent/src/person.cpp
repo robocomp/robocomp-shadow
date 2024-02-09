@@ -142,7 +142,7 @@ std::optional<std::pair<int, std::vector<Eigen::Vector2f>>> Person::search_for_p
                                               1,
                                               true,
                                               true);
-        qInfo() << __FUNCTION__ << "result: " << result.error_msg.c_str() << " to " << object.id;
+        qInfo() << __FUNCTION__ << "result: " << result.errorMsg.c_str() << " to " << object.id;
         if(not result.valid or result.paths.empty())   //TODO: try a few times
         {
             qWarning() << __FUNCTION__ << "No path found while initializing current_path";
