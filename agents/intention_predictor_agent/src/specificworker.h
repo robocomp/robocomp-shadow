@@ -113,7 +113,7 @@ public slots:
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
-	void del_node_slot(std::uint64_t from){};     
+	void del_node_slot(std::uint64_t from){};
 private:
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;

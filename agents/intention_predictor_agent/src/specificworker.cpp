@@ -172,9 +172,10 @@ void SpecificWorker::compute()
                 // Update cone attributes
                 else
                 {
-                    // Update person cone
                     person_cone_it->update_attributes(x, y, ang);
+                    person_cone_it->remove_intentions(&widget_2d->scene, chair_nodes);
                 }
+
                 // Map Pilar cone to parent rotation and translation
                 auto pilar_cone_ = person_cone_it->get_pilar_cone();
                 auto pilar_cone_conv = person_cone_it->get_item()->mapToParent(pilar_cone_);
@@ -204,7 +205,6 @@ void SpecificWorker::compute()
                                         else{qInfo() << "Path not found";}
                                     }
                                     intention_->update_attributes(x_ch, y_ch);
-//                                std::cout << "INTENTIONS SIZE " << person_cone_it->get_intentions_size() << std::endl;
                                 }
                                 else
                                 {
@@ -227,7 +227,6 @@ void SpecificWorker::compute()
                                 }
                                 // draws path from robot to target person
                             }
-                                // Remove intention if chair is not inside the cone
 
                         }
                         else
@@ -237,10 +236,10 @@ void SpecificWorker::compute()
                                 qInfo() << "Removing intention";
                                 auto intention_ = intention.value();
                                 intention_->remove_item(&widget_2d->scene);
+                                person_cone_it->remove_intention(chair.name());
+                                delete_edge(person.id(), chair.id(), "has_intention");
+                                person_cone_it->draw_paths(&widget_2d->scene, true);
                             }
-                            person_cone_it->remove_intention(chair.name());
-                            delete_edge(person.id(), chair.id(), "has_intention");
-                            person_cone_it->draw_paths(&widget_2d->scene, true);
                         }
                         // Generate a pyramid cone to each object
                         for(const auto &object : chair_nodes)
@@ -249,7 +248,7 @@ void SpecificWorker::compute()
                             {
                                 // Check if object isn't in the same position
                                 if (object.id() != chair.id()) {
-                                    qInfo() << "Object: " << QString::fromStdString(chair.name());
+//                                    qInfo() << "Object: " << QString::fromStdString(chair.name());
                                     // Get object pose
                                     if (auto object_rt_data = get_rt_data(robot_node_,
                                                                           object.id()); object_rt_data.has_value()) {
@@ -259,14 +258,57 @@ void SpecificWorker::compute()
                                                            Eigen::Vector3f{x_ch, y_ch, z_ch}).norm();
                                         // Check if object is inside the cone
                                         auto in_cone = element_inside_cone(Eigen::Vector3f{x_obj, y_obj, z_obj},
-                                                                           Eigen::Vector3f{x, y, z * 2},
+                                                                           Eigen::Vector3f{x, y, z},
                                                                            Eigen::Vector3f{x_ch, y_ch, z_ch},
                                                                            distancia / 3);
                                         if (!in_cone)
                                         {
-                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "not seen in cone";
+                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "not seen in cone in path to" << QString::fromStdString(chair.name());
+                                            auto path_to_target = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
+                                                                                  RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
+                                                                                  true, RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=500});
+                                            if (path_to_target.valid and not path_to_target.paths.empty())
+                                            {
+                                                std::vector<std::vector<Eigen::Vector2f>> paths;
+                                                for(const auto &p: path_to_target.paths)
+                                                {
+                                                    RoboCompGridder::TPath path;
+                                                    for (const auto &point: p)
+                                                        path.emplace_back(RoboCompGridder::TPoint{.x=point.x, .y=point.y, .radius=500});
+//
+                                                    auto sim_results = this->bulletsim_proxy->simulatePath(path, 1, RoboCompGridder::TPoint{.x=x_obj, .y=y_obj, .radius=0.3});
+                                                    if(sim_results.collision)
+                                                    {
+                                                        qInfo() << "Collision detected";
+                                                        DSR::Edge edge = DSR::Edge::create<collision_edge_type>(person.id(), object.id());
+                                                        if (G->insert_or_assign_edge(edge))
+                                                        {
+                                                            std::cout << __FUNCTION__ << " Edge successfully inserted: " << person.id() << "->" << object.id()
+                                                                      << " type: collision" << std::endl;
+                                                        }
+                                                        else
+                                                        {
+                                                            std::cout << __FUNCTION__ << ": Fatal error inserting new edge: " << person.id() << "->" << object.id()
+                                                                      << " type: collision" << std::endl;
 
+
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        qInfo() << "No collision detected";
+                                                        delete_edge(person.id(), object.id(), "collision");
+                                                    }
+                                                }
+                                            }
                                         }
+                                        else
+                                        {
+                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "inside cone in path to" << QString::fromStdString(chair.name());
+                                            qInfo() << "No collision detected";
+                                            delete_edge(person.id(), object.id(), "collision");
+                                        }
+
                                     }
                                 }
                             }
@@ -281,11 +323,13 @@ void SpecificWorker::compute()
         {
             if(auto person_node = G->get_node(it->get_dsr_id()); !person_node.has_value())
             {
+                qInfo() << "Person dissappeared. Removing cone.";
                 // Remove intention items
-                qInfo() << "Removing intention items";
+                // Iterate over intentions
+                it->remove_intentions(&widget_2d->scene, chair_nodes);
                 it->draw_paths(&widget_2d->scene, true);
                 it->remove_item(&widget_2d->scene);
-                it = person_cones.erase(it);
+                person_cones.erase(it);
             }
             else{++it;}
         }
@@ -382,6 +426,15 @@ int SpecificWorker::startup_check()
 
 
 /**************************************/
+// From the RoboCompBulletSim you can call this methods:
+// this->bulletsim_proxy->simulatePath(...)
+
+/**************************************/
+// From the RoboCompBulletSim you can use this types:
+// RoboCompBulletSim::TPoint
+// RoboCompBulletSim::Result
+
+/**************************************/
 // From the RoboCompGridder you can call this methods:
 // this->gridder_proxy->IsPathBlocked(...)
 // this->gridder_proxy->LineOfSightToTarget(...)
@@ -389,10 +442,12 @@ int SpecificWorker::startup_check()
 // this->gridder_proxy->getDimensions(...)
 // this->gridder_proxy->getPaths(...)
 // this->gridder_proxy->setGridDimensions(...)
+// this->gridder_proxy->setLocationAndGetPath(...)
 
 /**************************************/
 // From the RoboCompGridder you can use this types:
 // RoboCompGridder::TPoint
 // RoboCompGridder::TDimensions
 // RoboCompGridder::Result
+
 

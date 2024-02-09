@@ -82,6 +82,7 @@
 #include "commonbehaviorI.h"
 
 
+#include <Gridder.h>
 
 
 
@@ -129,10 +130,27 @@ int ::intention_prediction_agent::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompBulletSim::BulletSimPrxPtr bulletsim_proxy;
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
 
 	string proxy, tmp;
 	initialize();
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "BulletSimProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy BulletSimProxy\n";
+		}
+		bulletsim_proxy = Ice::uncheckedCast<RoboCompBulletSim::BulletSimPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy BulletSim: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("BulletSimProxy initialized Ok!");
+
 
 	try
 	{
@@ -150,7 +168,7 @@ int ::intention_prediction_agent::run(int argc, char* argv[])
 	rInfo("GridderProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(gridder_proxy);
+	tprx = std::make_tuple(bulletsim_proxy,gridder_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
