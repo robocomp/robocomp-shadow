@@ -1,0 +1,15 @@
+import "Camera360RGBD.idsl";
+import "VisualElementsPub.idsl";
+import "SegmentatorTrackingPub.idsl";
+
+Component object_tracking
+{
+    Communications
+    {
+        requires Camera360RGBD, Camera360RGB;
+        subscribesTo SegmentatorTrackingPub;
+        publishes VisualElementsPub;
+    };
+    language python;
+};
+
