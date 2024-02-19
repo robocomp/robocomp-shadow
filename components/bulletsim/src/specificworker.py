@@ -44,7 +44,7 @@ class SpecificWorker(GenericWorker):
         else:
 
             # Start PyBullet in GUI mode
-            self.physicsClient = p.connect(p.GUI)
+            self.physicsClient = p.connect(p.DIRECT) # p.GUI to see the graphio user interface, p.DIRECT to hide it
             # Set the path to PyBullet data
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
             p.loadURDF("plane.urdf", [0, 0, -1])
