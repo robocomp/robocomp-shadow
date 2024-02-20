@@ -39,7 +39,7 @@ public:
 	RoboCompGridder::TDimensions getDimensions(const Ice::Current&);
 	RoboCompGridder::Result getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int maxPaths, bool tryClosestFreePoint, bool targetIsHuman, const Ice::Current&);
 	bool setGridDimensions(RoboCompGridder::TDimensions dimensions, const Ice::Current&);
-	RoboCompGridder::Result setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle, const Ice::Current&);
+	RoboCompGridder::Result setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints, const Ice::Current&);
 
 private:
 

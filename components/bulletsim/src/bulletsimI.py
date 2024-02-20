@@ -38,5 +38,5 @@ class BulletSimI(BulletSim):
         self.worker = worker
 
 
-    def simulatePath(self, path, speed, obstacle, c):
-        return self.worker.BulletSim_simulatePath(path, speed, obstacle)
+    def simulatePath(self, path, speed, obstacles, c):
+        return self.worker.BulletSim_simulatePath(path, speed, obstacles)

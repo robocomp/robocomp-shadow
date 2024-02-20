@@ -58,7 +58,7 @@ class SpecificWorker : public GenericWorker
 
 	bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 	
-	RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle);
+	RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints);
 public slots:
         void compute();
         int startup_check();

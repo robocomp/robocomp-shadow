@@ -22,6 +22,8 @@
 #include <cppitertools/sliding_window.hpp>
 #include <cppitertools/range.hpp>
 
+class TPointVector;
+
 /**
 * \brief Default constructor
 */
@@ -365,26 +367,53 @@ bool SpecificWorker::Gridder_setGridDimensions(RoboCompGridder::TDimensions dime
     //TODO: update grid, clear and reinitialize
     return true;
 }
-RoboCompGridder::Result SpecificWorker::Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle)
+RoboCompGridder::Result SpecificWorker::Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints)
 {
-    mutex_path.lock();
+
+    vector<tuple<pair<int, int>, Grid::T>> submap_copy;
     auto source_key = grid.point_to_key(Eigen::Vector2f(target.x,target.y));
-    auto obstacle_key = grid.point_to_key(Eigen::Vector2f(obstacle.x,obstacle.y));
-    auto submap_copy = grid.copy_submap(obstacle_key, obstacle.radius);
+    auto target_key = grid.point_to_key(Eigen::Vector2f(target.x,target.y));
 
-    //print submap copy keys and v.free values
-//    for (auto &&[k, v]: submap_copy)
-//    {
-//        std::cout << "key: " << k.first << " " << k.second << " free: " << v.free << std::endl;
-//    }
+    //Lambda to get grid keys from TPointVector
+    auto get_key_vector = [this](const RoboCompGridder::TPointVector &v)
+    {
+        std::vector<std::tuple<Grid::Key, float>> keys;
+        for(const auto &p: v)
+            keys.push_back(std::make_tuple(grid.point_to_key(Eigen::Vector2f(p.x, p.y)), p.radius));
+        return keys;
+    };
 
-    //set submap to bool setFree
-    grid.set_submap(obstacle_key, obstacle.radius, setFree);
+    //get keys from TPointVector
+    auto free_keys = get_key_vector(freePoints);
+    auto obstacle_keys = get_key_vector(obstaclePoints);
+
+    mutex_path.lock();
+    //Copy submap from actual grid
+    // iterate over free keys and obstacle keys to copy submap
+    for (auto &key: free_keys){
+        auto cells = grid.copy_submap(std::get<0>(key), std::get<1>(key));
+        std::move(cells.begin(), cells.end(), std::back_inserter(submap_copy));
+    }
+    for (auto &key: obstacle_keys){
+        auto cells = grid.copy_submap(std::get<0>(key), std::get<1>(key));
+        std::move(cells.begin(), cells.end(), std::back_inserter(submap_copy));
+    }
+
+    //Iterate over free keys and obstacle keys to set submap
+    for (auto &key: free_keys){
+        grid.set_submap(std::get<0>(key), std::get<1>(key), true);
+    }
+    for (auto &key: obstacle_keys){
+        grid.set_submap(std::get<0>(key), std::get<1>(key), false);
+    }
+
     //get paths
     auto result = Gridder_getPaths_unlocked(source, target, 1, true, true);
+    
     //restore submap
     grid.paste_submap(submap_copy);
     mutex_path.unlock();
+
     return result;
 }
 bool SpecificWorker::Gridder_IsPathBlocked(RoboCompGridder::TPath path)

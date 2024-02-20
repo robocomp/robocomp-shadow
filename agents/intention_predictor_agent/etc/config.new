@@ -1,6 +1,7 @@
 CommonBehavior.Endpoints=tcp -p 10000
 
 # Proxies for required interfaces
+BulletSimProxy = bulletsim:tcp -h localhost -p 0
 GridderProxy = gridder:tcp -h localhost -p 0
 
 

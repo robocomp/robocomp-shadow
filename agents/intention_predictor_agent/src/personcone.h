@@ -40,6 +40,21 @@ class PersonCone
         {
             item->setPos(x, y);
         };
+        void update_color(bool obstacle)
+        {
+            if(!obstacle)
+            {
+                qInfo() << "Setting intention color to blue";
+                item->setPen(QPen(QColor("blue")));
+                item->setBrush(QBrush(QColor("blue")));
+            }
+            else
+            {
+                qInfo() << "Setting intention color to red";
+                item->setPen(QPen(QColor("red")));
+                item->setBrush(QBrush(QColor("red")));
+            }
+        };
         void remove_item(QGraphicsScene *scene) { scene->removeItem(item); delete item; item = nullptr;};
         void update_path(const std::vector<std::vector<Eigen::Vector2f>> &new_paths)
         {
@@ -77,7 +92,7 @@ class PersonCone
         std::optional<std::vector<std::vector<Eigen::Vector2f>>> get_paths(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name);
         void remove_intention(const std::string &target_name);
         // Method to draw path
-        void draw_paths(QGraphicsScene *scene, bool erase_only);
+        void draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path);
 };
 
 #endif //PEOPLE_PATH_PREDICTOR_PERSON_H

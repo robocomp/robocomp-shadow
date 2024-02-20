@@ -167,7 +167,7 @@ void PersonCone::remove_intention(const std::string &target_name)
     intentions.erase(std::remove_if(intentions.begin(), intentions.end(), [&target_name](const Intention &i){ return i.target_name == target_name; }), intentions.end());
 }
 // Method to draw path
-void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only)
+void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path)
 {
     for(auto p : points)
     {scene->removeItem(p); delete p; }
@@ -190,4 +190,11 @@ void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only)
                 points.push_back(ptr);
             }
         }
+    for(const auto &hallucinogen_point: hallucinogen_path)
+    {
+        color = QColor("orange");
+        auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
+        ptr->setPos(QPointF(hallucinogen_point.x, hallucinogen_point.y));
+        points.push_back(ptr);
+    }
 }

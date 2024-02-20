@@ -64,7 +64,7 @@ public:
 	virtual RoboCompGridder::TDimensions Gridder_getDimensions() = 0;
 	virtual RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int maxPaths, bool tryClosestFreePoint, bool targetIsHuman) = 0;
 	virtual bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions) = 0;
-	virtual RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle) = 0;
+	virtual RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints) = 0;
 
 protected:
 
