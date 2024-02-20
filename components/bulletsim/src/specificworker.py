@@ -240,14 +240,14 @@ class SpecificWorker(GenericWorker):
         self.timeStep = distance_between_p_points/(data["speed"] * 8)
         self.timeStep = 1. / 240
 
-        print("Distance between points", distance_between_p_points, "timeStep", self.timeStep)
+        # print("Distance between points", distance_between_p_points, "timeStep", self.timeStep)
 
         # Verificar si hay puntos de contacto (impacto)
         while True:
-            print("Sim_time:", sim_time)
+            # print("Sim_time:", sim_time)
             person_position, _ = p.getBasePositionAndOrientation(person_id)
             person_position = np.array(person_position)
-            print("T proceso", time.time()-t1)
+            # print("T proceso", time.time()-t1)
             if np.linalg.norm([data["path"][-1].x - person_position[0], data["path"][-1].y - person_position[1]]) < 0.1:
                 print("-----------------Path completed, target point reached---------------")
                 sim_time = sim_time + self.timeStep
@@ -271,7 +271,7 @@ class SpecificWorker(GenericWorker):
                 return False, sim_time, person_collision_pose
 
             p.resetBaseVelocity(person_id, linearVelocity=speed_command)
-            print("object position: ", person_position,"speed: ", speed_command ,"Speed norm", np.linalg.norm(speed_command))
+            # print("object position: ", person_position,"speed: ", speed_command ,"Speed norm", np.linalg.norm(speed_command))
 
 
             # if np.all([data["path"][-1].x-0.5, data["path"][-1].y-0.5,0] <= object_position) and np.all([data["path"][-1].x+0.5, data["path"][-1].y+0.5,0] >= object_position):
@@ -315,7 +315,7 @@ class SpecificWorker(GenericWorker):
 
 
         robot_pos = np.array(position)
-        print(robot_pos)
+        # print(robot_pos)
 
         closest_distance = np.inf
         closest_point = None
