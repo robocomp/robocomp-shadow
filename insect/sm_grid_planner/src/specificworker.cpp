@@ -404,7 +404,7 @@ RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Targe
     {
         qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
         returning_plan.valid = false;
-        returning_plan.error_msg = "[compute_line_of_sight_target] Target too close";
+        returning_plan.errorMsg = "[compute_line_of_sight_target] Target too close";
     }
     return returning_plan;
 }
@@ -426,9 +426,9 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             if(params.DISPLAY) draw_paths(result.paths, &viewer->scene);
             if(not result.valid or result.paths.empty())   //TODO: try a few times
             {
-                qWarning() << __FUNCTION__ << " Message from Gridder:" + QString::fromStdString(result.error_msg);
+                qWarning() << __FUNCTION__ << " Message from Gridder:" + QString::fromStdString(result.errorMsg);
                 current_path = original_path = {};
-                return RoboCompGridder::Result{.error_msg = result.error_msg, .valid=false};
+                return RoboCompGridder::Result{.errorMsg = result.errorMsg, .valid=false};
             }
             else    // path found. Copy to current_path and original_path
             {
@@ -443,7 +443,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             std::cout << __FUNCTION__ << " [CATCH] Error reading plans from Gridder in new path " << std::endl;
             std::cout << e << std::endl;
             current_path = original_path = {};
-            return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder in new path", .valid=false};
+            return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] Error reading plan from Gridder in new path", .valid=false};
         }
     }
     else // Known target. Transform target and check if it is blocked, transform current_path according to robot's new position
@@ -482,7 +482,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                 {
                     qWarning() << __FUNCTION__ << " No path found after blocked current_path";
                     current_path = original_path = {};
-                    return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
+                    return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
                 }
                 else    // path found. Assign to current_path and original_path
                 {
@@ -500,7 +500,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                 std::cout << " [CATCH] Error reading plans from Gridder in blocked path" << std::endl;
                 std::cout << e << std::endl;
                 current_path = original_path = {};
-                return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder in blocked path", .valid=false};
+                return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] Error reading plan from Gridder in blocked path", .valid=false};
             }
     }   // TODO:: check for ATAJO
 
@@ -518,7 +518,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
     {
         qWarning() << __FUNCTION__ << " No paths found. Returning not valid plan";
         returning_plan.valid = false;
-        returning_plan.error_msg = "Not path found in [compute_plan_from_grid]";
+        returning_plan.errorMsg = "Not path found in [compute_plan_from_grid]";
     }
     return returning_plan;
 }
