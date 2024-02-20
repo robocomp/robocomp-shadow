@@ -421,7 +421,7 @@ class SpecificWorker(GenericWorker):
 
         collision, collision_time, collision_pose = self.mission(
             {"speed": speed,
-             "box_radius": obstacle.radius,
+             "box_radius": obstacle.radius / 1000,
              "box_position": [obstacle.x / 1000, obstacle.y / 1000, 0],
              "path": path
              })
