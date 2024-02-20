@@ -10,6 +10,24 @@ import RoboCompBulletSim
 Ice.loadSlice("-I ./src/ --all ./src/Gridder.ice")
 import RoboCompGridder
 
+class TPointVector(list):
+    def __init__(self, iterable=list()):
+        super(TPointVector, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompGridder.TPoint)
+        super(TPointVector, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompGridder.TPoint)
+        super(TPointVector, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompGridder.TPoint)
+        super(TPointVector, self).insert(index, item)
+
+setattr(RoboCompGridder, "TPointVector", TPointVector)
 class TPath(list):
     def __init__(self, iterable=list()):
         super(TPath, self).__init__(iterable)

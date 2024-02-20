@@ -59,8 +59,8 @@ bool GridderI::setGridDimensions(RoboCompGridder::TDimensions dimensions, const 
 	return worker->Gridder_setGridDimensions(dimensions);
 }
 
-RoboCompGridder::Result GridderI::setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, bool setFree, RoboCompGridder::TPoint obstacle, const Ice::Current&)
+RoboCompGridder::Result GridderI::setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints, const Ice::Current&)
 {
-	return worker->Gridder_setLocationAndGetPath(source, target, setFree, obstacle);
+	return worker->Gridder_setLocationAndGetPath(source, target, freePoints, obstaclePoints);
 }
 

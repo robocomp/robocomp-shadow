@@ -44,7 +44,7 @@ class SpecificWorker(GenericWorker):
         else:
 
             # Start PyBullet in GUI mode
-            self.physicsClient = p.connect(p.DIRECT) # p.GUI to see the graphio user interface, p.DIRECT to hide it
+            self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
             # Set the path to PyBullet data
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
             p.loadURDF("plane.urdf", [0, 0, -1])
@@ -83,7 +83,10 @@ class SpecificWorker(GenericWorker):
             distance_between_points = 0.2
 
             self.data_dict = { "speed": [1, 0, 0],
-                               "box_dimensions": [0.5, 0.5, 0.5],
+                               "obstacles": ifaces.RoboCompGridder.TPointVector([ifaces.RoboCompGridder.TPoint(0,0,1),
+                                                                                 ifaces.RoboCompGridder.TPoint(4,4,1),
+                                                                                ifaces.RoboCompGridder.TPoint(-4,-4,1),
+                                                                                ifaces.RoboCompGridder.TPoint(-4,-4,1)]),
                                "box_position": [-3.5, 0, 0],
                                "path": self.generate_equidistant_path(5, 0, 0, distance_between_points)
                                }
@@ -216,11 +219,14 @@ class SpecificWorker(GenericWorker):
 
         t1 = time.time()
         # Especificar las dimensiones del cilindro
-        cylinder_radius = 0.3
+        cylinder_radius = 0.20
         cylinder_height = 1.3
+        objects = []
 
+        # print(data["obstacles"][0].x, data["obstacles"][0].y, data["obstacles"][0].radius)
         # Especificar la posición en metros y orientación del cilindro
-        cylinder_position = [data["path"][0].x, data["path"][0].y, 0]
+        cylinder_position = [data["path"][0].x, data["path"][0].y, 0] #cylinder_position = [data["path"][0].x, data["path"][0].y, 0]
+        # print(data["path"][0][0])
         cylinder_orientation = p.getQuaternionFromEuler([0, 0, 0])  # Sin rotación
 
         # Crear la forma del cilindro (collision shape)
@@ -228,10 +234,12 @@ class SpecificWorker(GenericWorker):
         person_id = p.createMultiBody(baseMass=1, baseCollisionShapeIndex=person_shape_id,
                                              basePosition=cylinder_position, baseOrientation=cylinder_orientation)
 
-        # Crear la forma del cilindro (collision shape)
-        obstacle_shape_id = p.createCollisionShape(p.GEOM_CYLINDER, radius=data["box_radius"], height=cylinder_height)
-        obstacle_id = p.createMultiBody(baseMass=1, baseCollisionShapeIndex=obstacle_shape_id,
-                                             basePosition=data["box_position"], baseOrientation=cylinder_orientation)
+        for obstacle in data["obstacles"]:
+            # Crear la forma del cilindro (collision shape)
+            obstacle_shape_id = p.createCollisionShape(p.GEOM_CYLINDER, radius=obstacle.radius / 1000, height=cylinder_height)
+            obstacle_id = p.createMultiBody(baseMass=1, baseCollisionShapeIndex=obstacle_shape_id,
+                                                 basePosition=[obstacle.x/ 1000, obstacle.y/ 1000, 0.0], baseOrientation=cylinder_orientation)
+            objects.append(obstacle_id)
 
         if len(data["path"]) > 1:
             distance_between_p_points = np.linalg.norm(np.array([data["path"][1].x, data["path"][1].y]) - np.array([data["path"][0].x, data["path"][0].y]))
@@ -253,11 +261,12 @@ class SpecificWorker(GenericWorker):
                 sim_time = sim_time + self.timeStep
                 break
 
-            if len(p.getContactPoints(person_id, obstacle_id)) > 0:
+            if len(p.getContactPoints(person_id)) > 0: #            if len(p.getContactPoints(person_id, obstacle_id)) > 0:
                 print("-----------------Collision--------------------")
                 person_collision_pose , _ = p.getBasePositionAndOrientation(person_id)
                 p.removeBody(person_id)
-                p.removeBody(obstacle_id)
+                for object_id in objects:
+                    p.removeBody(object_id)
                 sim_time = sim_time + self.timeStep
                 return True, sim_time, person_collision_pose
 
@@ -266,25 +275,26 @@ class SpecificWorker(GenericWorker):
             if speed_command == [0.0, 0.0, 0.0]:
                 person_collision_pose, _ = p.getBasePositionAndOrientation(person_id)
                 p.removeBody(person_id)
-                p.removeBody(obstacle_id)
+                for object_id in objects:
+                    p.removeBody(object_id)
                 print("Robot reached the target")
                 return False, sim_time, person_collision_pose
 
             p.resetBaseVelocity(person_id, linearVelocity=speed_command)
             # print("object position: ", person_position,"speed: ", speed_command ,"Speed norm", np.linalg.norm(speed_command))
 
-
             # if np.all([data["path"][-1].x-0.5, data["path"][-1].y-0.5,0] <= object_position) and np.all([data["path"][-1].x+0.5, data["path"][-1].y+0.5,0] >= object_position):
             sim_time = sim_time + self.timeStep
             p.stepSimulation()
 
-            # time.sleep(self.timeStep)
+            time.sleep(self.timeStep)
 
         print("T proceso simulación completa", time.time()-t1, "sim-time", sim_time, "self time step", self.timeStep)
 
         person_collision_pose , _ = p.getBasePositionAndOrientation(person_id)
         p.removeBody(person_id)
-        p.removeBody(obstacle_id)
+        for object_id in objects:
+            p.removeBody(object_id)
         return False, sim_time, person_collision_pose
 
     def mouse_click(self, event, x, y, flags, param):
@@ -311,9 +321,6 @@ class SpecificWorker(GenericWorker):
         :param d: Distancia al punto objetivo.
         :return: Punto objetivo (x, y) en el path.
         """
-
-
-
         robot_pos = np.array(position)
         # print(robot_pos)
 
@@ -409,11 +416,11 @@ class SpecificWorker(GenericWorker):
     #
     # IMPLEMENTATION of simulatePath method from BulletSim interface
     #
-    def BulletSim_simulatePath(self, path, speed, obstacle):
+    def BulletSim_simulatePath(self, path, speed, obstacles):
         #
         # write your CODE here
         #
-
+	
         for point in path:
             point.x, point.y = point.x / 1000, point.y / 1000
 
@@ -421,8 +428,7 @@ class SpecificWorker(GenericWorker):
 
         collision, collision_time, collision_pose = self.mission(
             {"speed": speed,
-             "box_radius": obstacle.radius / 1000,
-             "box_position": [obstacle.x / 1000, obstacle.y / 1000, 0],
+             "obstacles": obstacles,
              "path": path
              })
 
@@ -432,7 +438,7 @@ class SpecificWorker(GenericWorker):
         ret.collisionPose.x = collision_pose[0]
         ret.collisionPose.y = collision_pose[1]
         ret.collisionPose.z = collision_pose[2]
-
+        print("RESULTADOS")
         return ret
 
     # ===================================================================
