@@ -65,6 +65,9 @@ SESSION_ID_15=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSessi
 TERMINAL_ID_15=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 15)
 qdbus org.kde.yakuake /yakuake/tabs setTabTitle 15 "Forcefield"
 
+SESSION_ID_16=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+TERMINAL_ID_16=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 16)
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 16 "BulletSim"
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 python3"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "rcnode &"
@@ -156,5 +159,10 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "bin/intention_p
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "cd ~/robocomp/components/robocomp-shadow/insect/forcefield"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "bin/forcefield etc/config_wb"
+
+#BulletSim
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "cd ~/robocomp/components/robocomp-shadow/components/bulletsim"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "src/bulletsim.py etc/config"
 
 
