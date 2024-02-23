@@ -48,7 +48,7 @@ class SpecificWorker : public GenericWorker
         void compute() override;
         int startup_check();
         void initialize(int period) override;
-	void modify_node_slot(std::uint64_t, const std::string &type);
+	void modify_node_slot(std::uint64_t id, const std::string &type);
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names);
@@ -229,7 +229,6 @@ class SpecificWorker : public GenericWorker
         // state-machine
         enum class State {IDLE, COMPUTE, WAIT, STOP, ERROR};
         State state = State::IDLE;
-
 
     void draw_room(const RoboCompVisualElementsPub::TObject &obj);
 

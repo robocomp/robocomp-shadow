@@ -108,12 +108,12 @@ public slots:
 	void compute();
 	int startup_check();
 	void initialize(int period);
-	void modify_node_slot(std::uint64_t, const std::string &type){};
+	void modify_node_slot(std::uint64_t id, const std::string &type);
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
-	void del_node_slot(std::uint64_t from){};
+	void del_node_slot(std::uint64_t from);
 private:
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;
@@ -149,7 +149,8 @@ private:
     std::optional<std::tuple<float, float, float, float>> get_rt_data(const DSR::Node &n, uint64_t to);
     void delete_edge(uint64_t from, uint64_t to, const std::string &edge_tag);
     void insert_edge(uint64_t from, uint64_t to, const std::string &edge_tag);
-
+    bool allow_prediction = true;
+    std::uint64_t avoid_collision_node_id = 0;
 };
 
 #endif

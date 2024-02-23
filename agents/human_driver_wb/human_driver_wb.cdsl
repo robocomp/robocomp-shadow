@@ -1,11 +1,11 @@
 import "Gridder.idsl";
-import "BulletSim.idsl";
+import "Webots2Robocomp.idsl";
 
-Component hazard_detector
+Component human_driver_wb
 {
     Communications
     {
-        requires Gridder, BulletSim;
+        requires Gridder, Webots2Robocomp;
     };
     language Cpp11;
     gui Qt(QMainWindow);

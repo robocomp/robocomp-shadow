@@ -31,8 +31,6 @@
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
-#include <cppitertools/filter.hpp>
-
 
 class SpecificWorker : public GenericWorker
 {
@@ -48,16 +46,15 @@ public slots:
 	void compute();
 	int startup_check();
 	void initialize(int period);
-	void modify_node_slot(std::uint64_t, const std::string &type);
-	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
-	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names);
-	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
-	void del_node_slot(std::uint64_t from);
+	void modify_node_slot(std::uint64_t, const std::string &type){};
+	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
+	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
+	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+	void del_node_slot(std::uint64_t from){};     
 private:
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;
-    std::unique_ptr<DSR::RT_API> rt;
 
 	//DSR params
 	std::string agent_name;
@@ -68,24 +65,10 @@ private:
 	bool qscene_2d_view;
 	bool osg_3d_view;
 
-    //BUFFER
-    DoubleBuffer<std::vector<DSR::Edge>, std::vector<DSR::Edge>> buffer_collision_edge;
-
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
 	bool startup_check_flag;
-
-    //DSR
-    optional<tuple<float, float, float, float>> get_rt_data(const DSR::Node &n, uint64_t to);
-    void insert_edge(uint64_t from, uint64_t to, const string &edge_tag);
-
-
-
-    bool element_inside_cone(const Eigen::Vector3f &point, const Eigen::Vector3f &basePoint,
-                        const Eigen::Vector3f &apexPoint,
-                        double radius);
-
 
 };
 

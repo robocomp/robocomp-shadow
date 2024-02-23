@@ -964,7 +964,6 @@ void Grid::paste_submap(const std::vector<std::tuple<Grid::Key,Grid::T>> &submap
     return;
 }
 //set submap vector of tuple to occupied or free depending on the value of the bool
-
 void Grid::set_submap(const Key &center, float radius, bool setFree)
 {
     // set all cells in a square of side "side" around center to free or occupied using the bool occupied

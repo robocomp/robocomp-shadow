@@ -31,16 +31,16 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <BulletSim.h>
 #include <Gridder.h>
 #include <Gridder.h>
+#include <Webots2Robocomp.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompBulletSim::BulletSimPrxPtr,RoboCompGridder::GridderPrxPtr>;
+using TuplePrx = std::tuple<RoboCompGridder::GridderPrxPtr,RoboCompWebots2Robocomp::Webots2RobocompPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -56,8 +56,8 @@ public:
 	QMutex *mutex;
 
 
-	RoboCompBulletSim::BulletSimPrxPtr bulletsim_proxy;
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
+	RoboCompWebots2Robocomp::Webots2RobocompPrxPtr webots2robocomp_proxy;
 
 
 protected:

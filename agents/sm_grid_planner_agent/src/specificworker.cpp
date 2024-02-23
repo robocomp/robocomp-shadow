@@ -120,6 +120,11 @@ void SpecificWorker::initialize(int period)
 	graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 	setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
+    //Viewer
+
+
+        // grid
+    //QRectF dim{params.xMin, params.yMin, static_cast<qreal>(params.grid_width), static_cast<qreal>(params.grid_length)};
 	/***
 	Custom Widget
 	In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
@@ -191,6 +196,27 @@ void SpecificWorker::compute()
 
     draw_scenario(points, &widget_2d->scene);
 
+    /// get target from buffer
+    Target target = Target::invalid();
+    if(auto res = target_buffer.try_get(); res.has_value())
+    {
+        target = res.value();
+        // Reset lidar odometry
+//        try
+//        {
+//            lidarodometry_proxy->reset();
+//            std::cout << __FUNCTION__ << "Odometry Reset" << std::endl;
+//        }
+//        catch (const Ice::Exception &e)
+//        { std::cout << __FUNCTION__ << " Error resetting LidarOdometry" << e << std::endl; }
+
+    }
+    else
+    {
+        fps.print("No Target "); return;
+    }
+    //print target
+    qInfo() << __FUNCTION__ <<  "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
     /// get robot pose //TODO: move odometry
     RobotPose robot_pose_and_change;
@@ -203,23 +229,14 @@ void SpecificWorker::compute()
         qWarning() << __FUNCTION__ << "No robot pose available. Returning. Check LidarOdometry component status";
         return;
     }
-    ////DEBUG ODOMETRY
+
     /// transform mouse_click to global frame
     mouse_click = (robot_pose_and_change.first.inverse().matrix() * Eigen::Vector4d(mouse_click.x() / 1000.0, mouse_click.y() / 1000.0, 0.0, 1.0) * 1000.0).head(2).cast<float>();
-
-
-    /// get target from buffer
-    Target target = Target::invalid();
-    if(auto res = target_buffer.try_get(); res.has_value())
-        target = res.value();
-    else { fps.print("No Target "); return;}
-    //print target
-    qInfo() << __FUNCTION__ <<  "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
     /// transform target to robot's frame
     target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
 
-    qInfo() << __FUNCTION__ <<  "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
+    qInfo() << __FUNCTION__ <<  "Transformed Target: " << target.pos_eigen().x() << target.pos_eigen().y();
     /// if robot is not tracking and at target, stop
     if(not target.is_tracked() and robot_is_at_target(target))
     {
@@ -227,18 +244,21 @@ void SpecificWorker::compute()
         return;
     }  /// check if target has been reached. Is reached, inject zero plan, empty buffer and return
 
+
     /// compute path
     RoboCompGridder::Result returning_plan = compute_path(Eigen::Vector2f::Zero(), target, robot_pose_and_change);
+
     if (not returning_plan.valid)
     {
+        qWarning() << __FUNCTION__ << "No valid path found. Cancelling target";
         inject_ending_plan();
         return;
     }
     //else  if(params.DISPLAY)(draw_paths(returning_plan.paths, &viewer->scene));
-
     /// if target is tracked, set the real target at a distance of params.TRACKING_DISTANCE_TO_TARGET from the original target
     if(target.is_tracked())
     {
+        qInfo() << __FUNCTION__ << "Tracking target";
         // move forward through path until the distance to the target is equal to params.TRACKING_DISTANCE_TO_TARGET
         float acum = 0.f;
         bool success = false;
@@ -261,17 +281,17 @@ void SpecificWorker::compute()
         }
     }
 
-
     /// MPC
     RoboCompGridPlanner::TPlan final_plan;
     if(params.USE_MPC) /// convert plan to list of control actions calling MPC
         final_plan = convert_plan_to_control(returning_plan, target);
+    qInfo() << __FUNCTION__ << "Post MPC";
 //    if(params.DISPLAY)(this->lcdNumber_length->display((int)final_plan.path.size()));
 
    /// send plan to remote interface and publish it to rcnode
 //    if(not this->pushButton_stop->isChecked())
     send_and_publish_plan(final_plan);
-
+    qInfo() << __FUNCTION__ << "Post send and publish";
     /// reinject target to buffer
     target_buffer.put(std::move(target));
 
@@ -412,15 +432,17 @@ RoboCompGridder::Result SpecificWorker::compute_line_of_sight_target(const Targe
     {
         qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
         returning_plan.valid = false;
-        returning_plan.error_msg = "[compute_line_of_sight_target] Target too close";
+        returning_plan.errorMsg = "[compute_line_of_sight_target] Target too close";
     }
     return returning_plan;
 }
 RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &target, const RobotPose &robot_pose_and_change)
 {
     static std::vector<Eigen::Vector2f> original_path = {};      // static original path
+
     if(target.is_new())  // if target is new, compute a new path
     {
+
         try
         {
             auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=0.f, .y=0.f, .radius=400 },    // TODO: move to params
@@ -430,18 +452,17 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                                                          params.NUM_PATHS_TO_SEARCH,
                                                          true,
                                                          true);
-            //qInfo() << __FUNCTION__ <<  "New target arrived. Computing new path. Obtained " << result.paths.size() << " paths";
-            if(params.DISPLAY) draw_paths(result.paths, &viewer->scene);
+            qInfo() << __FUNCTION__ <<  "New target arrived. Computing new path. Obtained " << result.paths.size() << " paths";
+//            if(params.DISPLAY) draw_paths(result.paths, &viewer->scene);
+
             if(not result.valid or result.paths.empty())   //TODO: try a few times
             {
-                qWarning() << __FUNCTION__ << " Message from Gridder:" + QString::fromStdString(result.error_msg);
+                qWarning() << __FUNCTION__ << " Message from Gridder:" + QString::fromStdString(result.errorMsg);
                 current_path = original_path = {};
-                return RoboCompGridder::Result{.error_msg = result.error_msg, .valid=false};
+                return RoboCompGridder::Result{.errorMsg = result.errorMsg, .valid=false};
             }
             else    // path found. Copy to current_path and original_path
             {
-                //Print message
-                qInfo() << __FUNCTION__ << "New path: ";
                 current_path.clear();
                 for (const auto &p: result.paths.front())
                     current_path.emplace_back(p.x, p.y);
@@ -453,7 +474,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
             std::cout << __FUNCTION__ << " [CATCH] Error reading plans from Gridder in new path " << std::endl;
             std::cout << e << std::endl;
             current_path = original_path = {};
-            return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder in new path", .valid=false};
+            return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] Error reading plan from Gridder in new path", .valid=false};
         }
     }
     else // Known target. Transform target and check if it is blocked, transform current_path according to robot's new position
@@ -475,12 +496,14 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
         for(const auto &pp: local_path | iter::sliding_window(2))
             if (pp[0].norm() < pp[1].norm() )
                 trimmed.emplace_back(pp[0]);
+
         current_path = trimmed;
 
         // check if it is blocked
         RoboCompGridder::TPath lpath; lpath.reserve(current_path.size());
         for (auto &&p: current_path)
                 lpath.push_back(RoboCompGridder::TPoint{p.x(), p.y()});
+
         if(gridder_proxy->IsPathBlocked(lpath))     // blocked. Compute new path
             try
             {
@@ -494,7 +517,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                 {
                     qWarning() << __FUNCTION__ << " No path found after blocked current_path";
                     current_path = original_path = {};
-                    return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
+                    return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] No path found after blocked current_path", .valid=false};
                 }
                 else    // path found. Assign to current_path and original_path
                 {
@@ -512,7 +535,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
                 std::cout << " [CATCH] Error reading plans from Gridder in blocked path" << std::endl;
                 std::cout << e << std::endl;
                 current_path = original_path = {};
-                return RoboCompGridder::Result{.error_msg = "[compute_plan_from_grid] Error reading plan from Gridder in blocked path", .valid=false};
+                return RoboCompGridder::Result{.errorMsg = "[compute_plan_from_grid] Error reading plan from Gridder in blocked path", .valid=false};
             }
     }   // TODO:: check for ATAJO
 
@@ -520,6 +543,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
     RoboCompGridder::Result returning_plan;
     if (not current_path.empty())
     {
+//        qInfo() << __FUNCTION__ << "Path found. Returning valid plan";
         returning_plan.valid = true;
         RoboCompGridder::TPath path; path.reserve(current_path.size());
         for (auto &&p: current_path)
@@ -530,10 +554,11 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
     {
         qWarning() << __FUNCTION__ << " No paths found. Returning not valid plan";
         returning_plan.valid = false;
-        returning_plan.error_msg = "Not path found in [compute_plan_from_grid]";
+        returning_plan.errorMsg = "Not path found in [compute_plan_from_grid]";
     }
     return returning_plan;
 }
+
 RoboCompGridPlanner::TPlan
 SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, const Target &target)
 {
@@ -544,6 +569,7 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
     plan.path.reserve(res.paths[0].size());
     for (auto &&p: res.paths[0])
         plan.path.emplace_back(p.x, p.y);
+
     try
     {
         auto mod_plan = gridplanner1_proxy->modifyPlan(plan);   // call MPC
@@ -551,12 +577,12 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
         {
             //qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             plan = mod_plan;
-            draw_smoothed_path(plan.path, &viewer->scene, params.SMOOTHED_PATH_COLOR);
+//            draw_smoothed_path(plan.path, &viewer->scene, params.SMOOTHED_PATH_COLOR); //TODO: segmentation fault, check, copy from component version
         }
         else    // no valid plan found
         {
             qWarning() << __FUNCTION__ << "No valid optimization found in MPC. Returning original plan";
-            draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR);
+//            draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR); //TODO: segmentation fault, check, copy from component version
         }
     }
     catch (const Ice::Exception &e)
@@ -671,6 +697,24 @@ Eigen::Vector2f SpecificWorker::compute_closest_target_to_grid_border(const Eige
 void SpecificWorker::send_and_publish_plan(const RoboCompGridPlanner::TPlan &plan)
 {
     // Sending plan to remote interface
+    //Print plan.controls and set to zero
+
+//    RoboCompGridPlanner::TPlan plan_ = plan; //TODO: remove this copy, only for debugging
+//
+//    if(not plan_.controls.empty())
+//    {
+//        for(auto &c: plan_.controls){
+//            qInfo() << __FUNCTION__ << "Controls: " << c.adv << c.side << c.rot;
+//            c.adv = 0.f;
+//            c.side = 0.f;
+//            c.rot = 0.f;
+//        }
+//    }
+//    else
+//    {
+//        qInfo() << __FUNCTION__ << "Sending zero plan to remote interface";
+//    }
+
     try
     { gridplanner_proxy->setPlan(plan); }
     catch (const Ice::Exception &e)
@@ -971,9 +1015,55 @@ void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, Q
 ////////////////////////////////////     SLOTS     ///////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void SpecificWorker::modify_node_slot(std::uint64_t, const std::string &type)
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
 {
+    if(type == "intention")
+        if (auto intention_node_ = G->get_node(id); intention_node_.has_value())
+        {
+            auto intention_node = intention_node_.value();
+            auto target_x_ = G->get_attrib_by_name<robot_target_x_att>(intention_node);
+            auto target_y_ = G->get_attrib_by_name<robot_target_y_att>(intention_node);
 
+            if (target_x_.has_value() && target_y_.has_value())
+            {
+                auto target_x = target_x_.value();
+                auto target_y = target_y_.value();
+                qInfo() << __FUNCTION__ << "TARGET FROM INTENTION NODE: " << target_x << target_y;
+
+                // Create target
+//                Target t;
+//                t.active = true;
+//                t.new_target = true;
+//                t.point = Eigen::Vector2f{target_x, target_y};
+//                t.is_being_tracked = false;
+                Target target;
+                QRectF dim;
+                try
+                {
+                    params.gdim = gridder_proxy->getDimensions();
+                    dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+                    if (dim.contains(QPointF(target_x,target_y)))
+                        target.set(QPointF(target_x,target_y), true);
+                    else
+                        target.set(compute_closest_target_to_grid_border(Eigen::Vector2f{target_x, target_y}), true); /// false = in robot's frame
+                    target.set_original(target.pos_eigen());
+                    target.set_new(true);
+                }
+                catch (const Ice::Exception &e)
+                {
+                    std::cout << "[MOUSE] Error reading from Gridder" << e << std::endl;
+                    target = Target::invalid();
+                    return;
+                }
+
+                //put t in target_buffer
+                target_buffer.put(std::move(target));
+                //print target
+                qInfo() << __FUNCTION__ << "Node Slot Intention Target: " << target_x << target_y;
+
+
+            }
+        }
 }
 void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
@@ -1001,9 +1091,11 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
                     t.new_target = true;
                     t.point = Eigen::Vector2f{target_x, target_y};
                     //put t in target_buffer
+                    t.is_being_tracked = false;
                     target_buffer.put(std::move(t));
                     //print target
                     qInfo() << __FUNCTION__ << "Slot Target: " << target_x << target_y;
+
                 }
             }
         }
