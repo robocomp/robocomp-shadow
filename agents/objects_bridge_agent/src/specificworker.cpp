@@ -163,7 +163,7 @@ void SpecificWorker::initialize(int period)
         timer.start(params.PERIOD);
         qInfo() << "Timer started";
     }
-
+	hide();
 //    timer.start(params.PERIOD);
 //    qInfo() << "Timer started";
 }

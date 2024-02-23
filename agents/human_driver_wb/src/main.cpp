@@ -18,11 +18,11 @@
  */
 
 
-/** \mainpage RoboComp::hazard_detector
+/** \mainpage RoboComp::human_driver_wb
  *
  * \section intro_sec Introduction
  *
- * The hazard_detector component...
+ * The human_driver_wb component...
  *
  * \section interface_sec Interface
  *
@@ -34,7 +34,7 @@
  * ...
  *
  * \subsection install2_ssec Compile and install
- * cd hazard_detector
+ * cd human_driver_wb
  * <br>
  * cmake . && make
  * <br>
@@ -52,7 +52,7 @@
  *
  * \subsection execution_ssec Execution
  *
- * Just: "${PATH_TO_BINARY}/hazard_detector --Ice.Config=${PATH_TO_CONFIG_FILE}"
+ * Just: "${PATH_TO_BINARY}/human_driver_wb --Ice.Config=${PATH_TO_CONFIG_FILE}"
  *
  * \subsection running_ssec Once running
  *
@@ -86,10 +86,10 @@
 
 
 
-class hazard_detector : public RoboComp::Application
+class human_driver_wb : public RoboComp::Application
 {
 public:
-	hazard_detector (QString prfx, bool startup_check) { prefix = prfx.toStdString(); this->startup_check_flag=startup_check; }
+	human_driver_wb (QString prfx, bool startup_check) { prefix = prfx.toStdString(); this->startup_check_flag=startup_check; }
 private:
 	void initialize();
 	std::string prefix;
@@ -100,14 +100,14 @@ public:
 	virtual int run(int, char*[]);
 };
 
-void ::hazard_detector::initialize()
+void ::human_driver_wb::initialize()
 {
 	// Config file properties read example
 	// configGetString( PROPERTY_NAME_1, property1_holder, PROPERTY_1_DEFAULT_VALUE );
 	// configGetInt( PROPERTY_NAME_2, property1_holder, PROPERTY_2_DEFAULT_VALUE );
 }
 
-int ::hazard_detector::run(int argc, char* argv[])
+int ::human_driver_wb::run(int argc, char* argv[])
 {
 #ifdef USE_QTGUI
 	QApplication a(argc, argv);  // GUI application
@@ -130,27 +130,11 @@ int ::hazard_detector::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
-	RoboCompBulletSim::BulletSimPrxPtr bulletsim_proxy;
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
+	RoboCompWebots2Robocomp::Webots2RobocompPrxPtr webots2robocomp_proxy;
 
 	string proxy, tmp;
 	initialize();
-
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "BulletSimProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy BulletSimProxy\n";
-		}
-		bulletsim_proxy = Ice::uncheckedCast<RoboCompBulletSim::BulletSimPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy BulletSim: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("BulletSimProxy initialized Ok!");
-
 
 	try
 	{
@@ -168,7 +152,23 @@ int ::hazard_detector::run(int argc, char* argv[])
 	rInfo("GridderProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(bulletsim_proxy,gridder_proxy);
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "Webots2RobocompProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Webots2RobocompProxy\n";
+		}
+		webots2robocomp_proxy = Ice::uncheckedCast<RoboCompWebots2Robocomp::Webots2RobocompPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Webots2Robocomp: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("Webots2RobocompProxy initialized Ok!");
+
+
+	tprx = std::make_tuple(gridder_proxy,webots2robocomp_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
@@ -285,7 +285,7 @@ int main(int argc, char* argv[])
 		}
 
 	}
-	::hazard_detector app(prefix, startup_check_flag);
+	::human_driver_wb app(prefix, startup_check_flag);
 
 	return app.main(argc, argv, configFile.toLocal8Bit().data());
 }

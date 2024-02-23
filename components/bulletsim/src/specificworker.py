@@ -43,8 +43,13 @@ class SpecificWorker(GenericWorker):
             self.startup_check()
         else:
 
+            self.display = False
             # Start PyBullet in GUI mode
-            self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
+            if self.display:
+                self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
+            else:
+                self.physicsClient = p.connect(p.DIRECT)
+
             # Set the path to PyBullet data
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
             p.loadURDF("plane.urdf", [0, 0, -1])
@@ -287,7 +292,8 @@ class SpecificWorker(GenericWorker):
             sim_time = sim_time + self.timeStep
             p.stepSimulation()
 
-            time.sleep(self.timeStep)
+            if self.display:
+                time.sleep(self.timeStep*5)
 
         print("T proceso simulación completa", time.time()-t1, "sim-time", sim_time, "self time step", self.timeStep)
 

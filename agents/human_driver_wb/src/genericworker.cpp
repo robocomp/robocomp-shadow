@@ -23,8 +23,8 @@
 GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 {
 
-	bulletsim_proxy = std::get<0>(tprx);
-	gridder_proxy = std::get<1>(tprx);
+	gridder_proxy = std::get<0>(tprx);
+	webots2robocomp_proxy = std::get<1>(tprx);
 
 	mutex = new QMutex();
 

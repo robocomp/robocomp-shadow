@@ -79,12 +79,12 @@ void SpecificWorker::initialize(int period)
 		std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
 
 		//dsr update signals
-		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
         rt = G->get_rt_api();
 		// Graph viewer
 		using opts = DSR::DSRViewer::view;
@@ -238,111 +238,139 @@ void SpecificWorker::compute()
                                 intention_->remove_item(&widget_2d->scene);
                                 person_cone_it->remove_intention(chair.name());
                                 delete_edge(person.id(), chair.id(), "has_intention");
+
+                                //TODO: BORRAR delete edges y nodes, solo para pruebas
+                                delete_edge(person.id(), chair.id(), "collision");
+                                if(auto avoid_collision = G->get_nodes_by_type("intention"); avoid_collision.size() > 0)
+                                {
+                                    for(const auto &collision : avoid_collision)
+                                    {
+                                        //If edge has intention, delete it
+                                        if (auto has_intention = G->get_edge(robot_node_.id(), collision.id(), "has_intention"); has_intention.has_value())
+                                        {
+                                            G->delete_edge(robot_node_.id(), collision.id(), "has_intention");
+                                        }
+                                        G->delete_node(collision.id());
+                                    }
+                                }
+
+
                                 person_cone_it->draw_paths(&widget_2d->scene, true, RoboCompGridder::TPath{});
                             }
                         }
-                        // Create vectors for inserting obstacles inside and outside the cone
-                        RoboCompGridder::TPointVector obstacles_inside;
-                        RoboCompGridder::TPointVector obstacles_outside;
-                        RoboCompGridder::TPointVector obstacles;
-
-
-                        if(auto is_an_obstacle = G->get_attrib_by_name<is_an_obstacle_att>(chair); is_an_obstacle.has_value() and !is_an_obstacle.value())
+                        if(allow_prediction)
                         {
-                            // Generate a pyramid cone to each object
-                            for (const auto &object: chair_nodes)
+                            if (auto intention = person_cone_it->get_intention(chair.name()); intention.has_value())
                             {
-                                if (auto is_an_obstacle = G->get_attrib_by_name<is_an_obstacle_att>(object);
-                                        is_an_obstacle.has_value() and is_an_obstacle.value()) {
-//                                qInfo() << "Object" << QString::fromStdString(object.name()) << "is an obstacle";
-                                    // Check if object isn't in the same position
-                                    if (object.id() != chair.id()) {
-                                        // Get object pose
-                                        if (auto object_rt_data = get_rt_data(robot_node_,
-                                                                              object.id()); object_rt_data.has_value()) {
-                                            // Print object name
-                                            auto [x_obj, y_obj, z_obj, ang_obj] = object_rt_data.value();
-                                            RoboCompGridder::TPoint obstacle{.x=x_obj, .y=y_obj, .radius=250};
-                                            float distance_to_obstacle = (Eigen::Vector3f{x, y, z} -
-                                                                          Eigen::Vector3f{x_ch, y_ch, z_ch}).norm();
-                                            // Check if object is inside the cone
-//                                        qInfo() << "Checking if object is inside the cone";
-                                            auto in_cone = element_inside_cone(Eigen::Vector3f{x_obj, y_obj, z_obj},
-                                                                               Eigen::Vector3f{x, y, z * 2},
-                                                                               Eigen::Vector3f{x_ch, y_ch, z_ch},
-                                                                               distance_to_obstacle / 3);
-                                            if (!in_cone) {
-/*                                            qInfo() << "Object" << QString::fromStdString(object.name())
-                                                    << "not seen in cone in path to"
-                                                    << QString::fromStdString(chair.name());*/
-                                                if (auto intention = person_cone_it->get_intention(
-                                                            object.name()); intention.has_value()) {
-                                                    auto intention_ = intention.value();
-                                                    intention_->update_color(true);
-                                                }
-                                                obstacles_outside.push_back(obstacle);
-                                            } else {
-//                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "seen in cone in path to" << QString::fromStdString(chair.name());
-                                                if (auto intention = person_cone_it->get_intention(
-                                                            object.name()); intention.has_value()) {
-                                                    auto intention_ = intention.value();
-                                                    intention_->update_color(false);
-                                                }
-                                                obstacles_inside.push_back(obstacle);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            // Concat obstacles inside and outside the cone usig std::move
-                            obstacles.insert(obstacles.end(), std::make_move_iterator(obstacles_inside.begin()),
-                                             std::make_move_iterator(obstacles_inside.end()));
-                            obstacles.insert(obstacles.end(), std::make_move_iterator(obstacles_outside.begin()),
-                                             std::make_move_iterator(obstacles_outside.end()));
+                            // Create vectors for inserting obstacles inside and outside the cone
+                                RoboCompGridder::TPointVector obstacles_inside;
+                                RoboCompGridder::TPointVector obstacles_outside;
+                                RoboCompGridder::TPointVector obstacles;
 
-                            // Print obstacles
-                            for (const auto &o: obstacles) {
-                                qInfo() << "Obstacle: " << o.x << " " << o.y << o.radius;
-                            }
-                            // Once the obstacles are detected, simulate the path to the target considering seeing obstacles
-                            try
-                            {
-                                auto path_to_target = gridder_proxy->setLocationAndGetPath(
-                                        RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
-                                        RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
-                                        obstacles_outside, obstacles_inside);
-                                if (path_to_target.valid and not path_to_target.paths.empty())
+                                if(auto is_an_obstacle = G->get_attrib_by_name<is_an_obstacle_att>(chair); is_an_obstacle.has_value() and !is_an_obstacle.value())
                                 {
-                                    for (const auto &p: path_to_target.paths)
+                                    // Generate a pyramid cone to each object
+                                    for (const auto &object: chair_nodes)
                                     {
-                                        try {
-                                            auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
-                                            if (sim_results.collision) {
-                                                qInfo() << "Collision detected";
-                                                DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
-                                                        person.id(), chair.id());
-                                                if (G->insert_or_assign_edge(edge)) {
-                                                    std::cout << __FUNCTION__
-                                                              << " Edge successfully inserted: "
-                                                              << person.id() << "->" << chair.id()
-                                                              << " type: collision" << std::endl;
-                                                } else {
-                                                    std::cout << __FUNCTION__
-                                                              << ": Fatal error inserting new edge: "
-                                                              << person.id() << "->" << chair.id()
-                                                              << " type: collision" << std::endl;
+                                        if (auto is_an_obstacle = G->get_attrib_by_name<is_an_obstacle_att>(object);
+                                                is_an_obstacle.has_value() and is_an_obstacle.value()) 
+                                                {
+    //                                qInfo() << "Object" << QString::fromStdString(object.name()) << "is an obstacle";
+                                            // Check if object isn't in the same position
+                                            if (object.id() != chair.id()) {
+                                                // Get object pose
+                                                if (auto object_rt_data = get_rt_data(robot_node_,
+                                                                                    object.id()); object_rt_data.has_value()) {
+                                                    // Print object name
+                                                    auto [x_obj, y_obj, z_obj, ang_obj] = object_rt_data.value();
+                                                    RoboCompGridder::TPoint obstacle{.x=x_obj, .y=y_obj, .radius=250};
+                                                    float distance_to_obstacle = (Eigen::Vector3f{x, y, z} -
+                                                                                Eigen::Vector3f{x_ch, y_ch, z_ch}).norm();
+                                                    // Check if object is inside the cone
+    //                                        qInfo() << "Checking if object is inside the cone";
+                                                    auto in_cone = element_inside_cone(Eigen::Vector3f{x_obj, y_obj, z_obj},
+                                                                                    Eigen::Vector3f{x_ch, y_ch, z_ch},
+                                                                                    Eigen::Vector3f{x, y, z * 2},
+                                                                                    distance_to_obstacle / 2.5);
+                                                    if (!in_cone) {
+    /*                                            qInfo() << "Object" << QString::fromStdString(object.name())
+                                                        << "not seen in cone in path to"
+                                                        << QString::fromStdString(chair.name());*/
+                                                        if (auto intention = person_cone_it->get_intention(
+                                                                    object.name()); intention.has_value()) {
+                                                            auto intention_ = intention.value();
+                                                            intention_->update_color(true);
+                                                        }
+                                                        obstacles_outside.push_back(obstacle);
+                                                    } else {
+    //                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "seen in cone in path to" << QString::fromStdString(chair.name());
+                                                        if (auto intention = person_cone_it->get_intention(
+                                                                    object.name()); intention.has_value()) {
+                                                            auto intention_ = intention.value();
+                                                            intention_->update_color(false);
+                                                        }
+                                                        obstacles_inside.push_back(obstacle);
+                                                    }
                                                 }
                                             }
                                         }
-                                        catch (const Ice::Exception &e) {
-                                            qInfo() << "Error simulating path";
+                                    }
+                                    // Concat obstacles inside and outside the cone usig std::move
+                                    obstacles.insert(obstacles.end(), std::make_move_iterator(obstacles_inside.begin()),
+                                                    std::make_move_iterator(obstacles_inside.end()));
+                                    obstacles.insert(obstacles.end(), std::make_move_iterator(obstacles_outside.begin()),
+                                                    std::make_move_iterator(obstacles_outside.end()));
+
+                                    // Print inside obstacles
+                                    for (const auto &o: obstacles_inside) {
+                                        qInfo() << "inside: " << o.x << " " << o.y << o.radius;
+                                    }
+                                    // Print outside obstacles
+                                    for (const auto &o: obstacles_outside) {
+                                        qInfo() << "outside: " << o.x << " " << o.y << o.radius;
+                                    }
+
+                                    // Once the obstacles are detected, simulate the path to the target considering seeing obstacles
+                                    try
+                                    {
+                                        auto path_to_target = gridder_proxy->setLocationAndGetPath(
+                                                RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
+                                                RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
+                                                obstacles_outside, obstacles_inside);
+                                        if (path_to_target.valid and not path_to_target.paths.empty())
+                                        {
+                                            for (const auto &p: path_to_target.paths)
+                                            {
+                                                try {
+                                                    auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
+                                                    if (sim_results.collision) {
+                                                        qInfo() << "Collision detected";
+                                                        DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
+                                                                person.id(), chair.id());
+                                                        if (G->insert_or_assign_edge(edge)) {
+                                                            std::cout << __FUNCTION__
+                                                                    << " Edge successfully inserted: "
+                                                                    << person.id() << "->" << chair.id()
+                                                                    << " type: collision" << std::endl;
+                                                        } else {
+                                                            std::cout << __FUNCTION__
+                                                                    << ": Fatal error inserting new edge: "
+                                                                    << person.id() << "->" << chair.id()
+                                                                    << " type: collision" << std::endl;
+                                                        }
+                                                    }
+                                                }
+                                                catch (const Ice::Exception &e) {
+                                                    qInfo() << "Error simulating path";
+                                                }
+                                            }
                                         }
+                                        person_cone_it->draw_paths(&widget_2d->scene, false, path_to_target.paths[0]);
+                                    }
+                                    catch (const Ice::Exception &e) {
+                                        qInfo() << "Error simulating path";
                                     }
                                 }
-                                person_cone_it->draw_paths(&widget_2d->scene, false, path_to_target.paths[0]);
-                            }
-                            catch (const Ice::Exception &e) {
-                                qInfo() << "Error simulating path";
                             }
                         }
                     }
@@ -446,6 +474,24 @@ void SpecificWorker::insert_edge(uint64_t from, uint64_t to, const std::string &
 
         }
     }
+}
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+{
+    if(type == "intention")
+        if(auto intention_node = G->get_node(id); intention_node.has_value())
+        {
+            auto intention_node_ = intention_node.value();
+            if(intention_node_.name() == "avoid_collision")
+            {
+                avoid_collision_node_id = id;
+                allow_prediction = false;
+            }
+        }
+}
+void SpecificWorker::del_node_slot(std::uint64_t from)
+{
+    if(from == avoid_collision_node_id)
+        allow_prediction = true;
 }
 int SpecificWorker::startup_check()
 {

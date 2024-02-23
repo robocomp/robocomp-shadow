@@ -9,12 +9,10 @@ SET ( SOURCES
 SET ( HEADERS
   specificworker.h
   specificmonitor.h
-)
+) 
 
-add_definitions(-O3  -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
-add_definitions(-fmax-errors=1 -std=c++2a -fno-char8_t)
-
-SET (LIBS ${LIBS}   dsr_core dsr_gui dsr_api fastcdr fastrtps osgDB OpenThreads Eigen3::Eigen )
+add_definitions(-O3  -fmax-errors=1 -std=c++2a -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+SET (LIBS ${LIBS}   dsr_core dsr_gui dsr_api fastcdr fastrtps osgDB OpenThreads Eigen3::Eigen)
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 
@@ -27,3 +25,6 @@ if( USE_QT6)
     list(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.h")
     LIST(APPEND LIBS QGLViewer-qt5)
 endif()
+
+
+

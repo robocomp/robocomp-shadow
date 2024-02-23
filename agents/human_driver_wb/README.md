@@ -1,10 +1,9 @@
-# bulletsim
-
-Install pybullet, PyAutoGUI
+# human_driver_wb
+Intro to component here
 
 
 ## Configuration parameters
-As any other component, *bulletsim* needs a configuration file to start. In
+As any other component, *human_driver_wb* needs a configuration file to start. In
 ```
 etc/config
 ```
@@ -17,7 +16,7 @@ EXAMPLE HERE
 To avoid changing the *config* file in the repository, we can copy it to the component's home directory, so changes will remain untouched by future git pulls:
 
 ```
-cd <bulletsim's path> 
+cd <human_driver_wb's path> 
 ```
 ```
 cp etc/config config
@@ -26,5 +25,5 @@ cp etc/config config
 After editing the new config file we can run the component:
 
 ```
-bin/bulletsim config
+bin/human_driver_wb config
 ```
