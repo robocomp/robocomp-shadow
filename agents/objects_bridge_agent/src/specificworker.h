@@ -141,7 +141,7 @@ class SpecificWorker : public GenericWorker
         "scissors", "teddy bear", "hair drier", "toothbrush"};
 
         std::vector<std::string> obstacle_names = {"bench", "chair", "dining table", "toilet", "tv", "laptop", "mouse", "remote"};
-        std::vector<std::string> target_names = {"person", "stop sign"};
+        std::vector<std::string> target_names = {"person", "stop sign", "couch"};
 
     // Visual elements
         DoubleBuffer<RoboCompVisualElementsPub::TData, RoboCompVisualElementsPub::TData> buffer_visual_elements;

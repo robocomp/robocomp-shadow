@@ -12,16 +12,12 @@
 #include <QtCore/QVariant>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QWidget>
-#include <QtWidgets/QFrame>
-#include <QtWidgets/QVBoxLayout>
 
 QT_BEGIN_NAMESPACE
 
 class Ui_guiDlg
 {
 public:
-    QVBoxLayout *verticalLayout;
-    QFrame *frame;
 
     void setupUi(QWidget *guiDlg)
     {
@@ -29,14 +25,6 @@ public:
             guiDlg->setObjectName(QString::fromUtf8("guiDlg"));
         guiDlg->resize(800, 600);
 
-        verticalLayout = new QVBoxLayout(guiDlg);
-        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
-        frame = new QFrame(guiDlg);
-        frame->setObjectName(QString::fromUtf8("frame"));
-        frame->setFrameShape(QFrame::StyledPanel);
-        frame->setFrameShadow(QFrame::Raised);
-
-        verticalLayout->addWidget(frame);
         retranslateUi(guiDlg);
 
         QMetaObject::connectSlotsByName(guiDlg);

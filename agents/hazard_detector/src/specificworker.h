@@ -86,7 +86,7 @@ private:
                         const Eigen::Vector3f &apexPoint,
                         double radius);
 
-
+    RoboCompGridder::TPointVector get_points_around_element_pose(RoboCompGridder::TPoint element_pose, float radius, int points_number);
 };
 
 #endif
