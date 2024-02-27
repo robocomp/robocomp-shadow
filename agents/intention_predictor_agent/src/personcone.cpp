@@ -175,21 +175,22 @@ void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGrid
     if(erase_only) return;
     float s = 100;
     QColor color;
-    for(const auto &i: intentions)
-        for(const auto &path: i.paths)
-        {
-            // check if path is in the last vector position
-            if(i.paths.back() == path)
-                color = QColor("red");
-            else
-                color = QColor("green");
-            for(const auto &p: path)
-            {
-                auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
-                ptr->setPos(QPointF(p.x(), p.y()));
-                points.push_back(ptr);
-            }
-        }
+//    for(const auto &i: intentions)
+//        for(const auto &path: i.paths)
+//        {
+//            // check if path is in the last vector position
+//            if(i.paths.back() == path)
+//                color = QColor("red");
+//            else
+//                color = QColor("green");
+//            for(const auto &p: path)
+//            {
+//                auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
+//                ptr->setPos(QPointF(p.x(), p.y()));
+//                points.push_back(ptr);
+//            }
+//        }
+    //TODO: draw hallucinogen path
     for(const auto &hallucinogen_point: hallucinogen_path)
     {
         color = QColor("orange");

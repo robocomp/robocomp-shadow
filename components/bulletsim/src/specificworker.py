@@ -107,7 +107,7 @@ class SpecificWorker(GenericWorker):
 
             # Simulation parameters
             self.simulationTime = 30  # in seconds
-            self.timeStep = 0.15 # time step for the simulation self.data_dict["speed"].norm
+            self.timeStep = 1./240 # time step for the simulation self.data_dict["speed"].norm
 
             # Define a steady forward speed
             self.forwardSpeed = 0.05  # Adjust this value as needed
@@ -250,9 +250,6 @@ class SpecificWorker(GenericWorker):
             distance_between_p_points = np.linalg.norm(np.array([data["path"][1].x, data["path"][1].y]) - np.array([data["path"][0].x, data["path"][0].y]))
 
         sim_time = 0
-        self.timeStep = distance_between_p_points/(data["speed"] * 8)
-        self.timeStep = 1. / 240
-
         # print("Distance between points", distance_between_p_points, "timeStep", self.timeStep)
 
         # Verificar si hay puntos de contacto (impacto)
@@ -260,6 +257,7 @@ class SpecificWorker(GenericWorker):
             # print("Sim_time:", sim_time)
             person_position, _ = p.getBasePositionAndOrientation(person_id)
             person_position = np.array(person_position)
+            print(person_position)
             # print("T proceso", time.time()-t1)
             if np.linalg.norm([data["path"][-1].x - person_position[0], data["path"][-1].y - person_position[1]]) < 0.1:
                 print("-----------------Path completed, target point reached---------------")
@@ -272,7 +270,10 @@ class SpecificWorker(GenericWorker):
                 p.removeBody(person_id)
                 for object_id in objects:
                     p.removeBody(object_id)
-                sim_time = sim_time + self.timeStep
+                sim_time += self.timeStep
+                print("T proceso simulación completa", time.time() - t1, "sim-time", sim_time, "self time step",
+                      self.timeStep)
+
                 return True, sim_time, person_collision_pose
 
             speed_command = self.generate_velocity_command(data["path"], person_position, data["speed"], distance_between_p_points)
@@ -283,6 +284,9 @@ class SpecificWorker(GenericWorker):
                 for object_id in objects:
                     p.removeBody(object_id)
                 print("Robot reached the target")
+                sim_time += self.timeStep
+                print("T proceso simulación completa", time.time() - t1, "sim-time", sim_time, "self time step",
+                      self.timeStep)
                 return False, sim_time, person_collision_pose
 
             p.resetBaseVelocity(person_id, linearVelocity=speed_command)
@@ -387,6 +391,7 @@ class SpecificWorker(GenericWorker):
         direction_vector = np.array(target_point) - np.array(robot_position)
         direction_vector_normalized = direction_vector / np.linalg.norm(direction_vector)
         velocity_command = direction_vector_normalized * v
+
         return velocity_command.tolist()
 
     def generate_ellipse_path(self, a, b, d_points, num_points):
