@@ -3,12 +3,15 @@ find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
+    custom_widget.h
+    personcone.cpp
 )
 
 # Headers set
 SET ( HEADERS
   specificworker.h
   specificmonitor.h
+  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
 ) 
 
 add_definitions(-O3  -fmax-errors=1 -std=c++2a -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)

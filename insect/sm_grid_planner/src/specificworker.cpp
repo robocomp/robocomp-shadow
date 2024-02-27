@@ -98,6 +98,7 @@ void SpecificWorker::initialize(int period)
                     return;
                 }
                 target_buffer.put(std::move(target));
+
                 // wait until odometry is properly reset: matrix trace = 4 aka identity matrix
                 try
                 {

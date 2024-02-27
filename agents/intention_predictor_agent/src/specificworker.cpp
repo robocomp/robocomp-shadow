@@ -185,6 +185,7 @@ void SpecificWorker::compute()
                 for(const auto &chair : chair_nodes)
                 {
                     // Get chair pose
+                    // Get chair pose
                     if(auto chair_rt_data = get_rt_data(robot_node_, chair.id()); chair_rt_data.has_value())
                     {
                         auto [x_ch, y_ch, z_ch, ang_ch] = chair_rt_data.value();
@@ -345,6 +346,7 @@ void SpecificWorker::compute()
                                                     auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
                                                     if (sim_results.collision) {
                                                         qInfo() << "Collision detected";
+                                                        //TODO: Insertar edge de colisión
                                                         DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
                                                                 person.id(), chair.id());
                                                         if (G->insert_or_assign_edge(edge)) {

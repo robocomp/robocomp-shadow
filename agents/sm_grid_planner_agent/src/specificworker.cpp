@@ -142,7 +142,27 @@ void SpecificWorker::initialize(int period)
             // mouse_click eigen point from QPointF p
             mouse_click = Eigen::Vector2f(p.x(), p.y());
 
-
+            Target target;
+            current_path.clear();
+            QRectF dim;
+            try
+            {
+                params.gdim = gridder_proxy->getDimensions();
+                dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+                if (dim.contains(p))
+                    target.set(p, true);
+                else
+                    target.set(compute_closest_target_to_grid_border(Eigen::Vector2f{p.x(), p.y()}), true); /// false = in robot's frame
+                target.set_original(target.pos_eigen());
+                target.set_new(true);
+            }
+            catch (const Ice::Exception &e)
+            {
+                std::cout << "[MOUSE] Error reading from Gridder" << e << std::endl;
+                target = Target::invalid();
+                return;
+            }
+            target_buffer.put(std::move(target));
 
             // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
             // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
