@@ -49,6 +49,105 @@ import yaml
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
+
+_OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+                 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
+                 'sheep',
+                 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase',
+                 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard',
+                 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
+                 'banana', 'apple',
+                 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+                 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard',
+                 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
+                 'scissors',
+                 'teddy bear', 'hair drier', 'toothbrush']
+_AVOID_OBJECT_NAMES = ['bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'parking meter', 'bench']
+_COLORS = np.array(
+    [
+        0.000, 0.447, 0.741,
+        0.850, 0.325, 0.098,
+        0.929, 0.694, 0.125,
+        0.494, 0.184, 0.556,
+        0.466, 0.674, 0.188,
+        0.301, 0.745, 0.933,
+        0.635, 0.078, 0.184,
+        0.300, 0.300, 0.300,
+        0.600, 0.600, 0.600,
+        1.000, 0.000, 0.000,
+        1.000, 0.500, 0.000,
+        0.749, 0.749, 0.000,
+        0.000, 1.000, 0.000,
+        0.000, 0.000, 1.000,
+        0.667, 0.000, 1.000,
+        0.333, 0.333, 0.000,
+        0.333, 0.667, 0.000,
+        0.333, 1.000, 0.000,
+        0.667, 0.333, 0.000,
+        0.667, 0.667, 0.000,
+        0.667, 1.000, 0.000,
+        1.000, 0.333, 0.000,
+        1.000, 0.667, 0.000,
+        1.000, 1.000, 0.000,
+        0.000, 0.333, 0.500,
+        0.000, 0.667, 0.500,
+        0.000, 1.000, 0.500,
+        0.333, 0.000, 0.500,
+        0.333, 0.333, 0.500,
+        0.333, 0.667, 0.500,
+        0.333, 1.000, 0.500,
+        0.667, 0.000, 0.500,
+        0.667, 0.333, 0.500,
+        0.667, 0.667, 0.500,
+        0.667, 1.000, 0.500,
+        1.000, 0.000, 0.500,
+        1.000, 0.333, 0.500,
+        1.000, 0.667, 0.500,
+        1.000, 1.000, 0.500,
+        0.000, 0.333, 1.000,
+        0.000, 0.667, 1.000,
+        0.000, 1.000, 1.000,
+        0.333, 0.000, 1.000,
+        0.333, 0.333, 1.000,
+        0.333, 0.667, 1.000,
+        0.333, 1.000, 1.000,
+        0.667, 0.000, 1.000,
+        0.667, 0.333, 1.000,
+        0.667, 0.667, 1.000,
+        0.667, 1.000, 1.000,
+        1.000, 0.000, 1.000,
+        1.000, 0.333, 1.000,
+        1.000, 0.667, 1.000,
+        0.333, 0.000, 0.000,
+        0.500, 0.000, 0.000,
+        0.667, 0.000, 0.000,
+        0.833, 0.000, 0.000,
+        1.000, 0.000, 0.000,
+        0.000, 0.167, 0.000,
+        0.000, 0.333, 0.000,
+        0.000, 0.500, 0.000,
+        0.000, 0.667, 0.000,
+        0.000, 0.833, 0.000,
+        0.000, 1.000, 0.000,
+        0.000, 0.000, 0.167,
+        0.000, 0.000, 0.333,
+        0.000, 0.000, 0.500,
+        0.000, 0.000, 0.667,
+        0.000, 0.000, 0.833,
+        0.000, 0.000, 1.000,
+        0.000, 0.000, 0.000,
+        0.143, 0.143, 0.143,
+        0.286, 0.286, 0.286,
+        0.429, 0.429, 0.429,
+        0.571, 0.571, 0.571,
+        0.714, 0.714, 0.714,
+        0.857, 0.857, 0.857,
+        0.000, 0.447, 0.741,
+        0.314, 0.717, 0.741,
+        0.50, 0.5, 0
+    ]
+).astype(np.float32).reshape(-1, 3)
+
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -292,6 +391,10 @@ class SpecificWorker(GenericWorker):
             # print("Postprocess time:", time.time() - start, "ms")
             # cv2.imshow("color", color)
             # cv2.waitKey(1)
+            if self.display:
+                disp_img = self.display_data_tracks(color, self.objects)
+                cv2.imshow("disp_img", disp_img)
+                cv2.waitKey(1)
             self.show_fps(alive_time, period)
     ###################### MODELS LOADING METHODS ######################
     def load_v8_model(self):
@@ -346,35 +449,36 @@ class SpecificWorker(GenericWorker):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
                         if element_confidence > 0.2:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
-                            element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
-                            image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
-                            act_mask = masks[i].astype(np.int32)
-                            cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
-                            image_mask_element = image_mask[element_bbox[1]:element_bbox[3],
-                                                 element_bbox[0]:element_bbox[2]]
-                            color_image_mask = color_image[element_bbox[1]:element_bbox[3],
-                                               element_bbox[0]:element_bbox[2]]
-                            element_mask = self.get_mask_with_modified_background(image_mask_element, color_image_mask)
-                            element_hash = self.get_color_histogram(element_mask)
-                            height, width, _ = image_mask_element.shape
-                            depth_image_mask = depth_image[element_bbox[1]:element_bbox[3],
-                                               element_bbox[0]:element_bbox[2]]
-                            element_pose = self.get_mask_distance(image_mask_element, depth_image_mask)
-                            if element_pose != [0, 0, 0]:
-                                if element_class == 0:
-                                    people["poses"].append(element_pose)
-                                    people["bboxes"].append(element_bbox)
-                                    people["confidences"].append(element_confidence)
-                                    people["masks"].append(color_image_mask)
-                                    people["classes"].append(element_class)
-                                    people["hashes"].append(element_hash)
-                                else:
-                                    objects["bboxes"].append(element_bbox)
-                                    objects["poses"].append(element_pose)
-                                    objects["confidences"].append(element_confidence)
-                                    objects["masks"].append(color_image_mask)
-                                    objects["classes"].append(element_class)
-                                    objects["hashes"].append(element_hash)
+                            if not _OBJECT_NAMES[element_class] in _AVOID_OBJECT_NAMES:
+                                element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
+                                image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
+                                act_mask = masks[i].astype(np.int32)
+                                cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
+                                image_mask_element = image_mask[element_bbox[1]:element_bbox[3],
+                                                     element_bbox[0]:element_bbox[2]]
+                                color_image_mask = color_image[element_bbox[1]:element_bbox[3],
+                                                   element_bbox[0]:element_bbox[2]]
+                                element_mask = self.get_mask_with_modified_background(image_mask_element, color_image_mask)
+                                element_hash = self.get_color_histogram(element_mask)
+                                height, width, _ = image_mask_element.shape
+                                depth_image_mask = depth_image[element_bbox[1]:element_bbox[3],
+                                                   element_bbox[0]:element_bbox[2]]
+                                element_pose = self.get_mask_distance(image_mask_element, depth_image_mask)
+                                if element_pose != [0, 0, 0]:
+                                    if element_class == 0:
+                                        people["poses"].append(element_pose)
+                                        people["bboxes"].append(element_bbox)
+                                        people["confidences"].append(element_confidence)
+                                        people["masks"].append(color_image_mask)
+                                        people["classes"].append(element_class)
+                                        people["hashes"].append(element_hash)
+                                    else:
+                                        objects["bboxes"].append(element_bbox)
+                                        objects["poses"].append(element_pose)
+                                        objects["confidences"].append(element_confidence)
+                                        objects["masks"].append(color_image_mask)
+                                        objects["classes"].append(element_class)
+                                        objects["hashes"].append(element_hash)
 
         people["orientations"] = [-4] * len(people["bboxes"])
         objects["orientations"] = [-4] * len(objects["bboxes"])
@@ -567,6 +671,41 @@ class SpecificWorker(GenericWorker):
         self.target_roi_ycenter = self.rgb_original.height // 2
         self.target_roi_xsize = self.rgb_original.width // 2
         self.target_roi_ysize = self.rgb_original.height
+
+    def display_data_tracks(self, img, elements): #Optimizado
+        """
+        This function overlays bounding boxes and object information on the image for tracked objects.
+
+        Args:
+            img (numpy array): The image to display object data on.
+            elements (list): Tracked objects with bounding box coordinates, scores, and class indices.
+            class_names (list, optional): Names of the classes.
+
+        Returns:
+            img (numpy array): The image with overlaid object data.
+        """
+        for element in elements.objects:
+            x0, y0, x1, y1 = map(int, [int(float(element.attributes["bbox_left"])), int(float(element.attributes["bbox_top"])), int(float(element.attributes["bbox_right"])), int(float(element.attributes["bbox_bot"]))])
+            cls_ind = element.type
+            color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
+            # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
+            text = f'{float(element.attributes["x_pos"])} - {float(element.attributes["y_pos"])} - {element.id} - {float(element.attributes["orientation"])} - {_OBJECT_NAMES[element.type]}'
+            txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+
+            cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+            txt_bk_color = (_COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()
+            cv2.rectangle(
+                img,
+                (x0, y0 + 1),
+                (x0 + txt_size[0] + 1, y0 + int(1.5 * txt_size[1])),
+                txt_bk_color,
+                -1
+            )
+            cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
+        return img
+
     def show_fps(self, alive_time, period):
         if time.time() - self.last_time > 1:
             self.last_time = time.time()

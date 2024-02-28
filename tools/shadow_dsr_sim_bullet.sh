@@ -175,17 +175,21 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "bin/forcefield 
 
 #Bulletsim
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "cd ~/robocomp/components/robocomp-shadow/components/bulletsim"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 16 "src/bulletsim.py etc/config"
 
 #Hazard
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 17 "cd ~/robocomp/components/robocomp-shadow/agents/hazard_detector"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 17 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 17 "bin/hazard_detector etc/config"
 
 #Bulletsim-hazard
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "cd ~/robocomp/components/robocomp-shadow/components/bulletsim"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "src/bulletsim.py etc/config_hazard"
 
 #Human drivers
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 19 "cd ~/robocomp/components/robocomp-shadow/agents/human_driver_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 19 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 19 "bin/human_driver_wb etc/config"
 
