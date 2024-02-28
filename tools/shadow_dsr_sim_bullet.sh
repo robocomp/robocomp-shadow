@@ -76,11 +76,11 @@ qdbus org.kde.yakuake /yakuake/tabs setTabTitle 17 "Hazard"
 
 SESSION_ID_18=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 TERMINAL_ID_18=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 18)
-qdbus org.kde.yakuake /yakuake/tabs setTabTitle 18 "Bullet-Hazard"
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 18 "BulletHazard"
 
 SESSION_ID_18=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 TERMINAL_ID_18=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 19)
-qdbus org.kde.yakuake /yakuake/tabs setTabTitle 19 "Human Drivers"
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 19 "HumanDriver"
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 python3"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "rcnode &"
@@ -186,6 +186,6 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "cd ~/robocomp/c
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "src/bulletsim.py etc/config_hazard"
 
 #Human drivers
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "cd ~/robocomp/components/robocomp-shadow/components/human_driver_wb"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 18 "bin/human_driver_wb etc/config"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 19 "cd ~/robocomp/components/robocomp-shadow/agents/human_driver_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 19 "bin/human_driver_wb etc/config"
 
