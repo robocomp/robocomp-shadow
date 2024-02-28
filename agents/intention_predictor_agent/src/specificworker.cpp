@@ -177,14 +177,13 @@ void SpecificWorker::compute()
                     person_cone_it->update_attributes(x, y, ang);
                     person_cone_it->remove_intentions(&widget_2d->scene, chair_nodes);
                 }
+//                qInfo() << "Intentions number" << person_cone_it->get_act_intentions_number();
                 // Map Pilar cone to parent rotation and translation
                 auto pilar_cone_ = person_cone_it->get_pilar_cone();
                 auto pilar_cone_conv = person_cone_it->get_item()->mapToParent(pilar_cone_);
-
                 // Check if there are chairs and people in the cone
                 for(const auto &chair : chair_nodes)
                 {
-                    // Get chair pose
                     // Get chair pose
                     if(auto chair_rt_data = get_rt_data(robot_node_, chair.id()); chair_rt_data.has_value())
                     {
@@ -274,7 +273,7 @@ void SpecificWorker::compute()
                                     for (const auto &object: chair_nodes)
                                     {
                                         if (auto is_an_obstacle = G->get_attrib_by_name<is_an_obstacle_att>(object);
-                                                is_an_obstacle.has_value() and is_an_obstacle.value()) 
+                                                is_an_obstacle.has_value() and is_an_obstacle.value())
                                                 {
     //                                qInfo() << "Object" << QString::fromStdString(object.name()) << "is an obstacle";
                                             // Check if object isn't in the same position
@@ -305,8 +304,8 @@ void SpecificWorker::compute()
                                                         obstacles_outside.push_back(obstacle);
                                                     } else {
     //                                            qInfo() << "Object" << QString::fromStdString(object.name()) << "seen in cone in path to" << QString::fromStdString(chair.name());
-                                                        if (auto intention = person_cone_it->get_intention(
-                                                                    object.name()); intention.has_value()) {
+                                                        if (auto intention = person_cone_it->get_intention(object.name()); intention.has_value())
+                                                        {
                                                             auto intention_ = intention.value();
                                                             intention_->update_color(false);
                                                         }
@@ -322,14 +321,14 @@ void SpecificWorker::compute()
                                     obstacles.insert(obstacles.end(), std::make_move_iterator(obstacles_outside.begin()),
                                                     std::make_move_iterator(obstacles_outside.end()));
 
-                                    // Print inside obstacles
-                                    for (const auto &o: obstacles_inside) {
-                                        qInfo() << "inside: " << o.x << " " << o.y << o.radius;
-                                    }
-                                    // Print outside obstacles
-                                    for (const auto &o: obstacles_outside) {
-                                        qInfo() << "outside: " << o.x << " " << o.y << o.radius;
-                                    }
+//                                    // Print inside obstacles
+//                                    for (const auto &o: obstacles_inside) {
+//                                        qInfo() << "inside: " << o.x << " " << o.y << o.radius;
+//                                    }
+//                                    // Print outside obstacles
+//                                    for (const auto &o: obstacles_outside) {
+//                                        qInfo() << "outside: " << o.x << " " << o.y << o.radius;
+//                                    }
 
                                     // Once the obstacles are detected, simulate the path to the target considering seeing obstacles
                                     try
@@ -338,15 +337,17 @@ void SpecificWorker::compute()
                                                 RoboCompGridder::TPoint{.x=x, .y=y, .radius=500},
                                                 RoboCompGridder::TPoint{.x=x_ch, .y=y_ch, .radius=500},
                                                 obstacles_outside, obstacles_inside);
-                                        if (path_to_target.valid and not path_to_target.paths.empty())
+                                        // Print path to target
+                                        qInfo() << QString::fromStdString(path_to_target.errorMsg) << path_to_target.valid << path_to_target.paths.size();
+                                        if (path_to_target.valid)
                                         {
                                             for (const auto &p: path_to_target.paths)
                                             {
-                                                try {
+                                                try
+                                                {
                                                     auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
                                                     if (sim_results.collision) {
                                                         qInfo() << "Collision detected";
-                                                        //TODO: Insertar edge de colisión
                                                         DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
                                                                 person.id(), chair.id());
                                                         if (G->insert_or_assign_edge(edge)) {
@@ -366,8 +367,8 @@ void SpecificWorker::compute()
                                                     qInfo() << "Error simulating path";
                                                 }
                                             }
+                                            person_cone_it->draw_paths(&widget_2d->scene, false, path_to_target.paths[0]);
                                         }
-                                        person_cone_it->draw_paths(&widget_2d->scene, false, path_to_target.paths[0]);
                                     }
                                     catch (const Ice::Exception &e) {
                                         qInfo() << "Error simulating path";
@@ -387,7 +388,7 @@ void SpecificWorker::compute()
                 qInfo() << "Person dissappeared. Removing cone.";
                 // Remove intention items
                 // Iterate over intentions
-                it->remove_intentions(&widget_2d->scene, chair_nodes);
+                it->remove_intentions(&widget_2d->scene, chair_nodes, true);
                 it->draw_paths(&widget_2d->scene, true, RoboCompGridder::TPath{});
                 it->remove_item(&widget_2d->scene);
                 person_cones.erase(it);
@@ -400,25 +401,18 @@ bool SpecificWorker::element_inside_cone(const Eigen::Vector3f& point,
                                          const Eigen::Vector3f& basePoint,
                                          const Eigen::Vector3f& apexPoint,
                                          double radius) {
-    std::cout << "Cone parameters" << point.transpose() << "|" << basePoint.transpose()<< "|" << apexPoint.transpose() << "|" << radius << std::endl;
-    // Calcular la altura del cono
+//    std::cout << "Cone parameters" << point.transpose() << "|" << basePoint.transpose()<< "|" << apexPoint.transpose() << "|" << radius << std::endl;
     double height = (apexPoint - basePoint).norm();
-
-    // Calcular el vector de dirección del cono
     Eigen::Vector3f direction = (apexPoint - basePoint).normalized();
 
-    // Calcular la distancia del punto al vértice del cono
     Eigen::Vector3f vecToPoint = point - basePoint;
     double distanceToVertex = vecToPoint.dot(direction);
 
-    // Calcular el radio del cono en la altura del punto
     double radiusAtHeight = radius * (1 - distanceToVertex / height);
 
-    // Calcular la distancia horizontal del punto al eje del cono
     Eigen::Vector3f pointOnAxis = basePoint + direction * distanceToVertex;
     double horizontalDistance = (point - pointOnAxis).norm();
 
-    // Verificar si el punto está dentro del cono
     return (horizontalDistance <= radiusAtHeight);
 }
 std::optional<std::tuple<float, float, float, float>> SpecificWorker::get_rt_data(const DSR::Node &n, uint64_t to)

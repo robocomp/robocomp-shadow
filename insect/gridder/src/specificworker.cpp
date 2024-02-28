@@ -211,27 +211,26 @@ RoboCompGridder::Result SpecificWorker::Gridder_getPaths_unlocked(RoboCompGridde
                                         Eigen::Vector2f{target.x, target.y},
                                         source.radius);
     if (success)
-    {
-        //check if is line of sight to target free
-        if (grid.is_line_of_sigth_to_target_free(source_key,
-                                                 target_key,
-                                                 params.ROBOT_SEMI_WIDTH))
+    {    //check if is line of sight to target free
+        if (grid.is_line_of_sigth_to_target_free(source_key, target_key, params.ROBOT_SEMI_WIDTH))
         {
             paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
             if(paths.empty())
+            {
                 msg = "VLOS path not found";
+                result.valid = false;
+            }
             else
                 msg = "VLOS path";
         }
         else
         {
-            paths = grid.compute_k_paths(source_key, target_key,
-                                         std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH),
-                                         params.MIN_DISTANCE_BETWEEN_PATHS,
-                                         tryClosestFreePoint,
-                                         targetIsHuman);
+            paths = grid.compute_k_paths(source_key, target_key, std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH), params.MIN_DISTANCE_BETWEEN_PATHS, tryClosestFreePoint, targetIsHuman);
             if(paths.empty())
+            {
                 msg = "Djikstra path not found";
+                result.valid = false;
+            }
             else
                 msg = "Djikstra path";
         }
