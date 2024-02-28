@@ -138,10 +138,6 @@ void SpecificWorker::initialize(int period)
         // mouse
         connect(widget_2d, &DSR::QScene2dViewer::mouse_left_click, [this](QPointF p)
         {
-            qInfo() << "[MOUSE] New click left arrived:" << p;
-            // mouse_click eigen point from QPointF p
-            mouse_click = Eigen::Vector2f(p.x(), p.y());
-
             Target target;
             current_path.clear();
             QRectF dim;
@@ -155,6 +151,8 @@ void SpecificWorker::initialize(int period)
                     target.set(compute_closest_target_to_grid_border(Eigen::Vector2f{p.x(), p.y()}), true); /// false = in robot's frame
                 target.set_original(target.pos_eigen());
                 target.set_new(true);
+                //print target
+                qInfo() << "[MOUSE] New target: " << target.pos_eigen().x() << target.pos_eigen().y();
             }
             catch (const Ice::Exception &e)
             {
@@ -164,17 +162,28 @@ void SpecificWorker::initialize(int period)
             }
             target_buffer.put(std::move(target));
 
-            // Check item at position corresponding to person representation (person can't be selected if cone layer is superposed)
-            // TODO:  selectedItem->setZValue() changes the order of the items in the scene. Use this to avoid the cone layer to be superposed
-//            QList<QGraphicsItem *> itemsAtPosition = widget_2d->scene.items(p, Qt::IntersectsItemShape, Qt::DescendingOrder, QTransform());
-//            QGraphicsItem *selectedItem = nullptr;
-//
-//            if(auto res = std::ranges::find_if(itemsAtPosition, [p](auto it)
-//                { return (Eigen::Vector2f(it->pos().x(), it->pos().y()) - Eigen::Vector2f(p.x(), p.y())).norm() < 100;}); res != itemsAtPosition.end())
-//                selectedItem = *res;
-//            else return;
-
+            // wait until odometry is properly reset: matrix trace = 4 aka identity matrix
+            try
+            {
+                lidarodometry_proxy->reset();
+                std::optional<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> rp;
+                auto start = std::chrono::high_resolution_clock::now();
+                do
+                {   rp = get_robot_pose_and_change();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                } while (rp->first.matrix().diagonal().sum() < 3.7 and
+                         std::chrono::duration_cast<std::chrono::milliseconds>(start - std::chrono::high_resolution_clock::now()).count() < 4000);
+                if(rp->first.matrix().diagonal().sum() < 3.7)
+                    qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
+            }
+            catch (const Ice::Exception &e)
+            {
+                std::cout << "[MOUSE] Error reading from LidarOdometry" << e << std::endl;
+                target = Target::invalid();
+                return;
+            };
         });
+
         //Right click
         connect(widget_2d, &DSR::QScene2dViewer::mouse_right_click, [this](int x, int y, uint64_t id)
         {
@@ -203,7 +212,7 @@ void SpecificWorker::initialize(int period)
             std::terminate();
         }
         if(not params.DISPLAY)
-            hide();
+//            hide();
         timer.start(params.PERIOD);
     }
 }
@@ -221,40 +230,30 @@ void SpecificWorker::compute()
     if(auto res = target_buffer.try_get(); res.has_value())
     {
         target = res.value();
-        // Reset lidar odometry
-//        try
-//        {
-//            lidarodometry_proxy->reset();
-//            std::cout << __FUNCTION__ << "Odometry Reset" << std::endl;
-//        }
-//        catch (const Ice::Exception &e)
-//        { std::cout << __FUNCTION__ << " Error resetting LidarOdometry" << e << std::endl; }
-
     }
     else
     {
-        fps.print("No Target "); return;
+        fps.print("No Target ");
+        draw_smoothed_path({} , &widget_2d->scene, params.PATH_COLOR);
+        draw_paths({}, &widget_2d->scene);
+        return;
     }
-    //print target
-    qInfo() << __FUNCTION__ <<  "Target: " << target.pos_eigen().x() << target.pos_eigen().y();
 
     /// get robot pose //TODO: move odometry
     RobotPose robot_pose_and_change;
     if(auto res = get_robot_pose_and_change(); res.has_value())
     {
         robot_pose_and_change = res.value();
+        /// transform target to robot's frame
+        target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
+        //draw target point
+        draw_point(target.pos_eigen(), &widget_2d->scene);
     }
     else
     {
         qWarning() << __FUNCTION__ << "No robot pose available. Returning. Check LidarOdometry component status";
         return;
     }
-
-    /// transform mouse_click to global frame
-    mouse_click = (robot_pose_and_change.first.inverse().matrix() * Eigen::Vector4d(mouse_click.x() / 1000.0, mouse_click.y() / 1000.0, 0.0, 1.0) * 1000.0).head(2).cast<float>();
-
-    /// transform target to robot's frame
-    target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
 
     qInfo() << __FUNCTION__ <<  "Transformed Target: " << target.pos_eigen().x() << target.pos_eigen().y();
     /// if robot is not tracking and at target, stop
@@ -274,6 +273,9 @@ void SpecificWorker::compute()
         inject_ending_plan();
         return;
     }
+    //draw path
+    if(params.DISPLAY) draw_paths(returning_plan.paths, &widget_2d->scene);
+
     //else  if(params.DISPLAY)(draw_paths(returning_plan.paths, &viewer->scene));
     /// if target is tracked, set the real target at a distance of params.TRACKING_DISTANCE_TO_TARGET from the original target
     if(target.is_tracked())
@@ -305,12 +307,9 @@ void SpecificWorker::compute()
     RoboCompGridPlanner::TPlan final_plan;
     if(params.USE_MPC) /// convert plan to list of control actions calling MPC
         final_plan = convert_plan_to_control(returning_plan, target);
-    qInfo() << __FUNCTION__ << "Post MPC";
-//    if(params.DISPLAY)(this->lcdNumber_length->display((int)final_plan.path.size()));
-
    /// send plan to remote interface and publish it to rcnode
-//    if(not this->pushButton_stop->isChecked())
     send_and_publish_plan(final_plan);
+
     qInfo() << __FUNCTION__ << "Post send and publish";
     /// reinject target to buffer
     target_buffer.put(std::move(target));
@@ -597,18 +596,17 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
         {
             //qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             plan = mod_plan;
-//            draw_smoothed_path(plan.path, &viewer->scene, params.SMOOTHED_PATH_COLOR); //TODO: segmentation fault, check, copy from component version
+            draw_smoothed_path(plan.path, &widget_2d->scene, params.SMOOTHED_PATH_COLOR);
         }
         else    // no valid plan found
         {
             qWarning() << __FUNCTION__ << "No valid optimization found in MPC. Returning original plan";
-//            draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR); //TODO: segmentation fault, check, copy from component version
         }
     }
     catch (const Ice::Exception &e)
     {
         std::cout << __FUNCTION__ << "Error reading from MPC. Check component status. Returning original plan" << e << std::endl;
-        draw_smoothed_path(plan.path, &viewer->scene, params.PATH_COLOR);
+
     }
     return plan;
 }
@@ -1029,7 +1027,7 @@ void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, Q
 //    draw_objects_graph(scene);
     draw_people_graph(scene);
 
-    draw_point(mouse_click, scene );
+//    draw_point(mouse_click, scene );
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////     SLOTS     ///////////////////////////////////////////
@@ -1080,8 +1078,6 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
                 target_buffer.put(std::move(target));
                 //print target
                 qInfo() << __FUNCTION__ << "Node Slot Intention Target: " << target_x << target_y;
-
-
             }
         }
 }
