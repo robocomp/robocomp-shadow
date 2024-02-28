@@ -85,12 +85,14 @@ class PersonCone
         QPolygonF get_pilar_cone() const;
         int get_intentions_size() const;
         void remove_item(QGraphicsScene *scene);
-        void remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes);
+        void remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes, bool clean_all=false);
         void set_intention(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name);
         // Method for getting intention
         std::optional<PersonCone::Intention*> get_intention(const std::string &target_name);
         std::optional<std::vector<std::vector<Eigen::Vector2f>>> get_paths(const std::tuple<float, float, float, float> &person_point, const std::tuple<float, float, float, float> &element_point, const std::string &target_name);
         void remove_intention(const std::string &target_name);
+        // Method to get act intentions number
+        int get_act_intentions_number();
         // Method to draw path
         void draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path);
 };

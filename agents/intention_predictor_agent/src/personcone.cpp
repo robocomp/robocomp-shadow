@@ -94,8 +94,16 @@ void PersonCone::remove_item(QGraphicsScene *scene)
     scene->removeItem(item);
     delete item; item = nullptr;
 }
-void PersonCone::remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes)
+void PersonCone::remove_intentions(QGraphicsScene *scene, std::vector<DSR::Node> object_nodes, bool clean_all)
 {
+    if(clean_all)
+    {
+        // Remove all intentions
+        for(auto &i: intentions)
+            i.remove_item(scene);
+        intentions.clear();
+        return;
+    }
     // Vector with the intentions names
     std::vector<std::string> intentions_names;
     for(const auto &i: intentions)
@@ -166,6 +174,10 @@ void PersonCone::remove_intention(const std::string &target_name)
 {
     intentions.erase(std::remove_if(intentions.begin(), intentions.end(), [&target_name](const Intention &i){ return i.target_name == target_name; }), intentions.end());
 }
+int PersonCone::get_act_intentions_number()
+{
+    return intentions.size();
+}
 // Method to draw path
 void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path)
 {
@@ -175,22 +187,21 @@ void PersonCone::draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGrid
     if(erase_only) return;
     float s = 100;
     QColor color;
-//    for(const auto &i: intentions)
-//        for(const auto &path: i.paths)
-//        {
-//            // check if path is in the last vector position
-//            if(i.paths.back() == path)
-//                color = QColor("red");
-//            else
-//                color = QColor("green");
-//            for(const auto &p: path)
-//            {
-//                auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
-//                ptr->setPos(QPointF(p.x(), p.y()));
-//                points.push_back(ptr);
-//            }
-//        }
-    //TODO: draw hallucinogen path
+    for(const auto &i: intentions)
+        for(const auto &path: i.paths)
+        {
+            // check if path is in the last vector position
+            if(i.paths.back() == path)
+                color = QColor("red");
+            else
+                color = QColor("green");
+            for(const auto &p: path)
+            {
+                auto ptr = scene->addEllipse(-s/2, -s/2, s, s, QPen(color), QBrush(color));
+                ptr->setPos(QPointF(p.x(), p.y()));
+                points.push_back(ptr);
+            }
+        }
     for(const auto &hallucinogen_point: hallucinogen_path)
     {
         color = QColor("orange");
