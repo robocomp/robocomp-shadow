@@ -3,7 +3,6 @@ find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
-    custom_widget.h
     personcone.cpp
 )
 
