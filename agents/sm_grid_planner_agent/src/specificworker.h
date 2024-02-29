@@ -189,6 +189,7 @@ class SpecificWorker : public GenericWorker
 
         };
         DoubleBuffer<Target, Target> target_buffer;
+        bool new_target = true;
         std::vector<Eigen::Vector2f> current_path;
 
         // Frechet distance calculus

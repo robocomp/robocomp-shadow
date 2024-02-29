@@ -162,26 +162,7 @@ void SpecificWorker::initialize(int period)
             }
             target_buffer.put(std::move(target));
 
-            // wait until odometry is properly reset: matrix trace = 4 aka identity matrix
-            try
-            {
-                lidarodometry_proxy->reset();
-                std::optional<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> rp;
-                auto start = std::chrono::high_resolution_clock::now();
-                do
-                {   rp = get_robot_pose_and_change();
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                } while (rp->first.matrix().diagonal().sum() < 3.7 and
-                         std::chrono::duration_cast<std::chrono::milliseconds>(start - std::chrono::high_resolution_clock::now()).count() < 4000);
-                if(rp->first.matrix().diagonal().sum() < 3.7)
-                    qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
-            }
-            catch (const Ice::Exception &e)
-            {
-                std::cout << "[MOUSE] Error reading from LidarOdometry" << e << std::endl;
-                target = Target::invalid();
-                return;
-            };
+            new_target = true;
         });
 
         //Right click
@@ -212,7 +193,9 @@ void SpecificWorker::initialize(int period)
             std::terminate();
         }
         if(not params.DISPLAY)
-//            hide();
+        {
+            hide();
+        }
         timer.start(params.PERIOD);
     }
 }
@@ -230,6 +213,51 @@ void SpecificWorker::compute()
     if(auto res = target_buffer.try_get(); res.has_value())
     {
         target = res.value();
+        QRectF dim;
+
+        if(new_target)
+        {
+            qInfo() << __FUNCTION__ << "Target get from buffer: " << target.pos_eigen().x() << target.pos_eigen().y();
+            // wait until odometry is properly reset: matrix trace = 4 aka identity matrix
+            try
+            {
+                lidarodometry_proxy->reset();
+                std::optional<std::pair<Eigen::Transform<double, 3, 1>, Eigen::Transform<double, 3, 1>>> rp;
+                auto start = std::chrono::high_resolution_clock::now();
+                do
+                {   rp = get_robot_pose_and_change();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                } while (rp->first.matrix().diagonal().sum() < 3.7 and
+                         std::chrono::duration_cast<std::chrono::milliseconds>(start - std::chrono::high_resolution_clock::now()).count() < 4000);
+                if(rp->first.matrix().diagonal().sum() < 3.7)
+                    qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
+                qInfo() << __FUNCTION__ << "Lidar Odometry Reset";
+                new_target = false;
+            }
+            catch (const Ice::Exception &e)
+            {
+                qInfo() << __FUNCTION__ << "Error Lidar Odometry Reset" ;
+                return;
+            };
+
+            try
+            {
+                params.gdim = gridder_proxy->getDimensions();
+                dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+                if (dim.contains(QPointF(target.pos_eigen().x(),target.pos_eigen().y())))
+                    target.set(QPointF(target.pos_eigen().x(),target.pos_eigen().y()), true);
+                else
+                    target.set(compute_closest_target_to_grid_border(target.pos_eigen()), true); /// false = in robot's frame
+                target.set_original(target.pos_eigen());
+                target.set_new(true);
+            }
+            catch (const Ice::Exception &e)
+            {
+                std::cout << "Error processing target_buffer" << e << std::endl;
+                target = Target::invalid();
+                return;
+            }
+        }
     }
     else
     {
@@ -361,6 +389,25 @@ void SpecificWorker::inject_ending_plan()
     returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=0.f});
     send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
     target_buffer.try_get();   // empty buffer so it doesn't enter a loop
+
+    //Find go_to_action edge and delete node/edge
+    auto edges = G->get_edges_by_type("has_intention");
+    for (auto edge : edges)
+    {
+        //delete node to
+        if (auto to = G->get_node(edge.to()); to.has_value())
+        {
+            G->delete_node(to.value());
+            //Print deleted node
+            qInfo() << __FUNCTION__ << "Deleted node: " << to.value().id();
+            //delete edge
+            G->delete_edge(edge.from(),edge.to(),"has_intention");
+            //Print deleted edge
+            qInfo() << __FUNCTION__ << "Deleted edge: " << edge.from() << " " << edge.to();
+        }
+    }
+    return;
+
 }
 bool SpecificWorker::robot_is_at_target(const Target &target_)
 {
@@ -461,7 +508,6 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
 
     if(target.is_new())  // if target is new, compute a new path
     {
-
         try
         {
             auto result = gridder_proxy->getPaths(RoboCompGridder::TPoint{.x=0.f, .y=0.f, .radius=400 },    // TODO: move to params
@@ -594,7 +640,7 @@ SpecificWorker::convert_plan_to_control(const RoboCompGridder::Result &res, cons
         auto mod_plan = gridplanner1_proxy->modifyPlan(plan);   // call MPC
         if(mod_plan.valid and not mod_plan.controls.empty())
         {
-            //qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
+            qInfo() << __FUNCTION__ <<  "Step: 0" << mod_plan.controls.front().adv << mod_plan.controls.front().side << mod_plan.controls.front().rot;
             plan = mod_plan;
             draw_smoothed_path(plan.path, &widget_2d->scene, params.SMOOTHED_PATH_COLOR);
         }
@@ -1036,6 +1082,7 @@ void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, Q
 void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
 {
     if(type == "intention")
+    {
         if (auto intention_node_ = G->get_node(id); intention_node_.has_value())
         {
             auto intention_node = intention_node_.value();
@@ -1048,38 +1095,20 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
                 auto target_y = target_y_.value();
                 qInfo() << __FUNCTION__ << "TARGET FROM INTENTION NODE: " << target_x << target_y;
 
-                // Create target
-//                Target t;
-//                t.active = true;
-//                t.new_target = true;
-//                t.point = Eigen::Vector2f{target_x, target_y};
-//                t.is_being_tracked = false;
                 Target target;
-                QRectF dim;
-                try
-                {
-                    params.gdim = gridder_proxy->getDimensions();
-                    dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
-                    if (dim.contains(QPointF(target_x,target_y)))
-                        target.set(QPointF(target_x,target_y), true);
-                    else
-                        target.set(compute_closest_target_to_grid_border(Eigen::Vector2f{target_x, target_y}), true); /// false = in robot's frame
-                    target.set_original(target.pos_eigen());
-                    target.set_new(true);
-                }
-                catch (const Ice::Exception &e)
-                {
-                    std::cout << "[MOUSE] Error reading from Gridder" << e << std::endl;
-                    target = Target::invalid();
-                    return;
-                }
+                target.set_original(Eigen::Vector2f{target_x, target_y});
+                target.set_new(true);
+                target.active = true;
+                target.completed = false;
+                target.is_being_tracked = false;
 
-                //put t in target_buffer
+                //move to target_buffer
                 target_buffer.put(std::move(target));
                 //print target
                 qInfo() << __FUNCTION__ << "Node Slot Intention Target: " << target_x << target_y;
             }
         }
+    }
 }
 void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
@@ -1109,9 +1138,9 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
                     //put t in target_buffer
                     t.is_being_tracked = false;
                     target_buffer.put(std::move(t));
+                    new_target = true;
                     //print target
                     qInfo() << __FUNCTION__ << "Slot Target: " << target_x << target_y;
-
                 }
             }
         }
