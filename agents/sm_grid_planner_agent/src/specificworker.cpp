@@ -163,6 +163,7 @@ void SpecificWorker::initialize(int period)
             target_buffer.put(std::move(target));
 
             new_target = true;
+            mouse_click_target = true;
         });
 
         //Right click
@@ -232,7 +233,6 @@ void SpecificWorker::compute()
                 if(rp->first.matrix().diagonal().sum() < 3.7)
                     qWarning() << "Odometry not properly reset. Matrix trace too large: " << rp->first.matrix().diagonal().sum();
                 qInfo() << __FUNCTION__ << "Lidar Odometry Reset";
-                new_target = false;
             }
             catch (const Ice::Exception &e)
             {
@@ -240,22 +240,26 @@ void SpecificWorker::compute()
                 return;
             };
 
-            try
+            if(mouse_click_target)
             {
-                params.gdim = gridder_proxy->getDimensions();
-                dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
-                if (dim.contains(QPointF(target.pos_eigen().x(),target.pos_eigen().y())))
-                    target.set(QPointF(target.pos_eigen().x(),target.pos_eigen().y()), true);
-                else
-                    target.set(compute_closest_target_to_grid_border(target.pos_eigen()), true); /// false = in robot's frame
-                target.set_original(target.pos_eigen());
-                target.set_new(true);
-            }
-            catch (const Ice::Exception &e)
-            {
-                std::cout << "Error processing target_buffer" << e << std::endl;
-                target = Target::invalid();
-                return;
+                try
+                {
+                    params.gdim = gridder_proxy->getDimensions();
+                    dim = QRectF{params.gdim.left, params.gdim.top, params.gdim.width, params.gdim.height};
+                    if (dim.contains(QPointF(target.pos_eigen().x(),target.pos_eigen().y())))
+                        target.set(QPointF(target.pos_eigen().x(),target.pos_eigen().y()), true);
+                    else
+                        target.set(compute_closest_target_to_grid_border(target.pos_eigen()), true); /// false = in robot's frame
+                    target.set_original(target.pos_eigen());
+                    target.set_new(true);
+                }
+                catch (const Ice::Exception &e)
+                {
+                    std::cout << "Error processing target_buffer" << e << std::endl;
+                    target = Target::invalid();
+                    return;
+                }
+                mouse_click_target = false;
             }
         }
     }
@@ -273,7 +277,8 @@ void SpecificWorker::compute()
     {
         robot_pose_and_change = res.value();
         /// transform target to robot's frame
-        target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
+        if (not new_target)
+            target = transform_target_to_global_frame(robot_pose_and_change.first, target);    // transform target to robot's frame
         //draw target point
         draw_point(target.pos_eigen(), &widget_2d->scene);
     }
@@ -341,7 +346,7 @@ void SpecificWorker::compute()
     qInfo() << __FUNCTION__ << "Post send and publish";
     /// reinject target to buffer
     target_buffer.put(std::move(target));
-
+    new_target = false;
     hz = fps.print("FPS:", 3000);
 }
 
@@ -1093,7 +1098,6 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
             {
                 auto target_x = target_x_.value();
                 auto target_y = target_y_.value();
-                qInfo() << __FUNCTION__ << "TARGET FROM INTENTION NODE: " << target_x << target_y;
 
                 Target target;
                 target.set_original(Eigen::Vector2f{target_x, target_y});
@@ -1101,11 +1105,15 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
                 target.active = true;
                 target.completed = false;
                 target.is_being_tracked = false;
-
+                target.point = Eigen::Vector2f{target_x, target_y};
+                target.new_target = true;
+                target.is_being_tracked = false;
                 //move to target_buffer
                 target_buffer.put(std::move(target));
-                //print target
-                qInfo() << __FUNCTION__ << "Node Slot Intention Target: " << target_x << target_y;
+
+                new_target = true;
+                qInfo() << __FUNCTION__ << "TARGET FROM INTENTION NODE: " << target.pos_eigen().x() << target.pos_eigen().y();
+
             }
         }
     }
@@ -1116,35 +1124,23 @@ void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<
 }
 void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-    if(type == "following_action")
-    {
-        // get robot node
-        if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
-        {
-            if(auto edge = rt->get_edge_RT(robot_node.value(), to); edge.has_value())
-            {
-                if(auto  target_pose = G->get_attrib_by_name<rt_translation_att>(edge.value()); target_pose.has_value())
-                {
-                    auto target_pose_val = target_pose.value().get();
-                    // get target x, y
-                    auto target_x = target_pose_val[0];
-                    auto target_y = target_pose_val[1];
-
-                    // Create target
-                    Target t;
-                    t.active = true;
-                    t.new_target = true;
-                    t.point = Eigen::Vector2f{target_x, target_y};
-                    //put t in target_buffer
-                    t.is_being_tracked = false;
-                    target_buffer.put(std::move(t));
-                    new_target = true;
-                    //print target
-                    qInfo() << __FUNCTION__ << "Slot Target: " << target_x << target_y;
-                }
-            }
-        }
-    }
+//    if(type == "following_action")
+//    {
+//        // get robot node
+//        if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
+//        {
+//            if(auto edge = rt->get_edge_RT(robot_node.value(), to); edge.has_value())
+//            {
+//                if(auto  target_pose = G->get_attrib_by_name<rt_translation_att>(edge.value()); target_pose.has_value())
+//                {
+//                    auto target_pose_val = target_pose.value().get();
+//                    // get target x, y
+//                    auto target_x = target_pose_val[0];
+//                    auto target_y = target_pose_val[1];
+//                }
+//            }
+//        }
+//    }
 }
 void SpecificWorker::modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names)
 {
