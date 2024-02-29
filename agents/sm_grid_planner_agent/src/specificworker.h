@@ -191,6 +191,7 @@ class SpecificWorker : public GenericWorker
         DoubleBuffer<Target, Target> target_buffer;
         bool new_target = true;
         std::vector<Eigen::Vector2f> current_path;
+        bool mouse_click_target = false;
 
         // Frechet distance calculus
         float distance_between_paths(const std::vector<Eigen::Vector2f> &pathA, const std::vector<Eigen::Vector2f> &pathB); //approximats the frechet distance
