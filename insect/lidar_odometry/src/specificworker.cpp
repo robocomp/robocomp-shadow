@@ -172,6 +172,11 @@ void SpecificWorker::read_lidar_thread()
             auto data = lidar3d_proxy->getLidarDataWithThreshold2d("helios", 10000, 1); // TODO: move to constants
             // concatenate both lidars
             //data.points.insert(data.points.end(), data_helios.points.begin(), data_helios.points.end());
+
+
+            //Filter data points wwith z > threshold using a lambda function //TODO: move threshold to config file
+            data.points.erase(std::remove_if(data.points.begin(), data.points.end(), [](const RoboCompLidar3D::TPoint &p) { return p.z < 1500; }), data.points.end());
+
             // compute the period to read the lidar based on the current difference with the lidar period. Use a hysteresis of 2ms
             if (wait_period > std::chrono::milliseconds((long) data.period + 2)) wait_period--;
             else if (wait_period < std::chrono::milliseconds((long) data.period - 2)) wait_period++;
