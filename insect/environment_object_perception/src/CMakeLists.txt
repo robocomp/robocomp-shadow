@@ -3,4 +3,4 @@ PROJECT(  environment_object_perception )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGB Camera360RGB Camera360RGBD SegmentatorTrackingPub VisualElementsPub VisualElementsPub )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGB Camera360RGB Camera360RGBD FullPoseEstimation LidarOdometry SegmentatorTrackingPub VisualElementsPub VisualElementsPub )

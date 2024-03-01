@@ -35,6 +35,7 @@ from collections import deque
 import sys
 import yaml
 import itertools
+import glob
 # from PIL import Image
 import copy
 # import math
@@ -45,6 +46,7 @@ import matching
 from ultralytics import YOLO
 import torch
 import itertools
+import math
 
 sys.path.append('/home/robocomp/software/JointBDOE')
 
@@ -69,6 +71,9 @@ _OBJECT_NAMES = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 't
                  'scissors',
                  'teddy bear', 'hair drier', 'toothbrush']
 
+_DETECTED_OBJECT_NAMES = ['person', 'sports ball', 'tv', 'couch']
+# Get _OBJECT_NAMES indexes for the objects to detect
+_DETECTED_OBJECTS = [i for i, obj in enumerate(_OBJECT_NAMES) if obj in _DETECTED_OBJECT_NAMES]
 _COLORS = np.array(
     [
         0.000, 0.447, 0.741,
@@ -160,24 +165,14 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 200
-            self.thread_period = 200
+            self.Period = 100
+            self.thread_period = 100
             self.display = False
-            
-            self.yolo_model_name = 'yolov8s-seg.engine'
-            
-            self.model_v8 = YOLO(self.yolo_model_name)
 
-            self.device = select_device("0", batch_size=1)
-            self.model = attempt_load(
-                "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
-                map_location=self.device)
-            self.stride = int(self.model.stride.max())
-            with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
-                self.data = yaml.safe_load(f)  # load data dict
-            
-            # OJO, comentado en el main
-            self.setParams(params)
+            # Hz
+            self.cont = 0
+            self.last_time = time.time()
+            self.fps = 0
             
             # read test image to get sizes
             started_camera = False
@@ -216,44 +211,34 @@ class SpecificWorker(GenericWorker):
                     print(e, "Trying again CAMERA...")
                     time.sleep(2)
             
-            self.window_name = "Yolo Segmentator"
-            
-            print("Loaded YOLO model: ", self.yolo_model_name)
+            ############## OBJECTS ##############
+            #TRACKER
+            self.tracker = BYTETracker(frame_rate=5, buffer_=1000)
+            # self.tracker_back = BYTETracker(frame_rate=5)
+            self.objects = ifaces.RoboCompVisualElementsPub.TData()
 
-            # Hz
-            self.cont = 0
-            self.last_time = time.time()
-            self.fps = 0
-            
-            # interface swap objects
-            self.objects_read = ifaces.RoboCompVisualElementsPub.TObjects()
-            self.objects_write = ifaces.RoboCompVisualElementsPub.TObjects()
-            
-            # ID to track
-            self.tracked_element = None
-            self.tracked_id = None
-            
-            # Last error between the actual and the required ROIs for derivative control
-            self.last_ROI_error = 0
-            
-            # Control gains
-            self.k1 = 0.4
-            self.k2 = 0.15
-            
-            # camera read thread
-            self.rgb = None
-            self.lidar_data = None
+            ############## MODELS ##############
+            # Load YOLO model
+            self.load_v8_model()
+            # Load JointBDOE model
+            self.load_jointbdoe_model()
 
-            self.rgb_queue_len = 1
-            
-            self.rgb_read_queue = deque(maxlen=self.rgb_queue_len)
+            ############## FOVEA ##############
+            self.tracked_id = -1
+
+            lidar_odometry_data = self.lidarodometry_proxy.getPoseAndChange()
+            # Generate numpy transform matrix with the lidar odometry data
+            self.last_transform_matrix = np.array(
+                [[lidar_odometry_data.pose.m00, lidar_odometry_data.pose.m01, lidar_odometry_data.pose.m02, lidar_odometry_data.pose.m03],
+                 [lidar_odometry_data.pose.m10, lidar_odometry_data.pose.m11, lidar_odometry_data.pose.m12, lidar_odometry_data.pose.m13],
+                 [lidar_odometry_data.pose.m20, lidar_odometry_data.pose.m21, lidar_odometry_data.pose.m22, lidar_odometry_data.pose.m23],
+                 [lidar_odometry_data.pose.m30, lidar_odometry_data.pose.m31, lidar_odometry_data.pose.m32, lidar_odometry_data.pose.m33]])
+
+            self.rgb_read_queue = deque(maxlen=1)
             self.inference_read_queue = deque(maxlen=1)
 
             self.event = Event()
             
-            self.last_time_with_data = time.time()
-            self.last_lidar_stamp = time.time()
-
             self.image_read_thread = Thread(target=self.get_rgb_thread, args=["camera_top", self.event],
                                       name="rgb_read_queue", daemon=True)
             self.image_read_thread.start()
@@ -262,13 +247,6 @@ class SpecificWorker(GenericWorker):
                                       name="inference_read_queue", daemon=True)
             self.inference_execution_thread.start()
             
-            
-            #TRACKER
-            self.tracker = BYTETracker(frame_rate=5)
-
-            # Best time stamp
-            self.lowest_timestamp = 0
-
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -305,51 +283,74 @@ class SpecificWorker(GenericWorker):
         if self.inference_read_queue:
             start = time.time()
             out_v8_front, color_front, orientation_bboxes_front, orientations_front, out_v8_back, color_back, orientation_bboxes_back, orientations_back, depth_front, depth_back, delta, alive_time, period, front_roi, back_roi = self.inference_read_queue.pop()
-            objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
-            objects_back = self.get_segmentator_data(out_v8_back, color_back, depth_back)
+            people_front, objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
+            people_back, objects_back = self.get_segmentator_data(out_v8_back, color_back, depth_back)
 
-            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(objects_front["bboxes"], orientation_bboxes_front)
-            for i in range(len(matches)):
-                objects_front["orientations"][matches[i][0]] = np.deg2rad(orientations_front[matches[i][1]][0])
-            matches, unm_a, unm_b = self.associate_orientation_with_segmentation(objects_back["bboxes"], orientation_bboxes_back)
-            for i in range(len(matches)):
-                objects_back["orientations"][matches[i][0]] = np.deg2rad(orientations_back[matches[i][1]][0])
+            people_front = self.associate_orientation_with_segmentation(people_front, orientation_bboxes_front, orientations_front)
+            people_back = self.associate_orientation_with_segmentation(people_back, orientation_bboxes_back, orientations_back)
 
-            tracks_front = self.tracker.update(np.array(objects_front["confidences"]),
-                                np.array(objects_front["bboxes"]),
-                                np.array(objects_front["classes"]),
-                                np.array(objects_front["poses"]),
-                                np.array(objects_front["orientations"]))
-            
-            tracks_back = self.tracker.update(np.array(objects_back["confidences"]),
-                                np.array(objects_back["bboxes"]),
-                                np.array(objects_back["classes"]),
-                                np.array(objects_back["poses"]),
-                                np.array(objects_back["orientations"]))
 
             # Compare tracks_front and tracks_back to remove tracks with same ID
-            for track_front in tracks_front:
-                for track_back in tracks_back:
-                    if track_front.track_id == track_back.track_id:
-                        if track_front.score > track_back.score:
-                            tracks_back.remove(track_back)
-                        else:
-                            tracks_front.remove(track_front)
-                        break
+            # for i, front_data in enumerate(tracks_front):
+            #     for track_back in tracks_back:
+            #         # Calculate pose difference
+            #         pose_distance = np.linalg.norm(track_front.pose - track_back.pose)
+            #         if track_front.track_id == track_back.track_id:
+            #             if track_front.score > track_back.score:
+            #                 tracks_back.remove(track_back)
+            #             else:
+            #                 tracks_front.remove(track_front)
+            #             break
 
-            front_objects = self.to_visualelements_interface(tracks_front, alive_time, front_roi)
-            back_objects = self.to_visualelements_interface(tracks_back, alive_time, back_roi)
+            # Fuse people_front and people_back and equal it to self.people_write
+
+            for key in objects_front:
+                objects_front[key] += people_front[key]
+                objects_back[key] += people_back[key]
+            # Check if the object is in the same position in both images
+            for i in range(len(objects_front["poses"])):
+                for j in range(len(objects_back["poses"])):
+                    if objects_front["classes"][i] == objects_back["classes"][j]:
+                        # Calculate pose difference
+                        pose_distance = math.sqrt((objects_front["poses"][i][0] - objects_back["poses"][j][0]) ** 2 + (objects_front["poses"][i][1] - objects_back["poses"][j][1]) ** 2)
+                        if pose_distance < 1200:
+                            if objects_front["confidences"][i] > objects_back["confidences"][j]:
+                                objects_back["confidences"][j] = 0
+                            else:
+                                objects_front["confidences"][i] = 0
+
+            elements = {}
+            for key in objects_front:
+                elements[key] = objects_front[key] + objects_back[key]
+
+            lidar_odometry_data = self.lidarodometry_proxy.getPoseAndChange()
+            # Generate numpy transform matrix with the lidar odometry data
+            matrix_data = np.array(
+                [[lidar_odometry_data.pose.m00, lidar_odometry_data.pose.m01, lidar_odometry_data.pose.m02, lidar_odometry_data.pose.m03],
+                 [lidar_odometry_data.pose.m10, lidar_odometry_data.pose.m11, lidar_odometry_data.pose.m12, lidar_odometry_data.pose.m13],
+                 [lidar_odometry_data.pose.m20, lidar_odometry_data.pose.m21, lidar_odometry_data.pose.m22, lidar_odometry_data.pose.m23],
+                 [lidar_odometry_data.pose.m30, lidar_odometry_data.pose.m31, lidar_odometry_data.pose.m32, lidar_odometry_data.pose.m33]])
+
+            # Get the difference between the last odometry matrix and the current one
+            odometry_difference = self.calcular_matriz_diferencial(matrix_data, self.last_transform_matrix)
+            # print("Odometry difference", odometry_difference)
+            self.last_transform_matrix = np.copy(matrix_data)
+            tracks = self.tracker.update(np.array(elements["confidences"]),
+                                np.array(elements["bboxes"]),
+                                np.array(elements["classes"]),
+                                np.array(elements["poses"]),
+                                np.array(elements["orientations"]), odometry_difference)
+
+            # print("Tracks", tracks)
+
+            front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
 
             # Fuse front_objects and back_objects and equal it to self.objects_write
-            self.objects_write = front_objects
-            self.objects_write.objects += back_objects.objects
-
-            self.visualelementspub_proxy.setVisualObjects(self.objects_write)
-
+            self.visualelementspub_proxy.setVisualObjects(front_objects)
             # If display is enabled, show the tracking results on the image
+
             if self.display:
                 img_front = self.display_data_tracks(color_front, front_objects.objects)
-                img_back = self.display_data_tracks(color_back, back_objects.objects)
                 # img_int = img.astype('float32') / 255.0
                 # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
                 cv2.imshow("back", img_back)
@@ -358,11 +359,58 @@ class SpecificWorker(GenericWorker):
 
             # Show FPS and handle Keyboard Interruption
             try:
-                
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
 
+    def calcular_matriz_diferencial(self, transformacion1, transformacion2):
+        # Calcular la inversa de la primera matriz de transformación
+        inversa_transformacion1 = np.linalg.inv(transformacion1)
+
+        # Calcular la matriz diferencial multiplicando la inversa de la primera
+        # matriz de transformación por la segunda matriz de transformación
+        matriz_diferencial = np.dot(inversa_transformacion1, transformacion2)
+        # Trasponer la matriz diferencial
+        matriz_diferencial[:3, 3] *= 1000
+        return matriz_diferencial
+
+    ###################### MODELS LOADING METHODS ######################
+    def load_v8_model(self):
+        pattern = os.path.join(os.getcwd(), "yolov8?-seg.engine")
+        matching_files = glob.glob(pattern)
+        model_path = matching_files[0] if matching_files else None
+        if model_path:
+            print(f"{model_path} found")
+            try:
+                self.v8_model = YOLO(model_path)
+            except:
+                print("Error loading model. Downloading and converting model:")
+                filename_with_extension = model_path.split('/')[-1]
+                filename_without_extension = filename_with_extension.split('.engine')[0]
+                self.download_and_convert_v8_model(filename_without_extension)
+        # If model not found, ask for choosing between the available models (yolov8n, yolov8s, yolov8m, yolov8l, yolov8x)
+        else:
+            print("Model not found. Select a model: n, s, m, l, x")
+            model_name = input()
+            self.download_and_convert_v8_model("yolov8" + model_name + "-seg")
+    def download_and_convert_v8_model(self, model_name):
+        # Download model
+        self.v8_model = YOLO(model_name)
+        # Export the model to TRT
+        self.v8_model.export(format='engine', device='0')
+        self.v8_model = YOLO(model_name + '.engine')
+    def load_jointbdoe_model(self):
+        try:
+            self.device = select_device("0", batch_size=1)
+            self.model = attempt_load(
+                "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
+                map_location=self.device)
+            self.stride = int(self.model.stride.max())
+            with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
+                self.data = yaml.safe_load(f)  # load data dict
+        except:
+            print("Error loading JointBDOE model")
+            exit(1)
     ######################################################################################################3
 
     def get_rgb_thread(self, camera_name: str, event: Event):
@@ -411,8 +459,8 @@ class SpecificWorker(GenericWorker):
                     # data_package = [color_front, color_back, depth_front, depth_back, delta, image.period, image.alivetime]
 
                     self.rgb_read_queue.append(data_package)
-                    if (time.time() - start) > 0.1:
-                        print("Time exceded get image")
+                    # if (time.time() - start) > 0.1:
+                    #     print("Time exceded get image")
                     event.wait(self.thread_period / 1000)
 
 
@@ -439,9 +487,9 @@ class SpecificWorker(GenericWorker):
                 color_front, front_img_tensor, color_back, back_img_tensor, depth_front, depth_back, delta, period, alive_time, front_roi, back_roi = self.rgb_read_queue.pop()
                 out_v8_front, orientation_bboxes_front, orientations_front = self.inference_over_image(color_front, front_img_tensor)
                 out_v8_back, orientation_bboxes_back, orientations_back = self.inference_over_image(color_back, back_img_tensor)
-                self.inference_read_queue.append([out_v8_front, color_front, orientation_bboxes_front, orientations_front, out_v8_back, color_front, orientation_bboxes_back, orientations_back, depth_front, depth_back, delta, alive_time, period, front_roi, back_roi])
-                if (time.time() - start) > 0.1:
-                    print("Time exceded inference")
+                self.inference_read_queue.append([out_v8_front, color_front, orientation_bboxes_front, orientations_front, out_v8_back, color_back, orientation_bboxes_back, orientations_back, depth_front, depth_back, delta, alive_time, period, front_roi, back_roi])
+                # if (time.time() - start) > 0.1:
+                #     print("Time exceded inference")
             # event.wait(10 / 1000)
 
     def get_mask_with_modified_background(self, mask, image):
@@ -461,7 +509,7 @@ class SpecificWorker(GenericWorker):
     def inference_over_image(self, img0, img_ori):
         # Make inference with both models
         orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
-        out_v8 = self.model_v8.predict(img0, show_conf=True)
+        out_v8 = self.v8_model.predict(img0, show_conf=True, classes=_DETECTED_OBJECTS)
         return out_v8, orientation_bboxes, orientations
 
     def to_visualelements_interface(self, tracks, image_timestamp, roi):
@@ -481,9 +529,9 @@ class SpecificWorker(GenericWorker):
         """
         objects = []
         for track in tracks:
-            x_pose = round(track.mean[0], 2)
-            y_pose = round(track.mean[1], 2)
-            z_pose = 0
+            x_pose = round(track._pose[0], 2)
+            y_pose = round(track._pose[1], 2)
+            z_pose = round(track._pose[2], 2)
             generic_attrs = {
                 "score": str(track.score),
                 "bbox_left": str(int(track.bbox[0])),
@@ -495,7 +543,6 @@ class SpecificWorker(GenericWorker):
                 "z_pos": str(z_pose),
                 "orientation": str(round(float(track.orientation), 2))
             }
-            print("generic_attrs", generic_attrs)
             # object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase,
                                                                attributes=generic_attrs)
@@ -507,10 +554,51 @@ class SpecificWorker(GenericWorker):
         y, x, _ = mask.shape
         return ifaces.RoboCompCamera360RGB.TImage(image=mask.tobytes(), height=y, width=x, roi=roi)
 
-    def associate_orientation_with_segmentation(self, seg_bboxes, ori_bboxes):
-        dists = matching.v_iou_distance(seg_bboxes, ori_bboxes)
-        matches, unmatched_a, unmatched_b = matching.linear_assignment(dists, 0.9)
-        return matches, unmatched_a, unmatched_b
+    def associate_orientation_with_segmentation(self, people, orientation_bboxes, orientations):
+        """
+        This method associates the orientation of each person with the corresponding segmentation mask.
+
+        Args:
+            people (dict): Dictionary containing the information of the detected people.
+            orientation_bboxes (numpy array): Array of bounding boxes for detected objects, each box is an array [x1, y1, x2, y2].
+            orientations (numpy array): Array of orientations for detected objects, each orientation is a float value.
+
+        The method iterates over the detected people and calculates the distance between each person and the detected
+        orientations. The orientation with the minimum distance is then associated with the person.
+        """
+        for i, person in enumerate(people["bboxes"]):
+            min_distance = 100000
+            for j, orientation_bbox in enumerate(orientation_bboxes):
+                distance = self.get_distance(person, orientation_bbox)
+                if distance < min_distance:
+                    min_distance = distance
+                    people["orientations"][i] = np.deg2rad(orientations[j][0])
+        return people
+    def get_distance(self, person, orientation_bbox):
+        """
+        This method calculates the distance between a person and an orientation.
+
+        Args:
+            person (numpy array): Array containing the bounding box of a person, in the format [x1, y1, x2, y2].
+            orientation_bbox (numpy array): Array containing the bounding box of an orientation, in the format [x1, y1, x2, y2].
+
+        The method calculates the distance between the center of the person and the center of the orientation.
+        """
+        person_center = self.get_center(person)
+        orientation_center = self.get_center(orientation_bbox)
+        distance = np.linalg.norm(person_center - orientation_center)
+        return distance
+    def get_center(self, bbox):
+        """
+        This method calculates the center of a bounding box.
+
+        Args:
+            bbox (numpy array): Array containing the bounding box of an object, in the format [x1, y1, x2, y2].
+
+        The method calculates the center of the bounding box as the average of the top left and bottom right corners.
+        """
+        center = (bbox[0:2] + bbox[2:4]) / 2
+        return center
 
     def get_pose_data(self, result):
         pose_bboxes = []
@@ -529,48 +617,68 @@ class SpecificWorker(GenericWorker):
         return pose_bboxes, pose_confidences, skeletons, [0] * len(boxes)
 
     def get_segmentator_data(self, results, color_image, depth_image):
-        objects = {"bboxes" : [], "poses" : [], "confidences" : [], "masks" : [], "classes" : [], "orientations": [], "hashes" : []}
+        people = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
+                  "hashes": []}
+        objects = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
+                   "hashes": []}
         roi_ysize, roi_xsize, _ = color_image.shape
         for result in results:
             if result.masks != None and result.boxes != None:
                 masks = result.masks.xy
                 boxes = result.boxes
                 if len(masks) == len(boxes):
-                    # print("LEN MASKS", len(boxes))
                     for i in range(len(boxes)):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
-                        # print("element_confidence", element_confidence)
-                        if element_confidence > 0.4:
+                        if element_confidence > 0.7:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
                             element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
                             image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
                             act_mask = masks[i].astype(np.int32)
                             cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
-                            image_mask_element = image_mask[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
-                            color_image_mask = color_image[element_bbox[1]:element_bbox[3], element_bbox[0]:element_bbox[2]]
+                            image_mask_element = image_mask[element_bbox[1]:element_bbox[3],
+                                                 element_bbox[0]:element_bbox[2]]
+                            color_image_mask = color_image[element_bbox[1]:element_bbox[3],
+                                               element_bbox[0]:element_bbox[2]]
                             element_mask = self.get_mask_with_modified_background(image_mask_element, color_image_mask)
                             element_hash = self.get_color_histogram(element_mask)
                             height, width, _ = image_mask_element.shape
-                            depth_image_mask = depth_image[element_bbox[1] :element_bbox[3], element_bbox[0]:element_bbox[2]]
-                            element_pose = self.get_mask_distance(image_mask_element, depth_image_mask, element_bbox)
-                            objects["bboxes"].append(element_bbox)
-                            objects["poses"].append(element_pose)
-                            objects["confidences"].append(element_confidence)
-                            objects["masks"].append(element_mask)             
-                            objects["classes"].append(element_class) 
-                            objects["hashes"].append(element_hash)  
-                            
-        objects["orientations"] = [-4] * len(objects["bboxes"])
-        return objects
+                            depth_image_mask = depth_image[element_bbox[1]:element_bbox[3],
+                                               element_bbox[0]:element_bbox[2]]
+                            element_pose = self.get_mask_distance(image_mask_element, depth_image_mask)
+                            if element_pose != [0, 0, 0]:
+                                if element_class == 0:
+                                    people["poses"].append(element_pose)
+                                    people["bboxes"].append(element_bbox)
+                                    people["confidences"].append(element_confidence)
+                                    people["masks"].append(color_image_mask)
+                                    people["classes"].append(element_class)
+                                    people["hashes"].append(element_hash)
+                                else:
+                                    objects["bboxes"].append(element_bbox)
+                                    objects["poses"].append(element_pose)
+                                    objects["confidences"].append(element_confidence)
+                                    objects["masks"].append(color_image_mask)
+                                    objects["classes"].append(element_class)
+                                    objects["hashes"].append(element_hash)
 
-    def get_mask_distance(self, mask, depth_image, bbox):
+        people["orientations"] = [-4] * len(people["bboxes"])
+        objects["orientations"] = [-4] * len(objects["bboxes"])
+        return people, objects
+
+    def get_mask_distance(self, mask, depth_image):
+        # Get bbox center point
+        # Get depth image shape and calculate bbox center
+        depth_image_shape = depth_image.shape
+        bbox_center = [depth_image_shape[1] // 2, depth_image_shape[0] // 2]
         segmentation_points = np.argwhere(np.all(mask == 1, axis=-1))[:, [1, 0]]
-        # print("SEGMENTATOON", segmentation_points)
+        # p = bbox width / 4
+        p = depth_image_shape[1] // 4.5
+        segmentation_points = segmentation_points[np.linalg.norm(segmentation_points - bbox_center, axis=1) < p]
         # Extraer directamente los puntos válidos (no ceros) y sus distancias en un solo paso.
         # Esto evitará tener que crear y almacenar matrices temporales y booleanas innecesarias.
         valid_points = depth_image[segmentation_points[:, 1], segmentation_points[:, 0]]
         valid_points = valid_points[np.any(valid_points != [0, 0, 0], axis=-1)]
-        # print("valid_points",valid_points )
+        # print valid points
         if valid_points.size == 0:
             return [0, 0, 0]
         distances = np.linalg.norm(valid_points, axis=-1)
@@ -578,14 +686,14 @@ class SpecificWorker(GenericWorker):
         # Crear los intervalos directamente con np.histogram puede ser más eficiente.
         hist, edges = np.histogram(distances, bins=np.arange(np.min(distances), np.max(distances), 300))
         if hist.size == 0:
-            return [0, 0, 0]
+            pose = np.mean(valid_points, axis=0).tolist()
+            return pose
         # Identificar el intervalo de moda y extraer los índices de las distancias que caen dentro de este intervalo.
         max_index = np.argmax(hist)
-
         pos_filtered_distances = np.logical_and(distances >= edges[max_index], distances <= edges[max_index + 1])
         # Filtrar los puntos válidos y calcular la media en un solo paso.
-        person_dist = np.mean(valid_points[pos_filtered_distances], axis=0)
-        return person_dist.tolist()
+        person_dist = np.mean(valid_points[pos_filtered_distances], axis=0).tolist()
+        return person_dist
 
     # def get_color_histogram(self, color):
     #     color =cv2.cvtColor(color, cv2.COLOR_RGB2HSV)
@@ -682,11 +790,11 @@ class SpecificWorker(GenericWorker):
             img (numpy array): The image with overlaid object data.
         """
         for element in elements:
-            x0, y0, x1, y1 = map(int, [element.left, element.top, element.right, element.bot])
+            x0, y0, x1, y1 = map(int, [int(float(element.attributes["bbox_left"])), int(float(element.attributes["bbox_top"])), int(float(element.attributes["bbox_right"])), int(float(element.attributes["bbox_bot"]))])
             cls_ind = element.type
             color = (_COLORS[cls_ind] * 255).astype(np.uint8).tolist()
             # text = f'Class: {class_names[cls_ind]} - Score: {element.score * 100:.1f}% - ID: {element.id}'
-            text = f'{element.x} - {element.y} - {element.id} - {element.person.orientation} - {_OBJECT_NAMES[element.type]}'
+            text = f'{float(element.attributes["x_pos"])} - {float(element.attributes["y_pos"])} - {element.id} - {float(element.attributes["orientation"])} - {_OBJECT_NAMES[element.type]}'
             txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
@@ -793,3 +901,9 @@ class SpecificWorker(GenericWorker):
     # From the RoboCompVisualElements you can use this types:
     # RoboCompVisualElements.TRoi
     # RoboCompVisualElements.TObject
+
+    # From the RoboCompLidarOdometry you can call this methods:
+    # self.lidarodometry_proxy.getFullPoseEuler(...)
+    # self.lidarodometry_proxy.getFullPoseMatrix(...)
+    # self.lidarodometry_proxy.getPoseAndChange(...)
+    # self.lidarodometry_proxy.reset(...)
