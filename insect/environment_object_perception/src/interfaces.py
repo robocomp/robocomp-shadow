@@ -9,6 +9,10 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGBD.ice")
 import RoboCompCamera360RGBD
+Ice.loadSlice("-I ./src/ --all ./src/FullPoseEstimation.ice")
+import RoboCompFullPoseEstimation
+Ice.loadSlice("-I ./src/ --all ./src/LidarOdometry.ice")
+import RoboCompLidarOdometry
 Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
 import RoboCompSegmentatorTrackingPub
 Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
@@ -114,6 +118,8 @@ class Requires:
         self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
 
         self.Camera360RGBD = self.create_proxy("Camera360RGBDProxy", RoboCompCamera360RGBD.Camera360RGBDPrx)
+
+        self.LidarOdometry = self.create_proxy("LidarOdometryProxy", RoboCompLidarOdometry.LidarOdometryPrx)
 
     def get_proxies_map(self):
         return self.mprx

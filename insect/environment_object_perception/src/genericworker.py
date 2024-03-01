@@ -43,6 +43,7 @@ class GenericWorker(QtCore.QObject):
 
         self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
         self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
+        self.lidarodometry_proxy = mprx["LidarOdometryProxy"]
         self.visualelementspub_proxy = mprx["VisualElementsPub"]
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
