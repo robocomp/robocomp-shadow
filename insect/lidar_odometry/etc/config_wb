@@ -6,7 +6,7 @@ LidarOdometry.Endpoints=tcp -p 12191
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990    # to HELIOS
 
-display = false
+display = true
 lidar_name = helios
 viewer_left = -4000
 viewer_top = -4000
