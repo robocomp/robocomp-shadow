@@ -707,25 +707,6 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
                        const Eigen::Vector2f &robot_in_grid,
                        float max_laser_range)
 {
-    // Define static variable to store previous values of robot_change
-    //static Eigen::Transform<double, 3, 1> robot_change_prev = Eigen::Transform<double, 3, 1>::Identity();
-//    static std::vector<Key> cells_occupied_in_last_update = {};
-
-    //Compare robot_change with previous value
-
-//    if(robot_change.matrix() != robot_change_prev.matrix())
-//    {
-////        qInfo() << __FUNCTION__ << "Robot moved. Updating map";
-//        const auto &inv = robot_change.matrix();
-//        for(const auto &key : cells_occupied_in_last_update)
-//        {
-//            Eigen::Vector2d orig_cell = (inv * Eigen::Vector4d(key.first / 1000.f, key.second / 1000.f, 0.0, 1.0) *
-//                                         1000.f).head(2);
-//            auto &&[success, v] = get_cell(point_to_key(static_cast<long int>(orig_cell.x()), static_cast<long int>(orig_cell.y())));
-//            if(success)
-//                v.free = false;
-//        }
-//    }
 
     // now, update the map with the new points
     for(const auto &point : points)
@@ -946,9 +927,50 @@ void Grid::set_submap_free(const Grid::Key &center, float radius)
 //make std vector of tuples with key and T
 std::vector<std::tuple<Grid::Key,Grid::T>> Grid::copy_submap(const Grid::Key &center, float radius)
 {
+    static QBrush free_brush(QColor(params.free_color));
+    static QBrush occ_brush(QColor(params.occupied_color));
+    static QBrush orange_brush(QColor("Orange"));
+    static QBrush yellow_brush(QColor("Yellow"));
+    static QBrush gray_brush(QColor("LightGray"));
+    static QBrush green_brush(QColor("LightGreen"));
+    static QBrush white(QColor("White"));
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges
+                                                                                                                                                     ={{100, 75, orange_brush, &Grid::neighboors_8},
+                                                                                                                                                       {75, 50, yellow_brush, &Grid::neighboors_8},
+                                                                                                                                                       {50, 25, gray_brush, &Grid::neighboors_8},
+                                                                                                                                                       {25, 5,  green_brush, &Grid::neighboors_16}};
+    static std::vector<std::tuple<float, float, QBrush, std::function<std::vector<std::pair<Grid::Key, Grid::T&>>(Grid*, Grid::Key, bool)>>> wall_ranges_no_color
+                                                                                                                                                     ={{100, 75, white, &Grid::neighboors_8},
+                                                                                                                                                       {75, 50, white, &Grid::neighboors_8},
+                                                                                                                                                       {50, 25, white, &Grid::neighboors_8},
+                                                                                                                                                       {25, 5,  white, &Grid::neighboors_16}};
+
+    std::vector<std::tuple<Grid::Key,Grid::T>> cells;
+    std::vector<std::tuple<Grid::Key,Grid::T>> regrown_cells;
     std::vector<std::tuple<Grid::Key,Grid::T>> submap;
+
+    //Get all cells defined by center key and radius
     for (auto &&[k, v]: iter::filter([center, radius](auto &v)
-               { return std::labs(v.first.first - center.first) <= radius and std::labs(v.first.second - center.second) <= radius; }, fmap))
+    { return std::labs(v.first.first - center.first) <= radius and std::labs(v.first.second - center.second) <= radius; }, fmap))
+    {
+        if (v.cost == params.occupied_cost){
+            submap.emplace_back(k, v);
+        }
+    }
+    //Get all occupied cost cells in cells
+    for(auto &[upper, lower, brush, neigh] : wall_ranges)
+        // get all cells with cost == upper
+        for (auto &&[k, v]: iter::filter([upper, lower](auto &v) { return std::get<1>(v).cost == upper; }, submap)){
+            // get all neighboors of these cells whose cost is lower than upper and are free
+            for (auto neighs = neigh(this, k, false); auto &&[kk, vv]: neighs | iter::filter([upper](auto &ve)
+                                                                                             { return std::get<1>(ve).cost < upper and std::get<1>(ve).free; }))
+            {
+                const auto &[ok, cell] = get_cell(kk);
+                regrown_cells.emplace_back(kk, cell);
+            }
+        }
+    //emplace back all regrown_cells in submap
+    for (auto &&[k, v]: regrown_cells)
     {
         submap.emplace_back(k, v);
     }

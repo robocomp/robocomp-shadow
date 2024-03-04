@@ -370,7 +370,7 @@ RoboCompGridder::Result SpecificWorker::Gridder_setLocationAndGetPath(RoboCompGr
 {
 
     vector<tuple<pair<int, int>, Grid::T>> submap_copy;
-    auto source_key = grid.point_to_key(Eigen::Vector2f(target.x,target.y));
+    auto source_key = grid.point_to_key(Eigen::Vector2f(source.x,source.y));
     auto target_key = grid.point_to_key(Eigen::Vector2f(target.x,target.y));
 
     //Lambda to get grid keys from TPointVector
@@ -392,10 +392,12 @@ RoboCompGridder::Result SpecificWorker::Gridder_setLocationAndGetPath(RoboCompGr
     for (auto &key: free_keys){
         auto cells = grid.copy_submap(std::get<0>(key), std::get<1>(key));
         std::move(cells.begin(), cells.end(), std::back_inserter(submap_copy));
+
     }
     for (auto &key: obstacle_keys){
         auto cells = grid.copy_submap(std::get<0>(key), std::get<1>(key));
         std::move(cells.begin(), cells.end(), std::back_inserter(submap_copy));
+
     }
 
     //Iterate over free keys and obstacle keys to set submap
