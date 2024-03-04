@@ -32,7 +32,7 @@
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include <cppitertools/filter.hpp>
-
+#include <QRandomGenerator>
 
 class SpecificWorker : public GenericWorker
 {
@@ -80,13 +80,21 @@ private:
     optional<tuple<float, float, float, float>> get_rt_data(const DSR::Node &n, uint64_t to);
     void insert_edge(uint64_t from, uint64_t to, const string &edge_tag);
 
-
+    std::vector<QGraphicsItem*> path_points;
+//    std::vector<QGraphicsItem*> path_points;
+    std::vector<QGraphicsItem*> isolated_points;
+    DSR::QScene2dViewer* widget_2d;
 
     bool element_inside_cone(const Eigen::Vector3f &point, const Eigen::Vector3f &basePoint,
                         const Eigen::Vector3f &apexPoint,
                         double radius);
 
     RoboCompGridder::TPointVector get_points_around_element_pose(RoboCompGridder::TPoint element_pose, float radius, int points_number);
+    void clear_drawn_points(QGraphicsScene *scene, std::vector<QGraphicsItem*> &points);
+
+    void draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path);
+    void draw_point(QGraphicsScene *scene, const QPoint &point, float size, QColor color);
+
 };
 
 #endif
