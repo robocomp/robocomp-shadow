@@ -243,6 +243,8 @@ class SpecificWorker : public GenericWorker
     void draw_point(const Eigen::Vector2f &point, QGraphicsScene *scene );
 
     Eigen::Vector2f mouse_click;
+
+    void reset_sim();
 };
 
 #endif

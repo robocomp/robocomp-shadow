@@ -3,12 +3,13 @@ import "GridPlanner.idsl";
 import "SegmentatorTrackingPub.idsl";
 import "LidarOdometry.idsl";
 import "Lidar3D.idsl";
+import "Webots2Robocomp.idsl";
 
 Component sm_grid_planner_agent
 {
     Communications
     {
-        requires Lidar3D, Gridder, LidarOdometry, GridPlanner, GridPlanner;  // First GridPlanner is the one for the Bumper, second one is the one for MPC
+        requires Lidar3D, Gridder, LidarOdometry, GridPlanner, GridPlanner, Webots2Robocomp;  // First GridPlanner is the one for the Bumper, second one is the one for MPC
         subscribesTo SegmentatorTrackingPub;
     };
     language Cpp11;

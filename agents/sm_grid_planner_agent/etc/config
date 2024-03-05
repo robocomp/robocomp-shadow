@@ -11,6 +11,8 @@ LidarOdometryProxy = lidarodometry:tcp -h localhost -p 12191
 GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
 GridPlanner1Proxy = gridplanner:tcp -h localhost -p 12341
 GridderProxy = gridder:tcp -h localhost -p 13541
+Webots2RobocompProxy = webots2robocomp:tcp -h localhost -p 0
+
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
