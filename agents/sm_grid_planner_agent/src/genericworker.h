@@ -34,17 +34,19 @@
 #include <FullPoseEstimation.h>
 #include <GridPlanner.h>
 #include <Gridder.h>
+#include <Gridder.h>
 #include <Lidar3D.h>
 #include <LidarOdometry.h>
 #include <SegmentatorTrackingPub.h>
 #include <VisualElementsPub.h>
+#include <Webots2Robocomp.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompGridder::GridderPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidarOdometry::LidarOdometryPrxPtr>;
+using TuplePrx = std::tuple<RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompGridPlanner::GridPlannerPrxPtr,RoboCompGridder::GridderPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompLidarOdometry::LidarOdometryPrxPtr,RoboCompWebots2Robocomp::Webots2RobocompPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -65,6 +67,7 @@ public:
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
+	RoboCompWebots2Robocomp::Webots2RobocompPrxPtr webots2robocomp_proxy;
 
 	virtual void SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub::TObject target) = 0;
 

@@ -28,6 +28,7 @@ GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 	gridder_proxy = std::get<2>(tprx);
 	lidar3d_proxy = std::get<3>(tprx);
 	lidarodometry_proxy = std::get<4>(tprx);
+	webots2robocomp_proxy = std::get<5>(tprx);
 
 	mutex = new QMutex();
 

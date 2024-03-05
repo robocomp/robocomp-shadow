@@ -170,6 +170,8 @@ void SpecificWorker::initialize(int period)
         connect(widget_2d, &DSR::QScene2dViewer::mouse_right_click, [this](int x, int y, uint64_t id)
         {
             qInfo() << "[MOUSE] New right click arrived:";
+            qInfo() << "[MOUSE] Reset Simulation:";
+
         });
 
 
@@ -762,6 +764,26 @@ Eigen::Vector2f SpecificWorker::compute_closest_target_to_grid_border(const Eige
     return resultado;
 }
 
+void SpecificWorker::reset_sim()
+{
+    //Get and delete all nodes type object
+    auto nodes = G->get_nodes_by_type("object");
+    for (auto node : nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    //Get and delete all person nodes
+    auto person_nodes = G->get_nodes_by_type("person");
+    for (auto node : person_nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    webots2robocomp_proxy->resetWebots();
+}
 ///////////////////////////////// Send and publish plan ///////////////////////////////////////
 void SpecificWorker::send_and_publish_plan(const RoboCompGridPlanner::TPlan &plan)
 {
@@ -1210,7 +1232,6 @@ void SpecificWorker::SegmentatorTrackingPub_setTrack (RoboCompVisualElementsPub:
 
     target_buffer.put(std::move(t));
 }
-
 //////////////////////////////////////////////////////////////////////////////////////////////
 double SpecificWorker::path_length(const vector<Eigen::Vector2f> &path) const
 {
@@ -1224,7 +1245,6 @@ double SpecificWorker::path_length(const vector<Eigen::Vector2f> &path) const
         acum += (pp[1]-pp[0]).norm();
     return acum;
 }
-
 //////////////////////////////////// TESTING  ///////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {

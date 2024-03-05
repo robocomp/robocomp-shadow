@@ -84,6 +84,7 @@
 #include <segmentatortrackingpubI.h>
 
 #include <FullPoseEstimation.h>
+#include <Gridder.h>
 #include <VisualElementsPub.h>
 
 
@@ -137,6 +138,7 @@ int ::sm_grid_planner_agent::run(int argc, char* argv[])
 	RoboCompGridder::GridderPrxPtr gridder_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompLidarOdometry::LidarOdometryPrxPtr lidarodometry_proxy;
+	RoboCompWebots2Robocomp::Webots2RobocompPrxPtr webots2robocomp_proxy;
 
 	string proxy, tmp;
 	initialize();
@@ -221,6 +223,22 @@ int ::sm_grid_planner_agent::run(int argc, char* argv[])
 	rInfo("LidarOdometryProxy initialized Ok!");
 
 
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "Webots2RobocompProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Webots2RobocompProxy\n";
+		}
+		webots2robocomp_proxy = Ice::uncheckedCast<RoboCompWebots2Robocomp::Webots2RobocompPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Webots2Robocomp: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("Webots2RobocompProxy initialized Ok!");
+
+
 	IceStorm::TopicManagerPrxPtr topicManager;
 	try
 	{
@@ -238,7 +256,7 @@ int ::sm_grid_planner_agent::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(gridplanner_proxy,gridplanner1_proxy,gridder_proxy,lidar3d_proxy,lidarodometry_proxy);
+	tprx = std::make_tuple(gridplanner_proxy,gridplanner1_proxy,gridder_proxy,lidar3d_proxy,lidarodometry_proxy,webots2robocomp_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
