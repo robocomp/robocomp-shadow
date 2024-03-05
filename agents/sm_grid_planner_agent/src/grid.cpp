@@ -545,8 +545,8 @@ std::vector<Eigen::Vector2f > Grid::compute_path(const Eigen::Vector2f &source_,
                 min_distance[ed.second.id] = min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost);
                 min_distance[ed.second.id] = min_distance[where_cell.id] + static_cast<uint32_t>(ed.second.cost);
                 previous[ed.second.id] = std::make_pair(where_cell.id, where);
-                active_vertices.insert({min_distance[ed.second.id], ed.first}); // Djikstra
-                //active_vertices.insert( { min_distance[ed.second.id] + heuristicL1(ed.first, target_key), ed.first } ); //A*
+                // active_vertices.insert({min_distance[ed.second.id], ed.first}); // Djikstra
+                active_vertices.insert( { min_distance[ed.second.id] + heuristicL1(ed.first, target_key), ed.first } ); //A*
             }
         }
     }

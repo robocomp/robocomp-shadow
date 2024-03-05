@@ -163,6 +163,14 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
         return RoboCompGridPlanner::TPlan{.valid=false};
     }
 
+    auto last_path_point = plan.path.back();
+    // Print distance to last point
+    if(std::hypot(last_path_point.x, last_path_point.y) < 300)
+    {
+        qWarning() << __FUNCTION__ << "Distance to last point is less than 300mm. Returning original path";
+        return plan;
+    }
+
     if(static_cast<int>(plan.path.size()) < params.MIN_NUM_STEPS)
     {
         qWarning() << __FUNCTION__ << "Path with one element or less. Returning original path";

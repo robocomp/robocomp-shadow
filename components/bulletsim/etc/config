@@ -1,6 +1,8 @@
 # Endpoints for implements interfaces
 BulletSim.Endpoints=tcp -p 13452
 
+display = False
+
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
 Ice.Trace.Protocol=0

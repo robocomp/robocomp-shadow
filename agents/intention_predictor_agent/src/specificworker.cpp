@@ -83,7 +83,7 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
         rt = G->get_rt_api();
 		// Graph viewer
@@ -339,23 +339,28 @@ void SpecificWorker::compute()
                                                 obstacles_outside, obstacles_inside);
                                         // Print path to target
                                         qInfo() << QString::fromStdString(path_to_target.errorMsg) << path_to_target.valid << path_to_target.paths.size();
-                                        if (path_to_target.valid)
+                                        if (path_to_target.paths.size() > 0)
                                         {
                                             for (const auto &p: path_to_target.paths)
                                             {
                                                 try
                                                 {
                                                     auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
-                                                    if (sim_results.collision) {
+                                                    if (sim_results.collision)
+                                                    {
                                                         qInfo() << "Collision detected";
                                                         DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
                                                                 person.id(), chair.id());
-                                                        if (G->insert_or_assign_edge(edge)) {
+                                                        if (G->insert_or_assign_edge(edge))
+                                                        {
                                                             std::cout << __FUNCTION__
                                                                     << " Edge successfully inserted: "
                                                                     << person.id() << "->" << chair.id()
                                                                     << " type: collision" << std::endl;
-                                                        } else {
+                                                            allow_prediction = false;
+                                                        }
+                                                        else
+                                                        {
                                                             std::cout << __FUNCTION__
                                                                     << ": Fatal error inserting new edge: "
                                                                     << person.id() << "->" << chair.id()
@@ -483,6 +488,12 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
                 allow_prediction = false;
             }
         }
+}
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if(edge_tag == "collision")
+        allow_prediction = true;
+
 }
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {
