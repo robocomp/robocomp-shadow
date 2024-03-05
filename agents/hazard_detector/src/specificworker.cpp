@@ -223,7 +223,7 @@ void SpecificWorker::compute()
                         } else
                         {
                             non_visible_objects.push_back(
-                                    RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 300});
+                                    RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 600});
                             qInfo() << "Object OUTSIDE the cone" << QString::fromStdString(object.name());
                         }
                     }
@@ -264,23 +264,23 @@ void SpecificWorker::compute()
                            std::make_move_iterator(objects.end()));
 
             //print objects with rounded points
-            for (auto &p : objects_with_rounded_points)
-            {
-                qInfo() << "Object with rounded points pre: " << p.x << " " << p.y;
-                this->draw_point(&widget_2d->scene, QPoint(p.x, p.y), p.radius, QColor("orange"));
-            }
+//            for (auto &p : objects_with_rounded_points)
+//            {
+//                qInfo() << "Object with rounded points pre: " << p.x << " " << p.y;
+//                this->draw_point(&widget_2d->scene, QPoint(p.x, p.y), p.radius, QColor("orange"));
+//            }
 
             for(const auto &object : objects)
             {
                 // Get possible points around each object
-                auto points_around_element = get_points_around_element_pose(object, 650, 8);
-                this->draw_paths(&widget_2d->scene, false, points_around_element);
+                auto points_around_element = get_points_around_element_pose(object, 800, 10);
+//                this->draw_paths(&widget_2d->scene, false, points_around_element);
 
                 //print something for debug
                 for(const auto &obtained_point : points_around_element)
                 {
-                    this->clear_drawn_points(&widget_2d->scene,this->path_points);
-                    this->clear_drawn_points(&widget_2d->scene,this->isolated_points);
+//                    this->clear_drawn_points(&widget_2d->scene,this->path_points);
+//                    this->clear_drawn_points(&widget_2d->scene,this->isolated_points);
 
                     visible_objects.emplace_back(obtained_point);
                     objects_with_rounded_points.emplace_back(obtained_point);
@@ -309,13 +309,21 @@ void SpecificWorker::compute()
 
                         if (path.paths.size() > 0)
                         {
+//                            this->clear_drawn_points(&widget_2d->scene, this->path_points);
+                            this->draw_paths(&widget_2d->scene, false, path.paths[0]);
+                            //print something for debugging
+                            qInfo() << "Path draw";
+//                            sleep(1);
                             auto sim_result = bulletsim_proxy->simulatePath(path.paths[0], 1,
                                                                             objects_with_rounded_points);
+
+//                            RoboCompBulletSim::Result sim_result;
+//                            sim_result.collision = true;
                             //print sim result point
 //                        qInfo()<< "COLLISION POINT" << sim_result.collision << sim_result.collisionPose.x << " " << sim_result.collisionPose.y;
                             if (!sim_result.collision)
                             {
-                                this->draw_paths(&widget_2d->scene, false, path.paths[0]);
+//                                this->draw_paths(&widget_2d->scene, false, path.paths[0]);
                                 qInfo() << "-----------------GOING TO TARGET-----------------------";
                                 //Create node intention to avoid collision:
                                 //Get robot level
@@ -404,9 +412,9 @@ std::optional<std::tuple<float, float, float, float>> SpecificWorker::get_rt_dat
 
 void SpecificWorker::draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath points_)
 {
-//    for(auto p : points)
+//    for(auto p : path_points)
 //    { scene->removeItem(p); delete p; }
-//    points.clear();
+//    path_points.clear();
 
     //print points x and y
     for(const auto &p : points_)
@@ -515,7 +523,7 @@ RoboCompGridder::TPointVector SpecificWorker::get_points_around_element_pose(Rob
 
         //Check if the points are inside the grid
 
-        points.push_back(RoboCompGridder::TPoint{.x=x, .y=y, .radius=300});
+        points.push_back(RoboCompGridder::TPoint{.x=x, .y=y, .radius=500});
 //        qInfo() << "CALCULATED POINT" << x << y;
     }
 

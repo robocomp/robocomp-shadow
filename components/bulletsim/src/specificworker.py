@@ -28,6 +28,7 @@ import pybullet as p
 import pybullet_data
 import time
 import numpy as np
+import traceback
 import pkgutil
 egl = pkgutil.get_loader('eglRenderer')
 sys.path.append('/home/robocomp/robocomp/lib')
@@ -36,7 +37,7 @@ import cv2
 import pyautogui
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
+    def __init__(self, proxy_map, params, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 1000
         if startup_check:
@@ -44,6 +45,9 @@ class SpecificWorker(GenericWorker):
         else:
 
             self.display = False
+
+            self.setParams(params)
+            print("DISPLAY", self.display)
             # Start PyBullet in GUI mode
             if self.display:
                 self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
@@ -137,6 +141,13 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
+        # try:
+        print("Params read. Starting...", params)
+        self.display = params["display"] == "true" or params["display"] == "True"
+
+        # except:
+        #     print("Error reading config params")
+        #     traceback.print_exc()
         return True
 
     @QtCore.Slot()
@@ -241,7 +252,8 @@ class SpecificWorker(GenericWorker):
 
         for obstacle in data["obstacles"]:
             # Crear la forma del cilindro (collision shape)
-            obstacle_shape_id = p.createCollisionShape(p.GEOM_CYLINDER, radius=obstacle.radius / 1000, height=cylinder_height)
+            # obstacle_shape_id = p.createCollisionShape(p.GEOM_CYLINDER, radius=obstacle.radius / 1000, height=cylinder_height)
+            obstacle_shape_id = p.createCollisionShape(p.GEOM_CYLINDER, radius=cylinder_radius, height=cylinder_height)
             obstacle_id = p.createMultiBody(baseMass=1, baseCollisionShapeIndex=obstacle_shape_id,
                                                  basePosition=[obstacle.x/ 1000, obstacle.y/ 1000, 0.0], baseOrientation=cylinder_orientation)
             objects.append(obstacle_id)
