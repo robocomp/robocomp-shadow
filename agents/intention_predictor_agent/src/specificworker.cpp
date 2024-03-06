@@ -345,12 +345,13 @@ void SpecificWorker::compute()
                                             {
                                                 try
                                                 {
-                                                    auto sim_results = this->bulletsim_proxy->simulatePath(p, 1, obstacles);
+                                                    auto sim_results = this->bulletsim_proxy->simulatePath(p, person_speed, obstacles);
                                                     if (sim_results.collision)
                                                     {
-                                                        qInfo() << "Collision detected";
+                                                        qInfo() << "Collision detected at" << sim_results.collisionTime << "seconds";
                                                         DSR::Edge edge = DSR::Edge::create<collision_edge_type>(
                                                                 person.id(), chair.id());
+                                                        G->add_or_modify_attrib_local<arrival_time_att>(edge, sim_results.collisionTime);
                                                         if (G->insert_or_assign_edge(edge))
                                                         {
                                                             std::cout << __FUNCTION__
@@ -402,6 +403,7 @@ void SpecificWorker::compute()
         }
     }
 }
+
 bool SpecificWorker::element_inside_cone(const Eigen::Vector3f& point,
                                          const Eigen::Vector3f& basePoint,
                                          const Eigen::Vector3f& apexPoint,

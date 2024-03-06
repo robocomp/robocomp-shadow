@@ -239,6 +239,8 @@ void SpecificWorker::process_people(const RoboCompVisualElementsPub::TData &data
     auto people_nodes = G->get_nodes_by_type("person");
     for (const auto &object: data.objects | iter::filter([this](auto &obj){return obj.type == params.PERSON;}))  // people
     {
+        // Print person with id
+        qInfo() << "Person" << object.id;
         // Check if the person is already in the graph
         if(auto person_in_graph = std::ranges::find_if(people_nodes, [&object, this](const DSR::Node &p)
                     {
