@@ -33,6 +33,7 @@
 #include <doublebuffer/DoubleBuffer.h>
 #include <cppitertools/filter.hpp>
 #include <QRandomGenerator>
+#include <cppitertools/enumerate.hpp>
 
 class SpecificWorker : public GenericWorker
 {
@@ -95,6 +96,8 @@ private:
     void draw_paths(QGraphicsScene *scene, bool erase_only, RoboCompGridder::TPath hallucinogen_path);
     void draw_point(QGraphicsScene *scene, const QPoint &point, float size, QColor color);
 
+    float robot_max_speed = 1000; // BEWARE: mm/s !!!!!!!!!!!!
+    float calculate_path_time(const vector<RoboCompGridder::TPoint> &path, float speed);
 };
 
 #endif

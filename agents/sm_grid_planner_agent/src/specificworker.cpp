@@ -171,7 +171,7 @@ void SpecificWorker::initialize(int period)
         {
             qInfo() << "[MOUSE] New right click arrived:";
             qInfo() << "[MOUSE] Reset Simulation:";
-
+            reset_sim();
         });
 
 

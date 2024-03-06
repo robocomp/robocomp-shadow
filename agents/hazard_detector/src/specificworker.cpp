@@ -153,232 +153,264 @@ void SpecificWorker::compute()
         if(auto robot_node_ = G->get_node("Shadow"); robot_node_.has_value()) //TODO: move to global variable?
         {
             auto robot_node = robot_node_.value();
-            qInfo() << "1";
-
-            //Get person node (collision parent)
-            auto person_node_id = collision.from();
-            if(auto person_pose_ = get_rt_data(robot_node, person_node_id); person_pose_.has_value())
-                person_pose = person_pose_.value();
-
-            //Get person intention target
-            if(auto intention_edges = G->get_edges_by_type("has_intention"); not intention_edges.empty())
+            if(auto person_time_to_collision = G->get_attrib_by_name<arrival_time_att>(collision); person_time_to_collision.has_value())
             {
-                for (auto &&e : iter::filter([person_node_id](auto &e)
+                auto time_to_collision = person_time_to_collision.value();
+                qInfo() << "Time to collision: " << time_to_collision;
+
+                //Get person node (collision parent)
+                auto person_node_id = collision.from();
+                if(auto person_pose_ = get_rt_data(robot_node, person_node_id); person_pose_.has_value())
+                    person_pose = person_pose_.value();
+
+                //Get person intention target
+                if(auto intention_edges = G->get_edges_by_type("has_intention"); not intention_edges.empty())
+                {
+                    for (auto &&e : iter::filter([person_node_id](auto &e)
                                                  { return e.from() == person_node_id; }, intention_edges))
-                {
-
-                   if(auto target_rt = get_rt_data(robot_node, e.to()); target_rt.has_value())
-                   {
-                       target_pose = target_rt.value();
-
-                       target_pos.x = std::get<0>(target_pose);
-                       target_pos.y = std::get<1>(target_pose);
-                       target_pos.radius = 500;  //TODO: move to global variable?
-                       target_id = e.to();
-                       qInfo()<<"Intention edge from person node found"<< target_pos.x << target_pos.y;
-                   }
-                   else{ qInfo() << "1"; return;}
-                }
-            }
-            else{ qInfo() << "2"; return;}
-
-            // Get the list of possible robot actions from the list of visual elements, excluding the robot and  the person
-            auto object_nodes = G->get_nodes_by_type("object");
-            // for each action and target object associated
-
-            RoboCompGridder::TPointVector visible_objects;
-            RoboCompGridder::TPointVector non_visible_objects;
-
-            //Get object pose and check if it is inside the visual cone of the person
-            for(const auto &object : object_nodes)
-            {
-//                qInfo() << "Object =" << QString::fromStdString(object.name());
-                // Get the RT between the robot and the object
-                if (object.id() != target_id)
-                {
-                    if (auto object_pose_ = get_rt_data(robot_node, object.id()); object_pose_.has_value())
                     {
-                        auto object_pose = object_pose_.value();
 
-                        float distance_to_obstacle = (
-                                Eigen::Vector3f{std::get<0>(target_pose), std::get<1>(target_pose),
-                                                std::get<2>(target_pose)} -
-                                Eigen::Vector3f{std::get<0>(person_pose), std::get<1>(person_pose),
-                                                std::get<2>(person_pose)}).norm();
-
-                        auto in_cone = element_inside_cone(
-                                Eigen::Vector3f{std::get<0>(object_pose), std::get<1>(object_pose),
-                                                std::get<2>(object_pose)},
-                                Eigen::Vector3f{std::get<0>(target_pose), std::get<1>(target_pose),
-                                                std::get<2>(target_pose)},
-                                Eigen::Vector3f{std::get<0>(person_pose), std::get<1>(person_pose),
-                                                std::get<2>(person_pose)*2},
-                                distance_to_obstacle / 5);
-
-                        if (in_cone)
+                        if(auto target_rt = get_rt_data(robot_node, e.to()); target_rt.has_value())
                         {
-                            visible_objects.push_back(
-                                    RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 300});
-                            qInfo() << "Object inside the cone" << QString::fromStdString(object.name());
-                        } else
+                            target_pose = target_rt.value();
+
+                            target_pos.x = std::get<0>(target_pose);
+                            target_pos.y = std::get<1>(target_pose);
+                            target_pos.radius = 500;  //TODO: move to global variable?
+                            target_id = e.to();
+                            qInfo()<<"Intention edge from person node found"<< target_pos.x << target_pos.y;
+                        }
+                        else{ qInfo() << "1"; return;}
+                    }
+                }
+                else{ qInfo() << "2"; return;}
+
+                // Get the list of possible robot actions from the list of visual elements, excluding the robot and  the person
+                auto object_nodes = G->get_nodes_by_type("object");
+                // for each action and target object associated
+
+                RoboCompGridder::TPointVector visible_objects;
+                RoboCompGridder::TPointVector non_visible_objects;
+
+                //Get object pose and check if it is inside the visual cone of the person
+                for(const auto &object : object_nodes)
+                {
+//                qInfo() << "Object =" << QString::fromStdString(object.name());
+                    // Get the RT between the robot and the object
+                    if (object.id() != target_id)
+                    {
+                        if (auto object_pose_ = get_rt_data(robot_node, object.id()); object_pose_.has_value())
                         {
-                            non_visible_objects.push_back(
-                                    RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 600});
-                            qInfo() << "Object OUTSIDE the cone" << QString::fromStdString(object.name());
+                            auto object_pose = object_pose_.value();
+
+                            float distance_to_obstacle = (
+                                    Eigen::Vector3f{std::get<0>(target_pose), std::get<1>(target_pose),
+                                                    std::get<2>(target_pose)} -
+                                    Eigen::Vector3f{std::get<0>(person_pose), std::get<1>(person_pose),
+                                                    std::get<2>(person_pose)}).norm();
+
+                            auto in_cone = element_inside_cone(
+                                    Eigen::Vector3f{std::get<0>(object_pose), std::get<1>(object_pose),
+                                                    std::get<2>(object_pose)},
+                                    Eigen::Vector3f{std::get<0>(target_pose), std::get<1>(target_pose),
+                                                    std::get<2>(target_pose)},
+                                    Eigen::Vector3f{std::get<0>(person_pose), std::get<1>(person_pose),
+                                                    std::get<2>(person_pose)*2},
+                                    distance_to_obstacle / 5);
+
+                            if (in_cone)
+                            {
+                                visible_objects.push_back(
+                                        RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 300});
+                                qInfo() << "Object inside the cone" << QString::fromStdString(object.name());
+                            } else
+                            {
+                                non_visible_objects.push_back(
+                                        RoboCompGridder::TPoint{std::get<0>(object_pose), std::get<1>(object_pose), 600});
+                                qInfo() << "Object OUTSIDE the cone" << QString::fromStdString(object.name());
+                            }
                         }
                     }
                 }
-            }
 
-            //Create object vector
-            std::vector<RoboCompGridder::TPoint> objects;
-            // Concat obstacles inside and outside the cone using std::move
-            objects.insert(objects.end(), std::make_move_iterator(visible_objects.begin()),
-                             std::make_move_iterator(visible_objects.end()));
-            objects.insert(objects.end(), std::make_move_iterator(non_visible_objects.begin()),
-                             std::make_move_iterator(non_visible_objects.end()));
+                //Create object vector
+                std::vector<RoboCompGridder::TPoint> objects;
+                // Concat obstacles inside and outside the cone using std::move
+                objects.insert(objects.end(), std::make_move_iterator(visible_objects.begin()),
+                               std::make_move_iterator(visible_objects.end()));
+                objects.insert(objects.end(), std::make_move_iterator(non_visible_objects.begin()),
+                               std::make_move_iterator(non_visible_objects.end()));
 
-            qInfo() << "////////////////////////////////////////////////////////////////////////////////////////////////////////////";
-            qInfo() << "............................................................................................................";
-            qInfo() << "............................................................................................................";
-            //Print visible objects, non visible objects
-            for (auto &p : visible_objects)
-            {
-                qInfo() << "Visible object: " << p.x << " " << p.y;
-            }
-            for (auto &p : non_visible_objects)
-            {
-                qInfo() << "Non visible object: " << p.x << " " << p.y;
-            }
-            for (auto &p : objects)
-            {
-                qInfo() << "Object: " << p.x << " " << p.y;
-            }
-            qInfo() << "............................................................................................................";
-            qInfo() << "............................................................................................................";
+                qInfo() << "////////////////////////////////////////////////////////////////////////////////////////////////////////////";
+                qInfo() << "............................................................................................................";
+                qInfo() << "............................................................................................................";
+                //Print visible objects, non visible objects
+                for (auto &p : visible_objects)
+                {
+                    qInfo() << "Visible object: " << p.x << " " << p.y;
+                }
+                for (auto &p : non_visible_objects)
+                {
+                    qInfo() << "Non visible object: " << p.x << " " << p.y;
+                }
+/*                for (auto &p : objects)
+                {
+                    qInfo() << "Object: " << p.x << " " << p.y;
+                }*/
+                qInfo() << "............................................................................................................";
+                qInfo() << "............................................................................................................";
 
-            //Print
-            std::vector<RoboCompGridder::TPoint> objects_with_rounded_points;
+                //Print
+                std::vector<RoboCompGridder::TPoint> objects_with_rounded_points;
 
-            objects_with_rounded_points.insert(objects_with_rounded_points.end(), std::make_move_iterator(objects.begin()),
-                           std::make_move_iterator(objects.end()));
+                objects_with_rounded_points.insert(objects_with_rounded_points.end(), std::make_move_iterator(objects.begin()),
+                                                   std::make_move_iterator(objects.end()));
 
-            //print objects with rounded points
+                //print objects with rounded points
 //            for (auto &p : objects_with_rounded_points)
 //            {
 //                qInfo() << "Object with rounded points pre: " << p.x << " " << p.y;
 //                this->draw_point(&widget_2d->scene, QPoint(p.x, p.y), p.radius, QColor("orange"));
 //            }
 
-            for(const auto &object : objects)
-            {
-                // Get possible points around each object
-                auto points_around_element = get_points_around_element_pose(object, 800, 10);
+                for(const auto &object : objects)
+                {
+                    // Get possible points around each object
+                    auto points_around_element = get_points_around_element_pose(object, 800, 10);
 //                this->draw_paths(&widget_2d->scene, false, points_around_element);
 
-                //print something for debug
-                for(const auto &obtained_point : points_around_element)
-                {
+                    //print something for debug
+                    for(const auto &obtained_point : points_around_element)
+                    {
+                        // Check if robot expends less time in the path than person arriving to the target
+                        auto robot_to_target_path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{0.f, 0.f, 300}, obtained_point, {}, {});
+                        if(robot_to_target_path.paths.size() > 0)
+                        {
+                            auto robot_time_in_path = calculate_path_time(robot_to_target_path.paths[0], robot_max_speed);
+                            qInfo() << "Robot time in path" << robot_time_in_path;
+                            if(robot_time_in_path > time_to_collision)
+                            {
+                                qInfo() << "Robot time in path" << robot_time_in_path << "bigger than" << time_to_collision << ". Not possible to solve";
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            qInfo() << "No path found";
+                            continue;
+                        }
 //                    this->clear_drawn_points(&widget_2d->scene,this->path_points);
 //                    this->clear_drawn_points(&widget_2d->scene,this->isolated_points);
 
-                    visible_objects.emplace_back(obtained_point);
-                    objects_with_rounded_points.emplace_back(obtained_point);
+                        visible_objects.emplace_back(obtained_point);
+                        objects_with_rounded_points.emplace_back(obtained_point);
 
-                    try
-                    {
-                        //Print visible objects, non visible objects
-                        for (auto &p : visible_objects)
+                        try
                         {
-                            qInfo() << "Visible object: " << p.x << " " << p.y;
-                        }
-                        for (auto &p : non_visible_objects)
-                        {
-                            qInfo() << "Non visible object: " << p.x << " " << p.y;
-                        }
+                            //Print visible objects, non visible objects
+//                            for (auto &p : visible_objects)
+//                            {
+//                                qInfo() << "Visible object: " << p.x << " " << p.y;
+//                            }
+//                            for (auto &p : non_visible_objects)
+//                            {
+//                                qInfo() << "Non visible object: " << p.x << " " << p.y;
+//                            }
+//
+//                            //print objects with rounded points
+//                            for (auto &p : objects_with_rounded_points)
+//                            {
+//                                qInfo() << "Object with rounded points: " << p.x << " " << p.y;
+//                            }
 
-                        //print objects with rounded points
-                        for (auto &p : objects_with_rounded_points)
-                        {
-                            qInfo() << "Object with rounded points: " << p.x << " " << p.y;
-                        }
+                            auto path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{
+                                    std::get<0>(person_pose) //TODO: change method to std::vector<TPoint>
+                                    , std::get<1>(person_pose), 300}, target_pos, non_visible_objects, visible_objects);
 
-                        auto path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{
-                                std::get<0>(person_pose) //TODO: change method to std::vector<TPoint>
-                                , std::get<1>(person_pose), 300}, target_pos, non_visible_objects, visible_objects);
-
-                        if (path.paths.size() > 0)
-                        {
+                            if (path.paths.size() > 0)
+                            {
 //                            this->clear_drawn_points(&widget_2d->scene, this->path_points);
-                            this->draw_paths(&widget_2d->scene, false, path.paths[0]);
-                            //print something for debugging
-                            qInfo() << "Path draw";
+                                this->draw_paths(&widget_2d->scene, false, path.paths[0]);
+                                //print something for debugging
+                                qInfo() << "Path draw";
 //                            sleep(1);
-                            auto sim_result = bulletsim_proxy->simulatePath(path.paths[0], 1,
-                                                                            objects_with_rounded_points);
+                                auto sim_result = bulletsim_proxy->simulatePath(path.paths[0], 1,
+                                                                                objects_with_rounded_points);
 
 //                            RoboCompBulletSim::Result sim_result;
 //                            sim_result.collision = true;
-                            //print sim result point
+                                //print sim result point
 //                        qInfo()<< "COLLISION POINT" << sim_result.collision << sim_result.collisionPose.x << " " << sim_result.collisionPose.y;
-                            if (!sim_result.collision)
-                            {
+                                if (!sim_result.collision)
+                                {
 //                                this->draw_paths(&widget_2d->scene, false, path.paths[0]);
-                                qInfo() << "-----------------GOING TO TARGET-----------------------";
-                                //Create node intention to avoid collision:
-                                //Get robot level
-                                auto robot_level_ = G->get_node_level(robot_node);
-                                if(not robot_level_.has_value())
-                                { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
-                                auto robot_level = robot_level_.value();
-                                //Create intention node and add attributes
-                                DSR::Node intention_node = DSR::Node::create<intention_node_type>("avoid_collision");
-                                auto pos_x = static_cast<float>(rand()%170);
-                                auto pos_y = static_cast<float>(rand()%170);
+                                    qInfo() << "-----------------GOING TO TARGET-----------------------";
+                                    //Create node intention to avoid collision:
+                                    //Get robot level
+                                    auto robot_level_ = G->get_node_level(robot_node);
+                                    if(not robot_level_.has_value())
+                                    { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
+                                    auto robot_level = robot_level_.value();
+                                    //Create intention node and add attributes
+                                    DSR::Node intention_node = DSR::Node::create<intention_node_type>("avoid_collision");
+                                    auto pos_x = static_cast<float>(rand()%170);
+                                    auto pos_y = static_cast<float>(rand()%170);
 
-                                G->add_or_modify_attrib_local<pos_x_att>(intention_node, pos_x);
-                                G->add_or_modify_attrib_local<pos_y_att>(intention_node, pos_y);
-                                G->add_or_modify_attrib_local<level_att>(intention_node, robot_level + 1);
-                                //Set object position attributes
-                                G->add_or_modify_attrib_local<robot_target_x_att>(intention_node, obtained_point.x);
-                                G->add_or_modify_attrib_local<robot_target_y_att>(intention_node, obtained_point.y);
+                                    G->add_or_modify_attrib_local<pos_x_att>(intention_node, pos_x);
+                                    G->add_or_modify_attrib_local<pos_y_att>(intention_node, pos_y);
+                                    G->add_or_modify_attrib_local<level_att>(intention_node, robot_level + 1);
+                                    //Set object position attributes
+                                    G->add_or_modify_attrib_local<robot_target_x_att>(intention_node, obtained_point.x);
+                                    G->add_or_modify_attrib_local<robot_target_y_att>(intention_node, obtained_point.y);
 
-                                //print obtained point
-                                qInfo() << "Obtained point target: " << obtained_point.x << " " << obtained_point.y;
+                                    //print obtained point
+                                    qInfo() << "Obtained point target: " << obtained_point.x << " " << obtained_point.y;
 
-                                this->draw_point(&widget_2d->scene, QPoint(obtained_point.x, obtained_point.y), obtained_point.radius, QColor("blue"));
-                                this->draw_point(&widget_2d->scene, QPoint(object.x, object.y), object.radius, QColor("red"));
+                                    this->draw_point(&widget_2d->scene, QPoint(obtained_point.x, obtained_point.y), obtained_point.radius, QColor("blue"));
+                                    this->draw_point(&widget_2d->scene, QPoint(object.x, object.y), object.radius, QColor("red"));
 
-                                //Insert intention node and edge
-                                try{
-                                    G->insert_node(intention_node);
-                                    qInfo() << "Intention node created";
-                                    insert_edge(robot_node.id(), intention_node.id(), "go_to_action");
-                                    qInfo() << "Edge go_to_action created";
-                                    return;
+                                    //Insert intention node and edge
+                                    try{
+                                        G->insert_node(intention_node);
+                                        qInfo() << "Intention node created";
+                                        insert_edge(robot_node.id(), intention_node.id(), "go_to_action");
+                                        qInfo() << "Edge go_to_action created";
+                                        return;
+                                    }
+                                    catch(const std::exception &e)
+                                    { std::cout << e.what() << " Error inserting node" << std::endl;}
                                 }
-                                catch(const std::exception &e)
-                                { std::cout << e.what() << " Error inserting node" << std::endl;}
                             }
                         }
-                    }
-                    catch(const Ice::Exception &e){
-                        std::cout << "Error reading from Gridder" << std::endl;
-                    }
-                    visible_objects.pop_back();
-                    objects_with_rounded_points.pop_back();
+                        catch(const Ice::Exception &e){
+                            std::cout << "Error reading from Gridder" << std::endl;
+                        }
+                        visible_objects.pop_back();
+                        objects_with_rounded_points.pop_back();
 
-                    //get and print diff time using timestamp
-                    auto diff = std::chrono::system_clock::now() - timestamp;
-                    std::cout << "Time difference = " << std::chrono::duration <double, std::milli> (diff).count() << " ms" << std::endl;
+                        //get and print diff time using timestamp
+                        auto diff = std::chrono::system_clock::now() - timestamp;
+                        std::cout << "Time difference = " << std::chrono::duration <double, std::milli> (diff).count() << " ms" << std::endl;
+                    }
                 }
             }
+            else{ qInfo() << "No time to collision"; return;}
         }
         else
         {
             return;
         }
     }
+}
+float SpecificWorker::calculate_path_time(const std::vector<RoboCompGridder::TPoint> &path, float speed)
+{
+    float time = 0;
+    for (const auto &[i, p]: path | iter::enumerate)
+        time += sqrt(pow(path[i].x - path[i + 1].x, 2) + pow(path[i].y - path[i + 1].y, 2)) / speed;
+    // if time == nan, return max possible time
+    if(isnan(time))
+        return std::numeric_limits<float>::max();
+    return time;
 }
 int SpecificWorker::startup_check()
 {

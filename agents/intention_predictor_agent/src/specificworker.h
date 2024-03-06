@@ -33,6 +33,7 @@
 #include <doublebuffer/DoubleBuffer.h>
 #include <personcone.h>
 
+
 //class Pyramid
 //{
 //public:
@@ -150,7 +151,10 @@ private:
     void delete_edge(uint64_t from, uint64_t to, const std::string &edge_tag);
     void insert_edge(uint64_t from, uint64_t to, const std::string &edge_tag);
     bool allow_prediction = true;
+    float person_speed = 0.7; // BEWARE: m/s !!!!!!!!!!!!
     std::uint64_t avoid_collision_node_id = 0;
+
+    float calculate_path_time(const vector<RoboCompGridder::TPoint> &path, float speed);
 };
 
 #endif
