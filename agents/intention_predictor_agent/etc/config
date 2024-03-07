@@ -13,7 +13,7 @@ graph_view = true
 #Ice.MessageSizeMax=20004800
 
 cone_radius = 6000
-cone_angle = 1
+cone_angle = 1.0
 
 InnerModelPath = innermodel.xml
 

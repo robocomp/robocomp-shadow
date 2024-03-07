@@ -216,6 +216,9 @@ class SpecificWorker(GenericWorker):
             self.tracker = BYTETracker(frame_rate=5, buffer_=1000)
             # self.tracker_back = BYTETracker(frame_rate=5)
             self.objects = ifaces.RoboCompVisualElementsPub.TData()
+            self.ui.pushButton.clicked.connect(self.reset_tracks)
+            self.reset = False
+            self.refresh_sleep_time = 5
 
             ############## MODELS ##############
             # Load YOLO model
@@ -279,6 +282,14 @@ class SpecificWorker(GenericWorker):
         If the display option is enabled, it will display the tracking results on the image.
         Finally, it shows the frames per second (FPS) of the pipeline.
         """
+        if self.reset:
+            print("RESETTING TRACKS") 
+            self.tracker.tracked_stracks = []  # type: list[STrack]
+            self.tracker.lost_stracks = []  # type: list[STrack]
+            self.tracker.removed_stracks = []  # type: list[STrack]
+            self.tracker.frame_id = 0
+            time.sleep(self.refresh_sleep_time)
+            self.reset = False
 
         if self.inference_read_queue:
             start = time.time()
@@ -362,6 +373,9 @@ class SpecificWorker(GenericWorker):
                 self.show_fps(alive_time, period)
             except KeyboardInterrupt:
                 self.event.set()
+
+    def reset_tracks(self):
+        self.reset = True
 
     def calcular_matriz_diferencial(self, transformacion1, transformacion2):
         # Calcular la inversa de la primera matriz de transformación

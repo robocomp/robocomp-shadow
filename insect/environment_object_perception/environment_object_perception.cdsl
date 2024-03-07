@@ -13,5 +13,6 @@ Component environment_object_perception
         subscribesTo SegmentatorTrackingPub;
     };
     language python;
+    gui Qt(QWidget);
 };
 
