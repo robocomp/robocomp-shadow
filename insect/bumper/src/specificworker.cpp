@@ -624,23 +624,27 @@ RoboCompGridPlanner::TPlan SpecificWorker::GridPlanner_modifyPlan(RoboCompGridPl
 /////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)
 {
-    float side=0.f, adv=0.f, rot=0.f;
-    // Take joystick data as an external. It comes in m/sg, so we need to scale it to mm/s
-    for (const auto &axis : data.axes)
+    if(params.ENABLE_JOYSTICk)
     {
-        if(axis.name == "rotate")
-            rot = axis.value;
-        else if (axis.name == "advance")
-            adv = axis.value;
-        else if (axis.name == "side")
-            side = -axis.value;
-        else
-            cout << "[ JoystickAdapter ] Warning: Using a non-defined axes (" << axis.name << ")." << endl;
+        float side=0.f, adv=0.f, rot=0.f;
+        // Take joystick data as an external. It comes in m/sg, so we need to scale it to mm/s
+        for (const auto &axis : data.axes)
+        {
+            if(axis.name == "rotate")
+                rot = axis.value;
+            else if (axis.name == "advance")
+                adv = axis.value;
+            else if (axis.name == "side")
+                side = -axis.value;
+            else
+                cout << "[ JoystickAdapter ] Warning: Using a non-defined axes (" << axis.name << ")." << endl;
+        }
+        RoboCompGridPlanner::TPlan plan;
+        plan.valid = true;
+        plan.controls.emplace_back(side*1000.f, adv*1000.f, rot);
+        buffer_target.put(std::move(plan));
     }
-    RoboCompGridPlanner::TPlan plan;
-    plan.valid = true;
-    plan.controls.emplace_back(side*1000.f, adv*1000.f, rot);
-    buffer_target.put(std::move(plan));
+
 }
 
 
