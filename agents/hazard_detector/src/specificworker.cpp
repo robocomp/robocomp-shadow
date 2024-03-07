@@ -298,6 +298,30 @@ void SpecificWorker::compute()
                     for(const auto &obtained_point : points_around_element)
                     {
                         // Check if robot expends less time in the path than person arriving to the target
+<<<<<<< HEAD
+                        auto robot_to_target_path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{0.f, 0.f, 300}, obtained_point, {}, {});
+
+                        if(robot_to_target_path.paths.size() > 0)
+                        {
+
+                            //If there is no collision the collisitionTime is the time simulation takes to reach the target
+                            auto robot_time_in_path = bulletsim_proxy->simulatePath(robot_to_target_path.paths[0], 1,
+                                                                                    {});
+
+                            qInfo() << "Robot time in path: " << robot_time_in_path.collisionTime << ". Time to collision: " << time_to_collision;
+                            if(robot_time_in_path.collisionTime > time_to_collision)
+                            {
+                                qInfo() << "Robot time in path" << robot_time_in_path.collisionTime << "bigger than" << time_to_collision << ". Not possible to solve.";
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            qInfo() << "No path found";
+                            continue;
+                        }
+=======
+>>>>>>> 44b43ebab874a29c1ccb9ec2470b7914e5c1d1f8
 //                    this->clear_drawn_points(&widget_2d->scene,this->path_points);
 //                    this->clear_drawn_points(&widget_2d->scene,this->isolated_points);
 
@@ -339,6 +363,7 @@ void SpecificWorker::compute()
 //                            sim_result.collision = true;
                                 //print sim result point
 //                        qInfo()<< "COLLISION POINT" << sim_result.collision << sim_result.collisionPose.x << " " << sim_result.collisionPose.y;
+
                                 if (!sim_result.collision)
                                 {
 //                                this->draw_paths(&widget_2d->scene, false, path.paths[0]);
