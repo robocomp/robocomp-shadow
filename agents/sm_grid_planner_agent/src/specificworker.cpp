@@ -340,10 +340,42 @@ void SpecificWorker::compute()
         }
     }
 
+
+
     /// MPC
     RoboCompGridPlanner::TPlan final_plan;
-    if(params.USE_MPC) /// convert plan to list of control actions calling MPC
-        final_plan = convert_plan_to_control(returning_plan, target);
+
+    //if returning_plan.paths.front().size() < 2 or dist to target < 1m
+
+
+
+
+    if(returning_plan.paths.front().size() < 3)
+    {
+
+        RoboCompGridPlanner::TControl robot_control;
+
+        if (target.pos_eigen().norm() < this->params.MIN_DISTANCE_TO_TARGET)
+        {
+            //print injected ending plan
+            qInfo() << __FUNCTION__ << "Robot at target. Injecting ending plan";
+            inject_ending_plan();
+            return;
+        }
+        //Set robot_control rotation and advance to the target
+        robot_control.rot = atan2(target.pos_eigen().x(), target.pos_eigen().y());
+        robot_control.adv = target.pos_eigen().norm();
+        //Print robot_control
+        qInfo() << __FUNCTION__ << "Robot control: " << robot_control.adv << robot_control.rot;
+        //Set final_plan control
+        final_plan.controls.clear();
+        final_plan.controls.push_back(robot_control);
+    }
+    else
+    {
+        if(params.USE_MPC) /// convert plan to list of control actions calling MPC
+            final_plan = convert_plan_to_control(returning_plan, target);
+    }
    /// send plan to remote interface and publish it to rcnode
     send_and_publish_plan(final_plan);
 
