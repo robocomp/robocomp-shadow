@@ -91,7 +91,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "webots &"
 
 #Bridge
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cd ~/robocomp/components/webots-bridge"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cd ~/robocomp/components/webots-bridge-iros"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "bin/Webots2Robocomp etc/config"
 
@@ -123,9 +123,9 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "bin/RGBD_360 etc
 
 #object
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cd ~/robocomp/components/robocomp-shadow/insect/object_tracking_new"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cd ~/robocomp/components/robocomp-shadow/insect/environment_object_perception"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "cmake . && make -j32"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "src/object_tracking.py etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 6 "src/environment_object_perception.py etc/config_wb"
 # Controller
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 7 "cd ~/robocomp/components/robocomp-shadow/insect/controller_web"

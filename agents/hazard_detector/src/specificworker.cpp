@@ -215,7 +215,7 @@ void SpecificWorker::compute()
                                     Eigen::Vector3f{std::get<0>(target_pose), std::get<1>(target_pose),
                                                     std::get<2>(target_pose)},
                                     Eigen::Vector3f{std::get<0>(person_pose), std::get<1>(person_pose),
-                                                    std::get<2>(person_pose)*2},
+                                                    std::get<2>(person_pose)*1.9},
                                     distance_to_obstacle / 5);
 
                             if (in_cone)
@@ -278,27 +278,26 @@ void SpecificWorker::compute()
                     // Get possible points around each object
                     auto points_around_element = get_points_around_element_pose(object, 800, 10);
 //                this->draw_paths(&widget_2d->scene, false, points_around_element);
-
+                    auto robot_to_target_path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{0.f, 0.f, 600}, RoboCompGridder::TPoint{.x=object.x, .y=object.y, .radius=600}, {}, {});
+                    if(robot_to_target_path.paths.size() > 0)
+                    {
+                        auto robot_time_in_path = calculate_path_time(robot_to_target_path.paths[0], robot_max_speed);
+                        qInfo() << "Robot time in path" << robot_time_in_path;
+                        if(robot_time_in_path > time_to_collision)
+                        {
+                            qInfo() << "Robot time in path" << robot_time_in_path << "bigger than" << time_to_collision << ". Not possible to solve";
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        qInfo() << "No path found";
+                        continue;
+                    }
                     //print something for debug
                     for(const auto &obtained_point : points_around_element)
                     {
                         // Check if robot expends less time in the path than person arriving to the target
-                        auto robot_to_target_path = gridder_proxy->setLocationAndGetPath(RoboCompGridder::TPoint{0.f, 0.f, 300}, obtained_point, {}, {});
-                        if(robot_to_target_path.paths.size() > 0)
-                        {
-                            auto robot_time_in_path = calculate_path_time(robot_to_target_path.paths[0], robot_max_speed);
-                            qInfo() << "Robot time in path" << robot_time_in_path;
-                            if(robot_time_in_path > time_to_collision)
-                            {
-                                qInfo() << "Robot time in path" << robot_time_in_path << "bigger than" << time_to_collision << ". Not possible to solve";
-                                continue;
-                            }
-                        }
-                        else
-                        {
-                            qInfo() << "No path found";
-                            continue;
-                        }
 //                    this->clear_drawn_points(&widget_2d->scene,this->path_points);
 //                    this->clear_drawn_points(&widget_2d->scene,this->isolated_points);
 
@@ -332,7 +331,6 @@ void SpecificWorker::compute()
 //                            this->clear_drawn_points(&widget_2d->scene, this->path_points);
                                 this->draw_paths(&widget_2d->scene, false, path.paths[0]);
                                 //print something for debugging
-                                qInfo() << "Path draw";
 //                            sleep(1);
                                 auto sim_result = bulletsim_proxy->simulatePath(path.paths[0], 1,
                                                                                 objects_with_rounded_points);
@@ -405,8 +403,13 @@ void SpecificWorker::compute()
 float SpecificWorker::calculate_path_time(const std::vector<RoboCompGridder::TPoint> &path, float speed)
 {
     float time = 0;
-    for (const auto &[i, p]: path | iter::enumerate)
-        time += sqrt(pow(path[i].x - path[i + 1].x, 2) + pow(path[i].y - path[i + 1].y, 2)) / speed;
+    for (const auto &group : iter::sliding_window(path, 2))
+    {
+        const auto &p1 = group[0];
+        const auto &p2 = group[1];
+        qInfo() << "TIME BETWEEN POINTS" << p1.x << p1.y << p2.x << p2.y << sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2)) / speed;
+        time += sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2)) / speed;
+    }
     // if time == nan, return max possible time
     if(isnan(time))
         return std::numeric_limits<float>::max();
@@ -449,10 +452,10 @@ void SpecificWorker::draw_paths(QGraphicsScene *scene, bool erase_only, RoboComp
 //    path_points.clear();
 
     //print points x and y
-    for(const auto &p : points_)
-    {
-        qInfo() << "Path points: " << p.x << " " << p.y;
-    }
+//    for(const auto &p : points_)
+//    {
+//        qInfo() << "Path points: " << p.x << " " << p.y;
+//    }
 
     if(erase_only) return;
     float s = 100;

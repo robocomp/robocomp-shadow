@@ -5,7 +5,7 @@ GridderProxy = gridder:tcp -h localhost -p 13541
 Webots2RobocompProxy = webots2robocomp:tcp -h localhost -p 10006
 
 
-agent_id = 0 # Change id
+agent_id = 33 # Change id
 agent_name = human_driver_wb
 tree_view = true
 graph_view = true

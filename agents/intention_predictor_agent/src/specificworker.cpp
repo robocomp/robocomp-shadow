@@ -290,7 +290,7 @@ void SpecificWorker::compute()
     //                                        qInfo() << "Checking if object is inside the cone";
                                                     auto in_cone = element_inside_cone(Eigen::Vector3f{x_obj, y_obj, z_obj},
                                                                                     Eigen::Vector3f{x_ch, y_ch, z_ch},
-                                                                                    Eigen::Vector3f{x, y, z *2},
+                                                                                    Eigen::Vector3f{x, y, z *1.9},
                                                                                     distance_to_obstacle / 5);
                                                     if (!in_cone) {
     /*                                            qInfo() << "Object" << QString::fromStdString(object.name())

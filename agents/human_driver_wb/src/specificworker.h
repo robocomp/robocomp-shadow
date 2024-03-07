@@ -81,8 +81,8 @@ private:
     std::optional<std::tuple<float, float, float, float>> get_rt_data(const DSR::Node &n, uint64_t to);
 
     // Pilar cone parameters
-    float cone_radius = 4000;
-    float cone_angle = 1;   // rads
+    float cone_radius = 6000;
+    float cone_angle = 0.7;   // rads
 
     //Person cones
     std::vector<PersonCone> person_cones;
