@@ -263,7 +263,7 @@ void SpecificWorker::compute()
                             // Once the obstacles are detected, simulate the path to the target considering seeing obstacles
                             //TODO: introduce bool, all obstacles visible or not
 
-                            bool all_visible = true;
+                            bool all_visible = false;
 
                             if (all_visible) // All objects visible
                             {

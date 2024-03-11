@@ -76,7 +76,7 @@ void SpecificWorker::initialize(int period)
 	qInfo() << __FUNCTION__ << "Graph loaded. Agent:" << agent_name.c_str() << "ID:" << agent_id << " from "  << "shadow_scene.json";
 
 	//dsr update signals
-	//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+	connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
 	//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 	//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 	//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
@@ -170,6 +170,11 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+    if(reset)
+    {
+        reset_graph_elements();
+        reset = false;
+    }
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (not res_.has_value())  { /*qWarning() << "No data Lidar";*/ return; }
@@ -214,6 +219,33 @@ void SpecificWorker::compute()
 
     this->hz = fps.print("FPS:", 3000);
     draw_scenario(points, &widget_2d->scene);
+}
+
+void SpecificWorker::reset_graph_elements()
+{
+    //Get and delete all nodes type object
+    auto nodes = G->get_nodes_by_type("object");
+    for (auto node : nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    //Get and delete all person nodes
+    auto person_nodes = G->get_nodes_by_type("person");
+    for (auto node : person_nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    auto intention_nodes = G->get_nodes_by_type("intention");
+    for (auto node : intention_nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
 }
 
 //////////////////////////////// SpecificWorker /////////////////////////////////////////////////
@@ -1001,7 +1033,13 @@ void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, Q
     draw_objects_graph(scene);
     draw_people_graph(scene);
 }
-
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+{
+    if(type == "intention")
+        if(auto intention_node = G->get_node(id); intention_node.has_value())
+            if(intention_node.value().name() == "STOP")
+                reset = true;
+}
 //////////////////////////////// Interfaces /////////////////////////////////////////////////
 void SpecificWorker::VisualElementsPub_setVisualObjects(RoboCompVisualElementsPub::TData data)
 {

@@ -97,8 +97,10 @@ void SpecificWorker::initialize(int period)
             //Pint message
             std::cout << "File open" << std::endl;
             //write header
-            file << "" << ";" << "angleY-angleY0" <<std::endl;
-
+            file << "experiment_ID" << ";" << "timestamp" << ";" << "Person_pose_x" << ";" << "Person_pose_y" << ";"
+            << "object_pose_x" << ";" << "object_pose_y" << ";" << "person_target_x" << ";" << "person_target_y"
+            << ";" << "robot_pose_x" << ";" << "robot_pose_y" << ";" << "Collision_Edge" << ";" << "Node_Avoid"
+            <<";" << "avoid_target_x" <<";" << "avoid_target_y" <<std::endl;
         }
         else
         {
@@ -166,7 +168,7 @@ void SpecificWorker::initialize(int period)
 		std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
 
 		//dsr update signals
-		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
@@ -214,7 +216,12 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-
+    if(reset)
+    {
+        qInfo() << "Resetting the simulation.";
+        setElementsToStartPosition();
+        reset = false;
+    }
     // Getting the data from simulation.
     if(lidar_helios) receiving_lidarData("helios", lidar_helios, double_buffer_helios,  helios_delay_queue);
     if(lidar_pearl) receiving_lidarData("bpearl", lidar_pearl, double_buffer_pearl, pearl_delay_queue);
@@ -240,7 +247,8 @@ void SpecificWorker::compute()
     robot->step(1);
 //    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count() << std::endl;
 
-     parseHumanObjects();
+    parseHumanObjects();
+
 
 //    //TODO: DELETE, only for debuggin purpose
 //    //Create 15 equispace points Robocomp gridder path between (1000, 0) and (1000, 3000) points
@@ -258,7 +266,22 @@ void SpecificWorker::compute()
 
     humansMovement();
 
-    file << std::to_string(experiment_id) << ";" << std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) << ";"<<std::endl;
+
+    //            file << "experiment_ID" << ";" << "timestamp" << ";" << "Person_pose_x" << ";" << "Person_pose_y" << ";"
+    //            << "object_pose_x" << ";" << "object_pose_y" << ";" << "person_target_x" << ";" << "person_target_y"
+    //            << ";" << "robot_pose_x" << ";" << "robot_pose_y" << ";" << "Collision_Edge" << ";" << "Node_Avoid"
+    //            <<";" << "avoid_target_x" <<";" << "avoid_target_y" <<std::endl;
+
+    //get webots metric data
+    auto webots_data = getPositions();
+    //get DSR metrics
+    auto dsr_data = calculate_collision_metrics();
+    auto avoid_target = std::get<2>(dsr_data);
+    file << std::to_string(experiment_id) << ";" << std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) //ID , TIMESTAMP
+    << ";" << std::to_string(webots_data[0][0]) << ";" << std::to_string(webots_data[0][1]) << ";" << std::to_string(webots_data[1][0]) << ";" << std::to_string(webots_data[1][1]) // Person_x, Person_y, object_x, object_y
+    << ";" << std::to_string(webots_data[2][0]) << ";" << std::to_string(webots_data[2][1]) << ";" << std::to_string(webots_data[3][0]) << ";" << std::to_string(webots_data[3][1]) // Person_target_x, Person_target_y, robot_pose_x, robot_pose_y
+    << ";" << std::to_string(std::get<0>(dsr_data))<< ";"<< std::to_string(std::get<1>(dsr_data))<< ";"<< std::to_string(avoid_target.x())<< ";" <<std::to_string(avoid_target.y())<<std::endl; //Collision_Edge, Node_Avoid, avoid_target_x, avoid_target_y
+
     fps.print("FPS:");
 }
 
@@ -760,14 +783,12 @@ void SpecificWorker::VisualElements_setVisualObjects(RoboCompVisualElements::TOb
 
 void SpecificWorker::humansMovement()
 {
-    qInfo()<< __FUNCTION__;
-
     if(!humanObjects.empty())
         for (auto& human : humanObjects)
         {
-            qInfo() << "ID" << human.first;
+//            qInfo() << "ID" << human.first;
 
-            qInfo() << "Moving human " << human.first << human.second.path.size();
+//            qInfo() << "Moving human " << human.first << human.second.path.size();
             moveHumanToNextTarget(human.first);
 
         }
@@ -788,7 +809,7 @@ void SpecificWorker::moveHumanToNextTarget(int humanId)
 
     if(humanObjects[humanId].path.empty())
     {
-        qInfo() <<"Set velocity to 0, path empty";
+//        qInfo() <<"Set velocity to 0, path empty";
         velocity[0] = 0.f;
         velocity[1] = 0.f;
         velocity[2] = 0.f;
@@ -819,8 +840,17 @@ void SpecificWorker::moveHumanToNextTarget(int humanId)
         velocity[5] = 0.f;
         //Print velocity vector values
         qInfo() << "SPEED:" << velocity[0] << velocity[1] << velocity[2];
-
     }
+    // SET VELOCITY MODULE IN PERSON NODE HARCODED FOR EVERY PERSON IN GRAPH!!!!!!!!!!!
+    //Calculate velocity vector module
+    float velocity_module = std::sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1]);
+
+//    auto person_nodes = G->get_nodes_by_type("person");
+//    // Iterate over person nodes
+//    for (const auto& person_node : person_nodes)
+//    {
+//        G->add_or_modify_attrib_local<velocity_module_att>(person_node, velocity_module);
+//    }
 
     humanNode->setVelocity(velocity);
 }
@@ -900,6 +930,7 @@ void SpecificWorker::setObstacleStartPosition()
 
 void SpecificWorker::setElementsToStartPosition()
 {
+
     //Increase experiment Counter
     experiment_id++;
     // Set the obstacle to the initial position
@@ -924,10 +955,36 @@ void SpecificWorker::setElementsToStartPosition()
         webots::Node *humanNode = human.second.node;
         auto random_point_person = getRandomPointInLine(personPoseLine);
 //        auto random_point = getRandomPointInRadius(human.second.startPosition[0], human.second.startPosition[1], 0.3);
-        const double humanPosition[] = {random_point_person.x, random_point_person.y, human.second.startPosition[2]};
+        const double humanPosition[] = {random_point_person.x, random_point_person.y, 0.0};
         humanNode->getField("translation")->setSFVec3f(humanPosition);
         // Print human position
         std::cout << "Human position: " << humanPosition[0] << " " << humanPosition[1] << " " << humanPosition[2] << std::endl;
+    }
+}
+void SpecificWorker::reset_sim()
+{
+    //Get and delete all nodes type object
+    auto nodes = G->get_nodes_by_type("object");
+    for (auto node : nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    //Get and delete all person nodes
+    auto person_nodes = G->get_nodes_by_type("person");
+    for (auto node : person_nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
+    }
+    auto intention_nodes = G->get_nodes_by_type("intention");
+    for (auto node : intention_nodes)
+    {
+        G->delete_node(node);
+        //Print deleted node
+        qInfo() << __FUNCTION__ << "Deleted node: " << node.id();
     }
 }
 std::pair<double, double> SpecificWorker::getRandomPointInRadius(double centerX, double centerY, double radius) {
@@ -965,6 +1022,60 @@ RoboCompGridder::TPoint SpecificWorker::getRandomPointInLine(PoseLine pl)
     double y = pl.p1.y + distance * (pl.p2.y - pl.p1.y);
 
     return RoboCompGridder::TPoint{.x=x, .y=y};
+}
+std::tuple<int, int, Eigen::Vector2f> SpecificWorker::calculate_collision_metrics()
+{
+    int possible_collision_exists = 0;
+    int collision_solver_intention_exists = 0;
+    Eigen::Vector2f collision_solver_pose = {0, 0};
+
+    // Check if collision edges exists
+    auto collision_edges = G->get_edges_by_type("collision");
+    if(!collision_edges.empty())
+        possible_collision_exists = 1;
+
+    // Check if intention to solve the collision exists
+    auto intention_nodes = G->get_nodes_by_type("intention");
+    // Check if any intention node with "avoid_collision" name exists
+    for(const auto &intention_node : intention_nodes)
+        if(intention_node.name() == "avoid_collision")
+        {
+            collision_solver_intention_exists = 1;
+            if(auto target_x = G->get_attrib_by_name<robot_target_x_att>(intention_node); target_x.has_value())
+                collision_solver_pose.x() = target_x.value();
+            if(auto target_y = G->get_attrib_by_name<robot_target_y_att>(intention_node); target_y.has_value())
+                collision_solver_pose.y() = target_y.value();
+        }
+    return std::make_tuple(possible_collision_exists, collision_solver_intention_exists, collision_solver_pose);
+}
+
+std::vector<std::vector<double>> SpecificWorker::getPositions()
+{
+    std::vector<std::vector<double>> positions;
+
+    auto shadow_node = robot->getFromDef("shadow");
+    auto target_node = robot->getFromDef("SOFA");
+    auto obstacle_node = robot->getFromDef("OBSTACLE");
+    auto human_node = robot->getFromDef("HUMAN_1");
+
+    if(shadow_node == nullptr){ cerr << "Robot shadow does not exists."; return {}; }
+    if(target_node == nullptr){ cerr << "Couch does not exists."; return {}; }
+    if(human_node == nullptr){ cerr << "Human 0 does not exists."; return {}; }
+    if(obstacle_node == nullptr){ cerr << "Soccer ball does not exists."; return {}; }
+
+    positions.push_back({human_node->getField("translation")->getSFVec3f()[0], human_node->getField("translation")->getSFVec3f()[1]});
+    positions.push_back({obstacle_node->getField("translation")->getSFVec3f()[0], obstacle_node->getField("translation")->getSFVec3f()[1]});
+    positions.push_back({target_node->getField("translation")->getSFVec3f()[0], target_node->getField("translation")->getSFVec3f()[1]});
+    positions.push_back({shadow_node->getField("translation")->getSFVec3f()[0], shadow_node->getField("translation")->getSFVec3f()[1], shadow_node->getField("rotation")->getSFRotation()[0]});
+
+    return positions;
+}
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+{
+    if(type == "intention")
+        if(auto intention_node = G->get_node(id); intention_node.has_value())
+            if(intention_node.value().name() == "STOP")
+                reset = true;
 }
 /**************************************/
 // From the RoboCompCamera360RGB you can use this types:

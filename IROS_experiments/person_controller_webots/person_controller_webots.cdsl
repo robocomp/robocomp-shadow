@@ -1,0 +1,11 @@
+import "JoystickAdapter.idsl";
+
+Component person_controller_webots
+{
+    Communications
+    {
+        subscribesTo JoystickAdapter;
+    };
+    language python;
+};
+
