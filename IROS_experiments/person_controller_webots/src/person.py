@@ -41,20 +41,20 @@ class Person(Supervisor):
 
     def set_speed(self, data):
         ########## In case the receibed speed is in the person frame ##########
-        if time.time() - self.last_time_sent_velocity > self.time_between_velocity_commands:
-            self.last_time_sent_velocity = time.time()
-            person_orientation = self.person_node.getOrientation()
-            orientation = math.atan2(person_orientation[0], person_orientation[1]) - math.pi / 2
-            rotation_matrix = np.array(
-                [[math.cos(orientation), -math.sin(orientation)], [math.sin(orientation), math.cos(orientation)]])
-            lin_speed = np.array([data.axes[1].value * 2, 0])
-            # if data.axes[1] > 0.1 or data.axes[1] < -0.1:
-            #     self.moving = True
-            # else:
-            #     self.moving = False
-            converted_speed = np.matmul(rotation_matrix, lin_speed)
-            self.person_node.setVelocity(
-                [converted_speed[0] / 2.5, converted_speed[1] / 2.5, 0, 0, 0, -data.axes[0].value * math.pi / 2])
+        # if time.time() - self.last_time_sent_velocity > self.time_between_velocity_commands:
+        #     self.last_time_sent_velocity = time.time()
+        person_orientation = self.person_node.getOrientation()
+        orientation = math.atan2(person_orientation[0], person_orientation[1]) - math.pi / 2
+        rotation_matrix = np.array(
+            [[math.cos(orientation), -math.sin(orientation)], [math.sin(orientation), math.cos(orientation)]])
+        lin_speed = np.array([data.axes[1].value * 2, 0])
+        # if data.axes[1] > 0.1 or data.axes[1] < -0.1:
+        #     self.moving = True
+        # else:
+        #     self.moving = False
+        converted_speed = np.matmul(rotation_matrix, lin_speed)
+        self.person_node.setVelocity(
+            [converted_speed[0] / 2.5, converted_speed[1] / 2.5, 0, 0, 0, -data.axes[0].value * math.pi / 2])
 
     def set_initial_pose(self, data):
         if data.buttons[3]:
@@ -65,6 +65,6 @@ class Person(Supervisor):
         color = self.person_camera.getImage()
         color_image = cv2.cvtColor(cv2.cvtColor(
             np.frombuffer(color, np.uint8).reshape(self.person_camera.getHeight(), self.person_camera.getWidth(), 4),
-            cv2.COLOR_RGBA2RGB), cv2.COLOR_BGR2RGB)
+            cv2.COLOR_BGR2RGB), cv2.COLOR_BGR2RGB)
         cv2.imshow("color", color_image)
         cv2.waitKey(1)

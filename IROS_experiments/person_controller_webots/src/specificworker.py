@@ -18,6 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
+import time
 
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
@@ -43,14 +44,14 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 16
         if startup_check:
             self.startup_check()
         else:
             os.environ["WEBOTS_CONTROLLER_URL"] = "ipc://1234/HUMAN_" + str(1)
             self.person = Person(1)
 
-            self.speed_queue = deque(maxlen=10)
+            self.speed_queue = deque(maxlen=1)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -69,13 +70,16 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        print(self.person.step(self.person.timeStep), self.person.timeStep)
-        while self.person.step(self.person.timeStep) != -1:
-            self.person.bvh_animation_functions.motion_step()
+        # print(self.person.step(self.person.timeStep), self.person.timeStep)
+        if self.person.step(self.person.timeStep) != -1:
+            t1 = time.time()
+            # self.person.bvh_animation_functions.motion_step()
             self.person.get_camera_image()
             if self.speed_queue:
-                self.person.set_speed(self.speed_queue.pop())
-            #
+                self.person.set_speed(self.speed_queue.copy()[0])
+                print("Speed set")
+            print("TIME",time.time() - t1)
+
 
     def startup_check(self):
         print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
