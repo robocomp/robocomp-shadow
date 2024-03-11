@@ -14,5 +14,6 @@ Component environment_object_perception
     };
     language python;
     gui Qt(QWidget);
+    options dsr;
 };
 

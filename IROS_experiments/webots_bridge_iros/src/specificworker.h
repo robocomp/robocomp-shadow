@@ -102,7 +102,7 @@ public slots:
 	int startup_check();
 
 	void initialize(int period);
-	void modify_node_slot(std::uint64_t, const std::string &type){};
+	void modify_node_slot(std::uint64_t id, const std::string &type);
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
@@ -211,7 +211,6 @@ private:
     void setElementsToStartPosition();
     std::pair<double, double> getRandomPointInRadius(double centerX, double centerY, double radius);
 
-
     std::vector<float> robotStartPosition{3};
     std::vector<float> robotStartOrientation{3};
 
@@ -225,15 +224,21 @@ private:
     };
     RoboCompGridder::TPoint getRandomPointInLine(PoseLine pl);
     // Pose line for elements in IROS experiment
-    PoseLine personPoseLine{.p1 = RoboCompGridder::TPoint{.x=3.05462, .y=2.92602}, .p2 = {.x=3.09135, .y=-0.420693}};
-    PoseLine obstaclePoseLine{.p1 = RoboCompGridder::TPoint{.x=0.752, .y=1.76}, .p2 = {.x=0.683, .y=-1.22}};
+    PoseLine personPoseLine{.p1 = RoboCompGridder::TPoint{.x=3.05462, .y=1.19488}, .p2 = {.x=3.09135, .y=-0.420693}};
+    PoseLine obstaclePoseLine{.p1 = RoboCompGridder::TPoint{.x=-1.45976, .y=-0.0863835}, .p2 = {.x=-0.915218, .y=-1.45976}};
     PoseLine robotPoseLine1{.p1 = RoboCompGridder::TPoint{.x=-0.258, .y=2.85}, .p2 = {.x=-3.38, .y=0.884}};
     PoseLine robotPoseLine2{.p1 = RoboCompGridder::TPoint{.x=2.45, .y=-1.85}, .p2 = {.x=0.3, .y=-3.0}};
 
     //METRICS
     std::ofstream file;
     int experiment_id = 0;
+    // Tuple for storing a TUPLE OF METRICS
+    std::tuple<int, int, Eigen::Vector2f> calculate_collision_metrics();
+    //webots metric data vector
+    std::vector<std::vector<double>> getPositions();
 
+    bool reset = false;
+    void reset_sim();
 };
 
 #endif

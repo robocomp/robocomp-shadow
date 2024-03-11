@@ -91,7 +91,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "webots &"
 
 #Bridge
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cd ~/robocomp/components/webots-bridge-iros"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cd ~/robocomp/components/robocomp-shadow/agents/webots_bridge_iros"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 1 "bin/Webots2Robocomp etc/config"
 
@@ -146,7 +146,7 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "bin/MPC etc/conf
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cd ~/robocomp/components/robocomp-shadow/insect/bumper"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "cmake . && make -j32"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/bumper etc/config_wb"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/bumper etc/config_wb"
 
 #SM_Grid
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "cd ~/robocomp/components/robocomp-shadow/agents/sm_grid_planner_agent"

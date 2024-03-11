@@ -48,6 +48,8 @@ import torch
 import itertools
 import math
 
+from pydsr import *
+
 sys.path.append('/home/robocomp/software/JointBDOE')
 
 from utils.torch_utils import select_device
@@ -162,6 +164,22 @@ _COLORS = np.array(
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, params, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
+
+        # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
+        self.agent_id = 274
+        self.g = DSRGraph(0, "environment_object_perception_agent", self.agent_id)
+
+        try:
+            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
+            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
+            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            console.print("signals connected")
+        except RuntimeError as e:
+            print(e)
+
         if startup_check:
             self.startup_check()
         else:
@@ -288,7 +306,20 @@ class SpecificWorker(GenericWorker):
             self.tracker.lost_stracks = []  # type: list[STrack]
             self.tracker.removed_stracks = []  # type: list[STrack]
             self.tracker.frame_id = 0
-            time.sleep(self.refresh_sleep_time)
+            time.sleep(2)
+            stop_node = Node(agent_id=self.agent_id, type='intention', name="STOP")
+            try:
+                id_result = self.g.insert_node(stop_node)
+                console.print('Person mind node created -- ', id_result, style='red')
+                has_edge = Edge(id_result, self.g.get_node('Shadow').id, 'has', self.agent_id)
+                self.g.insert_or_assign_edge(has_edge)
+
+                print(' inserted new node  ', id_result)
+
+            except:
+                traceback.print_exc()
+                print('cant update node or add edge RT')
+            time.sleep(2)
             self.reset = False
 
         if self.inference_read_queue:
@@ -643,7 +674,7 @@ class SpecificWorker(GenericWorker):
                 if len(masks) == len(boxes):
                     for i in range(len(boxes)):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
-                        if element_confidence > 0.7:
+                        if element_confidence > 0.6:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
                             element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
                             image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
@@ -921,3 +952,25 @@ class SpecificWorker(GenericWorker):
     # self.lidarodometry_proxy.getFullPoseMatrix(...)
     # self.lidarodometry_proxy.getPoseAndChange(...)
     # self.lidarodometry_proxy.reset(...)
+
+    # =============== DSR SLOTS  ================
+    # =============================================
+
+    def update_node_att(self, id: int, attribute_names: [str]):
+        console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
+
+    def update_node(self, id: int, type: str):
+        console.print(f"UPDATE NODE: {id} {type}", style='green')
+
+    def delete_node(self, id: int):
+        console.print(f"DELETE NODE:: {id} ", style='green')
+
+    def update_edge(self, fr: int, to: int, type: str):
+
+        console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+
+    def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
+        console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
+
+    def delete_edge(self, fr: int, to: int, type: str):
+        console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
