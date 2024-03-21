@@ -1,0 +1,13 @@
+import "JoystickAdapter.idsl";
+
+Component room_model_agent
+{
+    Communications
+    {
+        subscribesTo JoystickAdapter;
+    };
+    language python;
+    options dsr;
+};
+
+
