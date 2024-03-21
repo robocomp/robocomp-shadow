@@ -39,6 +39,28 @@ class GenericWorker(QtCore.QObject):
     kill = QtCore.Signal()
 
     def __init__(self, mprx):
+        """
+        initializes a `GenericWorker` object, defining its mutex and timer variables
+        for managing tasks within a specified period (30 seconds).
+
+        Args:
+            mprx (`object` because there's no explicit indication of a specific
+                data type.): QMetaObject::PropertyResourceReference of an object
+                that holds the state of the worker.
+                
+                		- `super(GenericWorker, self).__init__()` calls the constructor
+                of the parent class `GenericWorker`.
+                		- `self.mutex` is a `QtCore.QMutex` object with recursive locking
+                semantics, which allows only one thread to access the worker's
+                methods at a time.
+                		- `self.Period` represents the interval between repeated actions,
+                set to 30 in this example.
+                		- `self.timer` is a `QtCore.QTimer` instance that is owned by
+                the worker object and will be used to schedule repetitions of the
+                action.
+                
+
+        """
         super(GenericWorker, self).__init__()
 
 
@@ -49,6 +71,10 @@ class GenericWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def killYourSelf(self):
+        """
+        emits the `kill` signal, which has unspecified consequences.
+
+        """
         rDebug("Killing myself")
         self.kill.emit()
 
@@ -56,6 +82,15 @@ class GenericWorker(QtCore.QObject):
     # @param per Period in ms
     @QtCore.Slot(int)
     def setPeriod(self, p):
+        """
+        updates its instance variable ` Period` and starts the timer using that value.
+
+        Args:
+            p (int): new period for which the timer should be set, and it is used
+                to update the ` Period ` attribute of the object and start the
+                timer accordingly.
+
+        """
         print("Period changed", p)
         self.Period = p
         self.timer.start(self.Period)
