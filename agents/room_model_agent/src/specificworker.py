@@ -33,6 +33,26 @@ from pydsr import *
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
+        """
+        initializes an instance of `SpecificWorker`, setting up various data
+        structures and connecting signals for updates to a room model.
+
+        Args:
+            proxy_map (`object` (a super class of maps in python).): 2D proxy map
+                for the RoboComp visual elements, which is used to create the graph
+                and connect the nodes and edges.
+                
+                		- `proxy_map`: This is a Python dictionary containing the
+                serialized representation of a `RoboCompVisualElementsPub` object.
+                		- `startup_check`: This is a boolean parameter indicating whether
+                to perform a startup check for the worker. If set to `True`, the
+                startup check will be performed; otherwise, it will be skipped.
+                
+            startup_check (bool): functionality of checking if the specified robot
+                has already been added to the graph, and if so, removing it before
+                adding it again.
+
+        """
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
         # self.real_data = ifaces.RoboCompVisualElementsPub.TData()
@@ -95,6 +115,13 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # read visual_objects from detector and model
+        """
+        1) reads data from detector and model, 2) computes error between real and
+        synthetic objects, 3) computes synthetic objects using the model, 4) checks
+        efferent motor commands from joystick, and 5) updates simulation with the
+        model manager.
+
+        """
         print("2: ", len(self.real_data))
         real_data = self.real_data
         print("1: ", len(real_data))
@@ -123,6 +150,20 @@ class SpecificWorker(GenericWorker):
         # print(synth_data)
         # print(real_data)
 
+        """
+        compares the real data and synthetic data and computes the error between
+        them. It adds new objects to the synthetic data if the length of the real
+        data is greater than the length of the synthetic data.
+
+        Args:
+            real_data (list): 3D object data of the real-world environment, which
+                is compared to the synthetic data `synth_data` to compute the
+                prediction error.
+            synth_data (dict): 3D model of the environment that the code is trying
+                to predict the prediction error for, and it is used to compute the
+                error between the real data and the synthetic data.
+
+        """
         print("LEN COMPUTE",len(real_data))
         print("LEN COMPUTE",len(synth_data))
 
@@ -169,6 +210,15 @@ class SpecificWorker(GenericWorker):
     def compute_synth_data(self):
         # synth_data = ifaces.RoboCompVisualElementsPub.TData()
         # synth_data.objects = []
+        """
+        creates a list of visual elements for a RoboComp simulation, including a
+        room and its doors. It returns the list of visual elements as a single
+        data structure.
+
+        Returns:
+            list: a list of visual elements used for room and door representation.
+
+        """
         synth_data = []
         room_attr = self.model_manager.get_room()
         if room_attr:
@@ -186,6 +236,15 @@ class SpecificWorker(GenericWorker):
         return synth_data
     def check_efferent_motor_commands(self, joy_data):
         # check efferent motor commands from joystick if any, send them to model
+        """
+        evaluates input from a joystick to determine efferent motor commands and
+        sends them to a model for further processing.
+
+        Args:
+            joy_data (None): 3D joystick data from the user's input device, providing
+                information about the user's movements of the robot's end effector.
+
+        """
         side = adv = rot = 0
         if joy_data is not None and joy_data.axes is not None:
             for axis in joy_data.axes:
@@ -198,6 +257,12 @@ class SpecificWorker(GenericWorker):
             self.model_manager.set_robot_velocity(side, adv, rot)
     #######################################################################3
     def startup_check(self):
+        """
+        tests the classes RoboCompVisualElements.TRoi and RoboCompVisualElements.TObject
+        from the ifaces module, printing their names to the console, then quits
+        the application after 200 milliseconds using QTimer.singleShot().
+
+        """
         print(f"Testing RoboCompVisualElements.TRoi from ifaces.RoboCompVisualElements")
         test = ifaces.RoboCompVisualElements.TRoi()
         print(f"Testing RoboCompVisualElements.TObject from ifaces.RoboCompVisualElements")
@@ -221,6 +286,17 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
+        """
+        updates a node's attributes based on its type, appends any new rooms to a
+        real data list, and iterates through the list to replace any room nodes
+        with the updated node.
+
+        Args:
+            id (int): node ID that needs to be updated in the graph.
+            type (str): type of node to be updated, which is used to determine
+                whether to update the real data list or not.
+
+        """
         console.print(f"UPDATE NODE: {id} {type}", style='green')
         if type == "room":
             room_node = self.g.get_node("room")
@@ -249,6 +325,19 @@ class SpecificWorker(GenericWorker):
 
     def update_edge(self, fr: int, to: int, type: str):
 
+        """
+        prints a message to the console when an edge is updated from one vertex
+        to another, indicating the source and destination vertices and the type
+        of edge that was updated.
+
+        Args:
+            fr (int): source node's degree in the graph.
+            to (int): 2nd node ID that the edge belongs to.
+            type (str): edge's update status, which is printed using the
+                `console.print()` function in a formatted message with a green
+                font to indicate successful completion of the operation.
+
+        """
         console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
