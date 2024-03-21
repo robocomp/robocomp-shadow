@@ -49,6 +49,12 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 //		innerModel = std::make_shared(innermodel_path);
 //	}
 //	catch(const std::exception &e) { qFatal("Error reading config params"); }
+    try
+    {
+        consts.DISPLAY = params.at("display").value == "true" or (params.at("delay").value == "True");
+    }
+    catch (const std::exception &e)
+    {std::cout <<"Error reading the config \n" << e.what() << std::endl << std::flush; }
 
 	return true;
 }
@@ -156,6 +162,10 @@ void SpecificWorker::publish_room_and_doors(const rc::Room &room, const DoorDete
         attr.emplace(std::make_pair("center_x", std::to_string(room.get_center_x())));
         attr.emplace(std::make_pair("center_y", std::to_string(room.get_center_y())));
         attr.emplace(std::make_pair("rotation", std::to_string(room.get_rotation())));
+
+        for (const auto & [i, c]: room.get_corners() | iter::enumerate)
+            attr.emplace(std::make_pair("corner"+std::to_string(i+1), std::to_string(c.x()) + "," + std::to_string(c.y())));
+
         RoboCompVisualElementsPub::TObject o{.id=0, .type=5, .attributes=attr};
         data.objects.emplace_back(std::move(o));
     }
