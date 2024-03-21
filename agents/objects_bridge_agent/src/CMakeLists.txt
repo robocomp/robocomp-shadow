@@ -25,6 +25,8 @@ SET ( SOURCES
   commonbehaviorI.cpp
   genericworker.cpp
   visualelementspubI.cpp
+        icp.cpp
+        icp.h
 )
 
 
