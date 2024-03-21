@@ -13,6 +13,7 @@ SET ( HEADERS
   /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
   person.h
 )
+INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
 add_definitions(-g -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
