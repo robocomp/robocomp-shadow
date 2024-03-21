@@ -20,6 +20,10 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/filter.hpp>
 
+//include opencv libraries
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 /**
 * \brief Default constructor
@@ -163,13 +167,15 @@ void SpecificWorker::initialize(int period)
         timer.start(params.PERIOD);
         qInfo() << "Timer started";
     }
-	hide();
+//
+	// hide();
 //    timer.start(params.PERIOD);
 //    qInfo() << "Timer started";
 }
 
 void SpecificWorker::compute()
 {
+
     if(reset)
     {
         reset_graph_elements();
@@ -599,41 +605,263 @@ void SpecificWorker::process_room(const RoboCompVisualElementsPub::TData &data)
             {
                 G->add_or_modify_attrib_local<obj_checked_att>(room_node, true);
             }
+
             // update room parameters for the stabilized room and the waiting room
             G->add_or_modify_attrib_local<timestamp_alivetime_att>(room_node, get_actual_time());
-            G->add_or_modify_attrib_local<width_att>(room_node, std::stoi(room_->attributes.at("width")));
-            G->add_or_modify_attrib_local<height_att>(room_node, std::stoi(room_->attributes.at("height")));
-            G->add_or_modify_attrib_local<depth_att>(room_node, std::stoi(room_->attributes.at("depth")));
+
             G->update_node(room_node);
-            if (auto edge_robot = rt->get_edge_RT(robot_node, room_node.id()); edge_robot.has_value())
+            
+            if (auto edge_robot_ = rt->get_edge_RT(robot_node, room_node.id()); edge_robot_.has_value())
             {
-                std::vector<float> new_robot_orientation, new_robot_pos = {0.0, 0.0, 0.0};
-                G->add_or_modify_attrib_local<rt_translation_att>(edge_robot.value(), std::vector<float>{
-                        std::stof(room_->attributes.at("center_x")),
-                        std::stof(room_->attributes.at("center_y")), 0.f});
-                G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot.value(),
-                                                                         std::vector<float>{0.0, 0.0, std::stof(
-                                                                                 room_->attributes.at(
-                                                                                         "rotation"))});
-                G->insert_or_assign_edge(edge_robot.value());
+                std::vector<float> new_room_orientation, new_room_pos = {0.0, 0.0, 0.0};
+                std::vector<float> room_orientation, room_pos = {0.0, 0.0, 0.0};
+
+                //get rt translation and rotation
+                auto edge_robot = edge_robot_.value();
+                if (auto rt_translation = G->get_attrib_by_name<rt_translation_att>(edge_robot); rt_translation.has_value())
+                    room_pos = rt_translation.value();
+                if (auto rt_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot); rt_rotation.has_value())
+                    room_orientation = rt_rotation.value();
+
+                std::vector<Eigen::Vector2d> source_points;
+                std::vector<Eigen::Vector2d> target_points;
+
+                //TODO: Check if cornerN has value
+                std::stringstream ss(room_->attributes.at("corner1"));
+                float float1, float2; char coma;
+                ss >> float1 >> coma >> float2;
+                static QGraphicsEllipseItem* p0;
+                if (p0 != nullptr)
+                    widget_2d->scene.removeItem(p0);
+                p0 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+                target_points.push_back(Eigen::Vector2d(float1, float2));
+
+                ss.clear(); ss.str(room_->attributes.at("corner2"));
+                ss >> float1 >> coma >> float2;
+                static QGraphicsEllipseItem* p1;
+                if (p1 != nullptr)
+                    widget_2d->scene.removeItem(p1);
+                p1 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+                target_points.push_back(Eigen::Vector2d(float1, float2));
+
+                ss.clear(); ss.str(room_->attributes.at("corner3"));
+                ss >> float1 >> coma >> float2;
+                static QGraphicsEllipseItem* p2;
+                if (p2 != nullptr)
+                    widget_2d->scene.removeItem(p2);
+                p2 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+                target_points.push_back(Eigen::Vector2d(float1, float2));
+
+                ss.clear(); ss.str(room_->attributes.at("corner4"));
+                ss >> float1 >> coma >> float2;
+                static QGraphicsEllipseItem* p3;
+                if (p3 != nullptr)
+                    widget_2d->scene.removeItem(p3);
+                p3 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+                target_points.push_back(Eigen::Vector2d(float1, float2));
+
+                if (auto fixed_corner1 = G->get_attrib_by_name<corner1_att>(room_node); fixed_corner1.has_value())
+                    source_points.push_back(Eigen::Vector2d(fixed_corner1.value().get()[0], fixed_corner1.value().get()[1]));
+                if (auto fixed_corner2 = G->get_attrib_by_name<corner2_att>(room_node); fixed_corner2.has_value())
+                    source_points.push_back(Eigen::Vector2d(fixed_corner2.value().get()[0], fixed_corner2.value().get()[1]));
+                if (auto fixed_corner3 = G->get_attrib_by_name<corner3_att>(room_node); fixed_corner3.has_value())
+                    source_points.push_back(Eigen::Vector2d(fixed_corner3.value().get()[0], fixed_corner3.value().get()[1]));
+                if (auto fixed_corner4 = G->get_attrib_by_name<corner4_att>(room_node); fixed_corner4.has_value())
+                    source_points.push_back(Eigen::Vector2d(fixed_corner4.value().get()[0], fixed_corner4.value().get()[1]));
+
+                auto angle = room_orientation[2];
+                //transform source_points with room_pos and room_orientation rotation matrix creating a rotation matrix and a translation vector
+                Eigen::Vector2d rt_translation_vector = {room_pos[0], room_pos[1]};
+                Eigen::Matrix2d rt_rotation_matrix;
+                rt_rotation_matrix << cos(angle), -sin(angle),
+                                        sin(angle), cos(angle);
+
+                std::vector<Eigen::Vector2d> current_room;
+                //transform source_points with room_pos and room_orientation rotation matrix
+                for (auto &point: source_points)
+                {
+                   current_room.push_back(rt_rotation_matrix * point + rt_translation_vector);
+                }
+
+                //make the middle point between fixed corner1 and corner2
+                Eigen::Vector2d middle_point = (current_room[0] + current_room[1]) / 2;
+                static QGraphicsEllipseItem* p4;
+                if (p4 != nullptr)
+                    widget_2d->scene.removeItem(p4);
+                p4 = widget_2d->scene.addEllipse(middle_point.x(), middle_point.y(), 200, 200, QPen(Qt::blue), QBrush(Qt::blue));
+
+                icp icp(current_room, target_points);
+                icp.align();
+                Eigen::Matrix2d transformation = icp.rotation();
+                Eigen::Vector2d translation = icp.translation();
+
+                //print transformation
+//                std::cout << "Transformation: " << transformation << std::endl;
+//                std::cout << "Translation" << translation << std::endl;
+
+                static QGraphicsEllipseItem* p5;
+                if (p5 != nullptr)
+                    widget_2d->scene.removeItem(p5);
+                p5 = widget_2d->scene.addEllipse(icp.transformPoint(middle_point).x(), icp.transformPoint(middle_point).y(), 200, 200, QPen(Qt::darkBlue), QBrush(Qt::darkBlue));
+
+                std::vector<Eigen::Vector2d> transformed_points;
+
+                //TODO: CHECK IF ARE THE SOURCE POINTS THE ONES THAT HAVE TO BE TRANSFORMED
+                for (auto &point: current_room)
+                {
+                    //print transformed points
+                    transformed_points.push_back(icp.transformPoint(point));
+                }
+
+                static std::vector<QGraphicsItem *> draw_points;
+                for (const auto &p: draw_points)
+                {
+                    widget_2d->scene.removeItem(p);
+                    delete p;
+                }
+                draw_points.clear();
+
+                for (const auto &p: transformed_points)
+                {
+                    auto o = widget_2d->scene.addRect(-20, 20, 200, 200, QPen(Qt::red), QBrush(Qt::red));
+                    o->setPos(p.x(), p.y());
+                    draw_points.push_back(o);
+                }
+
+                float angle_rad = std::atan2(transformation(1,0), transformation(0,0));
+
+                new_room_pos = { room_pos[0]+static_cast<float>(translation.x()), room_pos[1]+static_cast<float>(translation.y()), 0.0f};
+                new_room_orientation = {0.0, 0.0, room_orientation[2]+angle_rad};
+                G->add_or_modify_attrib_local<rt_translation_att>(edge_robot, new_room_pos);
+                G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(edge_robot,new_room_orientation);
+                G->insert_or_assign_edge(edge_robot);
             }
-        } else  // Insert phase. No room in graph. Insert room
+
+//            //get doors from data.objects
+//            std::vector<RoboCompVisualElementsPub::TObject> doors;
+//            for (const auto &object: data.objects | iter::filter([](auto &obj){return obj.attributes.at("name") == "door";}))
+//            {
+//                doors.push_back(object);
+//                //print every attribute of the door
+//                std::cout <<  object.attributes.at("name") << std::endl;
+//                std::cout <<  object.attributes.at("width") << std::endl;
+//                std::cout << object.attributes.at("height") << std::endl;
+//                std::cout <<  object.attributes.at("position") << std::endl;
+//            }
+
+            //create a node in the graph for each door
+//            for (const auto &door: doors)
+//            {
+//                std::string node_name = "door_" + std::to_string(door.id);
+//                DSR::Node new_node = DSR::Node::create<door_node_type>(node_name);
+//                G->add_or_modify_attrib_local<obj_id_att>(new_node, door.id);
+//                G->add_or_modify_attrib_local<pos_x_att>(new_node, std::stof(door.attributes.at("center_x")));
+//                G->add_or_modify_attrib_local<pos_y_att>(new_node, std::stof(door.attributes.at("center_y")));
+//                G->add_or_modify_attrib_local<timestamp_creation_att>(new_node, get_actual_time());
+//                G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
+//                G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
+//                G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
+//                G->insert_node(new_node);
+//                std::vector<float> vector_room_pos = {std::stof(room_->attributes.at("center_x")),
+//                                                      std::stof(room_->attributes.at("center_y")), 0.0},
+//                                                      orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
+//                vector_room_pos = { std::stof(door.attributes.at("center_x")), std::stof(door.attributes.at("center_y")), 0.f};
+//                rt->insert_or_assign_edge_RT(room_node, new_node.id(), vector_room_pos, orientation_vector);
+//            }
+
+        }
+        else  // Insert phase. No room in graph. Insert room the first time
         {
             try
             {
+                auto width = std::stoi(room_->attributes.at("width"));
+                auto height = std::stoi(room_->attributes.at("height"));
+                auto depth = std::stoi(room_->attributes.at("depth"));
+
                 DSR::Node new_node = DSR::Node::create<room_node_type>("room");
                 G->add_or_modify_attrib_local<person_id_att>(new_node, 0);  // TODO: current_room
-                G->add_or_modify_attrib_local<width_att>(new_node, std::stoi(room_->attributes.at("width")));
-                G->add_or_modify_attrib_local<height_att>(new_node, std::stoi(room_->attributes.at("height")));
-                G->add_or_modify_attrib_local<depth_att>(new_node, std::stoi(room_->attributes.at("depth")));
+                G->add_or_modify_attrib_local<width_att>(new_node, width);
+                G->add_or_modify_attrib_local<height_att>(new_node, height);
+                G->add_or_modify_attrib_local<depth_att>(new_node, depth);
+
+                //give me the 4 corners of the room in the 0,0 coordinate system given witdh and depth
+                std::vector<Eigen::Vector2d> imaginary_room_1 = {{-width / 2,depth / 2}, {width / 2, depth / 2}, {-width / 2, -depth / 2}, {width / 2, -depth / 2}};
+                std::vector<Eigen::Vector2d> imaginary_room_2 = {{-depth / 2,width / 2}, {depth / 2, width / 2}, {-depth / 2, -width / 2}, {depth / 2, -width / 2}};
+
+                //draw imaginary room
+//                static std::vector<QGraphicsItem *> draw_points;
+//                for (const auto &p: imaginary_room_1)
+//                {
+//                    auto o = widget_2d->scene.addRect(-20, 20, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+//                    o->setPos(p.x(), p.y());
+//                    draw_points.push_back(o);
+//                }
+//
+//                for (const auto &p: imaginary_room_2)
+//                {
+//                    auto o = widget_2d->scene.addRect(-20, 20, 200, 200, QPen(Qt::yellow), QBrush(Qt::yellow));
+//                    o->setPos(p.x(), p.y());
+//                    draw_points.push_back(o);
+//                }
+
+                std::stringstream ss("Test");
+                std::vector<Eigen::Vector2d> first_room;
+                for(int i = 1; i < 5; i++)
+                {
+                    ss.clear();
+                    ss.str(room_->attributes.at("corner" + std::to_string(i)));
+                    float float1, float2; char coma;
+                    ss >> float1 >> coma >> float2;
+                    first_room.push_back(Eigen::Vector2d(float1, float2));
+                }
+
+                G->add_or_modify_attrib_local<corner1_att>(new_node, std::vector<float>{static_cast<float>(first_room[0].x()), static_cast<float>(first_room[0].y())});
+                G->add_or_modify_attrib_local<corner2_att>(new_node, std::vector<float>{static_cast<float>(first_room[1].x()), static_cast<float>(first_room[1].y())});
+                G->add_or_modify_attrib_local<corner3_att>(new_node, std::vector<float>{static_cast<float>(first_room[2].x()), static_cast<float>(first_room[2].y())});
+                G->add_or_modify_attrib_local<corner4_att>(new_node, std::vector<float>{static_cast<float>(first_room[3].x()), static_cast<float>(first_room[3].y())});
+
+                auto correspondence_1 = this->calculate_rooms_correspondences(first_room, imaginary_room_1);
+                auto correspondence_2 = this->calculate_rooms_correspondences(first_room, imaginary_room_2);
+
+                // Calcular la suma de las distancias cuadradas para cada par de puntos
+                double sum_sq_dist1 = 0.0;
+                double sum_sq_dist2 = 0.0;
+                for (size_t i = 0; i < correspondence_1.size(); ++i)
+                {
+                    sum_sq_dist1 += (correspondence_1[i].first - correspondence_1[i].second).squaredNorm();
+                    sum_sq_dist2 += (correspondence_2[i].first - correspondence_2[i].second).squaredNorm();
+                }
+
+                std::vector<Eigen::Vector2d> imaginary_room;
+                if(sum_sq_dist1 < sum_sq_dist2)
+                    imaginary_room = imaginary_room_1;
+                else
+                    imaginary_room = imaginary_room_2;
+
+                icp icp(imaginary_room, first_room);
+                icp.align();
+
+//                //transform all the imaginary room 2 points
+//                for (auto &point: imaginary_room)
+//                {
+//                    point = icp.transformPoint(point);
+//                    widget_2d->scene.addEllipse(point.x(), point.y(), 200, 200, QPen(Qt::magenta), QBrush(Qt::magenta));
+//                }
+
+                Eigen::Matrix2d transformation = icp.rotation();
+                Eigen::Vector2d translation = icp.translation();
+
+                float angle_rad = std::atan2(transformation(1,0), transformation(0,0));
+
+                // Convert angle from radians to degrees
                 G->add_or_modify_attrib_local<pos_x_att>(new_node, (float)(rand()%(170)));
                 G->add_or_modify_attrib_local<pos_y_att>(new_node, (float)(rand()%170));
                 G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
                 G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
                 G->insert_node(new_node);
                 std::vector<float> vector_robot_pos = {0.0, 0.0, 0.0}, orientation_vector = {0.0, 0.0, 0.0};
-                vector_robot_pos = { std::stof(room_->attributes.at("center_x")), std::stof(room_->attributes.at("center_y")), 0.f};
-                orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
+                vector_robot_pos = { static_cast<float>(translation.x()), static_cast<float>(translation.y()), 0.f };
+                orientation_vector = { 0.0f, 0.0f, angle_rad };
                 rt->insert_or_assign_edge_RT(robot_node, new_node.id(), vector_robot_pos, orientation_vector);
             }
             catch(const std::exception &e)
@@ -795,6 +1023,43 @@ bool SpecificWorker::select_target_from_lclick(QPointF &p)
     return false;
 }
 
+std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)
+{
+    std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> correspondences;
+    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
+    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
+    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
+
+    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+    {
+        double min_distance = std::numeric_limits<double>::max();
+        Eigen::Vector2d closest_point;
+        auto target_iter = target_points_copy.begin();
+        auto closest_target_iter = target_iter;
+
+        // Encontrar el punto más cercano en el conjunto de puntos objetivo
+        while (target_iter != target_points_copy.end())
+        {
+            double d = (*source_iter - *target_iter).norm();
+            if (d < min_distance)
+            {
+                min_distance = d;
+                closest_point = *target_iter;
+                closest_target_iter = target_iter;
+            }
+            ++target_iter;
+        }
+
+        // Almacenar la correspondencia encontrada
+        correspondences.push_back({*source_iter, closest_point});
+
+        // Eliminar los puntos correspondientes de sus vectores originales
+        source_iter = source_points_copy.erase(source_iter);
+        target_points_copy.erase(closest_target_iter);
+    }
+
+    return correspondences;
+}
 //delete_target function
 void SpecificWorker::delete_target_from_rclick()
 {
@@ -888,14 +1153,14 @@ void SpecificWorker::draw_room_graph(QGraphicsScene *scene)
             if (draw_room.first == room_node.id())  // update room
             {
                 draw_room.second->setPos(x, y);
-                draw_room.second->setRotation(ang + 90);
+                draw_room.second->setRotation(ang);
             }
             else   // add it
             {
                 auto item = scene->addRect(-width_.value()/2.f, -depth_.value()/2.f, width_.value(), depth_.value(),
                                                      QPen(QColor("black"), 50));
                 item->setPos(x, y);
-                item->setRotation(ang + 90);
+                item->setRotation(ang);
                 draw_room = {room_node.id(), item};
             }
         }
@@ -1029,7 +1294,7 @@ void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphi
 void SpecificWorker::draw_scenario(const std::vector<Eigen::Vector3f> &points, QGraphicsScene *scene)
 {
     draw_lidar(points, 3, scene);
-    draw_room_graph(scene);
+//    draw_room_graph(scene);
     draw_objects_graph(scene);
     draw_people_graph(scene);
 }

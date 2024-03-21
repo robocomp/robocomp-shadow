@@ -34,6 +34,8 @@
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include <custom_widget.h>
+#include <icp.h>
+#include <sstream>
 
 class SpecificWorker : public GenericWorker
 {
@@ -87,7 +89,9 @@ class SpecificWorker : public GenericWorker
         float cone_radius = 3000;
         float cone_angle = 1;   // rads
 
-        struct Params
+        //draw
+
+    struct Params
         {
             float ROBOT_WIDTH = 460;  // mm
             float ROBOT_LENGTH = 480;  // mm
@@ -166,6 +170,8 @@ class SpecificWorker : public GenericWorker
         //void postprocess_target_person(const People &people_);
         void process_people(const RoboCompVisualElementsPub::TData &data);
         void process_room(const RoboCompVisualElementsPub::TData &data);
+        std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
+
         void print_people();
         static uint64_t get_actual_time();
         bool is_on_a_wall(float x, float y, float width, float depth);
