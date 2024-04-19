@@ -14,7 +14,7 @@
 #include <opencv2/imgproc.hpp>
 #include <QtCore>
 #include "room.h"
-#include "../../../agents/forcefield_agent/src/door_detector.h"
+#include "door_detector.h"
 #include <cmath>
 #include <qcustomplot/qcustomplot.h>
 #include <ranges>
@@ -33,7 +33,7 @@ namespace rc
         public:
             void init(QCustomPlot *customPlot_);
             Room detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer=nullptr, bool draw_lines=false);
-            Features compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer);
+            Features compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer=nullptr);
 
         private:
             Eigen::Vector3f estimate_room_sizes(const Eigen::Vector2f &room_center, std::vector<Eigen::Vector2f> &floor_line_cart) const;

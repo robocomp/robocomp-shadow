@@ -36,7 +36,7 @@
 //#include "sm_search_and_approach.h"
 #include <random>
 //#include <qcustomplot/qcustomplot.h>
-#include "door_detector.h"
+#include "../../../agents/forcefield_agent/src/door_detector.h"
 #include "room_detector.h"
 #include "room.h"
 #include <doublebuffer/DoubleBuffer.h>

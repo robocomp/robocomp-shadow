@@ -54,8 +54,8 @@ class SpecificWorker(GenericWorker):
 
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 200
-        self.thread_period = 50
+        self.Period = 100
+        self.thread_period = 100
         if startup_check:
             self.startup_check()
         else:
@@ -387,13 +387,14 @@ class SpecificWorker(GenericWorker):
             self.segmented_img = self.processor.post_process_semantic_segmentation(outputs, target_sizes=[im_pil_size])[
                 0].cpu()
             self.instance_img = self.processor.post_process_instance_segmentation(outputs)[0]
+            print("TIME EXPENDED 1", time.time() - now)
 
             # create masks from segmented img
             self.mask_image = self.create_mask(self.segmented_img)
-
+            print("TIME EXPENDED 2", time.time() - now)
             # extract rois from selected classes (door)
             rois, masks = self.extract_roi_instances_seg(self.instance_img, 14)
-
+            print("TIME EXPENDED 3", time.time() - now)
             # create Ice interface data structure and send to ByteTracker
             self.convert_to_visualelements_structure(rois)
 

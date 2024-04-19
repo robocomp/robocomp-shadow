@@ -31,20 +31,14 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
-#include <Camera360RGB.h>
-#include <G2O.h>
-#include <Gridder.h>
 #include <Lidar3D.h>
-#include <SegmentatorTrackingPub.h>
-#include <VisualElementsPub.h>
-#include <VisualElementsPub.h>
 
 
 #define CHECK_PERIOD 5000
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompG2O::G2OPrxPtr,RoboCompGridder::GridderPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompSegmentatorTrackingPub::SegmentatorTrackingPubPrxPtr>;
+using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -60,12 +54,8 @@ public:
 	QMutex *mutex;
 
 
-	RoboCompG2O::G2OPrxPtr g2o_proxy;
-	RoboCompGridder::GridderPrxPtr gridder_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
-	RoboCompSegmentatorTrackingPub::SegmentatorTrackingPubPrxPtr segmentatortrackingpub_pubproxy;
 
-	virtual void VisualElementsPub_setVisualObjects (RoboCompVisualElementsPub::TData data) = 0;
 
 protected:
 

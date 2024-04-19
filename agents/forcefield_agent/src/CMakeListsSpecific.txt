@@ -2,8 +2,9 @@
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
-  person.cpp
-  custom_widget.h
+  $ENV{ROBOCOMP}/classes/qcustomplot/qcustomplot.cpp
+  room_detector.cpp
+  room.cpp
   icp.cpp
 )
 
@@ -11,23 +12,21 @@ SET ( SOURCES
 SET ( HEADERS
   specificworker.h
   specificmonitor.h
-  /home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h
-  person.h
 )
+
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
-
-add_definitions(-g -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
-
-SET (LIBS ${LIBS}  dsr_api dsr_core dsr_gui  fastcdr fastrtps osgDB OpenThreads)
+add_definitions(-g  -fmax-errors=1 -std=c++2a -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+SET (LIBS ${LIBS}   dsr_core dsr_gui dsr_api fastcdr fastrtps osgDB OpenThreads)
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 
 if( USE_QT6)
     LIST(APPEND SOURCES "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp")
     LIST(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h")
-    LIST(APPEND LIBS QGLViewer-qt6 Qt6OpenGLWidgets)
+    LIST(APPEND LIBS QGLViewer-qt6 Qt6OpenGLWidgets Qt6PrintSupport)
   else()
     list(APPEND SOURCES "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.cpp")
     list(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.h")
     LIST(APPEND LIBS QGLViewer-qt5)
 endif()
+

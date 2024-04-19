@@ -37,6 +37,12 @@
 #include <icp.h>
 #include <sstream>
 
+//include opencv libraries
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
+
 class SpecificWorker : public GenericWorker
 {
     Q_OBJECT
@@ -61,8 +67,9 @@ class SpecificWorker : public GenericWorker
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;
     std::unique_ptr<DSR::RT_API> rt;
+    std::shared_ptr<DSR::InnerEigenAPI> inner_eigen;
 
-	//DSR params
+    //DSR params
 	std::string agent_name;
 	int agent_id;
 
@@ -171,6 +178,7 @@ class SpecificWorker : public GenericWorker
         void process_people(const RoboCompVisualElementsPub::TData &data);
         void process_room(const RoboCompVisualElementsPub::TData &data);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
+        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
         void print_people();
         static uint64_t get_actual_time();
@@ -180,7 +188,10 @@ class SpecificWorker : public GenericWorker
 
         bool reset = false;
 
-    void reset_graph_elements();
+        void test_inner_buffer_timestamp();
+        void update_RT_edge_buffers(DSR::Edge &edge, const std::vector<float> &tr, const std::vector<float> &rot, int timestamp);
+
+        void reset_graph_elements();
 };
 
 #endif

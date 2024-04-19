@@ -1,7 +1,5 @@
-# Endpoints for implements interfaces
-BulletSim.Endpoints=tcp -p 13452
 
-display = True
+
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

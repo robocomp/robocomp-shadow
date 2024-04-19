@@ -5,6 +5,7 @@ VisualElementsPubTopic.Endpoints=tcp -p 15368
 
 
 # Proxies for required interfaces
+G2OProxy = g2o:tcp -h localhost -p 0
 GridderProxy = gridder:tcp -h localhost -p 13541
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
@@ -16,7 +17,6 @@ tree_view = true
 graph_view = true
 2d_view = true
 3d_view = false
-
 
 cone_radius = 5000
 cone_angle = 0.2
