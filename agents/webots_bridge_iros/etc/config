@@ -1,0 +1,33 @@
+CommonBehavior.Endpoints=tcp -p 10217
+
+# Endpoints for implements interfaces
+Laser.Endpoints=tcp -p 10003
+Lidar3D.Endpoints=tcp -p 11988
+CameraRGBDSimple.Endpoints=tcp -p 10096
+Camera360RGB.Endpoints=tcp -p 10098
+OmniRobot.Endpoints=tcp -p 10004
+VisualElements.Endpoints=tcp -p 10005
+Webots2Robocomp.Endpoints=tcp -p 10006
+
+
+# Endpoints for subscriptions interfaces
+JoystickAdapterTopic.Endpoints=tcp -p 11025
+
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+agent_id = 10 # Change id
+agent_name = Webots2Robocomp
+tree_view = true
+graph_view = true
+2d_view = true
+3d_view = true
+#Ice.MessageSizeMax=20004800
+
+delay=False  # activate delay for the simulation
+do_joystick= true   # execute joystick commands in the simulator
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
