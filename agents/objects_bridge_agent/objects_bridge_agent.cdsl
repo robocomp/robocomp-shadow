@@ -2,12 +2,13 @@ import "VisualElementsPub.idsl";
 import "SegmentatorTrackingPub.idsl";
 import "Gridder.idsl";
 import "Lidar3D.idsl";
+import "G2O.idsl";
 
 Component objects_bridge_agent
 {
     Communications
     {
-        requires Gridder, Lidar3D;
+        requires Gridder, Lidar3D, G2O;
         subscribesTo VisualElementsPub;
         publishes SegmentatorTrackingPub;
     };

@@ -1,0 +1,10 @@
+Component g2o_agent
+{
+    Communications
+    {
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+};
+
