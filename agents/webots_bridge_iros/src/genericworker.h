@@ -88,7 +88,6 @@ public:
 	virtual void OmniRobot_stopBase() = 0;
 	virtual RoboCompVisualElements::TObjects VisualElements_getVisualObjects(RoboCompVisualElements::TObjects objects) = 0;
 	virtual void VisualElements_setVisualObjects(RoboCompVisualElements::TObjects objects) = 0;
-	virtual void Webots2Robocomp_resetWebots() = 0;
 	virtual void Webots2Robocomp_setPathToHuman(int humanId, RoboCompGridder::TPath path) = 0;
 	virtual void JoystickAdapter_sendData (RoboCompJoystickAdapter::TData data) = 0;
 

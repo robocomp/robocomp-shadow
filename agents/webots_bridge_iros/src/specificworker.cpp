@@ -781,8 +781,8 @@ void SpecificWorker::insert_robot_speed_dsr()
         Eigen::Vector2f rt_rotation_matrix_inv = rt_rotation_matrix.inverse() * shadow_velocity_2d;
 
 
-        std::cout <<  "X speed " << shadow_velocity[1] << "; Y speed " << shadow_velocity[0] << "; Angular Speed " << shadow_velocity[5] << "; GLOBAL." << std::endl;
-        std::cout <<  "X speed " << rt_rotation_matrix_inv(0) << "; Y speed " << rt_rotation_matrix_inv(1) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
+        //std::cout <<  "X speed " << shadow_velocity[1] << "; Y speed " << shadow_velocity[0] << "; Angular Speed " << shadow_velocity[5] << "; GLOBAL." << std::endl;
+        //std::cout <<  "X speed " << rt_rotation_matrix_inv(0) << "; Y speed " << rt_rotation_matrix_inv(1) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 //        std::cout <<  "X speed " << rt_rotation_matrix_inv(0,2) << "; Y speed " << rt_rotation_matrix_inv(1,2) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 
         G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node, (float)  -rt_rotation_matrix_inv(0));

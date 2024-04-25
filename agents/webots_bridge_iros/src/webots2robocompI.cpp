@@ -29,11 +29,6 @@ Webots2RobocompI::~Webots2RobocompI()
 }
 
 
-void Webots2RobocompI::resetWebots(const Ice::Current&)
-{
-	worker->Webots2Robocomp_resetWebots();
-}
-
 void Webots2RobocompI::setPathToHuman(int humanId, RoboCompGridder::TPath path, const Ice::Current&)
 {
 	worker->Webots2Robocomp_setPathToHuman(humanId, path);
