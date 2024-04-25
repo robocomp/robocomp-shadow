@@ -180,34 +180,33 @@ namespace rc
         rot += delta;
         //qInfo() << __FUNCTION__ << delta << rot;
     }
-    void Room::draw_on_2D_tab(const Room &room, const QString &color, AbstractGraphicViewer *viewer)
+    void Room::draw_on_2D_tab(const Room &room, const QString &color, QGraphicsScene *scene)
     {
         static std::vector<QGraphicsItem *> items;
         for (auto i: items)
         {
-            viewer->scene.removeItem(i);
+            scene->removeItem(i);
             delete i;
         }
         items.clear();
 
         QColor col("yellow");
         col.setAlpha(30);
-        //auto size = room.rsize;
         auto size = room.rect.size;
-        auto item = viewer->scene.addRect(-size.height / 2, -size.width / 2, size.height, size.width, QPen(QColor(col), 60), QBrush(QColor(col)));
+        auto item = scene->addRect(-size.height / 2, -size.width / 2, size.height, size.width, QPen(QColor(col), 60), QBrush(QColor(col)));
         item->setPos(room.rect.center.x, room.rect.center.y);
         item->setRotation(room.rect.angle + 90);
         items.push_back(item);
 
-        QColor ccolor("red");
-        cv::Point2f pts[4];
-        rect.points(pts);
-        for (auto &&i: iter::range(4))
-        {
-            auto it = viewer->scene.addEllipse(-100, -100, 200, 200, QPen(ccolor), QBrush(ccolor));
-            it->setPos(pts[i].x, pts[i].y);
-            items.push_back(it);
-        }
+        //        QColor ccolor("red");
+        //        cv::Point2f pts[4];
+        //        rect.points(pts);
+        //        for (auto &&i: iter::range(4))
+        //        {
+        //            auto it = scene->addEllipse(-100, -100, 200, 200, QPen(ccolor), QBrush(ccolor));
+        //            it->setPos(pts[i].x, pts[i].y);
+        //            items.push_back(it);
+        //        }
     }
     std::vector<QLineF> Room::get_room_lines_qt() const
     {

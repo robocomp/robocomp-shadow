@@ -2,7 +2,6 @@
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
-  $ENV{ROBOCOMP}/classes/qcustomplot/qcustomplot.cpp
   room_detector.cpp
   room.cpp
   icp.cpp
