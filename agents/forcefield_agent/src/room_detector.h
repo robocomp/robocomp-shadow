@@ -5,6 +5,7 @@
 #ifndef FORCEFIELD_ROOM_DETECTOR_H
 #define FORCEFIELD_ROOM_DETECTOR_H
 
+#include "params.h"
 #include <vector>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
 #include <Eigen/Dense>
@@ -14,9 +15,7 @@
 #include <opencv2/imgproc.hpp>
 #include <QtCore>
 #include "room.h"
-#include "door_detector.h"
 #include <cmath>
-#include <qcustomplot/qcustomplot.h>
 #include <ranges>
 
 namespace rc
@@ -29,11 +28,9 @@ namespace rc
         using All_Corners = std::vector<std::tuple<QPointF, QPointF, QPointF, QPointF>>;
         using Features = std::tuple<Lines, Par_lines, Corners, All_Corners>;
 
-
         public:
-            void init(QCustomPlot *customPlot_);
-            Room detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer=nullptr, bool draw_lines=false);
-            Features compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines, AbstractGraphicViewer *viewer=nullptr);
+            Room detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, QGraphicsScene *scene=nullptr, bool draw_lines=false);
+            Features compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines);
 
         private:
             Eigen::Vector3f estimate_room_sizes(const Eigen::Vector2f &room_center, std::vector<Eigen::Vector2f> &floor_line_cart) const;
@@ -48,22 +45,20 @@ namespace rc
             QPointF get_most_distant_point(const QPointF &p, const QPointF &p1, const QPointF &p2) const;
 
             // draw
-            void draw_par_lines_on_2D_tab(const Par_lines &par_lines, AbstractGraphicViewer *viewer);
-            void draw_lines_on_2D_tab(const Lines &lines, AbstractGraphicViewer *viewer);
-            void draw_corners_on_2D_tab(const Corners &corners, const std::vector<Eigen::Vector2f> &model_corners, AbstractGraphicViewer *viewer);
-            void draw_triple_corners_on_2D_tab(const All_Corners &double_corners, QString color, AbstractGraphicViewer *viewer);
+            void draw_par_lines_on_2D_tab(const Par_lines &par_lines, QGraphicsScene *scene, QColor color="orange");
+            void draw_corners_on_2D_tab(const Corners &corners, const std::vector<Eigen::Vector2f> &model_corners,
+                                        QGraphicsScene *scene, QColor color="blue");
 
             // local data
             Room current_room;
+
+            // Global params
+            rc::Params params;
 
             Eigen::Vector2f to_eigen(const QPointF &p) const;
             Eigen::Vector2f to_eigen(const cv::Point2f &p) const;
             QPointF to_qpointf(const cv::Point2f &p) const;
 
-            // QCustomPlot
-            QCustomPlot *custom_plot;
-            QCPGraph *triple_sig, *corners_sig, *par_lines_sig;
-            void draw_timeseries(float triple_val, float corners_val, float par_lines_val);
     };
 
 } // rc

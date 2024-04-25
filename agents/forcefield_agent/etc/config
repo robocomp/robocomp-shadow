@@ -3,16 +3,13 @@ CommonBehavior.Endpoints=tcp -p 10000
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
-
-agent_id = 0 # Change id
+agent_id = 3 # Change id
 agent_name = forcefield_agent
 tree_view = true
 graph_view = true
 2d_view = true
-3d_view = true
-#Ice.MessageSizeMax=20004800
+3d_view = false
 
-InnerModelPath = innermodel.xml
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

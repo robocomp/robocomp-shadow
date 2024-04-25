@@ -32,7 +32,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 	// shown in the console with qDebug()
 	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
-
 /**
 * \brief Default destructor
 */
@@ -42,12 +41,9 @@ SpecificWorker::~SpecificWorker()
 	//G->write_to_json_file("./"+agent_name+".json");
 	auto grid_nodes = G->get_nodes_by_type("grid");
 	for (auto grid : grid_nodes)
-	{
 		G->delete_node(grid);
-	}
 	G.reset();
 }
-
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
 	try
@@ -58,13 +54,11 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 		graph_view = params.at("graph_view").value == "true";
 		qscene_2d_view = params.at("2d_view").value == "true";
 		osg_3d_view = params.at("3d_view").value == "true";
-        consts.DISPLAY = params.at("display").value == "true" or (params.at("delay").value == "True");
+        this->params.DISPLAY = params.at("display").value == "true" or (params.at("delay").value == "True");
 	}
 	catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
-
 	return true;
 }
-
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
@@ -114,68 +108,50 @@ void SpecificWorker::initialize(int period)
 		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
-        //    graph_viewer->add_custom_widget_to_dock("Intention_prediction", &custom_widget);
         widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
-        widget_2d->setSceneRect(-5000, -5000,  10000, 10000);
-        widget_2d->set_draw_axis(true);
+        //widget_2d->setSceneRect(-5000, -5000,  10000, 10000);
 
-		/***
-		Custom Widget
-		In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
-		The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
-		either with a QtDesigner or directly from scratch in a class of its own.
-		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
-		***/
-		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
-
-        // room_detector
-//        room_detector.init(&widget_2d->QScene2dViewer::scene);
-
-        // A thread is created
+        // A thread is created to read lidar data
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
         std::cout << "Started lidar reader" << std::endl;
 
         // timers
-        Period = 50;
+        Period = params.PERIOD;    //  used in the lidar reader thread
         timer.start(Period);
-        if( not consts.DISPLAY) hide();
         std::cout << "Worker initialized OK" << std::endl;
 	}
-
 }
-
 void SpecificWorker::compute()
 {
-//    std::cout << "Compute" << std::endl;
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
-    if (not res_.has_value()) { return; }
+    if (not res_.has_value()) { qWarning() << "No lidar data available"; return; }
     auto ldata = res_.value();
-//    Print ldata success
-//    std::cout << "Lidar data success" << std::endl;
 
-    //draw_lidar(ldata);
-    Lines lines = extract_lines(ldata.points, consts.ranges_list);
-//    Print lines success
-//    std::cout << "Lines success" << std::endl;
+    // draw lidar
+    if(widget_2d != nullptr)
+        draw_lidar(ldata, &widget_2d->scene);
+
+    /// extract lines from LiDAR data
+    Lines lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
+
     /// Room detector
-    auto current_room = room_detector.detect({lines[0]});  // TODO: use upper lines in Helios
-//    Print current_room success
-//    std::cout << "Current room success" << std::endl;
+    auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);  // TODO: use upper lines in Helios
+    current_room.draw_on_2D_tab(current_room, "yellow", &widget_2d->scene);
 
-    //get room width and print it
-    auto room_width = current_room.get_width();
-//    std::cout << "Room width: " << room_width << std::endl;
-//    same with height
-    auto room_height = current_room.get_height();
-//    std::cout << "Room height: " << room_height << std::endl;
     process_room(current_room);
-    // Check if there is a room  and it is oriented
+
+    // Check if there is a room and it is oriented
     check_room_orientation();
+
+    graph_viewer->set_external_hz((int)(1.f/fps.get_period()*1000.f));
     fps.print("room_detector");
+
 }
+
 ////////////////////////////////////////////////////////////////////////////////
-SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges)
+SpecificWorker::Lines SpecificWorker::extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points,
+                                                                    const std::vector<std::pair<float, float>> &ranges)
 {
     Lines lines(ranges.size());
     for(const auto &p: points)
@@ -184,26 +160,30 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
                 lines[i].emplace_back(p.x, p.y);
     return lines;
 }
-//////////////////// LIDAR /////////////////////////////////////////////////
+
 void SpecificWorker::read_lidar()
 {
     while(true)
     {
         try
         {
-            auto data = lidar3d_proxy->getLidarData(consts.lidar_name, -90, 360, 1);
+            auto data = lidar3d_proxy->getLidarData(params.lidar_name, -90, 360, 3);
             buffer_lidar_data.put(std::move(data));
+            // TODO: filter out zero and very large values
+            //, [](auto &&I, auto &T)
+            //    { for(auto &&i : I.points)
+            //        if(i.z > 1000) T.points.push_back(i);  });
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));}
+        std::this_thread::sleep_for(std::chrono::milliseconds(params.LIDAR_SLEEP_PERIOD));} // TODO: dynamic adjustment
 }
-void SpecificWorker::process_room(rc::Room room)
+void SpecificWorker::process_room(const rc::Room &room)
 {
     // Admissibility conditions
     //TODO: Check if the room is admissible
     //    if (data.objects.empty())
-//    { qWarning() << __FUNCTION__ << " No objects in data"; return; }
-//
+    //    { qWarning() << __FUNCTION__ << " No objects in data"; return; }
+
     auto robot_node_ = G->get_node("Shadow");
     if(not robot_node_.has_value())
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
@@ -217,41 +197,6 @@ void SpecificWorker::process_room(rc::Room room)
     // match phase
     auto now = std::chrono::high_resolution_clock::now();
 
-//    std::vector<Eigen::Vector2d> target_points;
-
-    // Get room corners from visual elements, draw them and insert them in target_points vector
-//    std::stringstream ss(room_->attributes.at("corner1"));
-//    float float1, float2; char coma;
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p0;
-//    if (p0 != nullptr)
-//        widget_2d->scene.removeItem(p0);
-//    p0 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner2"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p1;
-//    if (p1 != nullptr)
-//        widget_2d->scene.removeItem(p1);
-//    p1 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner3"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p2;
-//    if (p2 != nullptr)
-//        widget_2d->scene.removeItem(p2);
-//    p2 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner4"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p3;
-//    if (p3 != nullptr)
-//        widget_2d->scene.removeItem(p3);
-//    p3 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
 
     // Get room corners
     auto target_points_ = room.get_corners();
@@ -471,37 +416,7 @@ void SpecificWorker::process_room(rc::Room room)
 //                G->insert_or_assign_edge(edge_robot);
         }
 
-//            //get doors from data.objects
-//            std::vector<RoboCompVisualElementsPub::TObject> doors;
-//            for (const auto &object: data.objects | iter::filter([](auto &obj){return obj.attributes.at("name") == "door";}))
-//            {
-//                doors.push_back(object);
-//                //print every attribute of the door
-//                std::cout <<  object.attributes.at("name") << std::endl;
-//                std::cout <<  object.attributes.at("width") << std::endl;
-//                std::cout << object.attributes.at("height") << std::endl;
-//                std::cout <<  object.attributes.at("position") << std::endl;
-//            }
 
-        //create a node in the graph for each door
-//            for (const auto &door: doors)
-//            {
-//                std::string node_name = "door_" + std::to_string(door.id);
-//                DSR::Node new_node = DSR::Node::create<door_node_type>(node_name);
-//                G->add_or_modify_attrib_local<obj_id_att>(new_node, door.id);
-//                G->add_or_modify_attrib_local<pos_x_att>(new_node, std::stof(door.attributes.at("center_x")));
-//                G->add_or_modify_attrib_local<pos_y_att>(new_node, std::stof(door.attributes.at("center_y")));
-//                G->add_or_modify_attrib_local<timestamp_creation_att>(new_node, get_actual_time());
-//                G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
-//                G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
-//                G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
-//                G->insert_node(new_node);
-//                std::vector<float> vector_room_pos = {std::stof(room_->attributes.at("center_x")),
-//                                                      std::stof(room_->attributes.at("center_y")), 0.0},
-//                                                      orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
-//                vector_room_pos = { std::stof(door.attributes.at("center_x")), std::stof(door.attributes.at("center_y")), 0.f};
-//                rt->insert_or_assign_edge_RT(room_node, new_node.id(), vector_room_pos, orientation_vector);
-//            }
 
     }
     else  // Insert phase. No room in graph. Insert room the first time
@@ -818,37 +733,38 @@ bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
 {
     auto is_approx = [](float a, float b){ return fabs(a - b) < 0.1; };
 
-    if((is_approx(fabs(x), 0.f) and is_approx(fabs(y), depth/2.f)) or is_approx(fabs(y), 0.f) and is_approx(fabs(x), width/2.f))
+    if(((is_approx(fabs(x), 0.f) and is_approx(fabs(y), depth/2.f))) or (is_approx(fabs(y), 0.f) and is_approx(fabs(x), width/2.f)))
         return true;
     else return false;
 }
-
 uint64_t SpecificWorker::get_actual_time()
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 }
+
 /////////////////// Draw  /////////////////////////////////////////////////////////////
-void SpecificWorker::draw_line(const Line &line, QGraphicsScene *scene, QColor color)
+void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color)
 {
     static std::vector<QGraphicsItem *> items;
-    for(const auto &i: items){ scene->removeItem(i); delete i;};
+    for(const auto &i: items){ scene->removeItem(i); delete i;}
     items.clear();
 
-    for(const auto &p: line)
+    // draw points
+    for(const auto &p: data.points)
     {
-        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(color), QBrush(color));
-        item->setPos(p.x(), p.y());
+        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
+        item->setPos(p.x, p.y);
         items.push_back(item);
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
 	std::cout << "Startup check" << std::endl;
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
-
-
 
 
 /**************************************/
@@ -864,3 +780,75 @@ int SpecificWorker::startup_check()
 // RoboCompLidar3D::TDataImage
 // RoboCompLidar3D::TData
 
+//    std::vector<Eigen::Vector2d> target_points;
+
+// Get room corners from visual elements, draw them and insert them in target_points vector
+//    std::stringstream ss(room_->attributes.at("corner1"));
+//    float float1, float2; char coma;
+//    ss >> float1 >> coma >> float2;
+//    static QGraphicsEllipseItem* p0;
+//    if (p0 != nullptr)
+//        widget_2d->scene.removeItem(p0);
+//    p0 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+//    target_points.push_back(Eigen::Vector2d(float1, float2));
+//
+//    ss.clear(); ss.str(room_->attributes.at("corner2"));
+//    ss >> float1 >> coma >> float2;
+//    static QGraphicsEllipseItem* p1;
+//    if (p1 != nullptr)
+//        widget_2d->scene.removeItem(p1);
+//    p1 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+//    target_points.push_back(Eigen::Vector2d(float1, float2));
+//
+//    ss.clear(); ss.str(room_->attributes.at("corner3"));
+//    ss >> float1 >> coma >> float2;
+//    static QGraphicsEllipseItem* p2;
+//    if (p2 != nullptr)
+//        widget_2d->scene.removeItem(p2);
+//    p2 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+//    target_points.push_back(Eigen::Vector2d(float1, float2));
+//
+//    ss.clear(); ss.str(room_->attributes.at("corner4"));
+//    ss >> float1 >> coma >> float2;
+//    static QGraphicsEllipseItem* p3;
+//    if (p3 != nullptr)
+//        widget_2d->scene.removeItem(p3);
+//    p3 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
+//    target_points.push_back(Eigen::Vector2d(float1, float2));
+
+
+
+
+
+
+//            //get doors from data.objects
+//            std::vector<RoboCompVisualElementsPub::TObject> doors;
+//            for (const auto &object: data.objects | iter::filter([](auto &obj){return obj.attributes.at("name") == "door";}))
+//            {
+//                doors.push_back(object);
+//                //print every attribute of the door
+//                std::cout <<  object.attributes.at("name") << std::endl;
+//                std::cout <<  object.attributes.at("width") << std::endl;
+//                std::cout << object.attributes.at("height") << std::endl;
+//                std::cout <<  object.attributes.at("position") << std::endl;
+//            }
+
+//create a node in the graph for each door
+//            for (const auto &door: doors)
+//            {
+//                std::string node_name = "door_" + std::to_string(door.id);
+//                DSR::Node new_node = DSR::Node::create<door_node_type>(node_name);
+//                G->add_or_modify_attrib_local<obj_id_att>(new_node, door.id);
+//                G->add_or_modify_attrib_local<pos_x_att>(new_node, std::stof(door.attributes.at("center_x")));
+//                G->add_or_modify_attrib_local<pos_y_att>(new_node, std::stof(door.attributes.at("center_y")));
+//                G->add_or_modify_attrib_local<timestamp_creation_att>(new_node, get_actual_time());
+//                G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
+//                G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
+//                G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
+//                G->insert_node(new_node);
+//                std::vector<float> vector_room_pos = {std::stof(room_->attributes.at("center_x")),
+//                                                      std::stof(room_->attributes.at("center_y")), 0.0},
+//                                                      orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
+//                vector_room_pos = { std::stof(door.attributes.at("center_x")), std::stof(door.attributes.at("center_y")), 0.f};
+//                rt->insert_or_assign_edge_RT(room_node, new_node.id(), vector_room_pos, orientation_vector);
+//            }
