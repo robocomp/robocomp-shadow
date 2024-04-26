@@ -106,6 +106,9 @@ class SpecificWorker : public GenericWorker
         std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
+        void create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal=true);
+        void create_corner(int id, const std::vector<float> &p, DSR::Node parent_node, bool nominal=true);
+
         void check_room_orientation();
         bool is_on_a_wall(float x, float y, float width, float depth);
         static uint64_t get_actual_time();
