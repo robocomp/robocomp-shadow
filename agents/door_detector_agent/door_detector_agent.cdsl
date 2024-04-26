@@ -1,0 +1,13 @@
+import "Lidar3D.idsl";
+
+Component door_detector_agent
+{
+    Communications
+    {
+        requires Lidar3D;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+
