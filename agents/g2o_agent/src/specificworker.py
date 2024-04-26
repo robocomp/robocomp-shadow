@@ -70,8 +70,10 @@ class SpecificWorker(GenericWorker):
 
             self.room_initialized = True if self.initialize_g2o_graph() else False
             time.sleep(1)
+            self.iterations = 0
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
+
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
@@ -92,6 +94,7 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
+
         if self.room_initialized:
             # Get robot odometry
             if self.odometry_queue:
@@ -120,6 +123,7 @@ class SpecificWorker(GenericWorker):
                         self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1.0 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                         # print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
                 time_2 = time.time()
+                self.g2o.optimizer.save("test_pre.g2o")
                 chi_value = self.g2o.optimize(iterations=100, verbose=False)
                 print("Time elapsed optimize:", time.time() - time_2)
                 print("Chi value:", chi_value)
@@ -140,6 +144,10 @@ class SpecificWorker(GenericWorker):
                     # # rt_robot_edge.attrs['rt_se2_covariance'] = cov_matrix
                     # self.g.insert_or_assign_edge(rt_robot_edge)
                 self.rt_api.insert_or_assign_edge_RT(room_node, robot_node.id, [opt_translation[0], opt_translation[1], 0], [0, 0, opt_orientation])
+                self.g2o.optimizer.save("test_post.g2o")
+                self.iterations += 1
+                if self.iterations == 100:
+                    exit(0)
                 self.last_odometry = robot_odometry   # Save last odometry
                 print("Time elapsed compute:", time.time() - init_time)
 

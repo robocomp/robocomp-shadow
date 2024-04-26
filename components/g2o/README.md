@@ -1,13 +1,9 @@
-# Installation instructions
-- sudo apt-get install libsuitesparse-dev
-- Follow instructions in "Installation from source" section in https://github.com/miquelmassot/g2opy/tree/master
-
-# g2o_agent
+# g2o_component
 Intro to component here
 
 
 ## Configuration parameters
-As any other component, *g2o_agent* needs a configuration file to start. In
+As any other component, *g2o_component* needs a configuration file to start. In
 ```
 etc/config
 ```
@@ -20,7 +16,7 @@ EXAMPLE HERE
 To avoid changing the *config* file in the repository, we can copy it to the component's home directory, so changes will remain untouched by future git pulls:
 
 ```
-cd <g2o_agent's path> 
+cd <g2o_component's path> 
 ```
 ```
 cp etc/config config
@@ -29,5 +25,5 @@ cp etc/config config
 After editing the new config file we can run the component:
 
 ```
-bin/g2o_agent config
+bin/g2o_component config
 ```
