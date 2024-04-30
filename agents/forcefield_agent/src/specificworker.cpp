@@ -207,6 +207,9 @@ void SpecificWorker::process_room(const rc::Room &room)
     // Match phase. Check if the room is already in graph G
     if(auto room_nodes = G->get_nodes_by_type("room"); not room_nodes.empty())
     {
+
+        std::cout << "///////////////////////////////////////////////////THERE IS ROOM////////////////////////////////////////////////////////" << std::endl;
+
         auto room_node = room_nodes.front();
         auto node_insertion_time = G->get_attrib_by_name<timestamp_creation_att>(room_node);
         auto room_checked = G->get_attrib_by_name<obj_checked_att>(room_node);
@@ -305,7 +308,8 @@ void SpecificWorker::process_room(const rc::Room &room)
             // Calculate correspondences between transformed nominal and measured corners
             auto rt_corners_correspondences = calculate_rooms_correspondences_id(rt_corner_values, target_points);
 
-            for (int i = 1; i < 5; i++) {
+            for (int i = 1; i < 5; i++)
+            {
                 std::string corner_name = "corner_" + std::to_string(i) + "_measured";
                 if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
                     if (std::optional<DSR::Edge> edge = G->get_edge(robot_node.id(), updated_corner.value().id(),
@@ -314,7 +318,8 @@ void SpecificWorker::process_room(const rc::Room &room)
                                     updated_corner.value()); corner_id.has_value()) {
                             //                                std::cout << "Corner_id: " << corner_id.value() << std::endl;
                             //                                std::cout << "Corner id correspondence: " << std::get<0>(rt_corners_correspondences[i-1]) << std::endl;
-                            if (corner_id.value() == std::get<0>(rt_corners_correspondences[i - 1])) {
+                            if (corner_id.value() == std::get<0>(rt_corners_correspondences[i - 1]))
+                            {
                                 //insert the rt values in the edge
                                 G->add_or_modify_attrib_local<valid_att>(updated_corner.value(), std::get<3>(
                                         rt_corners_correspondences[i - 1]));
@@ -419,6 +424,8 @@ void SpecificWorker::process_room(const rc::Room &room)
             G->add_or_modify_attrib_local<obj_checked_att>(room_node, false);
             G->add_or_modify_attrib_local<level_att>(room_node, robot_level);
             G->insert_node(room_node);
+
+            std::cout << "///////////////////////////////////////////////////Room node inserted////////////////////////////////////////////////////////" << std::endl;
 
             std::vector<float> orientation_vector = { 0.0, 0.0, 0.0 };
             std::vector<float> room_pos = { 0.f, 0.f, 0.f };
@@ -610,6 +617,8 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
         corner_name = "corner_" + std::to_string(id) + "_measured";
     }
     auto new_corner = DSR::Node::create<corner_node_type>(corner_name);
+    G->add_or_modify_attrib_local<pos_x_att>(new_corner, static_cast<float>(rand()%170));
+    G->add_or_modify_attrib_local<pos_y_att>(new_corner, static_cast<float>(rand()%170));
     G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
     G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());
