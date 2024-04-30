@@ -1180,23 +1180,39 @@ void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<
 }
 void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
 {
-//    if(type == "following_action")
-//    {
-//        // get robot node
-//        if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
-//        {
-//            if(auto edge = rt->get_edge_RT(robot_node.value(), to); edge.has_value())
-//            {
-//                if(auto  target_pose = G->get_attrib_by_name<rt_translation_att>(edge.value()); target_pose.has_value())
-//                {
-//                    auto target_pose_val = target_pose.value().get();
-//                    // get target x, y
-//                    auto target_x = target_pose_val[0];
-//                    auto target_y = target_pose_val[1];
-//                }
-//            }
-//        }
-//    }
+//    std::cout << "Type: " << type << "From: " << from << "To: " << to << "." << std::endl;
+
+    if(type == "goto_action")
+    {
+        // get robot node
+        if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
+        {
+            if(auto edge = rt->get_edge_RT(robot_node.value(), to); edge.has_value())
+            {
+                if(auto  target_pose = G->get_attrib_by_name<rt_translation_att>(edge.value()); target_pose.has_value())
+                {
+                    auto target_pose_val = target_pose.value().get();
+                    // get target x, y
+                    auto target_x = target_pose_val[0];
+                    auto target_y = target_pose_val[1];
+
+                    Target target;
+                    target.set_original(Eigen::Vector2f{target_x, target_y});
+                    target.set_new(true);
+                    target.active = true;
+                    target.completed = false;
+                    target.is_being_tracked = false;
+                    target.point = Eigen::Vector2f{target_x, target_y};
+                    target.new_target = true;
+                    target.is_being_tracked = false;
+                    //move to target_buffer
+                    target_buffer.put(std::move(target));
+
+                    new_target = true;
+                }
+            }
+        }
+    }
 }
 void SpecificWorker::modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names)
 {

@@ -1,0 +1,13 @@
+import "VisualElementsPub.idsl";
+
+Component people_bridge_agent
+{
+    Communications
+    {
+        subscribesTo VisualElementsPub;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+};
+

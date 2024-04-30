@@ -16,7 +16,7 @@ Webots2RobocompProxy = webots2robocomp:tcp -h localhost -p 10006
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
-agent_id = 0 # Change id
+agent_id = 567 # Change id
 agent_name = sm_grid_planner_agent
 tree_view = true
 graph_view = true
@@ -26,8 +26,6 @@ graph_view = true
 # Params
 
 display = true
-
-
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
