@@ -1,0 +1,10 @@
+import "G2Ooptimizer.idsl";
+
+Component g2o_cpp
+{
+    Communications
+    {
+        implements G2Ooptimizer;
+    };
+    language cpp11;
+};

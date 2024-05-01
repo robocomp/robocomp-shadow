@@ -1,0 +1,16 @@
+# Sources set
+SET ( SOURCES
+  specificworker.cpp
+  specificmonitor.cpp
+)
+
+# Headers set
+SET ( HEADERS
+  specificworker.h
+  specificmonitor.h
+)
+
+
+SET (LIBS ${LIBS}  fmt g2o_core g2o_types_slam2d g2o_solver_eigen g2o_stuff )
+
+
