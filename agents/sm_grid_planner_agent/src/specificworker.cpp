@@ -1213,6 +1213,30 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
             }
         }
     }
+
+    if (type == "TARGET")
+    {
+        if ( from == to)
+        {
+            if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
+            {
+                float adv = std::numeric_limits<float>::quiet_NaN(), rot = std::numeric_limits<float>::quiet_NaN(), side = std::numeric_limits<float>::quiet_NaN();
+                if (auto adv_ = G->get_attrib_by_name<robot_current_advance_speed_att>(robot_node.value()); adv_.has_value())
+                    adv = adv_.value();
+                if (auto rot_ = G->get_attrib_by_name<robot_current_angular_speed_att>(robot_node.value()); rot_.has_value())
+                    rot = rot_.value();
+                if (auto side_ = G->get_attrib_by_name<robot_current_side_speed_att>(robot_node.value()); side_.has_value())
+                    side = side_.value();
+
+                RoboCompGridPlanner::TPlan returning_plan;
+                RoboCompGridder::TPath plan;
+                returning_plan.valid = true;
+                returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=adv, .side=side, .rot=rot});
+                send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
+
+            }
+        }
+    }
 }
 void SpecificWorker::modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names)
 {
