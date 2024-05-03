@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4"
+      main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="MainSequence">
+      <Sequence>
+        <Fallback>
+          <IsPerson person="1"/>
+          <ForceFailure>
+            <Rotate/>
+          </ForceFailure>
+        </Fallback>
+        <ReactiveFallback>
+          <Reached person="1"/>
+          <MoveToPerson person="1"/>
+        </ReactiveFallback>
+      </Sequence>
+      <Fallback>
+        <Fallback>
+          <IsPerson person="2"/>
+          <Rotate/>
+        </Fallback>
+        <Reached person="2"/>
+        <MoveToPerson person="2"/>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Condition ID="IsPerson"
+               editable="true">
+      <input_port name="person"/>
+    </Condition>
+    <Action ID="MoveToPerson"
+            editable="true">
+      <input_port name="person"/>
+    </Action>
+    <Condition ID="Reached"
+               editable="true">
+      <input_port name="person"/>
+    </Condition>
+    <Action ID="Rotate"
+            editable="true"/>
+  </TreeNodesModel>
+
+</root>
