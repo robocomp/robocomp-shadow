@@ -5,6 +5,7 @@ import numpy as np
 def parse_g2o_file(filename):
     poses = {}
     landmarks = {}
+    edges = {}
     with open(filename, 'r') as file:
         for line in file:
             parts = line.split()
@@ -19,7 +20,14 @@ def parse_g2o_file(filename):
                 x = float(parts[2])
                 y = float(parts[3])
                 landmarks[vertex_id] = (x, y)
-    return poses, landmarks
+            elif parts[0] == 'EDGE_SE2_XY':
+                vertex = int(parts[1])
+                landmark = int(parts[2])
+                x = float(parts[3])
+                y = float(parts[4])
+                edges[(vertex, landmark)] = (x, y)
+
+    return poses, landmarks, edges
 
 
 def read_covariances_from_file(filename):
@@ -54,22 +62,52 @@ def read_covariances_from_file(filename):
 
     return covariances
 
-def plot_graph(poses, landmarks, ax, title, covariances=None, original=True):
+def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=True):
     # Plot landmarks
     for landmark in landmarks.values():
         ax.plot(landmark[0], landmark[1], 'ro')  # 'ro' for red circle
 
     # Plot poses with circles and orientation lines
     for pose in poses.values():
+        it = 4
         x, y, theta = pose
         # Create a circle at the robot's position
-        circle = Circle((x, y), radius=0.1, color='blue', fill=True)
+        circle = Circle((x, y), radius=20, color='blue', fill=True)
         ax.add_patch(circle)
         # Draw the orientation line
-        line_length = 0.3
+        # line_length = 60
+        # end_x = x + line_length * np.cos(theta)
+        # end_y = y + line_length * np.sin(theta)
+        # plot una cada cinco posiciones como una flecha roja
+        # if int(x) % 5 == 0:
+        # ax.arrow(x, y, end_x - x, end_y - y, head_width=5, head_length=10, fc='r', ec='r')
+        # ax.plot([x, end_x], [y, end_y], 'k-')  # 'k-' for black line
+        # for i in range(4):
+        #     edge_data = edges.get((it, i))
+        #     if edge_data:
+        #         print(edge_data)
+        #         x, y = edge_data
+        #         ax.plot([poses[it][0], x], [poses[it][1], y], 'o')
+        it += 1
+
+    for pose in poses.values():
+        x, y, theta = pose
+        # Create a circle at the robot's position
+        # circle = Circle((x, y), radius=20, color='blue', fill=True)
+        # ax.add_patch(circle)
+        # Draw the orientation line
+        line_length = 60
         end_x = x + line_length * np.cos(theta)
         end_y = y + line_length * np.sin(theta)
-        ax.plot([x, end_x], [y, end_y], 'k-')  # 'k-' for black line
+        # plot una cada cinco posiciones como una flecha roja
+        # if int(x) % 5 == 0:
+        ax.arrow(x, y, end_x - x, end_y - y, head_width=5, head_length=10, fc='r', ec='r')
+
+    # Plot edges linked by line
+
+    # for i, edges in edges.items():
+    #     ax.plot([poses[vertex_id][0], x], [poses[vertex_id][1], y], 'g-')  # 'g-' for green line
+
 
     # Optionally, draw covariance ellipses for landmarks
     if covariances and not original:
@@ -132,12 +170,12 @@ def draw_covariance_ellipse(x, y, cov, ax):
 
 def main():
     # Filenames for the original and optimized graphs
-    original_filename = 'circle.g2o'  # Update this to your original .g2o file path
-    optimized_filename = 'optimized_circle.g2o'  # Update this to your optimized .g2o file path
+    original_filename = 'trajectory.g2o'  # Update this to your original .g2o file path
+    optimized_filename = 'optimized_trajectory.g2o'  # Update this to your optimized .g2o file path
 
     # Parse both files
-    original_poses, original_landmarks = parse_g2o_file(original_filename)
-    optimized_poses, optimized_landmarks = parse_g2o_file(optimized_filename)
+    original_poses, original_landmarks, original_edges = parse_g2o_file(original_filename)
+    optimized_poses, optimized_landmarks, optimized_edges = parse_g2o_file(optimized_filename)
 
     # Setup matplotlib figures and axes
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
@@ -145,8 +183,8 @@ def main():
     covariances = read_covariances_from_file('covariances.txt')
 
     # Plot graphs
-    plot_graph(original_poses, original_landmarks, ax1, 'Original Graph', covariances, original=True)
-    plot_graph(optimized_poses, optimized_landmarks, ax2, 'Optimized Graph', covariances, original=False)
+    plot_graph(original_poses, original_landmarks, original_edges, ax1, 'Original Graph', covariances, original=True)
+    plot_graph(optimized_poses, optimized_landmarks, optimized_edges, ax2, 'Optimized Graph', covariances, original=False)
 
     # Show the plot
     plt.tight_layout()

@@ -93,17 +93,24 @@ class SpecificWorker : public GenericWorker
         // Room detector
         rc::Room_Detector room_detector;
 
+        //Robot const
+        float max_robot_advance_speed = 800.0;
+        float max_robot_side_speed = 200;
+
+
         // Lidar
         void read_lidar();
         std::thread read_lidar_th;
         void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
+        void generate_target_edge(DSR::Node node);
+
         // Lines extractor
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 
         void process_room(const rc::Room &room);
-        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
+        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
         void create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal=true);
@@ -119,6 +126,32 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector2d> last_valid_corners;
         std::vector<Eigen::Vector2d> corners_nominal_values;
 
+        // Room validation
+        std::string g2o_graph_data;
+        int odometry_node_counter = 0;
+        std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth);
+
+        void get_robot_and_room_data_for_optimizer(const rc::Room &room);
+        std::vector<Eigen::Vector2d> last_corner_values{4};
+        std::vector<float> last_robot_pose{0.f, 0.f, 0.f};
+        std::chrono::time_point<std::chrono::system_clock> last_time;
+        bool movement_completed(const Eigen::Vector2f &room_center, float distance_to_target);
+        bool is_robot_inside_room(const rc::Room &current_room);
+
+        //MISC
+        void set_robot_speeds(float adv, float side, float rot);
+        std::vector<float> calculate_speed(const Eigen::Matrix<float, 2, 1> &target);
+        float distance_to_target = 500;
+        std::vector<float> get_graph_odometry();
+
+        std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> extract_g2o_data(string optimization);
+
+    void insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> optimized_room_data, const rc::Room &current_room);
+    std::vector<Eigen::Vector2d> get_transformed_corners();
+
+    string build_g2o_graph( const vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data,
+                           const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,
+                           const vector<Eigen::Vector2d> nominal_corners);
 };
 
 #endif
