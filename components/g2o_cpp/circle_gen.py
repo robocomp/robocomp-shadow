@@ -11,6 +11,9 @@ def add_noise(value, std_dev):
 
 
 def main():
+    """
+
+    """
     num_steps = 50  # Number of steps in the circle
     angle_step = 360 / num_steps  # Angle step in degrees
     radius = 3.0  # Radius of the circle
