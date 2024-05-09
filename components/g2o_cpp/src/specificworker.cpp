@@ -59,76 +59,13 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
-        // we use the 2D and 3D SLAM types here
-        optimizer.setVerbose(true);
 
-        // Linear solver
-        linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-        linear_solver->setBlockOrdering(false);
-
-        // Block solver
-        block_solver = std::make_unique<g2o::BlockSolverX>(std::move(linear_solver));
-
-        // Optimization algorithm
-        algorithm = std::make_unique<g2o::OptimizationAlgorithmLevenberg>(std::move(block_solver));
-        optimizer.setAlgorithm(algorithm.get());
-
-        // Load the graph from the .g2o file
-        std::string filename = "circle.g2o";
-        if (!optimizer.load(filename.c_str()))
-        {
-            qWarning() << "Error loading graph from file: " << QString::fromStdString(filename);
-            std::terminate();
-        }
-
-        // Perform optimization
-        optimizer.initializeOptimization();
-
-        optimizer.optimize(10);
-
-        // Covariances. Assuming the landmarks/vertices of interest are the first four vertices
-        // Open a file to write the covariance matrices
-        std::ofstream file("covariances.txt");
-        if (!file.is_open())
-        {
-            std::cerr << "Failed to open file for writing." << std::endl;
-            return;
-        }
-        for (int i = 0; i < 4; ++i)
-        {
-            g2o::OptimizableGraph::Vertex *v = optimizer.vertex(i);
-            if (v)
-            {
-                g2o::SparseBlockMatrix<Eigen::MatrixXd> spinv;
-                bool state = optimizer.computeMarginals(spinv, v);
-                if(state)
-                {
-                    g2o::SparseBlockMatrix<Eigen::MatrixXd>::SparseMatrixBlock b = spinv.block(i, i)->eval();
-                    auto inverse_b = b.inverse();
-                    std::cout << "Covariance matrix for corner " << i << std::endl;
-                    std::cout << b << std::endl;
-                    // Write the vertex ID and the covariance matrix
-                    file << "Vertex " << i << " Covariance Matrix:\n";
-                    file << b(0, 0) << " " << b(0, 1) << "\n";
-                    file << b(1, 0) << " " << b(1, 1) << "\n";
-                    file << "\n";  // Add a blank line between entries for readability
-                }
-            }
-        }
-        file.close();
-
-        // Save the optimized graph
-        optimizer.save("optimized_circle.g2o");
-
-        std::cout << "Optimization complete. Results saved to 'optimized_circle.g2o'." << std::endl;
-        std::terminate();
         timer.start(Period);
 	}
 }
 
 void SpecificWorker::compute()
 {
-    std::cout << "Compute worker" << std::endl;
 
 }
 
@@ -143,7 +80,94 @@ int SpecificWorker::startup_check()
 
 std::string SpecificWorker::G2Ooptimizer_optimize(std::string trajectory)
 {
+    // we use the 2D and 3D SLAM types here
+    optimizer.setVerbose(true);
+
+    // Linear solver
+    linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    linear_solver->setBlockOrdering(false);
+
+    // Block solver
+    block_solver = std::make_unique<g2o::BlockSolverX>(std::move(linear_solver));
+
+    // Optimization algorithm
+    algorithm = std::make_unique<g2o::OptimizationAlgorithmLevenberg>(std::move(block_solver));
+    optimizer.setAlgorithm(algorithm.get());
+
+    // Save temporary file with the trajectory
+    std::ofstream file("trajectory.g2o");
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open file for writing." << std::endl;
+        return "";
+    }
+    file << trajectory;
+    file.close();
+
+    if (!optimizer.load("trajectory.g2o"))
+    {
+        qWarning() << "Error loading graph from file: " << QString::fromStdString("trajectory.g2o");
+        std::terminate();
+    }
+
+    // Create an instance of the robust kernel
+    g2o::RobustKernelHuber* robustKernel = new g2o::RobustKernelHuber;
+    // Set the delta parameter
+    robustKernel->setDelta(1.0);
+    // Iterate over all edges in the graph
+    for (g2o::OptimizableGraph::EdgeSet::iterator it = optimizer.edges().begin(); it != optimizer.edges().end(); ++it) {
+        g2o::OptimizableGraph::Edge* edge = static_cast<g2o::OptimizableGraph::Edge*>(*it);
+        // Set the robust kernel for the current edge
+        edge->setRobustKernel(robustKernel);
+    }
+
+    // Perform optimization
+    optimizer.initializeOptimization();
+
+    optimizer.optimize(200);
+
+    // Covariances. Assuming the landmarks/vertices of interest are the first four vertices
+    // Open a file to write the covariance matrices
+    std::ofstream file_cov("covariances.txt");
+    if (!file_cov.is_open())
+    {
+        std::cerr << "Failed to open file for writing." << std::endl;
+
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        g2o::OptimizableGraph::Vertex *v = optimizer.vertex(i);
+        if (v)
+        {
+            g2o::SparseBlockMatrix<Eigen::MatrixXd> spinv;
+            bool state = optimizer.computeMarginals(spinv, v);
+            if(state)
+            {
+                g2o::SparseBlockMatrix<Eigen::MatrixXd>::SparseMatrixBlock b = spinv.block(i, i)->eval();
+                auto inverse_b = b;
+                std::cout << "Covariance matrix for corner " << i << std::endl;
+                std::cout << inverse_b << std::endl;
+                // Write the vertex ID and the covariance matrix
+                file_cov << "Vertex " << i << " Covariance Matrix:\n";
+                file_cov << inverse_b(0, 0) << " " << inverse_b(0, 1) << "\n";
+                file_cov << inverse_b(1, 0) << " " << inverse_b(1, 1) << "\n";
+                file_cov << "\n";  // Add a blank line between entries for readability
+            }
+        }
+    }
+    file.close();
+
+    // Save the optimized graph
+    optimizer.save("optimized_trajectory.g2o");
+
+    std::cout << "Optimization complete. Results saved to 'optimized_trajectory.g2o'." << std::endl;
 //implementCODE
+    //remove the temporary file
+//    std::remove("trajectory.g2o");
+    //return the optimized graph as a string
+    std::ifstream file_opt("optimized_trajectory.g2o");
+    std::string optimized_graph((std::istreambuf_iterator<char>(file_opt)), std::istreambuf_iterator<char>());
+    return optimized_graph;
 
 }
 

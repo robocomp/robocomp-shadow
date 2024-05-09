@@ -1,10 +1,11 @@
 import "Lidar3D.idsl";
+import "G2Ooptimizer.idsl";
 
 Component forcefield_agent
 {
     Communications
     {
-        requires Lidar3D;
+        requires Lidar3D, G2Ooptimizer;
     };
     language Cpp11;
     gui Qt(QMainWindow);
