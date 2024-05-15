@@ -3,6 +3,15 @@ from matplotlib.patches import Polygon, Ellipse, Circle
 import numpy as np
 
 def parse_g2o_file(filename):
+    """
+
+    Args:
+        filename ():
+
+    Returns:
+        :
+
+    """
     poses = {}
     landmarks = {}
     edges = {}
@@ -31,6 +40,15 @@ def parse_g2o_file(filename):
 
 
 def read_covariances_from_file(filename):
+    """
+
+    Args:
+        filename ():
+
+    Returns:
+        :
+
+    """
     covariances = {}
     try:
         with open(filename, 'r') as file:
@@ -64,6 +82,18 @@ def read_covariances_from_file(filename):
 
 def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=True):
     # Plot landmarks
+    """
+
+    Args:
+        poses ():
+        landmarks ():
+        edges ():
+        ax ():
+        title ():
+        covariances ():
+        original ():
+
+    """
     for landmark in landmarks.values():
         ax.plot(landmark[0], landmark[1], 'ro')  # 'ro' for red circle
 
@@ -172,6 +202,9 @@ def draw_covariance_ellipse(x, y, cov, ax):
 
 def main():
     # Filenames for the original and optimized graphs
+    """
+
+    """
     original_filename = 'trajectory.g2o'  # Update this to your original .g2o file path
     optimized_filename = 'optimized_trajectory.g2o'  # Update this to your optimized .g2o file path
 
