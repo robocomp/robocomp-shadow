@@ -123,17 +123,18 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    qInfo() << "Corner matching threshold: " << corner_matching_threshold;
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (not res_.has_value()) { qWarning() << "No lidar data available"; return; }
     auto ldata = res_.value();
 
-    // Read robot node
+    /// Read robot node
     auto robot_node_ = G->get_node("Shadow");
     if(not robot_node_.has_value()) { qWarning() << "No robot node available"; return; }
     auto robot_node = robot_node_.value();
 
-    // draw lidar
+    /// draw lidar
     if(widget_2d != nullptr)
         draw_lidar(ldata, &widget_2d->scene);
 
@@ -143,147 +144,99 @@ void SpecificWorker::compute()
     /// Room detector
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);  // TODO: use upper lines in Helios
 
-    // If not current_room is found, return
+    /// If not current_room is found, return
     if(not current_room.is_initialized) return;
     current_room.draw_on_2D_tab(current_room, "yellow", &widget_2d->scene);
 
-    // Check if robot is in room
-//    if(not current_room.is_inside(robot_node))
-//    {
-//        qInfo() << "Robot is not in room";
-//        return;
-//    }
-
-    // Si no existen nodo room
+    /// Check if any room node exists in the graph
     if(auto room_nodes = G->get_nodes_by_type("room"); room_nodes.empty())
     {
-        static bool get_optimization = false; // TODO: delete with room graph modification
         qInfo() << "No room node in graph";
-        // Comprobar si existe target edge
+        // Check if TARGET edge exists
         if(auto target_edge_ = G->get_edge(robot_node.id(), robot_node.id(), "TARGET"); target_edge_.has_value())
         {
-            auto room_center = current_room.get_center(); // Eigen::Vector2f
+            auto room_center = current_room.get_center();
+            
+            //TODO: remove static?
+            
             static std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> corner_data;
             static std::vector<std::vector<float>> odometry_data;
-//            static std::vector<std::vector<int>> dimensions_data;
             static std::map<std::vector<int>, int> room_size_histogram;
             static Eigen::Vector2f first_room_center;
             static bool first_room_center_set = false;
 
             ///-------------------- ROBOT MOVEMENT ------------------------------///
-            if(movement_completed(room_center, distance_to_target) and not get_optimization)
+            if(movement_completed(room_center, distance_to_target))
             {
-            //TODO: RECORRER VECTOR ESQUINAS Y ESCOGER EL MÁS HABITUAL -> PROPONER TAMAÑO HABITACIÓN
-
-                // Generate room size histogram considering dimensions_data vector and choose the most common size
-                // Get the most common room size
+                // Generate room size histogram considering room_size_histogram vector and obtain the most common room size
                 auto most_common_room_size = std::max_element(room_size_histogram.begin(), room_size_histogram.end(),
                                                               [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
-                // Get the most common room size
+                /// Get the most common room size
                 auto room_size = most_common_room_size->first;
-                qInfo() << "Most common room size: " << room_size[0] << " " << room_size[1];
+                /// Calculate corner_matching_threshold based on room size
+                corner_matching_threshold = std::min(room_size[0]/2, room_size[0]/2);
+                /// Get robot initial pose in room and nominal corners
                 auto robot_initial_pose = get_robot_initial_pose( first_room_center, corner_data[0], room_size[0], room_size[1]);
-
-                //print robot_initial_pose.second
-                for(const auto &p: robot_initial_pose.second)
-                    std::cout << "Corner values: " << p << std::endl;
-
-                //TODO: RECORRER VECTOR ESQUINAS + ODOMETRÍA PARA MONTAR ARCHIVO G2O
-
+                /// Generate g2o graph considering first robot pose, nominal corners, corners and odometry measured along the trajectory to room center
                 auto g2o_str = build_g2o_graph(corner_data, odometry_data, robot_initial_pose.first, robot_initial_pose.second);
-                // Print g2o graph
-//                std::cout << "G2O graph: " << g2o_str << std::endl;
-                // Save to disk
-                // Print vector lenghts
-                qInfo() << "Corner data size: " << corner_data.size();
-                qInfo() << "Odometry data size: " << odometry_data.size();
-
-                //TODO: OPTIMIZAR GRAFO PARA RECOGER CORNERS NOMINALES
-                auto optimization = this->g2ooptimizer_proxy->optimize(g2o_str);
-                get_optimization = true;
-                //TODO: INSERTAR NOMINALES EN EL GRAFO
-
+                /// Stop robot
                 set_robot_speeds(0.f, 0.f, 0.f);
-
-////                std::cout << optimization << std::endl;
-//                //      Obtener esquinas estabilizadas
-//
-//                auto g2o_data = extract_g2o_data(optimization);
-//                // Print g2o data
-//                std::cout << "G2O data: " << std::endl;
-//                for(const auto &p: std::get<0>(g2o_data))
-//                    std::cout << "Corner values: " << p << std::endl;
-//                std::cout << "Robot pose " << std::get<1>(g2o_data) << std::endl;
-//
-//                //      Insertar corners nominales en grafo
-//                insert_room_into_graph(g2o_data, current_room);
-//                // Delete edge
+                /// Call g2o optimizer
+                auto optimization = this->g2ooptimizer_proxy->optimize(g2o_str);
+                /// Get optimized nominal corners and actual robot pose
+                auto g2o_data = extract_g2o_data(optimization);
+                /// Associate start nominal corners with optimized
+                auto associated_nominal_corners = calculate_rooms_correspondences_id(robot_initial_pose.second, std::get<0>(g2o_data));
+                for(int i = 0; i<4 ; i++)
+                    std::get<0>(g2o_data)[std::get<0>(associated_nominal_corners[i])] = std::get<2>(associated_nominal_corners[i]);
+                /// Swap corners 2 and 3 to order corners clockwise
+                std::swap(std::get<0>(g2o_data)[2], std::get<0>(g2o_data)[3]);
+                /// Insert room data in graph
+                insert_room_into_graph(g2o_data, current_room);
+                /// Delete TARGET edge to make robot control agent stop taking into account speed commands
                 G->delete_edge(robot_node.id(), robot_node.id(), "TARGET");
-                std::terminate();
             }
+            ///---------- If robot is not in room center, move robot to room center
             else
             {
-                qInfo() << "Moving robot to room center";
-                //TODO: ALMACENAR DATOS (ESQUINAS DE LA ROOM, ODOMETRÍA)
-
+                /// Check if first room center is set for obtaining first robot pose in room
                 if(not first_room_center_set)
                 {
                     first_room_center = current_room.get_center();
                     first_room_center_set = true;
-                    //print first room center
-                    std::cout << "First room center: " << first_room_center << std::endl;
                 }
-
-                //Get corners
-                auto corners = current_room.get_corners(); // std::vector<Eigen::Vector2f>
-                // Invert corners
-//                std::reverse(corners.begin(), corners.end());
-                // Push back corners al revés
+                /// Get room corner values
+                auto corners = current_room.get_corners();
                 corner_data.push_back(corners);
-                for(const auto &c: corners)
-                    std::cout << "Corner values: " << c << std::endl;
-                // Get room dimensions
+                
+                /// Get room dimension
                 auto room_width = static_cast<int>(current_room.get_width());
                 auto room_depth = static_cast<int>(current_room.get_depth());
+                
+                /// Add room size to histogram considering first the biggest dimension to avoid duplicated dimensions
                 if(room_width > room_depth)
-                {
                     room_size_histogram[{room_width, room_depth}]++;
-                    qInfo() << "Room dimensions data: " << room_width << " " << room_depth;
-                }
                 else
-                {
                     room_size_histogram[{room_depth, room_width}]++;
-                    qInfo() << "Room dimensions data: " << room_depth << " " << room_width;
-                }
-                //Get odometry
+                /// Get robot odometry
                 auto odometry = get_graph_odometry();
-                //push odometry data
                 odometry_data.push_back(odometry);
-                // generar comandos de velocidad
-//                auto speeds = calculate_speed(room_center);
-//                set_robot_speeds(speeds[0],speeds[1],speeds[2]);
+                /// Generate speed commands towards room center and insert them in graph
+                auto speeds = calculate_speed(room_center);
+                set_robot_speeds(speeds[0],speeds[1],speeds[2]);
             }
         }
         else
-            // generar enlace target from robot to robot
+            /// Generate target edge to make the robot control agent take into account speed commands
             generate_target_edge(robot_node);
     }
-        // Si hay nodo room, activar modo tracking con g2o
+    /// If room node exists, update corner values
     else
     {
-        process_room(current_room);
+        update_room_data(current_room);
     }
-
-
-
-//
-////
-////    // Check if there is a room and it is oriented
-//    check_room_orientation();
-
     graph_viewer->set_external_hz((int)(1.f/fps.get_period()*1000.f));
     fps.print("room_detector");
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -364,10 +317,6 @@ bool SpecificWorker::movement_completed(const Eigen::Vector2f &target, float dis
 {
     return (target.norm() < distance_to_target);
 }
-bool SpecificWorker::is_robot_inside_room(const rc::Room &current_room)
-{
-    // Get current_room cor
-}
 std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> SpecificWorker::extract_g2o_data(string optimization)
 {
 // Print function name
@@ -407,7 +356,10 @@ std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> SpecificWorker::extrac
             // pass to next line
             qInfo() << "Fixed node";
         else
+        {
+
             return std::make_tuple(corners, robot_pose);
+        }
     }
 
 }
@@ -478,7 +430,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
         wall_pos = {wall_center_point_float.x(), wall_center_point_float.y(), 0.f};
         // Print wall center point
         std::cout << "Wall center point: " << wall_center_point_float.x() << " " << wall_center_point_float.y() << std::endl;
-        wall_angle = -(std::atan2(wall_center_point.y(), wall_center_point.x()) - M_PI_2);
+        wall_angle = std::atan2(wall_center_point.y(), wall_center_point.x()) - M_PI_2;
         std::cout << "Wall angle: " << wall_angle << std::endl;
         // Obtain corner pose with respect to the wall
         auto corner_float = corner.cast<float>();
@@ -506,6 +458,14 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     std::vector<Eigen::Vector2d> target_points;
     std::transform(target_points_.begin(), target_points_.end(), std::back_inserter(target_points),
                    [](const auto &p){ return Eigen::Vector2d(p.x(), p.y()); });
+    // Print target_points_
+    for(const auto &corner : target_points)
+    {
+        std::cout << "Corner measured" << ": "
+                  << corner.x() << " " << corner.y()
+                  << std::endl;
+    }
+
     // Calculate correspondences between optimized and measured corners
     auto correspondences = calculate_rooms_correspondences_id(transformed_corners, target_points);
     // Insert measured corners in graph
@@ -516,9 +476,15 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
             create_corner(id, {(float)p2.x(), (float)p2.y(), 0.0}, robot_node, false);
         }
     }
-    exit(0);
-}
 
+    auto new_room_node_ = G->get_node("room");
+    if(not new_room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+    auto new_room_node = new_room_node_.value();
+    G->add_or_modify_attrib_local<valid_att>(new_room_node, true);
+    G->update_node(new_room_node);
+
+}
 std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners()
 {
     std::vector<Eigen::Vector2d> rt_corner_values;
@@ -564,8 +530,8 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners()
                                     rt_robot_edge.value()); rt_rotation_robot.has_value())
                         {
                             auto rt_rotation_robot_value = rt_rotation_robot.value().get();
-                            qInfo() << "Robot pose: " << rt_translation_robot_value[0] << " "
-                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
+//                            qInfo() << "Robot pose: " << rt_translation_robot_value[0] << " "
+//                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
                             // Transform nominal corner position to robot frame
                             Eigen::Vector3f corner_robot_pos_point(rt_translation_value[0],
                                                                    rt_translation_value[1], 0.f);
@@ -576,9 +542,9 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners()
                             {
                                 auto corner_transformed_value = corner_transformed.value();
                                 // Print corner
-                                std::cout << "Corner transformed with transform" << i << ": "
-                                          << corner_transformed_value.x() << " " << corner_transformed_value.y()
-                                          << std::endl;
+//                                std::cout << "Corner transformed with transform" << i << ": "
+//                                          << corner_transformed_value.x() << " " << corner_transformed_value.y()
+//                                          << std::endl;
 
                                 rt_corner_values.push_back({corner_transformed_value.x(), corner_transformed_value.y()});
                             }
@@ -588,7 +554,6 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners()
     }
     return rt_corner_values;
 }
-
 std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> SpecificWorker::get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth)
 {
     // Cast first corners to Eigen::Vector2d
@@ -641,251 +606,24 @@ std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> SpecificWorker::get_rob
 
     auto rotation2d = Eigen::Rotation2Dd(icp.rotation());
     auto angle_rad = rotation2d.angle();
-    //print angle_rad
-    std::cout << "Angle rad: " << angle_rad << std::endl;
 
     //generate rotation matrix
     Eigen::Matrix2d rotation_matrix;
     rotation_matrix << cos(angle_rad), sin(angle_rad),
             -sin(angle_rad), cos(angle_rad);
-//
-std::cout << "Rotation matrix: " << rotation_matrix << std::endl;
-////    rotation_matrix = rotation_matrix.transpose();
-//    //multiply rotation_matrix by -room_center_double
+
+
     Eigen::Vector2d translation = rotation_matrix * -room_center_double;
-    qInfo() << "#############################################";
-    qInfo() << "Translation: " << translation.x() << " " << translation.y();
-    qInfo() << "Rotation: " << rotation2d.angle();
-    qInfo() << "#############################################";
+
     // Generate affine matrix using Eigen library
     Eigen::Affine2d pose_matrix;
     // Set rotation and traslation data
     pose_matrix.setIdentity();
     pose_matrix.rotate(-angle_rad).pretranslate(translation);
-    std::cout << "Pose matrix: " << pose_matrix.matrix() << std::endl;
-
-
-
-//
-//    //print translation
-//    std::cout << "Translation: " << translation.x() << " " << translation.y() << std::endl;
-
-    // Generate affine matrix using Eigen library
-//    Eigen::Affine2d pose_matrix;
-//    pose_matrix.setIdentity();
-//    pose_matrix.rotate(-angle_rad);
-//    pose_matrix.translate(rotation2d.inverse()*(-room_center_double));
-
-    //print robot initial pose
-    std::cout << "Robot initial pose: " << pose_matrix.translation() << std::endl;
-    std::cout << "Robot initial rotation: " << pose_matrix.rotation() << std::endl;
-    //print pose matrix angle
-    std::cout << "Pose matrix angle: " << Eigen::Rotation2Dd(pose_matrix.rotation()).angle() << std::endl;
 
     return std::make_pair(pose_matrix, imaginary_room_robot_refsys);
 }
-
-void SpecificWorker::get_robot_and_room_data_for_optimizer(const rc::Room &room)
-{
-    // Get room corners
-    auto target_points_ = room.get_corners();
-    // Cast corners to Eigen::Vector2d through a lambda
-    std::vector<Eigen::Vector2d> target_points;
-    std::transform(target_points_.begin(), target_points_.end(), std::back_inserter(target_points),
-                   [](const auto &p){ return Eigen::Vector2d(p.x(), p.y()); });
-    // Check if it is the first time the room is processed through checking if g2o_graph_data is empty
-    if(g2o_graph_data.empty())
-    {
-        // Get room nominal data
-        auto width = static_cast<int>(room.get_width());
-        auto height = static_cast<int>(room.get_height());
-        auto depth = static_cast<int>(room.get_depth());
-
-        // Create two possible nominal rooms
-        std::vector<Eigen::Vector2d> imaginary_room_1 = {{ -width / 2, depth / 2}, { width / 2,  depth / 2}, { -width / 2,  -depth / 2}, { width / 2,  -depth / 2}};
-        std::vector<Eigen::Vector2d> imaginary_room_2 = {{ -depth / 2, width / 2}, { depth / 2,  width / 2}, { -depth / 2,  -width / 2}, { depth / 2,  -width /2}};
-
-        auto room_center = room.get_center();
-        auto room_center_double = room_center.cast<double>();
-        std::cout << "Room center: " << room_center.x() << " " << room_center.y() << std::endl;
-        std::cout << "Room center double: " << room_center_double.x() << " " << room_center_double.y() << std::endl;
-        // Considering room center, traslate the imaginary rooms
-        for(auto &p: imaginary_room_1)
-            p += room_center_double;
-        for(auto &p: imaginary_room_2)
-            p += room_center_double;
-
-        static std::vector<QGraphicsItem *> draw_points;
-        for (const auto &p: imaginary_room_1)
-        {
-            auto o = widget_2d->scene.addRect(-20, 20, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-            o->setPos(p.x(), p.y());
-            draw_points.push_back(o);
-        }
-
-        for (const auto &p: imaginary_room_2)
-        {
-            auto o = widget_2d->scene.addRect(-20, 20, 200, 200, QPen(Qt::yellow), QBrush(Qt::yellow));
-            o->setPos(p.x(), p.y());
-            draw_points.push_back(o);
-        }
-
-
-
-        // Get room corners
-        auto first_room_ = room.get_corners();
-        // Cast corners to Eigen::Vector2d
-        std::vector<Eigen::Vector2d> first_room;
-        for (const auto &p: first_room_)
-        {
-            first_room.push_back(Eigen::Vector2d(p.x(), p.y()));
-        }
-
-        // Check which of the two imaginary rooms is the closest to the real room
-        auto correspondence_1 = this->calculate_rooms_correspondences(first_room, imaginary_room_1);
-        auto correspondence_2 = this->calculate_rooms_correspondences(first_room, imaginary_room_2);
-
-        // Calcular la suma de las distancias cuadradas para cada par de puntos
-        double sum_sq_dist1 = 0.0;
-        double sum_sq_dist2 = 0.0;
-        for (size_t i = 0; i < correspondence_1.size(); ++i)
-        {
-            sum_sq_dist1 += (correspondence_1[i].first - correspondence_1[i].second).squaredNorm();
-            sum_sq_dist2 += (correspondence_2[i].first - correspondence_2[i].second).squaredNorm();
-        }
-
-        std::vector<Eigen::Vector2d> imaginary_room;
-        if(sum_sq_dist1 < sum_sq_dist2)
-            imaginary_room = imaginary_room_1;
-        else
-            imaginary_room = imaginary_room_2;
-
-        // Get robot pose in room
-        icp icp(imaginary_room, first_room);
-        icp.align();
-
-        Eigen::Matrix2d transformation = icp.rotation();
-        Eigen::Vector2d translation = icp.translation();
-
-        float angle_rad = -std::atan2(transformation(1,0), transformation(0,0));
-
-        Eigen::Matrix3f rt_rotation_matrix;
-        rt_rotation_matrix << cos(angle_rad), -sin(angle_rad), translation.x(),
-                sin(angle_rad), cos(angle_rad), translation.y(),
-                0.0, 0.0, 1.0;
-
-        std::cout << "Angle rad: " << angle_rad << std::endl;
-
-
-        Eigen::Matrix3f rt_rotation_matrix_inv = rt_rotation_matrix.inverse();
-        // Print room center and rt_rotation_matrix_inv
-        std::cout << "Room center: " << -room_center.x() << " " << -room_center.y() << std::endl;
-        std::cout << "Rotation matrix: " << rt_rotation_matrix_inv << std::endl;
-//
-//
-//        Eigen::Vector3f robot_pose = rt_rotation_matrix_inv * Eigen::Vector3f(room_center.x(), room_center.y(), 0.0);
-//        // Invert
-//        qInfo() << "ROBOT POSE: " << robot_pose.x() << " " << robot_pose.y();
-
-
-        // Insert first pose in g2o_graph_data
-        g2o_graph_data += "VERTEX_SE2 " + std::to_string(odometry_node_counter) + " " + std::to_string((int)rt_rotation_matrix_inv(0,2)) + " " + std::to_string((int)rt_rotation_matrix_inv(1,2)) + " " + std::to_string(angle_rad+M_PI_2) + "\n";
-//        g2o_graph_data += "VERTEX_SE2 " + std::to_string(odometry_node_counter) + " " + std::to_string(0.0) + " " + std::to_string(0.0) + " " + std::to_string(M_PI_2) + "\n";
-        g2o_graph_data += "FIX " + std::to_string(0) + "\n";
-
-        std::swap(imaginary_room[2], imaginary_room[3]);
-        auto first_correspondence = calculate_rooms_correspondences_id(imaginary_room, target_points, true);
-        for (const auto &[id, p, p2, valid] : first_correspondence)
-        {
-            if(valid)
-            {
-                g2o_graph_data += "VERTEX_XY " + std::to_string(id+1) + " " + std::to_string((int)p.x()) + " " + std::to_string((int)p.y()) + "\n";
-//                g2o_graph_data += "EDGE_SE2_XY " + std::to_string(odometry_node_counter) + " " + std::to_string(id+1) + " " + std::to_string((int)p.x()) + " " + std::to_string((int)p.y()) + " 1 0 1\n";
-//                g2o_graph_data += "VERTEX_XY " + std::to_string(id+1) + " " + std::to_string((int)p.x()) + " " + std::to_string((int)p.y()) + "\n";
-//                if(id == 0)
-//                    g2o_graph_data += "FIX " + std::to_string(id+1) + "\n";
-                g2o_graph_data += "EDGE_SE2_XY " + std::to_string(odometry_node_counter) + " " + std::to_string(id+1) + " " + std::to_string((int)p2.x()) + " " + std::to_string((int)p2.y()) + " 0 0 0\n";
-            }
-            last_valid_corners.push_back(p2);
-        }
-//
-//        g2o_graph_data += "VERTEX_SE2 " + std::to_string(5) + " " + std::to_string((int)rt_rotation_matrix_inv(0,2)) + " " + std::to_string((int)rt_rotation_matrix_inv(1,2)) + " " + std::to_string(angle_rad) + "\n";
-//        g2o_graph_data += "EDGE_SE2 " + std::to_string(0) + " " + std::to_string(5) + " " + std::to_string((int)rt_rotation_matrix_inv(0,2)) + " " + std::to_string((int)rt_rotation_matrix_inv(1,2)) + " " + std::to_string(angle_rad) + " 1 0 0 1 0 1\n";
-//
-//
-//        for (const auto &[id, p, p2, valid] : first_correspondence)
-//        {
-//            if(valid)
-//            {
-//                g2o_graph_data += "EDGE_SE2_XY " + std::to_string(5) + " " + std::to_string(id+1) + " " + std::to_string((float) p2.x()) + " " + std::to_string((float) p2.y()) + " 1 0 1\n";
-//            }
-//        }
-
-        // Incrrment odometry node counter
-        last_robot_pose = {rt_rotation_matrix_inv(0,2), rt_rotation_matrix_inv(1,2), angle_rad};
-        last_time = std::chrono::high_resolution_clock::now();
-        odometry_node_counter+=5;
-
-    }
-    // In case g2o_graph_data is not empty, process the optimized graph
-    else
-    {
-        auto room_center = room.get_center();
-        auto room_center_double = room_center.cast<double>();
-        std::cout << "Room center: " << -room_center.x() << " " << -room_center.y() << std::endl;
-        auto rt_corners_correspondences = calculate_rooms_correspondences_id(last_valid_corners, target_points);
-
-        auto odometry = get_graph_odometry();
-
-        auto adv_disp = odometry[0];
-        auto side_disp = odometry[1];
-        auto rot_disp = odometry[2];
-
-        // Accumulate odometry to robot world pose using matrix
-        Eigen::Matrix3f rt_rotation_matrix;
-        rt_rotation_matrix << cos(last_robot_pose[2]), -sin(last_robot_pose[2]), last_robot_pose[0],
-                sin(last_robot_pose[2]), cos(last_robot_pose[2]), last_robot_pose[1],
-                0.0, 0.0, 1.0;
-        Eigen::Matrix3f rt_disp_matrix;
-        rt_disp_matrix << cos(rot_disp), -sin(rot_disp), side_disp,
-                sin(rot_disp), cos(rot_disp), adv_disp,
-                0.0, 0.0, 1.0;
-        Eigen::Matrix3f rt_new_pose = rt_rotation_matrix * rt_disp_matrix;
-        last_robot_pose = {rt_new_pose(0,2), rt_new_pose(1,2), last_robot_pose[2] + rot_disp};
-
-        float aux_rot_pose = last_robot_pose[2]+M_PI_2;
-
-        // Filter rotation angle between -pi and pi
-        if(last_robot_pose[2] > M_PI)
-            last_robot_pose[2] -= 2 * M_PI;
-        if(last_robot_pose[2] < -M_PI)
-            last_robot_pose[2] += 2 * M_PI;
-
-        // Filter rotation angle between -pi and pi
-        if(aux_rot_pose > M_PI)
-            aux_rot_pose -= 2 * M_PI;
-        if(aux_rot_pose < -M_PI)
-            aux_rot_pose += 2 * M_PI;
-
-        std::cout << "Robot pose: " << last_robot_pose[0] << " " << last_robot_pose[1] << " " << last_robot_pose[2] << std::endl;
-        // Insert new pose in g2o_graph_data
-        g2o_graph_data += "VERTEX_SE2 " + std::to_string(odometry_node_counter) + " " + std::to_string(last_robot_pose[0]) + " " + std::to_string(last_robot_pose[1]) + " " + std::to_string(aux_rot_pose) + "\n";
-        if(odometry_node_counter == 5)
-            g2o_graph_data += "EDGE_SE2 " + std::to_string(0) + " " + std::to_string(odometry_node_counter) + " " + std::to_string(adv_disp) + " " + std::to_string(-side_disp) + " " + std::to_string(rot_disp) + " 1 0 0 1 0 1\n";
-        else
-            g2o_graph_data += "EDGE_SE2 " + std::to_string(odometry_node_counter-1) + " " + std::to_string(odometry_node_counter) + " " + std::to_string(adv_disp) + " " + std::to_string(-side_disp) + " " + std::to_string(rot_disp) + " 1 0 0 1 0 1\n";
-        last_valid_corners.clear();
-        for(int i=1;i<5;i++)
-        {
-            g2o_graph_data += "EDGE_SE2_XY " + std::to_string(odometry_node_counter) + " " + std::to_string(i) + " " + std::to_string((float) std::get<2>(rt_corners_correspondences[i - 1]).x()) + " " + std::to_string((float) std::get<2>(rt_corners_correspondences[i - 1]).y()) + " 0 0 0\n";
-            last_valid_corners.push_back(std::get<2>(rt_corners_correspondences[i - 1]));
-        }
-        odometry_node_counter++;
-    }
-    // Print g2o_graph_data
-//    std::cout << g2o_graph_data << std::endl;
-}
-void SpecificWorker::process_room(const rc::Room &room)
+void SpecificWorker::update_room_data(const rc::Room &room)
 {
     auto root_node_ = G->get_node("root");
     if(not root_node_.has_value())
@@ -929,10 +667,13 @@ void SpecificWorker::process_room(const rc::Room &room)
 
         // Calculate correspondences between transformed nominal and measured corners
         auto rt_corners_correspondences = calculate_rooms_correspondences_id(rt_corner_values, target_points);
-
         //Update measured corners
         for (int i = 0; i < 4; i++)
         {
+            qInfo() << "############################################################################";
+
+            qInfo() << "Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
+            qInfo() << "Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
             std::string corner_name = "corner_" + std::to_string(i) + "_measured";
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
@@ -940,16 +681,14 @@ void SpecificWorker::process_room(const rc::Room &room)
                                                                 "RT"); edge.has_value()) {
                     if (auto corner_id = G->get_attrib_by_name<corner_id_att>(
                                 updated_corner.value()); corner_id.has_value()) {
-                        //                                std::cout << "Corner_id: " << corner_id.value() << std::endl;
-                        //                                std::cout << "Corner id correspondence: " << std::get<0>(rt_corners_correspondences[i-1]) << std::endl;
-                        if (corner_id.value() == std::get<0>(rt_corners_correspondences[i - 1])) {
+                        if (corner_id.value() == std::get<0>(rt_corners_correspondences[i])) {
                             //insert the rt values in the edge
                             G->add_or_modify_attrib_local<valid_att>(updated_corner.value(), std::get<3>(
-                                    rt_corners_correspondences[i - 1]));
+                                    rt_corners_correspondences[i]));
                             G->update_node(updated_corner.value());
                             G->add_or_modify_attrib_local<rt_translation_att>(edge.value(), std::vector<float>{
-                                    (float) std::get<2>(rt_corners_correspondences[i - 1]).x(),
-                                    (float) std::get<2>(rt_corners_correspondences[i - 1]).y(), 0.0f});
+                                    (float) std::get<2>(rt_corners_correspondences[i]).x(),
+                                    (float) std::get<2>(rt_corners_correspondences[i]).y(), 0.0f});
                             G->insert_or_assign_edge(edge.value());
                         }
                     }
@@ -958,74 +697,56 @@ void SpecificWorker::process_room(const rc::Room &room)
         }
     }
 }
-
 //Ceate funcion to build .g2o string from corner_data, odometry_data, RT matrix
 std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data, const std::vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose , const std::vector<Eigen::Vector2d> nominal_corners)
 {
     std::string g2o_graph;
-    int id = 0;
+    int id = 0; // Id for g2o graph vertices
     auto updated_robot_pose = robot_pose;
-    float aux_rot_pose;
-
-    // Add nominal_corner VERTEX_XY
+    
+    /// Add nominal corners as VERTEX_XY
     for (size_t i = 0; i < nominal_corners.size(); ++i)
     {
         g2o_graph += "VERTEX_XY " + std::to_string(id) + " " + std::to_string(nominal_corners[i].x()) + " " + std::to_string(nominal_corners[i].y()) + "\n";
         id++;
     }
-
-    // Add pose as VERTEX_SE2
+    
+    /// Add first robot pose as VERTEX_SE2
     Eigen::Rotation2Dd rotation2D(robot_pose.rotation());
     double angle = rotation2D.angle();
-
-    aux_rot_pose = angle + M_PI_2;
-    // Filter rotation angle between -pi and pi
-    if(aux_rot_pose > M_PI)
-        aux_rot_pose -= 2 * M_PI;
-    if(aux_rot_pose < -M_PI)
-        aux_rot_pose += 2 * M_PI;
-
-    g2o_graph += "VERTEX_SE2 " + std::to_string(id) + " " + std::to_string(robot_pose.translation().x()) + " " + std::to_string(robot_pose.translation().y()) + " " + std::to_string(aux_rot_pose) + "\n";
+    g2o_graph += "VERTEX_SE2 " + std::to_string(id) + " " + std::to_string(robot_pose.translation().x()) + " " + std::to_string(robot_pose.translation().y()) + " " + std::to_string(angle) + "\n";
+    // Set first robot pose in room as fixed
     g2o_graph += "FIX " + std::to_string(id) + "\n";
     id++;
 
-    // Store initial ID
+    /// Store initial ID
     auto node_id = id;
 
-    // Add new VERTEX_SE2 for each odometry data and EDGE_SE2 from previous vertex
+    /// Add new VERTEX_SE2 for each odometry data and EDGE_SE2 from previous vertex
     for (size_t i = 0; i < odometry_data.size()-1; ++i)
     {
-        //TODO: REMOVE 0.48x factor (simulation_time / real_time factor)
-        Eigen::Affine2d odometryTransform = Eigen::Translation2d(odometry_data[i][1]*0.48,odometry_data[i][0]*0.48) * Eigen::Rotation2Dd(odometry_data[i][2]*0.48);
+        double x_displacement = odometry_data[i][0] * odometry_time_factor;
+        double y_displacement = odometry_data[i][1] * odometry_time_factor;
+        double angle_displacement = odometry_data[i][2] * odometry_time_factor;
+        
+        /// Transform odometry data to room frame
+        Eigen::Affine2d odometryTransform = Eigen::Translation2d(y_displacement, x_displacement) * Eigen::Rotation2Dd(angle_displacement);
         updated_robot_pose = updated_robot_pose * odometryTransform;
-
-        // Print odometryTransform
-        std::cout << "Odometry transform: " << odometryTransform.translation().x() << " " << odometryTransform.translation().y() << " " << Eigen::Rotation2Dd(odometryTransform.rotation()).angle() << std::endl;
-
-        qInfo() << "#############################";
-        std::cout << "Updated robot pose: " << updated_robot_pose.translation().x() << " " << updated_robot_pose.translation().y() << " " << Eigen::Rotation2Dd(updated_robot_pose.rotation()).angle() << std::endl;
-        std::cout << "Odom data: " << odometry_data[i][0] << " " << odometry_data[i][1] << " " << odometry_data[i][2] << std::endl;
-
-//        Eigen::Rotation2Dd rotation2D(updated_robot_pose.rotation());
-//
-//        angle = rotation2D.angle();
-
         double angle = Eigen::Rotation2Dd(updated_robot_pose.rotation()).angle();
-
-        aux_rot_pose = angle + M_PI_2;
-        // Filter rotation angle between -pi and pi
-        if(aux_rot_pose > M_PI)
-            aux_rot_pose -= 2 * M_PI;
-        if(aux_rot_pose < -M_PI)
-            aux_rot_pose += 2 * M_PI;
-
-        g2o_graph += "VERTEX_SE2 " + std::to_string(id) + " " + std::to_string(updated_robot_pose.translation().x()) + " " + std::to_string(updated_robot_pose.translation().y()) + " " + std::to_string(aux_rot_pose) +  "\n";
-
-        // According to G2O format, odometry data shoud be put as (y, -x, alpha)
-        g2o_graph += "EDGE_SE2 " + std::to_string(id-1) + " " + std::to_string(id) + " " + std::to_string(odometry_data[i][0]) + " " + std::to_string(-odometry_data[i][1]) + " " + std::to_string(odometry_data[i][2]) + " 0 0 0 0 0 0 \n";
-
+        
+        /// Add noise to odometry data
+        g2o_graph += "VERTEX_SE2 " + std::to_string(id) + " " + std::to_string(updated_robot_pose.translation().x()) + " " + std::to_string(updated_robot_pose.translation().y()) + " " + std::to_string(angle) + "\n";
+        g2o_graph += "EDGE_SE2 " + std::to_string(id-1) + " " + std::to_string(id) + " " + std::to_string(y_displacement) + " " + std::to_string(x_displacement) + " " + std::to_string(angle_displacement) + " 20 0 0 20 0 1 \n";
         id++;
     }
+
+    std::vector<Eigen::Vector2d> first_corners = { corner_data[0][0].cast<double>(), corner_data[0][1].cast<double>(), corner_data[0][2].cast<double>(), corner_data[0][3].cast<double>() };
+    auto first_correspondence = calculate_rooms_correspondences_id(nominal_corners, first_corners, true);
+
+    for(int i = 0; i < 4; i++)
+        g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id-1) + " " + std::to_string(std::get<0>(first_correspondence[i])) + " " + std::to_string(std::get<2>(first_correspondence[i]).x()) + " " + std::to_string(std::get<2>(first_correspondence[i]).y()) + " 5 0 5 \n";
+
+    this->aux_corners = std::vector<Eigen::Vector2d> {std::get<2>(first_correspondence[0]), std::get<2>(first_correspondence[1]), std::get<2>(first_correspondence[2]), std::get<2>(first_correspondence[3])};
 
     // Add EDGE_SE2_XY landmarks for each position in corner_data (from pose vertex to nominal corner)
     for (size_t i = 1; i < corner_data.size(); ++i)
@@ -1035,28 +756,352 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
         Eigen::Vector2d corner_data_point_2 = corner_data[i][2].cast<double>();
         Eigen::Vector2d corner_data_point_3 = corner_data[i][3].cast<double>();
 
-        Eigen::Vector2d corner_data_point_0_old = corner_data[i-1][0].cast<double>();
-        Eigen::Vector2d corner_data_point_1_old = corner_data[i-1][1].cast<double>();
-        Eigen::Vector2d corner_data_point_2_old = corner_data[i-1][2].cast<double>();
-        Eigen::Vector2d corner_data_point_3_old = corner_data[i-1][3].cast<double>();
-
         std::vector current_corners = {corner_data_point_0, corner_data_point_1, corner_data_point_2, corner_data_point_3};
-        std::vector old_corners = {corner_data_point_0_old, corner_data_point_1_old, corner_data_point_2_old, corner_data_point_3_old};
+        auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true);
 
         for (size_t j = 0; j < corner_data[i].size(); ++j)
-        {
-            auto correspondences = calculate_rooms_correspondences_id(old_corners, current_corners, true);
-            qInfo() << "MEASURED ; Corner id: " << j << " Room id: " << i << " Corner data: " << std::get<2>(correspondences[j]).x() << " " << std::get<2>(correspondences[j]).y();
-            qInfo() << "NOMINAL ; Corner id: " << j << " Room id: " << i << " Corner data: " << std::get<1>(correspondences[j]).x() << " " << std::get<1>(correspondences[j]).y();
-//            g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id-1) + " " + std::to_string(j) + " " + std::to_string(corner_data[i][j].x()) + " " + std::to_string(corner_data[i][j].y()) + " 1 0 1 \n";
-            g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id-1) + " " + std::to_string(j) + " " + std::to_string(std::get<2>(correspondences[j]).x()) + " " + std::to_string(std::get<2>(correspondences[j]).y()) + " 1 0 1 \n";
-        }
+            g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id) + " " + std::to_string(std::get<0>(correspondences[j])) + " " + std::to_string(std::get<2>(correspondences[j]).x()) + " " + std::to_string(std::get<2>(correspondences[j]).y()) + " 5 0 5 \n";
+        this->aux_corners = {std::get<2>(correspondences[0]), std::get<2>(correspondences[1]), std::get<2>(correspondences[2]), std::get<2>(correspondences[3])};
         node_id++;
     }
     return g2o_graph;
 }
 
-//void SpecificWorker::process_room(const rc::Room &room)
+std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
+{
+    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
+
+    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
+    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
+    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
+    int i = 0;
+
+    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+    {
+        double min_distance = std::numeric_limits<double>::max();
+        Eigen::Vector2d closest_point;
+        auto target_iter = target_points_copy.begin();
+        auto closest_target_iter = target_iter;
+
+        // Encontrar el punto más cercano en el conjunto de puntos objetivo
+        while (target_iter != target_points_copy.end())
+        {
+            double d = (*source_iter - *target_iter).norm();
+            if (d < min_distance)
+            {
+                min_distance = d;
+                closest_point = *target_iter;
+                closest_target_iter = target_iter;
+            }
+            ++target_iter;
+        }
+
+        // Almacenar la correspondencia encontrada
+        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
+        i++;
+        // Eliminar los puntos correspondientes de sus vectores originales
+        source_iter = source_points_copy.erase(source_iter);
+        target_points_copy.erase(closest_target_iter);
+    }
+    if(not first_time)
+        for (auto &correspondence: correspondences)
+        {
+            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > corner_matching_threshold)
+            {
+                std::get<3>(correspondence) = false;
+                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
+                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
+                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
+            }
+        }
+    return correspondences;
+}
+std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)
+{
+    std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> correspondences;
+    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
+    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
+    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
+
+    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+    {
+        double min_distance = std::numeric_limits<double>::max();
+        Eigen::Vector2d closest_point;
+        auto target_iter = target_points_copy.begin();
+        auto closest_target_iter = target_iter;
+
+        // Encontrar el punto más cercano en el conjunto de puntos objetivo
+        while (target_iter != target_points_copy.end())
+        {
+            double d = (*source_iter - *target_iter).norm();
+            if (d < min_distance)
+            {
+                min_distance = d;
+                closest_point = *target_iter;
+                closest_target_iter = target_iter;
+            }
+            ++target_iter;
+        }
+
+        // Almacenar la correspondencia encontrada
+        correspondences.push_back({*source_iter, closest_point});
+
+        // Eliminar los puntos correspondientes de sus vectores originales
+        source_iter = source_points_copy.erase(source_iter);
+        target_points_copy.erase(closest_target_iter);
+    }
+    return correspondences;
+}
+void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal)
+{
+    auto parent_level_ = G->get_node_level(parent_node);
+    if(not parent_level_.has_value())
+    { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
+    auto parent_level = parent_level_.value();
+
+    std::string wall_name = "wall_" + std::to_string(id);
+    if(not nominal)
+    {
+        wall_name = "wall_" + std::to_string(id) + "_measured";
+    }
+
+    auto new_wall = DSR::Node::create<wall_node_type>(wall_name);
+
+    //Get room node pos_x and pos_y attributes
+    auto room_node_ = G->get_node("room");
+
+    if(not room_node_.has_value())
+    {
+        qWarning() << __FUNCTION__ << " No room node in graph"; return;
+    }
+    else
+    {
+
+        auto room_node = room_node_.value();
+        auto pos_x = G->get_attrib_by_name<pos_x_att>(room_node);
+        auto pos_y = G->get_attrib_by_name<pos_y_att>(room_node);
+        //Set corner pos_x and pos_y attributes as corners of square room centered in pos_x and pos_y
+        if(pos_x.has_value() and pos_y.has_value()){
+            G->add_or_modify_attrib_local<pos_x_att>(new_wall, pos_x.value() + p[0]/ 25);
+            G->add_or_modify_attrib_local<pos_y_att>(new_wall, pos_y.value() + p[1]/ 25);
+        }
+        else{
+            qWarning() << __FUNCTION__ << " No pos_x or pos_y attributes in room node";
+            return;
+        }
+    }
+
+    G->add_or_modify_attrib_local<obj_id_att>(new_wall, id);
+    G->add_or_modify_attrib_local<timestamp_creation_att>(new_wall, get_actual_time());
+    G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_wall, get_actual_time());
+    G->add_or_modify_attrib_local<level_att>(new_wall, parent_level + 1);
+    G->insert_node(new_wall);
+
+    rt->insert_or_assign_edge_RT(parent_node, new_wall.id(), p, {0.0, 0.0, angle});
+}
+void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Node parent_node, bool nominal)
+{
+    auto parent_level_ = G->get_node_level(parent_node);
+    if(not parent_level_.has_value())
+    { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
+    auto parent_level = parent_level_.value();
+    std::string corner_name = "corner_" + std::to_string(id);
+    if(not nominal)
+    {
+        corner_name = "corner_" + std::to_string(id) + "_measured";
+    }
+    auto new_corner = DSR::Node::create<corner_node_type>(corner_name);
+
+    //Get room node pos_x and pos_y attributes
+    auto room_node_ = G->get_node("room");
+    if(not room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
+    else
+    {
+
+        auto room_node = room_node_.value();
+        auto pos_x = G->get_attrib_by_name<pos_x_att>(parent_node);
+        auto pos_y = G->get_attrib_by_name<pos_y_att>(parent_node);
+        //Set corner pos_x and pos_y attributes as corners of square room centered in pos_x and pos_y
+        if(pos_x.has_value() and pos_y.has_value()){
+            G->add_or_modify_attrib_local<pos_x_att>(new_corner, pos_x.value() + 100);
+            G->add_or_modify_attrib_local<pos_y_att>(new_corner, pos_y.value() + 100);
+        }
+        else{
+            qWarning() << __FUNCTION__ << " No pos_x or pos_y attributes in room node";
+            return;
+        }
+    }
+    G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
+    G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
+    G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());
+    G->add_or_modify_attrib_local<level_att>(new_corner, parent_level + 1);
+    G->insert_node(new_corner);
+
+    rt->insert_or_assign_edge_RT(parent_node, new_corner.id(), p, {0.0, 0.0, 0.0});
+}
+void SpecificWorker::check_room_orientation()   // TODO: experimental
+{
+    // admissibility conditions
+    auto room_nodes = G->get_nodes_by_type("room");
+    if(room_nodes.empty()) return;
+    auto room_node = room_nodes.front();
+
+    // get list of objects
+    auto object_nodes = G->get_nodes_by_type("chair");  //TODO: should be all
+    if(object_nodes.empty()) { qWarning() << __FUNCTION__ << "No objects in graph" ; return;}
+
+    auto robot_node = G->get_node("Shadow");
+    if(not robot_node.has_value()) return;
+
+    // if oriented return
+    auto is_oriented_ = G->get_attrib_by_name<room_is_oriented_att>(room_node);
+    if(is_oriented_.has_value() and is_oriented_.value()) return;
+
+    // if not oriented get room width and depth and position wrt to robot
+    auto room_width = G->get_attrib_by_name<width_att>(room_node);
+    auto room_depth = G->get_attrib_by_name<depth_att>(room_node);
+    if(not room_width.has_value() or not room_depth.has_value()) return;
+    auto edge_robot_to_room = rt->get_edge_RT(robot_node.value(), room_node.id());
+    if( not edge_robot_to_room.has_value()) { qWarning() << __FUNCTION__ << "No edge between robot and room"; return;}
+    auto tr = G->get_attrib_by_name<rt_translation_att>(edge_robot_to_room.value());
+    auto rot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot_to_room.value());
+    if (not tr.has_value() or not rot.has_value()) { qWarning() << __FUNCTION__ << "No translation or rotation between robot and room"; return;}
+    auto x = tr.value().get()[0], y = tr.value().get()[1], ang = rot.value().get()[2];
+
+    // now build and Eigen::Transform to encode the room position and orientation wrt to the robot
+    Eigen::Transform<float, 2, Eigen::Affine> room_transform;
+    room_transform.setIdentity();
+    room_transform.translate(Eigen::Vector2f(x, y));
+    room_transform.rotate(Eigen::Rotation2Df(ang));
+
+    // transform the objects' coordinates to the room frame
+    for(const auto &object_node : object_nodes)
+    {
+        if (auto edge_robot = rt->get_edge_RT(robot_node.value(), object_node.id()); edge_robot.has_value())
+        {
+            auto tr_obj = G->get_attrib_by_name<rt_translation_att>(edge_robot.value());
+            auto rot_obj = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value());
+            if (tr_obj.has_value() and rot_obj.has_value() /*and width_.has_value() and depth_.has_value()*/)
+            {
+                // now transform the object to the room frame
+                auto obj_room = room_transform * Eigen::Vector2f(tr.value().get()[0], tr.value().get()[1]);
+                // check if obj_room is very close to the room border
+                if( is_on_a_wall(obj_room.x(), obj_room.y(), room_width.value(), room_depth.value()))
+                {
+                    // set the room as oriented towards the object. To do this we need two things:
+                    // 1. add an edge in G between the room and the object
+                    // 2. reset the odometry but setting the offset of the current transform between the robot and the room,
+                    // so the next current pose sent by the lidar_odometry is the current pose of the robot in the room frame
+
+                }
+            }
+        }
+    }
+}
+bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
+{
+    auto is_approx = [](float a, float b){ return fabs(a - b) < 0.1; };
+
+    if(((is_approx(fabs(x), 0.f) and is_approx(fabs(y), depth/2.f))) or (is_approx(fabs(y), 0.f) and is_approx(fabs(x), width/2.f)))
+        return true;
+    else return false;
+}
+uint64_t SpecificWorker::get_actual_time()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+}
+// function to read robot odometry from graph and update the robot pose
+std::vector<float> SpecificWorker::get_graph_odometry()
+{
+    static bool initialize = false;
+
+    //TODO: Fix last_time initialization
+    if (not initialize)
+    {
+        last_time = std::chrono::high_resolution_clock::now();
+        initialize = true;
+    }
+
+    auto robot_node_ = G->get_node("Shadow");
+    if(not robot_node_.has_value())
+    {
+        qWarning() << __FUNCTION__ << " No robot node in graph. Can't get odometry data.";
+        return{};
+    }
+    auto robot_node = robot_node_.value();
+    if(auto adv_odom_att = G->get_attrib_by_name<robot_current_advance_speed_att>(robot_node); adv_odom_att.has_value())
+        if(auto side_odom_att = G->get_attrib_by_name<robot_current_side_speed_att>(robot_node); side_odom_att.has_value())
+            if(auto rot_odom_att = G->get_attrib_by_name<robot_current_angular_speed_att>(robot_node); rot_odom_att.has_value())
+            {
+                auto adv_odom = adv_odom_att.value();
+                auto side_odom = side_odom_att.value();
+                auto rot_odom = rot_odom_att.value();
+                // Get difference time between last and current time
+                auto now = std::chrono::high_resolution_clock::now();
+                auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
+                last_time = now;
+                // Get robot new pose considering speeds and time
+                float adv_disp = adv_odom * diff_time;
+                float side_disp = side_odom * diff_time;
+                float rot_disp = rot_odom * diff_time / 1000;
+
+                // return the new robot odometry
+                return {adv_disp, side_disp, rot_disp};
+            }
+    return {0, 0, 0};
+}
+
+/////////////////// Draw  /////////////////////////////////////////////////////////////
+void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color)
+{
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ scene->removeItem(i); delete i;}
+    items.clear();
+
+    // draw points
+    for(const auto &p: data.points)
+    {
+        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
+        item->setPos(p.x, p.y);
+        items.push_back(item);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+int SpecificWorker::startup_check()
+{
+	std::cout << "Startup check" << std::endl;
+	QTimer::singleShot(200, qApp, SLOT(quit()));
+	return 0;
+}
+
+
+
+
+/**************************************/
+// From the RoboCompG2Ooptimizer you can call this methods:
+// this->g2ooptimizer_proxy->optimize(...)
+
+/**************************************/
+// From the RoboCompLidar3D you can call this methods:
+// this->lidar3d_proxy->getLidarData(...)
+// this->lidar3d_proxy->getLidarDataArrayProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataProyectedInImage(...)
+// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
+
+/**************************************/
+// From the RoboCompLidar3D you can use this types:
+// RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
+
+
+
+
+
+
+//void SpecificWorker::update_room_data(const rc::Room &room)
 //{
 //    auto root_node_ = G->get_node("root");
 //    if(not root_node_.has_value())
@@ -1380,351 +1425,3 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
 //    }
 //    // no remove of rooms for now
 //}
-
-std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
-{
-    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
-
-    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
-    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
-    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
-    int i = 0;
-
-    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
-    {
-        double min_distance = std::numeric_limits<double>::max();
-        Eigen::Vector2d closest_point;
-        auto target_iter = target_points_copy.begin();
-        auto closest_target_iter = target_iter;
-
-        // Encontrar el punto más cercano en el conjunto de puntos objetivo
-        while (target_iter != target_points_copy.end())
-        {
-            double d = (*source_iter - *target_iter).norm();
-            if (d < min_distance)
-            {
-                min_distance = d;
-                closest_point = *target_iter;
-                closest_target_iter = target_iter;
-            }
-            ++target_iter;
-        }
-
-        // Almacenar la correspondencia encontrada
-        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
-        i++;
-        // Eliminar los puntos correspondientes de sus vectores originales
-        source_iter = source_points_copy.erase(source_iter);
-        target_points_copy.erase(closest_target_iter);
-    }
-    if(not first_time)
-        for (auto &correspondence: correspondences)
-        {
-            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > 1000)
-            {
-                std::get<3>(correspondence) = false;
-                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
-                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
-                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
-            }
-        }
-    return correspondences;
-}
-std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)
-{
-    std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> correspondences;
-    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
-    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
-    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
-
-    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
-    {
-        double min_distance = std::numeric_limits<double>::max();
-        Eigen::Vector2d closest_point;
-        auto target_iter = target_points_copy.begin();
-        auto closest_target_iter = target_iter;
-
-        // Encontrar el punto más cercano en el conjunto de puntos objetivo
-        while (target_iter != target_points_copy.end())
-        {
-            double d = (*source_iter - *target_iter).norm();
-            if (d < min_distance)
-            {
-                min_distance = d;
-                closest_point = *target_iter;
-                closest_target_iter = target_iter;
-            }
-            ++target_iter;
-        }
-
-        // Almacenar la correspondencia encontrada
-        correspondences.push_back({*source_iter, closest_point});
-
-        // Eliminar los puntos correspondientes de sus vectores originales
-        source_iter = source_points_copy.erase(source_iter);
-        target_points_copy.erase(closest_target_iter);
-    }
-    return correspondences;
-}
-void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal)
-{
-    auto parent_level_ = G->get_node_level(parent_node);
-    if(not parent_level_.has_value())
-    { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
-    auto parent_level = parent_level_.value();
-
-    std::string wall_name = "wall_" + std::to_string(id);
-    if(not nominal)
-    {
-        wall_name = "wall_" + std::to_string(id) + "_measured";
-    }
-    auto new_wall = DSR::Node::create<wall_node_type>(wall_name);
-    G->add_or_modify_attrib_local<obj_id_att>(new_wall, id);
-    G->add_or_modify_attrib_local<timestamp_creation_att>(new_wall, get_actual_time());
-    G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_wall, get_actual_time());
-    G->add_or_modify_attrib_local<level_att>(new_wall, parent_level + 1);
-    G->insert_node(new_wall);
-
-    rt->insert_or_assign_edge_RT(parent_node, new_wall.id(), p, {0.0, 0.0, angle});
-}
-void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Node parent_node, bool nominal)
-{
-    auto parent_level_ = G->get_node_level(parent_node);
-    if(not parent_level_.has_value())
-    { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
-    auto parent_level = parent_level_.value();
-    std::string corner_name = "corner_" + std::to_string(id);
-    if(not nominal)
-    {
-        corner_name = "corner_" + std::to_string(id) + "_measured";
-    }
-    auto new_corner = DSR::Node::create<corner_node_type>(corner_name);
-    G->add_or_modify_attrib_local<pos_x_att>(new_corner, static_cast<float>(rand()%170));
-    G->add_or_modify_attrib_local<pos_y_att>(new_corner, static_cast<float>(rand()%170));
-    G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
-    G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
-    G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());
-    G->add_or_modify_attrib_local<level_att>(new_corner, parent_level + 1);
-    G->insert_node(new_corner);
-
-    rt->insert_or_assign_edge_RT(parent_node, new_corner.id(), p, {0.0, 0.0, 0.0});
-}
-void SpecificWorker::check_room_orientation()   // TODO: experimental
-{
-    // admissibility conditions
-    auto room_nodes = G->get_nodes_by_type("room");
-    if(room_nodes.empty()) return;
-    auto room_node = room_nodes.front();
-
-    // get list of objects
-    auto object_nodes = G->get_nodes_by_type("chair");  //TODO: should be all
-    if(object_nodes.empty()) { qWarning() << __FUNCTION__ << "No objects in graph" ; return;}
-
-    auto robot_node = G->get_node("Shadow");
-    if(not robot_node.has_value()) return;
-
-    // if oriented return
-    auto is_oriented_ = G->get_attrib_by_name<room_is_oriented_att>(room_node);
-    if(is_oriented_.has_value() and is_oriented_.value()) return;
-
-    // if not oriented get room width and depth and position wrt to robot
-    auto room_width = G->get_attrib_by_name<width_att>(room_node);
-    auto room_depth = G->get_attrib_by_name<depth_att>(room_node);
-    if(not room_width.has_value() or not room_depth.has_value()) return;
-    auto edge_robot_to_room = rt->get_edge_RT(robot_node.value(), room_node.id());
-    if( not edge_robot_to_room.has_value()) { qWarning() << __FUNCTION__ << "No edge between robot and room"; return;}
-    auto tr = G->get_attrib_by_name<rt_translation_att>(edge_robot_to_room.value());
-    auto rot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot_to_room.value());
-    if (not tr.has_value() or not rot.has_value()) { qWarning() << __FUNCTION__ << "No translation or rotation between robot and room"; return;}
-    auto x = tr.value().get()[0], y = tr.value().get()[1], ang = rot.value().get()[2];
-
-    // now build and Eigen::Transform to encode the room position and orientation wrt to the robot
-    Eigen::Transform<float, 2, Eigen::Affine> room_transform;
-    room_transform.setIdentity();
-    room_transform.translate(Eigen::Vector2f(x, y));
-    room_transform.rotate(Eigen::Rotation2Df(ang));
-
-    // transform the objects' coordinates to the room frame
-    for(const auto &object_node : object_nodes)
-    {
-        if (auto edge_robot = rt->get_edge_RT(robot_node.value(), object_node.id()); edge_robot.has_value())
-        {
-            auto tr_obj = G->get_attrib_by_name<rt_translation_att>(edge_robot.value());
-            auto rot_obj = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(edge_robot.value());
-            if (tr_obj.has_value() and rot_obj.has_value() /*and width_.has_value() and depth_.has_value()*/)
-            {
-                // now transform the object to the room frame
-                auto obj_room = room_transform * Eigen::Vector2f(tr.value().get()[0], tr.value().get()[1]);
-                // check if obj_room is very close to the room border
-                if( is_on_a_wall(obj_room.x(), obj_room.y(), room_width.value(), room_depth.value()))
-                {
-                    // set the room as oriented towards the object. To do this we need two things:
-                    // 1. add an edge in G between the room and the object
-                    // 2. reset the odometry but setting the offset of the current transform between the robot and the room,
-                    // so the next current pose sent by the lidar_odometry is the current pose of the robot in the room frame
-
-                }
-            }
-        }
-    }
-}
-bool SpecificWorker::is_on_a_wall(float x, float y, float width, float depth)
-{
-    auto is_approx = [](float a, float b){ return fabs(a - b) < 0.1; };
-
-    if(((is_approx(fabs(x), 0.f) and is_approx(fabs(y), depth/2.f))) or (is_approx(fabs(y), 0.f) and is_approx(fabs(x), width/2.f)))
-        return true;
-    else return false;
-}
-uint64_t SpecificWorker::get_actual_time()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-}
-// function to read robot odometry from graph and update the robot pose
-std::vector<float> SpecificWorker::get_graph_odometry()
-{
-    auto robot_node_ = G->get_node("Shadow");
-    if(not robot_node_.has_value())
-    {
-        qWarning() << __FUNCTION__ << " No robot node in graph. Can't get odometry data.";
-        return{};
-    }
-    auto robot_node = robot_node_.value();
-    if(auto adv_odom_att = G->get_attrib_by_name<robot_current_advance_speed_att>(robot_node); adv_odom_att.has_value())
-        if(auto side_odom_att = G->get_attrib_by_name<robot_current_side_speed_att>(robot_node); side_odom_att.has_value())
-            if(auto rot_odom_att = G->get_attrib_by_name<robot_current_angular_speed_att>(robot_node); rot_odom_att.has_value())
-            {
-                auto adv_odom = adv_odom_att.value();
-                auto side_odom = side_odom_att.value();
-                auto rot_odom = rot_odom_att.value();
-                // Get difference time between last and current time
-                auto now = std::chrono::high_resolution_clock::now();
-                auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
-                last_time = now;
-                // Get robot new pose considering speeds and time
-                float adv_disp = adv_odom * diff_time;
-                float side_disp = side_odom * diff_time;
-                float rot_disp = rot_odom * diff_time / 1000;
-
-                // return the new robot odometry
-                return {adv_disp, side_disp, rot_disp};
-            }
-    return {0, 0, 0};
-}
-
-/////////////////// Draw  /////////////////////////////////////////////////////////////
-void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color)
-{
-    static std::vector<QGraphicsItem *> items;
-    for(const auto &i: items){ scene->removeItem(i); delete i;}
-    items.clear();
-
-    // draw points
-    for(const auto &p: data.points)
-    {
-        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
-        item->setPos(p.x, p.y);
-        items.push_back(item);
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////
-int SpecificWorker::startup_check()
-{
-	std::cout << "Startup check" << std::endl;
-	QTimer::singleShot(200, qApp, SLOT(quit()));
-	return 0;
-}
-
-
-
-
-/**************************************/
-// From the RoboCompG2Ooptimizer you can call this methods:
-// this->g2ooptimizer_proxy->optimize(...)
-
-/**************************************/
-// From the RoboCompLidar3D you can call this methods:
-// this->lidar3d_proxy->getLidarData(...)
-// this->lidar3d_proxy->getLidarDataArrayProyectedInImage(...)
-// this->lidar3d_proxy->getLidarDataProyectedInImage(...)
-// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
-
-/**************************************/
-// From the RoboCompLidar3D you can use this types:
-// RoboCompLidar3D::TPoint
-// RoboCompLidar3D::TDataImage
-// RoboCompLidar3D::TData
-
-//    std::vector<Eigen::Vector2d> target_points;
-
-// Get room corners from visual elements, draw them and insert them in target_points vector
-//    std::stringstream ss(room_->attributes.at("corner1"));
-//    float float1, float2; char coma;
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p0;
-//    if (p0 != nullptr)
-//        widget_2d->scene.removeItem(p0);
-//    p0 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner2"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p1;
-//    if (p1 != nullptr)
-//        widget_2d->scene.removeItem(p1);
-//    p1 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner3"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p2;
-//    if (p2 != nullptr)
-//        widget_2d->scene.removeItem(p2);
-//    p2 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-//
-//    ss.clear(); ss.str(room_->attributes.at("corner4"));
-//    ss >> float1 >> coma >> float2;
-//    static QGraphicsEllipseItem* p3;
-//    if (p3 != nullptr)
-//        widget_2d->scene.removeItem(p3);
-//    p3 = widget_2d->scene.addEllipse(float1, float2, 200, 200, QPen(Qt::black), QBrush(Qt::black));
-//    target_points.push_back(Eigen::Vector2d(float1, float2));
-
-
-
-
-
-
-//            //get doors from data.objects
-//            std::vector<RoboCompVisualElementsPub::TObject> doors;
-//            for (const auto &object: data.objects | iter::filter([](auto &obj){return obj.attributes.at("name") == "door";}))
-//            {
-//                doors.push_back(object);
-//                //print every attribute of the door
-//                std::cout <<  object.attributes.at("name") << std::endl;
-//                std::cout <<  object.attributes.at("width") << std::endl;
-//                std::cout << object.attributes.at("height") << std::endl;
-//                std::cout <<  object.attributes.at("position") << std::endl;
-//            }
-
-//create a node in the graph for each door
-//            for (const auto &door: doors)
-//            {
-//                std::string node_name = "door_" + std::to_string(door.id);
-//                DSR::Node new_node = DSR::Node::create<door_node_type>(node_name);
-//                G->add_or_modify_attrib_local<obj_id_att>(new_node, door.id);
-//                G->add_or_modify_attrib_local<pos_x_att>(new_node, std::stof(door.attributes.at("center_x")));
-//                G->add_or_modify_attrib_local<pos_y_att>(new_node, std::stof(door.attributes.at("center_y")));
-//                G->add_or_modify_attrib_local<timestamp_creation_att>(new_node, get_actual_time());
-//                G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_node, get_actual_time());
-//                G->add_or_modify_attrib_local<level_att>(new_node, robot_level + 1);
-//                G->add_or_modify_attrib_local<obj_checked_att>(new_node, false);
-//                G->insert_node(new_node);
-//                std::vector<float> vector_room_pos = {std::stof(room_->attributes.at("center_x")),
-//                                                      std::stof(room_->attributes.at("center_y")), 0.0},
-//                                                      orientation_vector = {0.0, 0.0, std::stof(room_->attributes.at("rotation"))};
-//                vector_room_pos = { std::stof(door.attributes.at("center_x")), std::stof(door.attributes.at("center_y")), 0.f};
-//                rt->insert_or_assign_edge_RT(room_node, new_node.id(), vector_room_pos, orientation_vector);
-//            }
