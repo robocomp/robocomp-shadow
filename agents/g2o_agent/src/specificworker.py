@@ -30,6 +30,10 @@ import numpy as np
 import interfaces as ifaces
 from collections import deque
 import time
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import threading
+import time
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -65,7 +69,7 @@ class SpecificWorker(GenericWorker):
             self.last_odometry = None
             # Initialize g2o graph with visualizer
             self.g2o = G2OGraph(verbose=False)
-            self.visualizer = G2OVisualizer("G2O Graph")
+            # self.visualizer = G2OVisualizer("G2O Graph")
 
             self.odometry_noise_std_dev = 1  # Standard deviation for odometry noise
             self.odometry_noise_angle_std_dev = 1  # Standard deviation for odometry noise
@@ -77,6 +81,8 @@ class SpecificWorker(GenericWorker):
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
             self.init_graph = False
+
+
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -164,7 +170,7 @@ class SpecificWorker(GenericWorker):
                 print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
                 cov_matrix = self.get_covariance_matrix(last_vertex)
                 # print("Covariance matrix:", cov_matrix)
-                self.visualizer.update_graph(self.g2o, None, cov_matrix)
+                # self.visualizer.update_graph(self.g2o, None, cov_matrix)
                     # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
                     # rt_robot_edge.attrs['rt_translation'] = [opt_translation[0], opt_translation[1], .0]
                     # rt_robot_edge.attrs['rt_rotation_euler_xyz'] = [.0, .0, opt_orientation]
@@ -234,7 +240,7 @@ class SpecificWorker(GenericWorker):
                                           corner_edge_measured_rt.attrs['rt_translation'].value,
                                           landmark_information, pose_id=0)
 
-        self.visualizer.update_graph(self.g2o)
+        # self.visualizer.update_graph(self.g2o)
         # self.g2o.optimizer.save("init_graph.g2o")
 
         return True
@@ -273,6 +279,37 @@ class SpecificWorker(GenericWorker):
         else:
             print("Covariance not computed")
             return (covariances_result, None)
+
+    def visualize_g2o_realtime(self, optimizer):
+        plt.ion()
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        while True:
+            optimizer.load("archivo.g2o")  # Reemplaza "archivo.g2o" con tu archivo .g2o
+            positions = []
+            for vertex_id in range(optimizer.vertices().size()):
+                vertex = optimizer.vertex(vertex_id)
+                position = vertex.estimate()
+                positions.append(position)
+            positions = np.array(positions)
+
+            ax.clear()
+            ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c='b', marker='o', label='Vertices')
+
+            edges = optimizer.edges()
+            for edge_id in range(edges.size()):
+                edge = edges[edge_id]
+                measurement = edge.measurement()
+                ax.plot(measurement[:, 0], measurement[:, 1], measurement[:, 2], c='r')
+
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            ax.legend()
+
+            plt.draw()
+            plt.pause(0.1)  # Pausa para permitir que la visualización se actualice
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
