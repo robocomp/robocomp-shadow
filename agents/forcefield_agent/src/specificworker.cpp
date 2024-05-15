@@ -125,9 +125,9 @@ void SpecificWorker::compute()
 {
     qInfo() << "Corner matching threshold: " << corner_matching_threshold;
     /// read LiDAR
-    auto res_ = buffer_lidar_data.try_get();
-    if (not res_.has_value()) { qWarning() << "No lidar data available"; return; }
-    auto ldata = res_.value();
+    auto res_ = buffer_lidar_data.get_idemp();
+//    if (not res_.has_value()) { qWarning() << "No lidar data available"; return; }
+//    auto ldata = res_.value();
 
     /// Read robot node
     auto robot_node_ = G->get_node("Shadow");
@@ -135,11 +135,11 @@ void SpecificWorker::compute()
     auto robot_node = robot_node_.value();
 
     /// draw lidar
-    if(widget_2d != nullptr)
-        draw_lidar(ldata, &widget_2d->scene);
+//    if(widget_2d != nullptr)
+//        draw_lidar(ldata, &widget_2d->scene);
 
     /// extract lines from LiDAR data
-    Lines lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
+    Lines lines = extract_2D_lines_from_lidar3D(res_.points, params.ranges_list);
 
     /// Room detector
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);  // TODO: use upper lines in Helios
@@ -233,7 +233,7 @@ void SpecificWorker::compute()
     /// If room node exists, update corner values
     else
     {
-        update_room_data(current_room);
+        update_room_data(current_room, &widget_2d->scene);
     }
     graph_viewer->set_external_hz((int)(1.f/fps.get_period()*1000.f));
     fps.print("room_detector");
@@ -541,11 +541,6 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners()
                                                                                  wall_aux.name()); corner_transformed.has_value())
                             {
                                 auto corner_transformed_value = corner_transformed.value();
-                                // Print corner
-//                                std::cout << "Corner transformed with transform" << i << ": "
-//                                          << corner_transformed_value.x() << " " << corner_transformed_value.y()
-//                                          << std::endl;
-
                                 rt_corner_values.push_back({corner_transformed_value.x(), corner_transformed_value.y()});
                             }
                         }
@@ -623,8 +618,15 @@ std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> SpecificWorker::get_rob
 
     return std::make_pair(pose_matrix, imaginary_room_robot_refsys);
 }
-void SpecificWorker::update_room_data(const rc::Room &room)
+void SpecificWorker::update_room_data(const rc::Room &room, QGraphicsScene *scene)
 {
+    static std::vector<QGraphicsItem *> items;
+    for (const auto &i: items) {
+        scene->removeItem(i);
+        delete i;
+    }
+    items.clear();
+
     auto root_node_ = G->get_node("root");
     if(not root_node_.has_value())
     { qWarning() << __FUNCTION__ << " No root node in graph"; return; }
@@ -678,18 +680,40 @@ void SpecificWorker::update_room_data(const rc::Room &room)
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
                 if (std::optional<DSR::Edge> edge = G->get_edge(robot_node.id(), updated_corner.value().id(),
-                                                                "RT"); edge.has_value()) {
+                                                                "RT"); edge.has_value())
+                {
                     if (auto corner_id = G->get_attrib_by_name<corner_id_att>(
-                                updated_corner.value()); corner_id.has_value()) {
-                        if (corner_id.value() == std::get<0>(rt_corners_correspondences[i])) {
+                                updated_corner.value()); corner_id.has_value())
+                    {
+                        if (corner_id.value() == std::get<0>(rt_corners_correspondences[i]))
+                        {
                             //insert the rt values in the edge
                             G->add_or_modify_attrib_local<valid_att>(updated_corner.value(), std::get<3>(
                                     rt_corners_correspondences[i]));
                             G->update_node(updated_corner.value());
-                            G->add_or_modify_attrib_local<rt_translation_att>(edge.value(), std::vector<float>{
+                            G->add_or_modify_attrib_local<rt_translation_att>(edge.value(), std::vector<float>
+                                    {
                                     (float) std::get<2>(rt_corners_correspondences[i]).x(),
-                                    (float) std::get<2>(rt_corners_correspondences[i]).y(), 0.0f});
+                                    (float) std::get<2>(rt_corners_correspondences[i]).y(), 0.0f
+                                    });
                             G->insert_or_assign_edge(edge.value());
+                            Eigen::Vector3d rt_translation = {std::get<2>(rt_corners_correspondences[i]).x(),
+                                                             std::get<2>(rt_corners_correspondences[i]).y(), 0.0};
+
+                            if (auto corner_transformed = inner_eigen->transform(room_node.name(),
+                                                                                 rt_translation,
+                                                                                 robot_node.name()); corner_transformed.has_value())
+                            {
+                                auto corner_transformed_value = corner_transformed.value();
+                                // Print corner transformed value
+                                qInfo() << "Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+                                // Draw corner
+                                auto item = scene->addEllipse(-100, -100, 200, 200, QPen(QColor("green"), 100), QBrush(QColor("green")));
+                                item->setPos(corner_transformed_value.x(), corner_transformed_value.y());
+                                items.push_back(item);
+                                // Draw line between ellipses
+                                
+                            }
                         }
                     }
                 }
@@ -914,24 +938,35 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
 
     //Get room node pos_x and pos_y attributes
     auto room_node_ = G->get_node("room");
+
     if(not room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
     else
     {
-
         auto room_node = room_node_.value();
+
         auto pos_x = G->get_attrib_by_name<pos_x_att>(parent_node);
         auto pos_y = G->get_attrib_by_name<pos_y_att>(parent_node);
         //Set corner pos_x and pos_y attributes as corners of square room centered in pos_x and pos_y
-        if(pos_x.has_value() and pos_y.has_value()){
-            G->add_or_modify_attrib_local<pos_x_att>(new_corner, pos_x.value() + 100);
-            G->add_or_modify_attrib_local<pos_y_att>(new_corner, pos_y.value() + 100);
+        if(pos_x.has_value() and pos_y.has_value())
+        {
+            if (nominal) //Set nominal corner pose
+            {
+                G->add_or_modify_attrib_local<pos_x_att>(new_corner, pos_x.value() + 30);
+                G->add_or_modify_attrib_local<pos_y_att>(new_corner, pos_y.value() + 30);
+            }
+            else //Set measured Corner
+            {
+                G->add_or_modify_attrib_local<pos_x_att>(new_corner, pos_x.value() - 160);
+                G->add_or_modify_attrib_local<pos_y_att>(new_corner, pos_y.value() - 60 + id * 40);
+            }
         }
         else{
             qWarning() << __FUNCTION__ << " No pos_x or pos_y attributes in room node";
             return;
         }
     }
+
     G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
     G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());

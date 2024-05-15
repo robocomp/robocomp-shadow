@@ -102,6 +102,8 @@ class SpecificWorker : public GenericWorker
         void read_lidar();
         std::thread read_lidar_th;
         void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
+        void draw_transformed_corners(QGraphicsScene *scene, QColor color="red");
+
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
         void generate_target_edge(DSR::Node node);
@@ -109,7 +111,7 @@ class SpecificWorker : public GenericWorker
         // Lines extractor
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 
-        void update_room_data(const rc::Room &room);
+        void update_room_data(const rc::Room &room, QGraphicsScene *scene);
         std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
