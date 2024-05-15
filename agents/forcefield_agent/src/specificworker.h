@@ -109,7 +109,7 @@ class SpecificWorker : public GenericWorker
         // Lines extractor
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 
-        void process_room(const rc::Room &room);
+        void update_room_data(const rc::Room &room);
         std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
@@ -128,21 +128,21 @@ class SpecificWorker : public GenericWorker
 
         // Room validation
         std::string g2o_graph_data;
-        int odometry_node_counter = 0;
+        float odometry_time_factor = 1;
         std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth);
+        std::vector<Eigen::Vector2d> aux_corners;
 
-        void get_robot_and_room_data_for_optimizer(const rc::Room &room);
         std::vector<Eigen::Vector2d> last_corner_values{4};
         std::vector<float> last_robot_pose{0.f, 0.f, 0.f};
         std::chrono::time_point<std::chrono::system_clock> last_time;
         bool movement_completed(const Eigen::Vector2f &room_center, float distance_to_target);
-        bool is_robot_inside_room(const rc::Room &current_room);
 
         //MISC
         void set_robot_speeds(float adv, float side, float rot);
         std::vector<float> calculate_speed(const Eigen::Matrix<float, 2, 1> &target);
         float distance_to_target = 500;
         std::vector<float> get_graph_odometry();
+        double corner_matching_threshold = 1000;
 
         std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> extract_g2o_data(string optimization);
 

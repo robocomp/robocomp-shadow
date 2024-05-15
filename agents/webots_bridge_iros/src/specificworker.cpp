@@ -126,7 +126,7 @@ void SpecificWorker::initialize(int period)
         // Inicializa el teclado.
         keyboard = robot->getKeyboard();
 
-        this->Period = 1;
+        this->Period = 16;
 
         // Activa los componentes en la simulación si los detecta.
         if(lidar_helios) lidar_helios->enable(this->Period);
@@ -264,7 +264,7 @@ void SpecificWorker::compute()
 //    }
 
 //    robot->step(this->Period);
-    robot->step(1);
+    robot->step(16);
 //    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count() << std::endl;
 //
 //    parseHumanObjects();
@@ -785,9 +785,9 @@ void SpecificWorker::insert_robot_speed_dsr()
         //std::cout <<  "X speed " << rt_rotation_matrix_inv(0) << "; Y speed " << rt_rotation_matrix_inv(1) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 //        std::cout <<  "X speed " << rt_rotation_matrix_inv(0,2) << "; Y speed " << rt_rotation_matrix_inv(1,2) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 
-        G->add_or_modify_attrib_local<robot_ref_adv_speed_att>(robot_node, (float)  -rt_rotation_matrix_inv(0));
-        G->add_or_modify_attrib_local<robot_ref_side_speed_att>(robot_node, (float) -rt_rotation_matrix_inv(1));
-        G->add_or_modify_attrib_local<robot_ref_rot_speed_att>(robot_node, (float) shadow_velocity[5]);
+        G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node, (float)  -rt_rotation_matrix_inv(0));
+        G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node, (float) -rt_rotation_matrix_inv(1));
+        G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node, (float) shadow_velocity[5]);
         auto now_aux = std::chrono::system_clock::now();
         auto epoch_aux = now_aux.time_since_epoch();
         auto milliseconds_aux = std::chrono::duration_cast<std::chrono::milliseconds>(epoch_aux).count();

@@ -70,7 +70,8 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
     # Plot poses with circles and orientation lines
     for pose in poses.values():
         it = 4
-        x, y, theta = pose
+        y, x, theta = pose
+        y = -y
         # Create a circle at the robot's position
         circle = Circle((x, y), radius=20, color='blue', fill=True)
         ax.add_patch(circle)
@@ -91,7 +92,8 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
         it += 1
 
     for pose in poses.values():
-        x, y, theta = pose
+        y, x, theta = pose
+        y = -y
         # Create a circle at the robot's position
         # circle = Circle((x, y), radius=20, color='blue', fill=True)
         # ax.add_patch(circle)

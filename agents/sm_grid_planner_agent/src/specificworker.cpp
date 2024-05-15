@@ -206,6 +206,30 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    // Check if auto edge exist. in case -> external control
+    if(auto robot_node = G->get_node("Shadow"); robot_node.has_value())
+    {
+        auto robot_node_ = robot_node.value();
+        if (auto target_edge = G->get_edge(robot_node_.id(), robot_node_.id(), "TARGET"); target_edge.has_value())
+        {
+            float adv = std::numeric_limits<float>::quiet_NaN(), rot = std::numeric_limits<float>::quiet_NaN(), side = std::numeric_limits<float>::quiet_NaN();
+            if (auto adv_ = G->get_attrib_by_name<robot_ref_adv_speed_att>(robot_node.value()); adv_.has_value())
+                adv = adv_.value();
+            if (auto rot_ = G->get_attrib_by_name<robot_ref_rot_speed_att>(robot_node.value()); rot_.has_value())
+                rot = rot_.value();
+            if (auto side_ = G->get_attrib_by_name<robot_ref_side_speed_att>(robot_node.value()); side_.has_value())
+                side = side_.value();
+            RoboCompGridPlanner::TPlan returning_plan;
+            RoboCompGridder::TPath plan;            returning_plan.valid = true;
+            returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=adv, .side=side, .rot=rot});
+            // Print values
+            qInfo() << __FUNCTION__ << "Adv: " << adv << "Rot: " << rot << "Side: " << side;
+            send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
+            return;
+        }    
+    }
+
+
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
     if (not res_.has_value())  {   /*qWarning() << "No data Lidar";*/ return; }
@@ -1210,30 +1234,6 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
 
                     new_target = true;
                 }
-            }
-        }
-    }
-
-    if (type == "TARGET")
-    {
-        if ( from == to)
-        {
-            if (auto robot_node = G->get_node("Shadow"); robot_node.has_value())
-            {
-                float adv = std::numeric_limits<float>::quiet_NaN(), rot = std::numeric_limits<float>::quiet_NaN(), side = std::numeric_limits<float>::quiet_NaN();
-                if (auto adv_ = G->get_attrib_by_name<robot_current_advance_speed_att>(robot_node.value()); adv_.has_value())
-                    adv = adv_.value();
-                if (auto rot_ = G->get_attrib_by_name<robot_current_angular_speed_att>(robot_node.value()); rot_.has_value())
-                    rot = rot_.value();
-                if (auto side_ = G->get_attrib_by_name<robot_current_side_speed_att>(robot_node.value()); side_.has_value())
-                    side = side_.value();
-
-                RoboCompGridPlanner::TPlan returning_plan;
-                RoboCompGridder::TPath plan;
-                returning_plan.valid = true;
-                returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=adv, .side=side, .rot=rot});
-                send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
-
             }
         }
     }

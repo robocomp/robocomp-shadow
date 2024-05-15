@@ -33,6 +33,7 @@ public:
 	Webots2RobocompI(GenericWorker *_worker);
 	~Webots2RobocompI();
 
+	void resetWebots(const Ice::Current&);
 	void setPathToHuman(int humanId, RoboCompGridder::TPath path, const Ice::Current&);
 
 private:

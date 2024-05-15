@@ -66,7 +66,16 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-
+    //Open trajectory.g20 file
+//    std::ifstream file("trajectory.g2o");
+//    std::string trajectory((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+//
+//    //call g2o optimizer
+//    std::string optimized_trajectory = G2Ooptimizer_optimize(trajectory);
+//
+//    file.close();
+//
+//    std::terminate();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -124,7 +133,7 @@ std::string SpecificWorker::G2Ooptimizer_optimize(std::string trajectory)
     // Perform optimization
     optimizer.initializeOptimization();
 
-    optimizer.optimize(200);
+    optimizer.optimize(500);
 
     // Covariances. Assuming the landmarks/vertices of interest are the first four vertices
     // Open a file to write the covariance matrices
