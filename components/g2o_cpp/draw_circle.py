@@ -4,12 +4,15 @@ import numpy as np
 
 def parse_g2o_file(filename):
     """
+    Reads a G2O file and creates Python dictionaries of vertex positions, landmarks,
+    and edge information.
 
     Args:
-        filename ():
+        filename (str): 3D object file to be parsed.
 
     Returns:
-        :
+        tuple: a triplet of dictionaries containing pose, landmark, and edge
+        information for a given G2O file.
 
     """
     poses = {}
@@ -41,12 +44,17 @@ def parse_g2o_file(filename):
 
 def read_covariances_from_file(filename):
     """
+    Reads a file containing vertex IDs and matrix rows representing covariance
+    matrices, parses them into Python objects, and returns a dictionary of covariances
+    for each vertex.
 
     Args:
-        filename ():
+        filename (str): path to a file that contains the vertex IDs and their
+            corresponding covariance matrices.
 
     Returns:
-        :
+        dict: a dictionary of matrices, where each matrix represents the covariance
+        between two vertices in the graph.
 
     """
     covariances = {}
@@ -83,15 +91,58 @@ def read_covariances_from_file(filename):
 def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=True):
     # Plot landmarks
     """
+    Plots a graph representing robot poses and landmarks over time, with circles
+    and orientation lines indicating the robot's position and orientation. Edges
+    are also plotted using green lines. Optionally, covariance ellipses can be
+    drawn for landmarks.
 
     Args:
-        poses ():
-        landmarks ():
-        edges ():
-        ax ():
-        title ():
-        covariances ():
-        original ():
+        poses (ndarray of shape (N, 3), where N represents the number of poses.):
+            3D robot poses as a list of lists, where each inner list contains the
+            robot's x, y, and orientation (in radians) coordinates at a specific
+            time step.
+            
+            		- `pose`: a 3-tuple containing the robot's position in a particular
+            frame (e.g., world, body, or base) as (x, y, theta), where theta is
+            the orientation of the robot in radians.
+            		- `landmarks`: a dictionary containing the positions of the landmarks
+            (features) in the environment, where each landmark is represented by
+            a 2-tuple (x, y).
+            		- `edges`: a dictionary containing the edges connected to each
+            landmark, where each edge is represented by a tuple (vertex_id, x, y),
+            where vertex_id is the ID of the adjacent landmark or robot.
+            
+            	The function explains how to plot each element of these inputs using
+            matplotlib. The code comments describe the logic for drawing the poses
+            as circles, orientation lines, and edges connected by line. Additionally,
+            there are optional comments about drawing covariance ellipses for
+            landmarks if appropriate and not original.
+        landmarks (dict): 2D coordinates of landmarks that are used for plotting
+            orientation lines and ellipses in the graph.
+        edges (dict): 2D edges linked by line in the robot's workspace, which are
+            plotted as green lines between paired vertex IDs.
+        ax ("instance of mpl_toolkits.mplot3d.Axes3D".): 2D axes object where the
+            plot will be drawn.
+            
+            		- `ax`: An instance of the Axes class in Matplotlib, used for plotting
+            the graph.
+            		- `title`: A string variable representing the title of the graph.
+            		- `covariances`: An optional dictionary variable representing the
+            covariances of the landmarks. If provided, it will be used to draw
+            covariance ellipses for the landmarks.
+            		- `original`: An optional boolean variable indicating whether the
+            input poses are original or not. Used for drawing the orientation line.
+            
+            	Note: The function does not mention any properties of `ax`, as they
+            are assumed to be properly initialized and available throughout the
+            function. Therefore, no further explanation is provided.
+        title (str): title that will be displayed at the top of the plot created
+            by the function.
+        covariances (dict): 2D covariance matrix of landmark positions, which can
+            be optionally plotted as ellipses around each landmark for visualizing
+            the spatial distribution of the landmarks.
+        original (bool): initial value of the function, indicating whether or not
+            to draw landmarks with ellipses representing covariances for each landmark.
 
     """
     for landmark in landmarks.values():
@@ -100,7 +151,8 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
     # Plot poses with circles and orientation lines
     for pose in poses.values():
         it = 4
-        x, y, theta = pose
+        y, x, theta = pose
+        y = -y
         # Create a circle at the robot's position
         circle = Circle((x, y), radius=20, color='blue', fill=True)
         ax.add_patch(circle)
@@ -121,7 +173,8 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
         it += 1
 
     for pose in poses.values():
-        x, y, theta = pose
+        y, x, theta = pose
+        y = -y
         # Create a circle at the robot's position
         # circle = Circle((x, y), radius=20, color='blue', fill=True)
         # ax.add_patch(circle)
@@ -201,6 +254,9 @@ def draw_covariance_ellipse(x, y, cov, ax):
 def main():
     # Filenames for the original and optimized graphs
     """
+    Reads and parses two G2O files, computes their covariances using a file
+    containing the covariances, and plots both graphs with labels indicating which
+    is the original and which is the optimized graph, using Matplotlib.
 
     """
     original_filename = 'trajectory.g2o'  # Update this to your original .g2o file path
