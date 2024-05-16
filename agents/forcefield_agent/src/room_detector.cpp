@@ -10,10 +10,19 @@
 
 namespace rc
 {
+    Room_Detector::Corners Room_Detector::detect_corners(const std::vector<std::vector<Eigen::Vector2f>> &lines, QGraphicsScene *scene, bool draw_lines)
+    {
+        const auto &[_, __, corners, ___, ____, _____] =  compute_features(lines);
+        return corners;
+    }
+
     Room Room_Detector::detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, QGraphicsScene *scene, bool draw_lines)
     {
+        Room current_room;
         // compute features
-        const auto &[elines, par_lines, corners, all_corners] =  compute_features(lines);
+        const auto &[elines, par_lines, corners, all_corners, estimated_size, room_center] =  compute_features(lines);
+        current_room.estimated_size = estimated_size;
+        current_room.estimated_center = room_center;
 
         // Start with more complex features and go downwards
         if (not all_corners.empty())    // if there are room candidates, take the first room // TODO:: order by votes
@@ -64,7 +73,7 @@ namespace rc
         // compute room candidates by finding triplets of corners in opposite directions and separation within room_size estimations
         All_Corners all_corners = get_rooms(estimated_size.head(2), corners);
 
-        return std::make_tuple(elines, par_lines, corners, all_corners);
+        return std::make_tuple(elines, par_lines, corners, all_corners, estimated_size, room_center);
     }
      ////////////////////////////////////////////////
     Eigen::Vector3f Room_Detector::estimate_room_sizes(const Eigen::Vector2f &room_center, std::vector<Eigen::Vector2f> &floor_line_cart) const

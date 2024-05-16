@@ -41,13 +41,15 @@ namespace rc
             Eigen::Vector2f to_local_coor(const Eigen::Vector2f &p);
             void rotate(float delta);  //degrees
             void print();
-            void draw_on_2D_tab(const Room &room, const QString &color, QGraphicsScene *scene);
+            void draw_on_2D_tab(const Room &room, const QString &color, QGraphicsScene *scene, bool clear=false);
 
             cv::RotatedRect rect;
             Eigen::Vector2f center = {0.f, 0.f};    // mm
             float rot = 0.f; // radians
             QSizeF rsize = {0.f, 0.f}; // mm
             bool is_initialized = false;
+            Eigen::Vector2f estimated_center = {0.f, 0.f};
+            Eigen::Vector3f estimated_size = {0.f, 0.f, 0.f};
 
         private:
             [[nodiscard]] float size_dist(const QSizeF &p1, const QSizeF &p2) const;

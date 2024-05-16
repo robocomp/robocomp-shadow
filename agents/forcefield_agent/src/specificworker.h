@@ -111,7 +111,7 @@ class SpecificWorker : public GenericWorker
         // Lines extractor
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
 
-        void update_room_data(const rc::Room &room, QGraphicsScene *scene);
+        void update_room_data(const rc::Room_Detector::Corners &corners, QGraphicsScene *scene);
         std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
 
@@ -142,14 +142,16 @@ class SpecificWorker : public GenericWorker
         //MISC
         void set_robot_speeds(float adv, float side, float rot);
         std::vector<float> calculate_speed(const Eigen::Matrix<float, 2, 1> &target);
-        float distance_to_target = 500;
+        float distance_to_target = 100;
         std::vector<float> get_graph_odometry();
         double corner_matching_threshold = 1000;
+        bool corner_matching_threshold_setted = false;
+        std::vector<Eigen::Vector2d> last_corners;
 
         std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> extract_g2o_data(string optimization);
 
     void insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> optimized_room_data, const rc::Room &current_room);
-    std::vector<Eigen::Vector2d> get_transformed_corners();
+    std::vector<Eigen::Vector2d> get_transformed_corners(QGraphicsScene *scene);
 
     string build_g2o_graph( const vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data,
                            const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,

@@ -234,7 +234,7 @@ class SpecificWorker(GenericWorker):
             self.tracker = BYTETracker(frame_rate=5, buffer_=1000)
             # self.tracker_back = BYTETracker(frame_rate=5)
             self.objects = ifaces.RoboCompVisualElementsPub.TData()
-            self.ui.pushButton.clicked.connect(self.reset_tracks)
+            # self.ui.pushButton.clicked.connect(self.reset_tracks)
             self.reset = False
             self.refresh_sleep_time = 5
 
@@ -388,7 +388,7 @@ class SpecificWorker(GenericWorker):
             front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
 
             # Fuse front_objects and back_objects and equal it to self.objects_write
-            self.visualelementspub_proxy.setVisualObjects(front_objects)
+            # self.visualelementspub_proxy.setVisualObjects(front_objects)
             # If display is enabled, show the tracking results on the image
 
             if self.display:

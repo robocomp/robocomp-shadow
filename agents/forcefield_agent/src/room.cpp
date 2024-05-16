@@ -180,7 +180,7 @@ namespace rc
         rot += delta;
         //qInfo() << __FUNCTION__ << delta << rot;
     }
-    void Room::draw_on_2D_tab(const Room &room, const QString &color, QGraphicsScene *scene)
+    void Room::draw_on_2D_tab(const Room &room, const QString &color, QGraphicsScene *scene, bool clear)
     {
         static std::vector<QGraphicsItem *> items;
         for (auto i: items)
@@ -189,7 +189,7 @@ namespace rc
             delete i;
         }
         items.clear();
-
+        if (clear) return;
         QColor col("yellow");
         col.setAlpha(30);
         auto size = room.rect.size;
@@ -208,6 +208,7 @@ namespace rc
         //            items.push_back(it);
         //        }
     }
+
     std::vector<QLineF> Room::get_room_lines_qt() const
     {
         std::vector<QLineF> lines;
