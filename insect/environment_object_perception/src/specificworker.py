@@ -163,6 +163,119 @@ _COLORS = np.array(
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, params, startup_check=False):
+        """
+        Initializes an instance of `SpecificWorker`, setting up various components
+        such as the graph, camera, tracker, models, and event handling mechanisms.
+
+        Args:
+            proxy_map (`dsrgraph.Graph` object.): 2D environment map that this
+                specific worker is associated with, which the function uses to
+                access related objects and functions in the worker's scope.
+                
+                		- `super(SpecificWorker, self).__init__(proxy_map)`: This line
+                initializes the base class `SpecificWorker` using the `proxy_map`
+                argument.
+                		- `self.agent_id = 274`: The `agent_id` property is set to a
+                fixed value of 274, which is used for identification purposes in
+                the deployment.
+                		- `g = DSRGraph(0, "environment_object_perception_agent",
+                self.agent_id)`: The `g` variable is assigned a `DSRGraph` object
+                with a specific identifier (`0`), name ("environment_object_perception_agent"),
+                and agent ID (`self.agent_id`).
+                		- `signals.connect(self.g, signals.UPDATE_NODE_ATTR,
+                self.update_node_att)`: This line connects the `update_node_attr`
+                signal of the `g` graph to the method `update_node_att` in the
+                class `SpecificWorker`.
+                		- `signals.connect(self.g, signals.UPDATE_NODE_ATTR,
+                self.update_node_att)`: This line connects the `update_node_attr`
+                signal of the `g` graph to the method `update_node_att` in the
+                class `SpecificWorker`.
+                		- `ifaces.RoboCompVisualElementsPub.TData()`: The
+                `ifaces.RoboCompVisualElementsPub.TData()` line initializes an
+                instance of the `TData` class from the `ifaces` module, which is
+                used for handling data from the Robocomp visual elements publisher.
+                		- `lidar_odometry_data = self.lidarodometry_proxy.getPoseAndChange()`:
+                This line retrieves the latest lidar odometry data from the
+                `lidarodometry_proxy` instance using the `getPoseAndChange()` method.
+                		- `self.rgb_read_queue = deque(maxlen=1)`: The `self.rgb_read_queue`
+                property is set to an empty queue with a maximum length of 1, which
+                is used for storing the read RGB images from the camera.
+                		- `self.image_read_thread = Thread(target=self.get_rgb_thread,
+                args=["camera_top", self.event], name="rgb_read_queue", daemon=True)`:
+                This line creates a new thread for reading RGB images from the
+                camera using the `get_rgb_thread()` method and storing them in the
+                `rgb_read_queue` property.
+                		- `self.inference_execution_thread = Thread(target=self.inference_thread,
+                args=[self.event], name="inference_read_queue", daemon=True)`:
+                This line creates a new thread for executing the YOLO and JointBDOE
+                inference models using the `inference_thread()` method and storing
+                the results in the `event` property.
+                		- `self.timer.timeout.connect(self.compute)`: This line connects
+                the `timeout` signal of the `timer` instance to the `compute()`
+                method in the class `SpecificWorker`, which is called every `
+                Period` milliseconds to perform the inference task.
+            params (unknown value because there isn't enough context to determine
+                its data type based on the provided code snippet.): 3rd argument
+                passed to the constructor of the SpecificWorker class, which is
+                used to specify additional configuration parameters for the worker's
+                operation, such as startup checks and time intervals.
+                
+                	1/ `startup_check`: This is a boolean value that indicates whether
+                to call the `startup_check()` method or not. It is optional and
+                can be skipped if not provided.
+                	2/ `proxy_map`: This is a dictionary containing the proxy maps
+                for different environments. The function initializes the agent's
+                proxy map using this parameter.
+                	3/ `agent_id`: This is an integer value that represents the unique
+                identifier of the agent in the deployment. It is set to
+                `_CHANGE_THIS_ID_` by default, and can be modified if required.
+                	4/ `g`: This is a DSRGraph object that represents the environment
+                graph. The function initializes this object with the specified ID
+                and connects signals to it for updates, deletes, and node attribute
+                changes.
+                	5/ `event`: This is an event object that is used to communicate
+                between threads. It is created and passed as an argument to the
+                thread that reads the RGB image.
+                	6/ `rgb_original`: This is a boolean value that indicates whether
+                the original RGB image should be read or not. By default, it is
+                set to `False`, and can be modified if required.
+                	7/ `refresh_sleep_time`: This is an integer value that represents
+                the time interval between frame refreshments in milliseconds. It
+                is set to 5 by default, and can be modified if required.
+                	8/ `rgb_read_queue`: This is a dequeued list of RGB images that
+                are read from the camera and passed to the inference thread for processing.
+                	9/ `inference_read_queue`: This is a dequeued list of inference
+                outputs that are produced by the inference thread and passed to
+                the event loop for processing.
+                
+                	In summary, `params` is a dictionary containing properties for
+                initializing the agent's proxy map, reading RGB images from the
+                camera, setting up the environment graph, and configuring the timer
+                interval for frame refreshments.
+            startup_check (`Event`.): function that performs a check for any issues
+                or errors during the startup process, and is executed if `True`,
+                otherwise it is skipped.
+                
+                		- `startup_check`: This is an optional parameter that is used
+                to run a check on the agent's startup. If it is set to `True`, the
+                `startup_check()` method will be called, otherwise it will not be
+                called. The method checks if the agent has been started correctly
+                and performs any necessary initialization.
+                
+                	The properties of the `startup_check` parameter are:
+                
+                		- `startup_check`: A boolean value that determines whether to
+                run the `startup_check()` method or not.
+                		- `False`: The default value for `startup_check`. This means
+                that the `startup_check()` method will not be called on startup.
+                		- `True`: If set to `True`, the `startup_check()` method will
+                be called on startup to check if the agent has been started correctly.
+                
+                	The `startup_check` parameter has no attributes or properties
+                other than its default value and the ability to accept a boolean
+                value.
+
+        """
         super(SpecificWorker, self).__init__(proxy_map)
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
@@ -234,7 +347,7 @@ class SpecificWorker(GenericWorker):
             self.tracker = BYTETracker(frame_rate=5, buffer_=1000)
             # self.tracker_back = BYTETracker(frame_rate=5)
             self.objects = ifaces.RoboCompVisualElementsPub.TData()
-            self.ui.pushButton.clicked.connect(self.reset_tracks)
+            # self.ui.pushButton.clicked.connect(self.reset_tracks)
             self.reset = False
             self.refresh_sleep_time = 5
 
@@ -275,6 +388,20 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
+        """
+        Reads configuration parameters from a file and sets instance variables
+        based on the read parameters, then returns `True`.
+
+        Args:
+            params (dict): configuration parameters for the YOLO model, including
+                the YOLO model file, display flag, depth flag, and class names,
+                which are read from a file using the `open()` function.
+
+        Returns:
+            bool: a Boolean value indicating whether the parameters were successfully
+            read and the process can proceed.
+
+        """
         try:
             self.classes = [0]
             # self.yolo_model = params["yolo_model"]
@@ -388,7 +515,7 @@ class SpecificWorker(GenericWorker):
             front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
 
             # Fuse front_objects and back_objects and equal it to self.objects_write
-            self.visualelementspub_proxy.setVisualObjects(front_objects)
+            # self.visualelementspub_proxy.setVisualObjects(front_objects)
             # If display is enabled, show the tracking results on the image
 
             if self.display:
@@ -410,6 +537,47 @@ class SpecificWorker(GenericWorker):
 
     def calcular_matriz_diferencial(self, transformacion1, transformacion2):
         # Calcular la inversa de la primera matriz de transformación
+        """
+        Calculates the differential matrix by multiplying the inverse of the first
+        transformation matrix by the second transformation matrix and scaling the
+        result by 1000.
+
+        Args:
+            transformacion1 (`np.array`.): 4x4 transformation matrix that describes
+                the rotation and translation of an object in 3D space before
+                applying the transformation.
+                
+                		- `np.linalg.inv(transformacion1)` calculates the inverse of the
+                matrix `transformacion1`, which is a square matrix of size (n, n).
+                		- The matrix `transformacion1` represents a linear transformation
+                between two vectors in an n-dimensional space.
+                		- The elements of `transformacion1` are the coefficients of the
+                linear transformation, arranged in a matrix with dimensions (n x
+                n).
+            transformacion2 (ndarray or NumPy array.): 2nd matrix of transformation
+                that the function will take and multiply by its inverse to obtain
+                the differential matrix.
+                
+                		- `np.linalg.inv(transformacion1)`: This is an instance of the
+                NumPy `InvitationMatrx` class, which represents the inverse of the
+                first matrix of transformation `transformacion1`. The inverse is
+                computed using the `inv()` method provided by the ` InvitationMatrx`
+                class.
+                		- `np.dot(inversa_transformacion1, transformacion2)`: This is
+                an instance of the NumPy `Vector` class, which represents the dot
+                product of two vectors. In this case, it computes the dot product
+                of the inverse of the first matrix of transformation
+                `inversa_transformacion1` and the second matrix of transformation
+                `transformacion2`.
+                		- `matriz_diferencial[:3, 3] *= 1000`: This line of code multiplies
+                a specific sub-matrix of the output matrix (`[:3, 3]`) of the dot
+                product by a scalar value `1000`. This is done to artificially
+                inflate the diagonal elements of the resulting matrix.
+
+        Returns:
+            float: a transformed matrix with values multiplied by 1000.
+
+        """
         inversa_transformacion1 = np.linalg.inv(transformacion1)
 
         # Calcular la matriz diferencial multiplicando la inversa de la primera
@@ -421,6 +589,13 @@ class SpecificWorker(GenericWorker):
 
     ###################### MODELS LOADING METHODS ######################
     def load_v8_model(self):
+        """
+        Retrieves and loads a YOLOv8 model from disk or downloads it if not found,
+        then stores it in the instance's attribute `v8_model`. If the model is not
+        found, the function asks for selecting one of the available models and
+        downloads it accordingly.
+
+        """
         pattern = os.path.join(os.getcwd(), "yolov8?-seg.engine")
         matching_files = glob.glob(pattern)
         model_path = matching_files[0] if matching_files else None
@@ -440,11 +615,26 @@ class SpecificWorker(GenericWorker):
             self.download_and_convert_v8_model("yolov8" + model_name + "-seg")
     def download_and_convert_v8_model(self, model_name):
         # Download model
+        """
+        Downloads a YOLO model from a given name and exports it to a TRT format
+        on the default device, creating a new model instance.
+
+        Args:
+            model_name (str): name of the YOLO model that needs to be downloaded
+                and converted to the TRT format.
+
+        """
         self.v8_model = YOLO(model_name)
         # Export the model to TRT
         self.v8_model.export(format='engine', device='0')
         self.v8_model = YOLO(model_name + '.engine')
     def load_jointbdoe_model(self):
+        """
+        Loads a trained TensorFlow model for JointBDOE, selects the best device
+        for inference based on the available hardware, and retrieves the necessary
+        data for the model's usage.
+
+        """
         try:
             self.device = select_device("0", batch_size=1)
             self.model = attempt_load(
@@ -515,6 +705,43 @@ class SpecificWorker(GenericWorker):
                 return
 
     def convert_image_to_tensor(self, image):
+        """
+        Converts a given image into a tensor format, transposing its dimensions
+        and normalizing its values to be between 0 and 1. It does so by using
+        PyTorch's `torch.from_numpy()` method and applying transformations on the
+        numpy array representing the image.
+
+        Args:
+            image (ndarray object or tensor.): 2D image that will be converted to
+                a tensor.
+                
+                		- `image`: The input image, which is an instance of `np.ndarray`.
+                		- `stride`: The stride of the image, which is a scalar value
+                that determines how much each dimension of the image is skipped
+                during processing.
+                		- `auto`: A boolean value that indicates whether the image should
+                be resized using the nearest neighbor or bicubic interpolation methods.
+
+        Returns:
+            tensor, which is a contiguous array of numerical values in Python: a
+            tensor representation of the input image, ready to be used in a deep
+            learning model.
+            
+            		- `img_ori`: The original image tensor after letterboxing, transposing,
+            and normalization. Its shape is (1, height, width, 3), where height
+            and width are the image's dimensions, and 3 represents the color
+            channels (BGR).
+            		- `torch.device`: The device on which the tensor is stored, which
+            is specified by the function argument `self.device`. This information
+            is not explicitly mentioned in the output but is implicitly provided
+            as part of the returned tensor object.
+            		- `np.ascontiguousarray()`: This method is used to convert the image
+            tensor from a numpy array to a contiguous NumPy array, which allows
+            for efficient processing with NumPy functions.
+            		- `/ 255.0`: This line normalizes the pixel values to the range [0.0,
+            1.0].
+
+        """
         img_ori = letterbox(image, 640, stride=self.stride, auto=True)[0]
         img_ori = img_ori.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img_ori = np.ascontiguousarray(img_ori)
@@ -526,6 +753,16 @@ class SpecificWorker(GenericWorker):
         return img_ori
 
     def inference_thread(self, event: Event):
+        """
+        Reads RGB frames from a queue, performs computer vision inferencing over
+        each frame using a TensorFlow model, and appends the processed output to
+        a new queue for further processing.
+
+        Args:
+            event (Event): event object that is used to wait for a specified time
+                period before continuing with the function's execution.
+
+        """
         while not event.is_set():
             if self.rgb_read_queue:
                 start = time.time()
@@ -553,6 +790,34 @@ class SpecificWorker(GenericWorker):
 
     def inference_over_image(self, img0, img_ori):
         # Make inference with both models
+        """
+        Performs image-based object detection using two different models (V8 and
+        original model) on a given input image `img0`. It returns the predicted
+        bounding boxes and orientations for both models.
+
+        Args:
+            img0 (image/tensor/np array/numpy-like object.): 3D mesh model being
+                used for inference.
+                
+                		- `img0`: The input image to be analyzed. It is an instance of
+                the `Image` class, which represents a 2D image with possible padding
+                or cropping.
+                		- `img_ori`: The original input image before any transformation.
+                It is also an instance of the `Image` class and serves as a reference
+                for the inference.
+            img_ori (ndarray ( NumPy array) as suggested by its declaration with
+                `img_ori` as the variable name.): original image used for training
+                the models and serving as input to the `get_orientation_data()` function.
+                
+                		- `img_ori`: The input image to perform inference on. It is
+                assumed to have a numpy array format and various attributes such
+                as shape (e.g., `(1024, 768)` for a single image).
+
+        Returns:
+            dict: a list of bounding boxes and their corresponding orientations
+            for each detected object.
+
+        """
         orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
         out_v8 = self.v8_model.predict(img0, show_conf=True, classes=_DETECTED_OBJECTS)
         return out_v8, orientation_bboxes, orientations
@@ -596,6 +861,35 @@ class SpecificWorker(GenericWorker):
         return ifaces.RoboCompVisualElementsPub.TData(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=objects)
 
     def mask_to_TImage(self, mask, roi):
+        """
+        Takes a binary mask and a rectangular region of interest (ROI) as input
+        and returns a `TImage` object representing the mask within the ROI.
+
+        Args:
+            mask (ndarray (or NumPy array).): 2D mask image that will be used to
+                cropped the input `roi` image and return a new `TImage` instance.
+                
+                		- `mask`: A numpy array representing an image mask with shape
+                `(y, x, 3)`. The dimensions `y`, `x`, and `3` represent the height,
+                width, and color channels (red, green, and blue) of the mask.
+            roi (ndarray.): 2D rectangle of interest within the image, which is
+                used to crop and return only the portion of the original image
+                that falls within the ROI.
+                
+                		- `y`, `x`: The height and width of the `roi`, respectively,
+                which represent the spatial coordinates of the cropped region.
+
+        Returns:
+            ifaces.RoboCompCamera360RGB.TImage: a TImage object containing the
+            masked image with the specified ROI.
+            
+            	1/ `image`: This is a bytes object representing the masked image.
+            	2/ `height`: This is the height of the masked image in pixels.
+            	3/ `width`: This is the width of the masked image in pixels.
+            	4/ `roi`: This represents the region of interest (ROI) in the masked
+            image, specified as a tuple of (x, y) coordinates.
+
+        """
         y, x, _ = mask.shape
         return ifaces.RoboCompCamera360RGB.TImage(image=mask.tobytes(), height=y, width=x, roi=roi)
 
@@ -646,6 +940,45 @@ class SpecificWorker(GenericWorker):
         return center
 
     def get_pose_data(self, result):
+        """
+        Takes an input list of detection results and returns lists of bounding
+        boxes, confidence values, and skeleton data for each person in the image.
+
+        Args:
+            result (ndarray of shape (N, 5), where N is the number of frames or
+                images in the input sequence.): 2D or 3D bounding box coordinates
+                and corresponding confidence scores for each person in the image,
+                which are used to generate high-quality documentation for the code.
+                
+                		- `result.keypoints`: A numpy array containing the keypoints (x
+                and y coordinates) of the people in the image, in format `(N, 2)`
+                where N is the number of people in the image.
+                		- `result.boxes`: A list of bounding boxes around each person
+                in the image, in format `(N, 4)` where N is the number of people
+                in the image. The four elements in each box are `(x1, y1, x2, y2)`,
+                representing the top-left corner of the box and its size.
+                		- `result.conf`: A numpy array containing the confidence scores
+                of each person's pose estimation, in format `(N,)` where N is the
+                number of people in the image.
+                
+                	Note: In the function signature, `self` refers to the instance
+                of the class that `get_pose_data` belongs to. The other arguments
+                provided to `get_pose_data` are:
+                
+                		- `result`: The deserialized input containing the pose estimation
+                results.
+                
+                	The function then iterates over each person in the image, and for
+                each person, it extracts their keypoints, bounding box, and
+                confidence score, and stores them in lists called `pose_bboxes`,
+                `pose_confidences`, and `skeletons`. Finally, it returns these
+                lists as output.
+
+        Returns:
+            list: a list of 3D bounding boxes, confidence scores, and skeleton
+            data for each person in the image.
+
+        """
         pose_bboxes = []
         pose_confidences = []
         skeletons = []
@@ -662,6 +995,52 @@ class SpecificWorker(GenericWorker):
         return pose_bboxes, pose_confidences, skeletons, [0] * len(boxes)
 
     def get_segmentator_data(self, results, color_image, depth_image):
+        """
+        Takes a list of detection results, color image, and depth image as input
+        and returns a tuple containing two lists: "people" and "objects". Each
+        list contains a list of dictionaries containing information about the
+        detected objects (or people) such as bounding boxes, class labels, confidence
+        scores, masks, and orientations.
+
+        Args:
+            results (str): 3D object detections and segmentation results produced
+                by another code module or application, which is passed to the
+                `get_segmentator_data()` function for further processing and analysis.
+            color_image (ndarray object.): 2D color image that is used to compute
+                the masks and hashes for each person or object in the scene.
+                
+                		- `roi_ysize`: The height of the ROI (Region of Interest) in the
+                color image.
+                		- `roi_xsize`: The width of the ROI in the color image.
+                		- `shape`: The shape of the color image, which is (ROI ysize,
+                ROI xsize, 3) in this case.
+                
+                	The `color_image` is a NumPy array containing the ROI of the color
+                image. It has dimensions (ROI ysize, ROI xsize, 3), where each
+                pixel has a value in the RGB color space. The image may be captured
+                from various sources such as a camera or an existing image.
+            depth_image (ndarray or NumPy array, specifically an array of shape
+                (Height, Width, Number of Channels) representing a depth image.):
+                2D image of depth values for the scene, which is used to compute
+                the 3D positions of objects in the scene along with their corresponding
+                masks.
+                
+                		- `roi_ysize`: The size of the region of interest (ROI) in the
+                depth image.
+                		- `roi_xsize`: The size of the ROI in the x-axis direction in
+                the depth image.
+                		- `shape`: The shape of the depth image, which is a 3D NumPy
+                array containing the pixel values of the image.
+                
+                	These properties are used in the function to extract specific
+                information from the depth image, such as the coordinates of the
+                object masks, the class labels, and the confidence scores.
+
+        Returns:
+            tuple: a list of dictionaries containing information about the objects
+            and people detected in an image.
+
+        """
         people = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
                   "hashes": []}
         objects = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
@@ -713,6 +1092,70 @@ class SpecificWorker(GenericWorker):
     def get_mask_distance(self, mask, depth_image):
         # Get bbox center point
         # Get depth image shape and calculate bbox center
+        """
+        Computes the distance of a person from a depth image based on the binary
+        mask of the person's body parts. It retrieves the center point and width
+        of the bbox, extracts valid points from the depth image, and calculates
+        the distances to those points using the histogram method. Finally, it
+        returns the median distance of the valid points.
+
+        Args:
+            mask (ndarray.): 2D segmentation of the depth image, which is used to
+                extract the valid points (i.e., points with non-zero values) and
+                calculate their distances from the bbox center.
+                
+                	1/ `mask`: A numpy array of shape `(depth_image.shape[0],
+                depth_image.shape[1])`, where each element is either 0 or 1,
+                indicating whether a pixel in the depth image belongs to the object
+                of interest or not.
+                	2/ `depth_image`: A numpy array representing the depth image,
+                which is assumed to be a rectangular array with dimensions
+                corresponding to the shape of the depth sensor's image.
+                	3/ `bbox_center`: A numpy array of length 2, containing the center
+                coordinates of the bounding box around the object of interest in
+                pixels.
+                	4/ `segmentation_points`: A numpy array of shape `(mask.shape[1],
+                mask.shape[0])`, containing the indices of the pixels in the depth
+                image that belong to the object of interest.
+                	5/ `p`: A float value representing the bbox width, which is used
+                to calculate the minimum distance between points in the segmentation
+                mask and their corresponding depth values.
+            depth_image (3D array, specifically an array with shape ( height,
+                width, channels) representing a depth image.): 2D depth image that
+                the function will analyze to determine the person's pose.
+                
+                		- `shape`: The shape of the depth image, which can be a 3D array
+                with shape `( height, width, depth )`.
+                		- `bbox_center`: The center point of the bounding box (bbox) for
+                the object in the depth image. The coordinates are calculated as
+                `(depth_image_shape[1] // 2, depth_image_shape[0] // 2)`.
+                		- `segmentation_points`: An array containing the coordinates of
+                the points on which the bbox is applied to the mask. The shape of
+                this array is `NxM`, where `N` is the number of points used to
+                calculate the bbox center, and `M` is the number of channels in
+                the depth image (typically 3 for a RGB depth image).
+                		- `p`: The distance from the bbox center at which points are
+                considered inside the bbox. The value is calculated as
+                `depth_image_shape[1] // 4.5`.
+                		- `valid_points`: An array containing the coordinates of the
+                points that pass the bbox filtering. The shape of this array is
+                `Nx2`, where `N` is the number of points remaining after bbox filtering.
+                		- `distances`: The distances between the valid points and the
+                bbox center, calculated as `np.linalg.norm(valid_points - bbox_center,
+                axis=1)`.
+                		- `hist`: A 2D histogram array created from the `distances` array
+                using `np.histogram`. The shape of this array is `(bins, height)`.
+                		- `edges`: An array containing the edges of each bin in the
+                histogram. The shape of this array is `(bins, width)`.
+                		- `person_dist`: An array containing the distances between the
+                bbox center and the points inside the mold interval. The shape of
+                this array is `(1,)` or `()`.
+
+        Returns:
+            list: a list of three values representing the mean distance of a person
+            from the camera at different positions.
+
+        """
         depth_image_shape = depth_image.shape
         bbox_center = [depth_image_shape[1] // 2, depth_image_shape[0] // 2]
         segmentation_points = np.argwhere(np.all(mask == 1, axis=-1))[:, [1, 0]]
@@ -748,6 +1191,39 @@ class SpecificWorker(GenericWorker):
     #GPT VERSION: white pixels deleted
     def get_color_histogram(self, color):
         # Convert the color image to HSV
+        """
+        Converts an image from RGB to HSV, creates a mask to exclude unwanted
+        pixels, and calculates the histogram of the resulting HSV image using the
+        `cv2.calcHist` function.
+
+        Args:
+            color (3-dimensional numpy array.): 3D RGB image to be converted to
+                HSV and histogrammed.
+                
+                		- `color` is a NumPy array with 3 color channels (RGB) representing
+                a single color image.
+                		- The shape of `color` is `(height, width, 3)`, where `height`
+                and `width` are the dimensions of the image.
+                		- Each element in `color` has one of three possible values for
+                each channel: 0 for black, 255 for white, and any other value for
+                a colored pixel.
+                		- The data type of `color` is `np.uint8`, indicating that the
+                pixels are represented as 8-bit integers.
+
+        Returns:
+            array of normalized histogram values: a normalized histogram of the
+            HSV color space of the input color image.
+            
+            	1/ `hist`: The output is a 3D array with shape `(num_bins, num_pixels,
+            num_colors)`, where `num_bins` is the number of bins in the histogram,
+            `num_pixels` is the total number of pixels in the input image, and
+            `num_colors` is the number of distinct colors present in the image.
+            	2/ `normalize_histogram`: The output of this function is a normalized
+            histogram, where each bin represents the distribution of pixels in
+            that color category across all images. This ensures that the histogram
+            is comparable and meaningful across different images and datasets.
+
+        """
         color_hsv = cv2.cvtColor(color, cv2.COLOR_RGB2HSV)
 
         # Create a mask to exclude pixels with Saturation = 0 and Value = 256
@@ -759,11 +1235,76 @@ class SpecificWorker(GenericWorker):
         return self.normalize_histogram(hist)
 
     def normalize_histogram(self, hist):
+        """
+        Normalizes a given histogram by dividing it by the total number of pixels
+        in the histogram, resulting in a normalized histogram with values between
+        0 and 1.
+
+        Args:
+            hist (ndarray (i.e., an array-like object).): 2D histogram that needs
+                to be normalized.
+                
+                		- `np.sum(hist)` represents the total number of pixels in the histogram.
+
+        Returns:
+            array of values: a normalized histogram of pixel values.
+            
+            	1/ Total Pixels: The variable `total_pixels` represents the total
+            number of pixels in the histogram. It is calculated by summing up all
+            the values in the histogram.
+            	2/ Normalized Histogram: The variable `normalized_histogram` represents
+            the normalized histogram, which is the histogram divided by the total
+            number of pixels. This creates a probability distribution where the
+            sum of all the probabilities is equal to 1.
+            	3/ Properties of Normalized Histogram: The normalized histogram has
+            several desirable properties, including:
+            			- Probability values range from 0 to 1
+            			- The sum of all the probability values is equal to 1
+            			- Each bin represents a continuous range of pixel values
+            
+            	In summary, the `normalize_histogram` function transforms an input
+            histogram into a normalized form, which simplifies further processing
+            or analysis of the histogram.
+
+        """
         total_pixels = np.sum(hist)
         normalized_hist = hist / total_pixels
         return normalized_hist
 
     def get_orientation_data(self, processed_image, original_image):
+        """
+        1/ takes a processed image and its original image as input, 2. applies a
+        model to the processed image with augmentation enabled, 3. generates an
+        output with non-maximum suppression, 4. extracts orientation bboxes from
+        the output, and 5. returns both the orientation bboxes and orientations
+        in native space.
+
+        Args:
+            processed_image (ndarray.): 2D image that has been processed by some
+                previous step or transformation, and is provided to the
+                `get_orientation_data` function as an argument for the purpose of
+                estimating orientations from it.
+                
+                		- `roi_xsize`: The width of the ROI (Region of Interest) in pixels.
+                		- `original_image`: The original image from which the ROI was extracted.
+                		- `augment`: A boolean value indicating whether to apply
+                augmentations during feature extraction.
+                		- `scales`: An array of scales to apply to the feature extraction
+                output, including the scale of the ROI.
+                		- `num_angles`: The number of angles in the orientation heatmap.
+            original_image (ndarray.): 2D image that was preprocessed and passed
+                through the model as part of the multi-scale feature extraction process.
+                
+                		- `shape`: The shape of the original image, which is (height,
+                width) or (depth, height, width), where depth refers to the number
+                of color channels (e.g., RGB).
+                		- `size`: The size of the original image in pixels, which can
+                be used to calculate the scale factor for non-max suppression.
+
+        Returns:
+            int: a tuple of two numpy arrays: `orientation_bboxes` and `orientations`.
+
+        """
         out_ori = self.model(processed_image, augment=True, scales=[self.roi_xsize / 640])[0]
         out = non_max_suppression(out_ori, 0.3, 0.5, num_angles=self.data['num_angles'])
         orientation_bboxes = scale_coords(processed_image.shape[2:], out[0][:, :4], original_image.shape[:2]).cpu().numpy().astype(int)  # native-space pred
@@ -811,6 +1352,21 @@ class SpecificWorker(GenericWorker):
     ###############################################################
 
     def show_fps(self, alive_time, period):
+        """
+        Calculates and displays the frame rate, alive time, period, and update
+        rate of an image processing thread. It updates the values every 1 second
+        (or a user-defined period) and limits the thread's update rate to prevent
+        excessive CPU usage.
+
+        Args:
+            alive_time (int): duration of time the object has been alive or running,
+                and it is used to calculate the current period of the image
+                processing task.
+            period (int): interval between FPS measurements, and it is used to
+                calculate the current frame rate based on the elapsed time since
+                the last measurement.
+
+        """
         if time.time() - self.last_time > 1:
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
@@ -858,6 +1414,13 @@ class SpecificWorker(GenericWorker):
 
     ############################################################################################
     def startup_check(self):
+        """
+        Runs tests to verify the functionality of various components of a robot
+        vision system, including TImage, TDepth, TRGBD, and TGroundTruth classes
+        from ifaces.RoboCompCameraRGBDSimple and ifaces.RoboCompHumanCameraBody
+        modules, as well as KeyPoint, Person, and PeopleData classes.
+
+        """
         print(f"Testing RoboCompCameraRGBDSimple.TImage from ifaces.RoboCompCameraRGBDSimple")
         test = ifaces.RoboCompCameraRGBDSimple.TImage()
         print(f"Testing RoboCompCameraRGBDSimple.TDepth from ifaces.RoboCompCameraRGBDSimple")
@@ -889,6 +1452,30 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
     #
     def SegmentatorTrackingPub_setTrack(self, track):
+        """
+        Sets chosen track ID and stores it in tracker. It also retrieves target
+        ROI coordinates based on given track ID.
+
+        Args:
+            track (`Track` object.): 3D tracking object to be associated with the
+                Segmentator, and when provided, sets the chosen track for the
+                Segmentator's tracker.
+                
+                		- `id`: An integer value representing the unique identifier of
+                the track to be followed.
+                		- `chosen_track`: A reference to a track object that has been
+                chosen by the user.
+                		- `target_roi_xcenter`: The x-coordinate of the target region
+                of interest (ROI) center.
+                		- `target_roi_ycenter`: The y-coordinate of the target ROI center.
+                		- `target_roi_xsize`: The x-size of the target ROI.
+                		- `target_roi_ysize`: The y-size of the target ROI.
+                
+                	The function then processes the `track` object based on its
+                properties, setting the `tracker.set_chosen_track()` and updating
+                internal variables accordingly.
+
+        """
         self.tracker.set_chosen_track(track.id)
         if track.id == -1:
             self.tracked_element = None
@@ -907,6 +1494,19 @@ class SpecificWorker(GenericWorker):
                 
                 return
     def update_plot(self,frame):
+        """
+        Updates a plot by clearing it and re-drawing it with a subset of data from
+        a list of IDs.
+
+        Args:
+            frame (`object`.): 2D plot that is to be updated with new data.
+                
+                		- `frame`: A Pandas DataFrame object containing time series data
+                with two columns - `xs` (with values of type `float`) representing
+                the time series and `ys` (with values of type `float`) representing
+                the corresponding values.
+
+        """
         pass
         # self.ax.clear()  # Limpia el plot actual
          
@@ -967,6 +1567,17 @@ class SpecificWorker(GenericWorker):
 
     def update_edge(self, fr: int, to: int, type: str):
 
+        """
+        Prints a message and updates an edge in a graph based on its label.
+
+        Args:
+            fr (int): 0-based index of the first node in the range of nodes being
+                updated.
+            to (int): type of edge being updated in the code.
+            type (str): edge being updated, and it is used to identify the specific
+                edge being modified in the code.
+
+        """
         console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
