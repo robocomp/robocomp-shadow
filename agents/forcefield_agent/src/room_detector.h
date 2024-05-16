@@ -22,13 +22,16 @@ namespace rc
 {
     class Room_Detector
     {
-        using Lines = std::vector<std::pair<int, QLineF>>;
-        using Par_lines = std::vector<std::pair<QLineF, QLineF>>;
-        using Corners =  std::vector<std::tuple<int, QPointF>>;
-        using All_Corners = std::vector<std::tuple<QPointF, QPointF, QPointF, QPointF>>;
-        using Features = std::tuple<Lines, Par_lines, Corners, All_Corners>;
-
         public:
+            using Lines = std::vector<std::pair<int, QLineF>>;
+            using Par_lines = std::vector<std::pair<QLineF, QLineF>>;
+            using Corners =  std::vector<std::tuple<int, QPointF>>;
+            using All_Corners = std::vector<std::tuple<QPointF, QPointF, QPointF, QPointF>>;
+            using Center = Eigen::Vector2f;
+            using Room_Size = Eigen::Vector3f;
+            using Features = std::tuple<Lines, Par_lines, Corners, All_Corners, Room_Size, Center>;
+
+            Corners detect_corners(const std::vector<std::vector<Eigen::Vector2f>> &lines, QGraphicsScene *scene, bool draw_lines);
             Room detect(const std::vector<std::vector<Eigen::Vector2f>> &lines, QGraphicsScene *scene=nullptr, bool draw_lines=false);
             Features compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines);
 
@@ -50,7 +53,7 @@ namespace rc
                                         QGraphicsScene *scene, QColor color="blue");
 
             // local data
-            Room current_room;
+//            Room current_room;
 
             // Global params
             rc::Params params;
@@ -58,6 +61,7 @@ namespace rc
             Eigen::Vector2f to_eigen(const QPointF &p) const;
             Eigen::Vector2f to_eigen(const cv::Point2f &p) const;
             QPointF to_qpointf(const cv::Point2f &p) const;
+
 
     };
 

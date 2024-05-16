@@ -126,7 +126,7 @@ void SpecificWorker::initialize(int period)
         // Inicializa el teclado.
         keyboard = robot->getKeyboard();
 
-        this->Period = 16;
+        this->Period = 1;
 
         // Activa los componentes en la simulación si los detecta.
         if(lidar_helios) lidar_helios->enable(this->Period);
@@ -264,7 +264,7 @@ void SpecificWorker::compute()
 //    }
 
 //    robot->step(this->Period);
-    robot->step(16);
+    robot->step(33);
 //    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count() << std::endl;
 //
 //    parseHumanObjects();

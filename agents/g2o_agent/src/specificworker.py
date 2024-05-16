@@ -119,9 +119,9 @@ class SpecificWorker(GenericWorker):
                 if len(self.g2o.pose_vertex_ids) == self.g2o.queue_max_len:
                     self.g2o.remove_first_vertex()
                 # Generate information matrix considering the noise
-                odom_information = np.array([[10/self.odometry_noise_std_dev, 0.0, 0.0],
-                                            [0.0, 10/self.odometry_noise_std_dev, 0.0],
-                                            [0.0, 0.0, 1/self.odometry_noise_angle_std_dev]])
+                odom_information = np.array([[1, 0.0, 0.0],
+                                            [0.0, 1, 0.0],
+                                            [0.0, 0.0, 0.1]])
                 # print("Odometry information:", odom_information)
 
 
@@ -147,7 +147,7 @@ class SpecificWorker(GenericWorker):
                         corner_edge_mat = self.rt_api.get_edge_RT_as_rtmat(corner_edge, robot_odometry[3])[0:3, 3]
                         # print("Vertex count ", self.g2o.vertex_count)
                         # self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
-                        self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
+                        self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
                         # self.g2o.add_landmark(self.add_noise(corner_edge_mat[0], self.measurement_noise_std_dev), self.add_noise(corner_edge_mat[1], self.measurement_noise_std_dev), landmark_information, pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                         print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
                 time_2 = time.time()
@@ -209,7 +209,7 @@ class SpecificWorker(GenericWorker):
         robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
         _, _, robot_rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
         # Add fixed pose to g2o
-        self.g2o.add_fixed_pose(g2o.SE2(self.add_noise(robot_tx, 0), self.add_noise(robot_ty, 0), self.add_noise(robot_rz, 0.0)))
+        self.g2o.add_fixed_pose(g2o.SE2(robot_tx, robot_ty, robot_rz))
         self.last_odometry = (.0, .0, .0, int(time.time()*1000))
         print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
 
@@ -230,8 +230,8 @@ class SpecificWorker(GenericWorker):
             corner_tx, corner_ty, _ = corner_edge_rt
             print("Nominal corners", corner_tx, corner_ty)
             print("Measured corners", corner_measured_tx, corner_measured_ty)
-            landmark_information = np.array([[1 / self.measurement_noise_std_dev, 0.0],
-                                             [0.0, 1 / self.measurement_noise_std_dev]])
+            landmark_information = np.array([[0.05, 0.0],
+                                             [0.0, 0.05]])
             print("Eye matrix", 0.1 * np.eye(2))
             print("Landmark information:", landmark_information)
             if corner_tx != 0.0 or corner_ty != 0.0:
