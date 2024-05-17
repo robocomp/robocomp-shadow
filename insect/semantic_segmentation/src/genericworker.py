@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2023 by YOUR NAME HERE
+#    Copyright (C) 2024 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -41,7 +41,7 @@ class GenericWorker(QtCore.QObject):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
-        self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
+        self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
         self.visualelements_proxy = mprx["VisualElementsProxy"]
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)

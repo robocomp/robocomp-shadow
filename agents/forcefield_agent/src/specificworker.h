@@ -142,7 +142,7 @@ class SpecificWorker : public GenericWorker
         //MISC
         void set_robot_speeds(float adv, float side, float rot);
         std::vector<float> calculate_speed(const Eigen::Matrix<float, 2, 1> &target);
-        float distance_to_target = 100;
+        float distance_to_target = 50;
         std::vector<float> get_graph_odometry();
         double corner_matching_threshold = 1000;
         bool corner_matching_threshold_setted = false;
@@ -155,7 +155,7 @@ class SpecificWorker : public GenericWorker
 
     string build_g2o_graph( const vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data,
                            const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,
-                           const vector<Eigen::Vector2d> nominal_corners);
+                           const vector<Eigen::Vector2d> nominal_corners, const std::vector<Eigen::Vector2f> &room_sizes, std::vector<int> room_size);
 };
 
 #endif

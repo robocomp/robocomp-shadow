@@ -7,6 +7,8 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
+Ice.loadSlice("-I ./src/ --all ./src/Camera360RGBD.ice")
+import RoboCompCamera360RGBD
 Ice.loadSlice("-I ./src/ --all ./src/MaskElements.ice")
 import RoboCompMaskElements
 Ice.loadSlice("-I ./src/ --all ./src/Person.ice")
@@ -32,6 +34,24 @@ class ImgType(list):
         super(ImgType, self).insert(index, item)
 
 setattr(RoboCompCamera360RGB, "ImgType", ImgType)
+class ImgType(list):
+    def __init__(self, iterable=list()):
+        super(ImgType, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, byte)
+        super(ImgType, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, byte)
+        super(ImgType, self).insert(index, item)
+
+setattr(RoboCompCamera360RGBD, "ImgType", ImgType)
 class ImgType(list):
     def __init__(self, iterable=list()):
         super(ImgType, self).__init__(iterable)
@@ -104,24 +124,42 @@ class TConnections(list):
         super(TConnections, self).insert(index, item)
 
 setattr(RoboCompPerson, "TConnections", TConnections)
-class TObjects(list):
+class TMetrics(list):
     def __init__(self, iterable=list()):
-        super(TObjects, self).__init__(iterable)
+        super(TMetrics, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(TMetrics, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(TMetrics, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(TMetrics, self).insert(index, item)
+
+setattr(RoboCompVisualElements, "TMetrics", TMetrics)
+class TObjectList(list):
+    def __init__(self, iterable=list()):
+        super(TObjectList, self).__init__(iterable)
 
     def append(self, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).append(item)
+        super(TObjectList, self).append(item)
 
     def extend(self, iterable):
         for item in iterable:
             assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).extend(iterable)
+        super(TObjectList, self).extend(iterable)
 
     def insert(self, index, item):
         assert isinstance(item, RoboCompVisualElements.TObject)
-        super(TObjects, self).insert(index, item)
+        super(TObjectList, self).insert(index, item)
 
-setattr(RoboCompVisualElements, "TObjects", TObjects)
+setattr(RoboCompVisualElements, "TObjectList", TObjectList)
 
 import maskelementsI
 import visualelementsI
@@ -164,7 +202,7 @@ class Requires:
         self.ice_connector = ice_connector
         self.mprx={}
 
-        self.Camera360RGB = self.create_proxy("Camera360RGBProxy", RoboCompCamera360RGB.Camera360RGBPrx)
+        self.Camera360RGBD = self.create_proxy("Camera360RGBDProxy", RoboCompCamera360RGBD.Camera360RGBDPrx)
 
         self.VisualElements = self.create_proxy("VisualElementsProxy", RoboCompVisualElements.VisualElementsPrx)
 
