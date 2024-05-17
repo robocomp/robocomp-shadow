@@ -39,6 +39,27 @@ class GenericWorker(QtCore.QObject):
     kill = QtCore.Signal()
 
     def __init__(self, mprx):
+        """
+        Initializes a `GenericWorker` object, setting up proxies for a
+        `Camera360RGBDProxy` and a `VisualElementsProxy`, as well as creating a
+        mutex and timer for periodic processing.
+
+        Args:
+            mprx (`PythonProxy`.): Proxy Manager, which provides proxies for the
+                `Camera360RGBDProxy` and `VisualElementsProxy` classes in the
+                initialization of the `GenericWorker` class.
+                
+                		- `Camera360RGBDProxy`: This property represents a proxy class
+                for interacting with the `Camera360RGBD` interface.
+                		- `VisualElementsProxy`: This property represents a proxy class
+                for interacting with the `VisualElements` interface.
+                		- `mutex`: A mutual exclusion lock used to protect shared resources.
+                		- `Period`: The period of time between updates, set to 30 in
+                this example.
+                		- `timer`: A timer object used to trigger updates at a specific
+                interval.
+
+        """
         super(GenericWorker, self).__init__()
 
         self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
@@ -58,6 +79,16 @@ class GenericWorker(QtCore.QObject):
     # @param per Period in ms
     @QtCore.Slot(int)
     def setPeriod(self, p):
+        """
+        Updates the instance variable `Period`, and then starts a timer that fires
+        every period (`self.Period`) using the passed time as the timer interval.
+
+        Args:
+            p (int): duration of the timer, and by assigning it to the `self.Period`
+                instance variable and starting the `timer.start()` method, the
+                function sets the timer to count down for the specified duration.
+
+        """
         print("Period changed", p)
         self.Period = p
         self.timer.start(self.Period)
