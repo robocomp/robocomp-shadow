@@ -1,5 +1,5 @@
 #
-#    Copyright (C) 2023 by YOUR NAME HERE
+#    Copyright (C) 2024 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -40,3 +40,6 @@ class VisualElementsI(VisualElements):
 
     def getVisualObjects(self, objects, c):
         return self.worker.VisualElements_getVisualObjects(objects)
+
+    def setVisualObjects(self, objects, c):
+        return self.worker.VisualElements_setVisualObjects(objects)

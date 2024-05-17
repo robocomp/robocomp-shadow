@@ -143,16 +143,13 @@ void SpecificWorker::compute()
     /// Check if any room node exists in the graph
     if(auto room_nodes = G->get_nodes_by_type("room"); room_nodes.empty())
     {
-        qInfo() << "No room node in graph";
         /// Room detector
         auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);  // TODO: use upper lines in Helios
 
         /// If not current_room is found, return
-
-
         current_room.draw_on_2D_tab(current_room, "yellow", &widget_2d->scene);
 
-        // Check if TARGET edge exists
+        /// Check if TARGET edge exists
         if(auto target_edge_ = G->get_edge(robot_node.id(), robot_node.id(), "TARGET"); target_edge_.has_value())
         {
             Eigen::Vector2f room_center;
@@ -164,69 +161,97 @@ void SpecificWorker::compute()
             else
                 room_center = current_room.get_center();
             qInfo() << "Room center: " << room_center.x() << " " << room_center.y();
-            //TODO: remove static?
-            
+
             static std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> corner_data;
             static std::vector<std::vector<float>> odometry_data;
+            static std::vector<Eigen::Vector2f> room_centers;
+            static std::vector<Eigen::Vector2f> room_sizes;
+
             static std::map<std::vector<int>, int> room_size_histogram;
-            static Eigen::Vector2f first_room_center;
             static bool first_room_center_set = false;
 
             ///-------------------- ROBOT MOVEMENT ------------------------------///
             if(movement_completed(room_center, distance_to_target))
             {
+                qInfo() << "Vector sizes: " << corner_data.size() << " " << odometry_data.size() << " " << room_centers.size() << " " << room_sizes.size();
                 qInfo() << "Room center reached";
                 // Generate room size histogram considering room_size_histogram vector and obtain the most common room size
                 auto most_common_room_size = std::max_element(room_size_histogram.begin(), room_size_histogram.end(),
                                                               [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
                 /// Get the most common room size
                 auto room_size = most_common_room_size->first;
+                qInfo() << "Most common room size: " << room_size[0] << " " << room_size[1] << "#############################";
                 /// Calculate corner_matching_threshold based on room size
                 corner_matching_threshold = std::min(room_size[0]/3, room_size[1]/3);
                 corner_matching_threshold_setted = true;
+                /// Get the first room center obtained with a room size similar to the most common one
+                int first_valid_center_id = 0;
+                Eigen::Vector2f first_valid_room_center;
+                /// Get first valid center
+                for(const auto &[i, center] : iter::enumerate(room_centers))
+                    if(std::abs(room_sizes[i][0] - room_size[0]) < 50 and std::abs(room_sizes[i][1] - room_size[1]) < 50)
+                    {
+                        first_valid_center_id = i;
+                        first_valid_room_center = center;
+                        break;
+
+                    }
+                /// Remove values in vectors behind first valid center
+                corner_data.erase(corner_data.begin(), corner_data.begin() + first_valid_center_id);
+                odometry_data.erase(odometry_data.begin(), odometry_data.begin() + first_valid_center_id);
+                room_sizes.erase(room_sizes.begin(), room_sizes.begin() + first_valid_center_id);
+//                qInfo() << "After cleaning valid corners";
+//                for(const auto &corner : corner_data[0])
+//                    qInfo() << corner.x() << " " << corner.y();
                 /// Get robot initial pose in room and nominal corners
-                auto robot_initial_pose = get_robot_initial_pose( first_room_center, corner_data[0], room_size[0], room_size[1]);
+                auto robot_initial_pose = get_robot_initial_pose( first_valid_room_center, corner_data[0], room_size[0], room_size[1]);
+                // Print nominal corners
+                for(const auto &corner : robot_initial_pose.second)
+                    qInfo() << "Nominal corner: " << corner.x() << " " << corner.y();
                 /// Generate g2o graph considering first robot pose, nominal corners, corners and odometry measured along the trajectory to room center
-                auto g2o_str = build_g2o_graph(corner_data, odometry_data, robot_initial_pose.first, robot_initial_pose.second);
+                auto g2o_str = build_g2o_graph(corner_data, odometry_data, robot_initial_pose.first, robot_initial_pose.second, room_sizes, room_size);
                 /// Stop robot
                 set_robot_speeds(0.f, 0.f, 0.f);
                 /// Call g2o optimizer
                 auto optimization = this->g2ooptimizer_proxy->optimize(g2o_str);
                 /// Get optimized nominal corners and actual robot pose
                 auto g2o_data = extract_g2o_data(optimization);
+                qInfo() << "Optimized corners: ";
+                for(const auto &corner : std::get<0>(g2o_data))
+                    qInfo() << corner.x() << " " << corner.y();
+                qInfo() << "Optimized robot pose: " << std::get<1>(g2o_data).x() << " " << std::get<1>(g2o_data).y() << " " << std::get<1>(g2o_data).z();
                 /// Associate start nominal corners with optimized
-                auto associated_nominal_corners = calculate_rooms_correspondences_id(robot_initial_pose.second, std::get<0>(g2o_data));
-                for (const auto &[i, corner] : iter::enumerate(associated_nominal_corners))
-                    std::get<0>(g2o_data)[std::get<0>(associated_nominal_corners[i])] = std::get<2>(associated_nominal_corners[i]);
-                /// Swap corners 2 and 3 to order corners clockwise
-                std::swap(std::get<0>(g2o_data)[2], std::get<0>(g2o_data)[3]);
+                auto associated_nominal_corners = calculate_rooms_correspondences_id(std::get<0>(g2o_data), robot_initial_pose.second, true);
+//                for (const auto &[i, corner] : iter::enumerate(associated_nominal_corners))
+//                    std::get<0>(g2o_data)[std::get<0>(associated_nominal_corners[i])] = std::get<2>(associated_nominal_corners[i]);
+                /// Order corners clockwise
+                std::sort(std::get<0>(g2o_data).begin(), std::get<0>(g2o_data).end(), [](const auto &p1, const auto &p2){ return std::atan2(p1.y(), p1.x()) < std::atan2(p2.y(), p2.x()); });
                 /// Insert room data in graph
                 insert_room_into_graph(g2o_data, current_room);
                 /// Delete TARGET edge to make robot control agent stop taking into account speed commands
                 G->delete_edge(robot_node.id(), robot_node.id(), "TARGET");
                 current_room.draw_on_2D_tab(current_room, "yellow", &widget_2d->scene, true);
+
             }
             ///---------- If robot is not in room center, move robot to room center
             else
             {
-                qInfo() << "Trying to read room data";
+//                qInfo() << "Trying to read room data";
                 /// Check if room is initialized
                 if(current_room.is_initialized)
                 {
-                    /// Check if first room center is set for obtaining first robot pose in room
-                    if(not first_room_center_set)
-                    {
-                        first_room_center = current_room.get_center();
-                        first_room_center_set = true;
-                    }
+//                    /// Check if first room center is set for obtaining first robot pose in room
+//                    if(not first_room_center_set)
+//                    {
+//                        first_room_center = current_room.get_center();
+//                        first_room_center_set = true;
+//                    }
+                    /// Get room center
+                    room_centers.push_back(current_room.get_center());
+
                     /// Get room corner values
                     auto corners = current_room.get_corners();
                     corner_data.push_back(corners);
-
-                    // Print corners size and values
-                    qInfo() << "Corners size: " << corners.size();
-                    for(const auto &corner : corners)
-                        qInfo() << "Corner: " << corner.x() << " " << corner.y();
 
                     /// Get room dimension
                     auto room_width = static_cast<int>(current_room.get_width());
@@ -234,10 +259,19 @@ void SpecificWorker::compute()
 
                     /// Add room size to histogram considering first the biggest dimension to avoid duplicated dimensions
                     if(room_width > room_depth)
+                    {
+                        /// Add room size to vector
                         room_size_histogram[{room_width, room_depth}]++;
+                        room_sizes.push_back({room_width, room_depth});
+                    }
                     else
+                    {
+                        /// Add room size to vector
                         room_size_histogram[{room_depth, room_width}]++;
+                        room_sizes.push_back({room_depth, room_width});
+                    }
                     qInfo() << "Room size: " << room_width << " " << room_depth;
+
                     /// Get robot odometry
                     auto odometry = get_graph_odometry();
                     odometry_data.push_back(odometry);
@@ -380,7 +414,6 @@ std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> SpecificWorker::extrac
         iss_line >> x;
         // Get y
         iss_line >> y;
-        std::cout << "Type: " << type << std::endl;
         if(type == "VERTEX_XY")
             corners.push_back({x, y});
         else if(type == "VERTEX_SE2")
@@ -824,7 +857,7 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
     last_corners = target_points;
 }
 //Ceate funcion to build .g2o string from corner_data, odometry_data, RT matrix
-std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data, const std::vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose , const std::vector<Eigen::Vector2d> nominal_corners)
+std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data, const std::vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose , const std::vector<Eigen::Vector2d> nominal_corners, const std::vector<Eigen::Vector2f> &room_sizes, std::vector<int> room_size)
 {
     std::string g2o_graph;
     int id = 0; // Id for g2o graph vertices
@@ -874,99 +907,118 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
 
     this->aux_corners = std::vector<Eigen::Vector2d> {std::get<2>(first_correspondence[0]), std::get<2>(first_correspondence[1]), std::get<2>(first_correspondence[2]), std::get<2>(first_correspondence[3])};
 
+    qInfo() << "Inserting landmarks in graph #################################3";
     // Add EDGE_SE2_XY landmarks for each position in corner_data (from pose vertex to nominal corner)
     for (size_t i = 1; i < corner_data.size(); ++i)
     {
-        Eigen::Vector2d corner_data_point_0 = corner_data[i][0].cast<double>();
-        Eigen::Vector2d corner_data_point_1 = corner_data[i][1].cast<double>();
-        Eigen::Vector2d corner_data_point_2 = corner_data[i][2].cast<double>();
-        Eigen::Vector2d corner_data_point_3 = corner_data[i][3].cast<double>();
+        if(std::abs(room_sizes[i][0] - room_size[0]) < 50 and std::abs(room_sizes[i][1] - room_size[1]) < 50)
+        {
+            Eigen::Vector2d corner_data_point_0 = corner_data[i][0].cast<double>();
+            Eigen::Vector2d corner_data_point_1 = corner_data[i][1].cast<double>();
+            Eigen::Vector2d corner_data_point_2 = corner_data[i][2].cast<double>();
+            Eigen::Vector2d corner_data_point_3 = corner_data[i][3].cast<double>();
 
-        std::vector current_corners = {corner_data_point_0, corner_data_point_1, corner_data_point_2, corner_data_point_3};
-        auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true);
+            std::vector current_corners = {corner_data_point_0, corner_data_point_1, corner_data_point_2,
+                                           corner_data_point_3};
+            auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true);
 
-        for (size_t j = 0; j < corner_data[i].size(); ++j)
-            g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id) + " " + std::to_string(std::get<0>(correspondences[j])) + " " + std::to_string(std::get<2>(correspondences[j]).x()) + " " + std::to_string(std::get<2>(correspondences[j]).y()) + " 5 0 5 \n";
-        this->aux_corners = {std::get<2>(correspondences[0]), std::get<2>(correspondences[1]), std::get<2>(correspondences[2]), std::get<2>(correspondences[3])};
+            for (size_t j = 0; j < corner_data[i].size(); ++j)
+                g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id) + " " +
+                             std::to_string(std::get<0>(correspondences[j])) + " " +
+                             std::to_string(std::get<2>(correspondences[j]).x()) + " " +
+                             std::to_string(std::get<2>(correspondences[j]).y()) + " 5 0 5 \n";
+            this->aux_corners = {std::get<2>(correspondences[0]), std::get<2>(correspondences[1]),
+                                 std::get<2>(correspondences[2]), std::get<2>(correspondences[3])};
+        }
         node_id++;
     }
     return g2o_graph;
 }
 
-std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
-{
-    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
-    // Generate dynamic Eigen matrix to hold the distances between source and target points
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> distances(source_points_.size(), target_points_.size());
-    // Fill the matrix with the distances between source and target points
-    for (size_t i = 0; i < source_points_.size(); ++i)
-        for (size_t j = 0; j < target_points_.size(); ++j)
-            distances(i, j) = (source_points_[i] - target_points_[j]).norm();
-    // Get the minimun distance in each row
-    Eigen::Index minCol;
-    // Iterate over the rows of the matrix
-    for (size_t i = 0; i < source_points_.size(); ++i)
-    {
-        Eigen::VectorXd min_distances = distances.row(i);
-        double min = min_distances.minCoeff(&minCol);
-        // Store the correspondences if the distance is less than the threshold
-        if (min < corner_matching_threshold)
-            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], target_points_[minCol], true));
-        else
-            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], target_points_[minCol], false));
-    }
-    return correspondences;
-}
-
 //std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
 //{
 //    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
-//
-//    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
-//    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
-//    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
-//    int i = 0;
-//
-//    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+//    // Generate dynamic Eigen matrix to hold the distances between source and target points
+//    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> distances(source_points_.size(), target_points_.size());
+//    // Fill the matrix with the distances between source and target points
+//    for (size_t i = 0; i < source_points_.size(); ++i)
+//        for (size_t j = 0; j < target_points_.size(); ++j)
+//            distances(i, j) = (source_points_[i] - target_points_[j]).norm();
+//    // Check if any row or column is empty
+//    if (distances.rows() == 0 or distances.cols() == 0)
 //    {
-//        double min_distance = std::numeric_limits<double>::max();
-//        Eigen::Vector2d closest_point;
-//        auto target_iter = target_points_copy.begin();
-//        auto closest_target_iter = target_iter;
-//
-//        // Encontrar el punto más cercano en el conjunto de puntos objetivo
-//        while (target_iter != target_points_copy.end())
-//        {
-//            double d = (*source_iter - *target_iter).norm();
-//            if (d < min_distance)
-//            {
-//                min_distance = d;
-//                closest_point = *target_iter;
-//                closest_target_iter = target_iter;
-//            }
-//            ++target_iter;
-//        }
-//
-//        // Almacenar la correspondencia encontrada
-//        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
-//        i++;
-//        // Eliminar los puntos correspondientes de sus vectores originales
-//        source_iter = source_points_copy.erase(source_iter);
-//        target_points_copy.erase(closest_target_iter);
+//        qInfo() << "Empty source or target points";
+//        for (size_t i = 0; i < source_points_.size(); ++i)
+//            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], Eigen::Vector2d(0, 0), false));
+//        return correspondences;
 //    }
-//    if(not first_time)
-//        for (auto &correspondence: correspondences)
-//        {
-//            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > corner_matching_threshold)
-//            {
-//                std::get<3>(correspondence) = false;
-//                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
-//                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
-//                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
-//            }
-//        }
+//
+//    // Get the minimun distance in each row
+//    Eigen::Index minCol;
+//    // Iterate over the rows of the matrix
+//    for (size_t i = 0; i < source_points_.size(); ++i)
+//    {
+//        Eigen::VectorXd min_distances = distances.row(i);
+//        double min = min_distances.minCoeff(&minCol);
+//        qInfo() << "Row " << i << " min distance: " << min << " at column " << minCol;
+//        // Store the correspondences if the distance is less than the threshold
+//        if (min < corner_matching_threshold)
+//            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], target_points_[minCol], true));
+//        else
+//            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], target_points_[minCol], false));
+//    }
 //    return correspondences;
 //}
+
+std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
+{
+    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
+
+    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
+    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
+    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
+    int i = 0;
+
+    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+    {
+        double min_distance = std::numeric_limits<double>::max();
+        Eigen::Vector2d closest_point;
+        auto target_iter = target_points_copy.begin();
+        auto closest_target_iter = target_iter;
+
+        // Encontrar el punto más cercano en el conjunto de puntos objetivo
+        while (target_iter != target_points_copy.end())
+        {
+            double d = (*source_iter - *target_iter).norm();
+            if (d < min_distance)
+            {
+                min_distance = d;
+                closest_point = *target_iter;
+                closest_target_iter = target_iter;
+            }
+            ++target_iter;
+        }
+
+        // Almacenar la correspondencia encontrada
+        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
+        i++;
+        // Eliminar los puntos correspondientes de sus vectores originales
+        source_iter = source_points_copy.erase(source_iter);
+        target_points_copy.erase(closest_target_iter);
+    }
+    if(not first_time)
+        for (auto &correspondence: correspondences)
+        {
+            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > corner_matching_threshold)
+            {
+                std::get<3>(correspondence) = false;
+                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
+                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
+                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
+            }
+        }
+    return correspondences;
+}
 std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)
 {
     std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> correspondences;

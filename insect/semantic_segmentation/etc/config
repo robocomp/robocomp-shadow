@@ -3,8 +3,8 @@ MaskElements.Endpoints=tcp -p 14602
 VisualElements.Endpoints=tcp -p 14601
 
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h 192.168.50.210 -p 10097
-VisualElementsProxy = visualelements:tcp -h localhost -p 14738
+Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 10100
+VisualElementsProxy = visualelements:tcp -h localhost -p 10694
 
 display = true
 

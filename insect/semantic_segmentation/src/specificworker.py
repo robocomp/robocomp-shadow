@@ -332,12 +332,11 @@ class SpecificWorker(GenericWorker):
             started_camera = False
             while not started_camera:
                 try:
-                    rgb = self.camera360rgb_proxy.getROI(-1, -1, -1, -1, -1, -1)
+                    rgb = self.camera360rgbd_proxy.getROI(-1, -1, -1, -1, -1, -1)
 
                     print("Camera specs:")
                     print(" width:", rgb.width)
                     print(" height:", rgb.height)
-                    print(" depth", rgb.depth)
                     print(" focalx", rgb.focalx)
                     print(" focaly", rgb.focaly)
                     print(" period", rgb.period)
@@ -396,7 +395,7 @@ class SpecificWorker(GenericWorker):
             rois, masks = self.extract_roi_instances_seg(self.instance_img, 14)
             print("TIME EXPENDED 3", time.time() - now)
             # create Ice interface data structure and send to ByteTracker
-            self.convert_to_visualelements_structure(rois)
+            # self.convert_to_visualelements_structure(rois)
 
             if self.display:
                 frame = self.draw_semantic_segmentation(self.winname, rgb_frame, self.segmented_img, rois)
@@ -424,9 +423,9 @@ class SpecificWorker(GenericWorker):
        while not event.is_set():
             now = time.time()
             try:
-                rgb = self.camera360rgb_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
+                rgb = self.camera360rgbd_proxy.getROI(self.roi_xcenter, self.roi_ycenter, self.roi_xsize,
                                                       self.roi_ysize, self.final_xsize, self.final_ysize)
-                rgb_frame = np.frombuffer(rgb.image, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
+                rgb_frame = np.frombuffer(rgb.rgb, dtype=np.uint8).reshape((rgb.height, rgb.width, 3))
                 img = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
                 im_pil = Image.fromarray(img)
                 inputs = self.processor(images=im_pil, return_tensors="pt").to('cuda:0')

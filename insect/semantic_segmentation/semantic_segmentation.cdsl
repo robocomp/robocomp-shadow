@@ -1,4 +1,4 @@
-import "Camera360RGB.idsl";
+import "Camera360RGBD.idsl";
 import "MaskElements.idsl";
 import "VisualElements.idsl";
 
@@ -7,7 +7,7 @@ Component semantic_segmentation
     Communications
     {
         implements MaskElements, VisualElements;
-        requires Camera360RGB, VisualElements;
+        requires Camera360RGBD, VisualElements;
     };
     language python;
 };
