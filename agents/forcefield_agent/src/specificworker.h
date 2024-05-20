@@ -35,6 +35,7 @@
 #include "../../../agents/forcefield_agent/src/door_detector.h"
 #include "room_detector.h"
 #include "room.h"
+#include "Hungarian.h"
 #include <fps/fps.h>
 #include <icp.h>
 #include <timer/timer.h>
@@ -147,6 +148,8 @@ class SpecificWorker : public GenericWorker
         double corner_matching_threshold = 1000;
         bool corner_matching_threshold_setted = false;
         std::vector<Eigen::Vector2d> last_corners;
+        std::chrono::time_point<std::chrono::system_clock> starting_time;
+        HungarianAlgorithm HungAlgo;
 
         std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> extract_g2o_data(string optimization);
 
