@@ -115,6 +115,9 @@ void SpecificWorker::initialize(int period)
         read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
         std::cout << "Started lidar reader" << std::endl;
 
+        // Save the current time using std::chrono
+        starting_time = std::chrono::system_clock::now();
+
         // timers
         Period = params.PERIOD;    //  used in the lidar reader thread
         timer.start(Period);
@@ -123,6 +126,15 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    /// Wait 5 seconds before starting using starting_time
+//if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - starting_time).count() < 5)
+//    {
+//        std::cout << "Waiting 5 seconds before starting" << std::endl;
+//        return;
+//    }
+
+
+
     /// read LiDAR
     auto res_ = buffer_lidar_data.get_idemp();
 //    if (not res_.has_value()) { qWarning() << "No lidar data available"; return; }
@@ -935,8 +947,50 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
     return g2o_graph;
 }
 
+std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
+{
+    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
+
+    /// Generate a matrix to store the distances between source and target points using double vectors instead of Eigen
+    std::vector<std::vector<double>> distances_matrix(source_points_.size(), std::vector<double>(target_points_.size()));
+    /// Fill the matrix with the distances between source and target points
+    for (size_t i = 0; i < source_points_.size(); ++i)
+        for (size_t j = 0; j < target_points_.size(); ++j)
+            distances_matrix[i][j] = (source_points_[i] - target_points_[j]).norm();
+    /// Check if any row or column is empty
+    if (distances_matrix.size() == 0 or distances_matrix[0].size() == 0)
+    {
+        qInfo() << "Empty source or target points";
+//        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
+//        for (size_t i = 0; i < source_points_.size(); ++i)
+//            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], Eigen::Vector2d(0, 0), false));
+//        return correspondences;
+    }
+    /// Process metrics matrix with Hungarian algorithm
+    vector<int> assignment;
+    double cost = HungAlgo.Solve(distances_matrix, assignment);
+    /// Check if every element in assignment is different from -1
+    if (std::all_of(assignment.begin(), assignment.end(), [](int i){ return i != -1; }))
+        for (unsigned int x = 0; x < assignment.size(); x++)
+        {
+            /// Check if assignment is valid and the distance is less than the threshold
+            qInfo() << "Row " << x << " min distance: " << distances_matrix[x][assignment[x]] << " at column " << assignment[x];
+            if (distances_matrix[x][assignment[x]] < corner_matching_threshold)
+                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], target_points_[assignment[x]], true));
+            else
+                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], target_points_[assignment[x]], false));
+        }
+
+    /// If the assignment is not valid, return the source points
+    else
+        for (size_t i = 0; i < source_points_.size(); ++i)
+            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], source_points_[i], false));
+    return correspondences;
+}
+
 //std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
 //{
+//
 //    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
 //    // Generate dynamic Eigen matrix to hold the distances between source and target points
 //    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> distances(source_points_.size(), target_points_.size());
@@ -970,55 +1024,55 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
 //    return correspondences;
 //}
 
-std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
-{
-    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
-
-    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
-    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
-    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
-    int i = 0;
-
-    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
-    {
-        double min_distance = std::numeric_limits<double>::max();
-        Eigen::Vector2d closest_point;
-        auto target_iter = target_points_copy.begin();
-        auto closest_target_iter = target_iter;
-
-        // Encontrar el punto más cercano en el conjunto de puntos objetivo
-        while (target_iter != target_points_copy.end())
-        {
-            double d = (*source_iter - *target_iter).norm();
-            if (d < min_distance)
-            {
-                min_distance = d;
-                closest_point = *target_iter;
-                closest_target_iter = target_iter;
-            }
-            ++target_iter;
-        }
-
-        // Almacenar la correspondencia encontrada
-        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
-        i++;
-        // Eliminar los puntos correspondientes de sus vectores originales
-        source_iter = source_points_copy.erase(source_iter);
-        target_points_copy.erase(closest_target_iter);
-    }
-    if(not first_time)
-        for (auto &correspondence: correspondences)
-        {
-            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > corner_matching_threshold)
-            {
-                std::get<3>(correspondence) = false;
-                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
-                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
-                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
-            }
-        }
-    return correspondences;
-}
+//std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
+//{
+//    std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
+//
+//    // Asociar cada punto de origen con el punto más cercano en el conjunto de puntos objetivo
+//    std::vector<Eigen::Vector2d> source_points_copy = source_points_;
+//    std::vector<Eigen::Vector2d> target_points_copy = target_points_;
+//    int i = 0;
+//
+//    for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
+//    {
+//        double min_distance = std::numeric_limits<double>::max();
+//        Eigen::Vector2d closest_point;
+//        auto target_iter = target_points_copy.begin();
+//        auto closest_target_iter = target_iter;
+//
+//        // Encontrar el punto más cercano en el conjunto de puntos objetivo
+//        while (target_iter != target_points_copy.end())
+//        {
+//            double d = (*source_iter - *target_iter).norm();
+//            if (d < min_distance)
+//            {
+//                min_distance = d;
+//                closest_point = *target_iter;
+//                closest_target_iter = target_iter;
+//            }
+//            ++target_iter;
+//        }
+//
+//        // Almacenar la correspondencia encontrada
+//        correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, *source_iter, closest_point, true));
+//        i++;
+//        // Eliminar los puntos correspondientes de sus vectores originales
+//        source_iter = source_points_copy.erase(source_iter);
+//        target_points_copy.erase(closest_target_iter);
+//    }
+//    if(not first_time)
+//        for (auto &correspondence: correspondences)
+//        {
+//            if ((std::get<1>(correspondence) - std::get<2>(correspondence)).norm() > corner_matching_threshold)
+//            {
+//                std::get<3>(correspondence) = false;
+//                qInfo() << "Corner " << std::get<0>(correspondence) << " is too far away from the target";
+//                qInfo() << "Last corner" << std::get<1>(correspondence).x() << " " << std::get<1>(correspondence).y();
+//                qInfo() << "Target corner" << std::get<2>(correspondence).x() << " " << std::get<2>(correspondence).y();
+//            }
+//        }
+//    return correspondences;
+//}
 std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)
 {
     std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> correspondences;

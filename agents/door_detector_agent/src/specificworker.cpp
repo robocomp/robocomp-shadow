@@ -155,9 +155,10 @@ void SpecificWorker::compute()
     { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
     // Get robot transformed nominal corners
     auto corner_nodes = G->get_nodes_by_type("corner");
+    auto wall_nodes = G->get_nodes_by_type("wall");
     if(corner_nodes.empty()) { qWarning() << __FUNCTION__ << " No corner nodes in graph"; return; }
     // remove corner nodes with "measured" string in its name and order them by last name string value
-    corner_nodes.erase(std::remove_if(corner_nodes.begin(), corner_nodes.end(), [](auto &n){ return n.name().find("measured") == std::string::npos; }), corner_nodes.end());
+    corner_nodes.erase(std::remove_if(corner_nodes.begin(), corner_nodes.end(), [](auto &n){ return n.name().find("measured") != std::string::npos; }), corner_nodes.end());
     std::sort(corner_nodes.begin(), corner_nodes.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
 
     // Generate vector of tuples with corner id and corner position
@@ -172,15 +173,15 @@ void SpecificWorker::compute()
         std::vector<Eigen::Vector2f> corners;
         for(const auto &n: corner_nodes)
         {
-            if(auto rt_corner_edge_measured = rt->get_edge_RT(robot_node, n.id()); rt_corner_edge_measured.has_value())
-            {
-                auto corner_edge_measured = rt_corner_edge_measured.value();
-                if (auto rt_translation_measured = G->get_attrib_by_name<rt_translation_att>(rt_corner_edge_measured.value()); rt_translation_measured.has_value())
-                {
-                    auto rt_corner_measured_value = rt_translation_measured.value().get();
-                    corners.push_back({rt_corner_measured_value[0], rt_corner_measured_value[1]});
-                }
-            }
+//            if(auto rt_corner_edge_measured = rt->get_edge_RT(robot_node, n.id()); rt_corner_edge_measured.has_value())
+//            {
+//                auto corner_edge_measured = rt_corner_edge_measured.value();
+//                if (auto rt_translation_measured = G->get_attrib_by_name<rt_translation_att>(rt_corner_edge_measured.value()); rt_translation_measured.has_value())
+//                {
+//                    auto rt_corner_measured_value = rt_translation_measured.value().get();
+//                    corners.push_back({rt_corner_measured_value[0], rt_corner_measured_value[1]});
+//                }
+//            }
         }
 
         //given corners, create new_corners at distance d from the original corners in the direction of the center of the room

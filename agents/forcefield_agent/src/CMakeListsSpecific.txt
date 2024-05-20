@@ -5,6 +5,7 @@ SET ( SOURCES
   room_detector.cpp
   room.cpp
   icp.cpp
+  Hungarian.cpp
 )
 
 # Headers set

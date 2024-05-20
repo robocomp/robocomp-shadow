@@ -30,7 +30,14 @@ namespace rc
             const auto &[c1, c2, c3, c4] = all_corners.front();
             std::vector<cv::Point2f> poly{cv::Point2f(c1.x(), c1.y()), cv::Point2f(c2.x(), c2.y()),
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
+
+            /// TODO: Bug sometimes when executing Noe's algorithm
+            qInfo() << "Suspect start";
+            /// Print poly pòints
+            for(const auto &p: poly)
+                qInfo() << "Point" << p.x << p.y;
             current_room.rect = cv::minAreaRect(poly);
+            qInfo() << "Suspect end";
             current_room.is_initialized = true;
         }
 

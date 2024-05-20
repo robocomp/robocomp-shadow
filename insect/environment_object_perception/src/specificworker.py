@@ -393,9 +393,10 @@ class SpecificWorker(GenericWorker):
 
             if self.display:
                 img_front = self.display_data_tracks(color_front, front_objects.objects)
+                # img_back = self.display_data_tracks(color_back, front_objects.objects)
                 # img_int = img.astype('float32') / 255.0
                 # image_comp = cv2.addWeighted(img_int, 0.5, depth, 0.5, 0)
-                cv2.imshow("back", img_back)
+                # cv2.imshow("back", img_back)
                 cv2.imshow("front", img_front)
                 cv2.waitKey(1)
 
