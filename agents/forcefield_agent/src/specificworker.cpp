@@ -252,12 +252,6 @@ void SpecificWorker::compute()
                 /// Check if room is initialized
                 if(current_room.is_initialized)
                 {
-//                    /// Check if first room center is set for obtaining first robot pose in room
-//                    if(not first_room_center_set)
-//                    {
-//                        first_room_center = current_room.get_center();
-//                        first_room_center_set = true;
-//                    }
                     /// Get room center
                     room_centers.push_back(current_room.get_center());
 

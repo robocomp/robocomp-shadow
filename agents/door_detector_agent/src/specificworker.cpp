@@ -149,94 +149,218 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-    // Check if room node exists
+    /// read LiDAR
+    auto res_ = buffer_lidar_data.try_get();
+    if (not res_.has_value()) { return; }
+    auto ldata = res_.value();
+
+    /// Check if robot node exists
+    auto robot_node_ = G->get_node("Shadow");
+    if(not robot_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+    auto robot_node = robot_node_.value();
+
+    /// Check if room node exists
     auto room_node_ = G->get_node("room");
     if(not room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
-    // Get robot transformed nominal corners
+
+    /// Get corner nodes from graph
     auto corner_nodes = G->get_nodes_by_type("corner");
-    auto wall_nodes = G->get_nodes_by_type("wall");
-    if(corner_nodes.empty()) { qWarning() << __FUNCTION__ << " No corner nodes in graph"; return; }
-    // remove corner nodes with "measured" string in its name and order them by last name string value
+    /// Get nodes which name not contains "measured"
     corner_nodes.erase(std::remove_if(corner_nodes.begin(), corner_nodes.end(), [](auto &n){ return n.name().find("measured") != std::string::npos; }), corner_nodes.end());
+    /// print corner names
+//    for(auto &n: corner_nodes) std::cout << __FUNCTION__ << " Corner node: " << n.name() << std::endl;
+    /// Sort corner nodes by name
     std::sort(corner_nodes.begin(), corner_nodes.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
+    // Iterate over corners
+    std::vector<Eigen::Vector2f> corners, wall_centers;
 
-    // Generate vector of tuples with corner id and corner position
-    std::vector<std::pair<std::uint64_t, Eigen::Vector2f>> corners;
 
-    // Get robot node fpr getting rt
-    if(auto robot_node_ = G->get_node("Shadow"); robot_node_.has_value())
+    for(const auto &[i, n] : corner_nodes | iter::enumerate)
     {
-        auto robot_node = robot_node_.value();
-        // Iterate over corners
-
-        std::vector<Eigen::Vector2f> corners;
-        for(const auto &n: corner_nodes)
+        if(auto parent_node_ = G->get_parent_node(n); parent_node_.has_value())
         {
-//            if(auto rt_corner_edge_measured = rt->get_edge_RT(robot_node, n.id()); rt_corner_edge_measured.has_value())
-//            {
-//                auto corner_edge_measured = rt_corner_edge_measured.value();
-//                if (auto rt_translation_measured = G->get_attrib_by_name<rt_translation_att>(rt_corner_edge_measured.value()); rt_translation_measured.has_value())
-//                {
-//                    auto rt_corner_measured_value = rt_translation_measured.value().get();
-//                    corners.push_back({rt_corner_measured_value[0], rt_corner_measured_value[1]});
-//                }
-//            }
+            auto parent_node = parent_node_.value();
+            /// If "wall" string is in parent node name
+            if(parent_node.name().find("wall") != std::string::npos)
+            {
+                if(auto rt_corner_edge_measured = rt->get_edge_RT(parent_node, n.id()); rt_corner_edge_measured.has_value())
+                {
+                    auto corner_edge_measured = rt_corner_edge_measured.value();
+                    if (auto rt_translation_measured = G->get_attrib_by_name<rt_translation_att>(rt_corner_edge_measured.value()); rt_translation_measured.has_value())
+                    {
+                        auto rt_corner_measured_value = rt_translation_measured.value().get();
+                        Eigen::Vector3f corner_robot_pos_point(rt_corner_measured_value[0],
+                                                               rt_corner_measured_value[1], 0.f);
+                        auto corner_robot_pos_point_double = corner_robot_pos_point.cast<double>();
+                        if (auto corner_transformed = inner_eigen->transform(robot_node.name(),
+                                                                             corner_robot_pos_point_double,
+                                                                             parent_node.name()); corner_transformed.has_value())
+                        {
+                            auto corner_transformed_value = corner_transformed.value();
+                            auto corner_transformed_value_float = corner_transformed_value.cast<float>();
+                            corners.push_back({corner_transformed_value_float.x(), corner_transformed_value_float.y()});
+//                          // If i > 0, calculate the center of the wall
+                            if(i > 0)
+                            {
+                                Eigen::Vector2f center;
+                                center = (corners[i] + corners[i-1]) / 2;
+                                wall_centers.push_back(center);
+                                if(i == corner_nodes.size() - 1)
+                                {
+                                    center = (corners[i] + corners[0]) / 2;
+                                    wall_centers.push_back(center);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
 
-        //given corners, create new_corners at distance d from the original corners in the direction of the center of the room
-        std::vector<Eigen::Vector2f> new_corners;
-
-        // Create empty QPolygonF
-        QPolygonF poly_room;
-
-//        for(auto &c: corners)
-//        {
-//            Eigen::Vector2f center = Eigen::Vector2f::Zero();
-//            for(auto &c_: corners)
-//                center += c_;
-//            center /= corners.size();
-//            Eigen::Vector2f dir = c - center;
-//            dir.normalize();
-//            Eigen::Vector2f new_corner = c+ dir * 1000;
-//            new_corners.push_back(new_corner);
-//            poly_room << QPointF(new_corner.x(), new_corner.y());
-//        }
-
-        float d = 100;
+    /// // Create empty QPolygonF
+        QPolygonF poly_room_in, poly_room_out, nominal_polygon;
+        float d = 250;
         for(auto &c: corners)
         {
+            /// Insert nominal polygon
+            nominal_polygon << QPointF(c.x(), c.y());
             auto center = std::accumulate(corners.begin(), corners.end(), Eigen::Vector2f(0,0), [](const Eigen::Vector2f& acc, const Eigen::Vector2f& c){ return acc + c; }) / corners.size();
             auto dir = (center - c).normalized();
-            Eigen::Vector2f new_corner = c + dir * d;
-            poly_room << QPointF(new_corner.x(), new_corner.y());
-            new_corners.push_back(new_corner);
+            Eigen::Vector2f new_corner_in = c + dir * d;
+            poly_room_in << QPointF(new_corner_in.x(), new_corner_in.y());
+            Eigen::Vector2f new_corner_out = c - dir * d;
+            poly_room_out << QPointF(new_corner_out.x(), new_corner_out.y());
         }
 
-        /// read LiDAR
-        auto res_ = buffer_lidar_data.try_get();
-        if (not res_.has_value()) { return; }
-        auto ldata = res_.value();
+//        // Filter lidar points inside room polygon
+//        RoboCompLidar3D::TData ldata_filtered;
+        std::vector<bool> inside_poly_out (ldata.points.size());
+        std::vector<bool> outside_poly_in (ldata.points.size());
+        std::vector<bool> in_wall (ldata.points.size());
+        std::vector<int> in_wall_indexes;
 
-        // Filter lidar points inside room polygon
-        RoboCompLidar3D::TData ldata_filtered;
-        for(const auto &p: ldata.points)
-            if(not poly_room.containsPoint(QPointF(p.x, p.y), Qt::OddEvenFill))
-                ldata_filtered.points.push_back(p);
+        for(const auto &[i, p] : ldata.points | iter::enumerate)
+        {
+            // if point z is between 1000 and 2500
+            if(p.z < 100 and p.z > 2500)
+                continue;
+            if(poly_room_out.containsPoint(QPointF(p.x, p.y), Qt::OddEvenFill))
+                inside_poly_out[i] = true;
+            else
+                inside_poly_out[i] = false;
+            if(not poly_room_in.containsPoint(QPointF(p.x, p.y), Qt::OddEvenFill))
+                outside_poly_in[i] = true;
+            else
+                outside_poly_in[i] = false;
+            if(inside_poly_out[i] and outside_poly_in[i])
+            {
+                in_wall_indexes.push_back(i);
+                in_wall[i] = true;
+            }
+            else
+                in_wall[i] = false;
+        }
+        std::vector<tuple<int, Eigen::Vector2f, Eigen::Vector2f>> doors;
 
-//         draw lidar
+        qInfo() << "------------------------------------------------------------------------------";
+        /// Iterate in_vall_indexes using sliding_window
+        for(const auto &window : in_wall_indexes | iter::sliding_window(2))
+        {
+            if(window.size() == 2)
+            {
+                auto p0 = ldata.points[window[0]];
+                auto p1 = ldata.points[window[1]];
+                auto line = Eigen::Vector2f(p1.x - p0.x, p1.y - p0.y);
+                auto line_norm = line.norm();
+                //print(line_norm) and p0 p1
+
+                /// Door width condition
+                if(line_norm > 700 and line_norm < 1500)
+                {
+                    qInfo()<< "Line norm: " << line_norm << " " << p0.x << p0.y << " " << p1.x << p1.y;
+                    bool is_door = true;
+                    /// Check all indexes between window[0] and window[1] in lidar points
+                    /// If there is a point inside the wall, then it is not a door
+                    for(int i = window[0]; i < window[1]; i++)
+                    {
+                        if(not outside_poly_in[i])
+                        {
+                            is_door = false;
+                            break;
+                        }
+                    }
+                    if(is_door)
+                    {
+                        //project p0 and p1 on the polygon
+                        auto p0_projected = projectPointOnPolygon(QPointF(p0.x, p0.y), nominal_polygon);
+                        auto p1_projected = projectPointOnPolygon(QPointF(p1.x, p1.y), nominal_polygon);
+                        /// Check between which nominal corners the projected points are
+                        auto p0_projected_eigen = Eigen::Vector2f(p0_projected.x(), p0_projected.y());
+                        auto p1_projected_eigen = Eigen::Vector2f(p1_projected.x(), p1_projected.y());
+                        /// Obtanin the central point of the door and, considering the nominal corners, check between which corners the door is
+                        auto middle = (p0_projected_eigen + p1_projected_eigen) / 2;
+                        qInfo() << "Middle: " << middle.x() << middle.y();
+                        /// Get the index of the wall point closer to middle point using a lambda
+                        auto wall_center = *std::min_element(wall_centers.begin(), wall_centers.end(), [&middle](const Eigen::Vector2f &a, const Eigen::Vector2f &b){ return (a - middle).norm() < (b - middle).norm(); });
+                        qInfo() << "Wall center: " << wall_center.x() << wall_center.y();
+                        /// Get the index of the wall center
+                        auto wall_center_index = std::distance(wall_centers.begin(), std::find(wall_centers.begin(), wall_centers.end(), wall_center));
+                        qInfo() << "Wall center index: " << wall_center_index;
+                        doors.push_back({wall_center_index, Eigen::Vector2f(p0_projected.x(), p0_projected.y()), Eigen::Vector2f(p1_projected.x(), p1_projected.y())});
+
+                    }
+                }
+            }
+        }
+//        /// Iterate over doors
+//        /// Check if doors exists in the graph
+//        auto door_nodes = G->get_nodes_by_type("door");
+//        if(door_nodes.empty())
+//        {
+//            /// Iterate over doors using enumerate
+//            for(const auto &[i, door]: doors | iter::enumerate)
+//            {
+//                DoorDetector::Door act_door{std::get<1>(door), std::get<2>(door), 0, 0};
+//                act_door.id = i;
+//                insert_door_into_graph(act_door, std::get<0>(door));
+//            }
+//        }
+//        else
+//        {
+//            /// If doors exists in graph, match found doors with graph doors using Hungarian algorithm
+//            std::vector<std::vector<double>> distances_matrix(doors.size(), std::vector<double>(door_nodes.size()));
+//            for(size_t i = 0; i < doors.size(); i++)
+//            {
+//                for(size_t j = 0; j < door_nodes.size(); j++)
+//                {
+//                    auto door_node = door_nodes[j];
+//                    if(auto door_pos = G->get_attrib_by_name<pos_x_att>(door_node); door_pos.has_value())
+//                    {
+//                        auto door_pos_value = door_pos.value().get();
+//                        Eigen::Vector2f door_pos_eigen(door_pos_value, G->get_attrib_by_name<pos_y_att>(door_node).value().get());
+//                        distances_matrix[i][j] = (door_pos_eigen - (std::get<1>(doors[i]) + std::get<2>(doors[i]) / 2)).norm();
+//                    }
+//                }
+//            }
+//        }
+
+        draw_door(doors, &widget_2d->scene, QColor("red"));
         if(widget_2d != nullptr)
         {
-            draw_lidar(ldata_filtered, &widget_2d->scene);
-            draw_polygon(poly_room, &widget_2d->scene, QColor("blue"));
+            draw_lidar(ldata, &widget_2d->scene);
+            draw_polygon(poly_room_in, poly_room_out, &widget_2d->scene, QColor("blue"));
+
         }
 
-        Lines lines = extract_lines(ldata_filtered.points, consts.ranges_list);
+        /// get room perimeter, lines in ranges of z
+//        Lines lines = extract_lines(ldata_filtered.points, consts.ranges_list);
 
 
-//    /// Door detector
-    auto doors = door_detector.detect(lines, &widget_2d->scene, corners);
-    }
+    /// Door detector
+//    auto doors = door_detector.detect(lines, &widget_2d->scene, corners);
     fps.print("door_detector");
 }
 
@@ -250,9 +374,20 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
                 lines[i].emplace_back(p.x, p.y);
     return lines;
 }
-void SpecificWorker::insert_door_into_graph(const DoorDetector::Door &door)
+
+void SpecificWorker::insert_door_into_graph(const DoorDetector::Door &door, int wall_id)
 {
-    auto wall_node_ = G->get_node("wall_1");
+    auto robot_node_ = G->get_node("Shadow");
+    if(not robot_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+    auto robot_node = robot_node_.value();
+
+    auto robot_node_level_ = G->get_node_level(robot_node);
+    if(not robot_node_level_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
+    auto robot_node_level = robot_node_level_.value();
+
+    auto wall_node_ = G->get_node("wall_"+std::to_string(wall_id));
     if(not wall_node_.has_value())
     { qWarning() << __FUNCTION__ << " No wall node in graph"; return; }
     auto wall_node = wall_node_.value();
@@ -263,21 +398,47 @@ void SpecificWorker::insert_door_into_graph(const DoorDetector::Door &door)
     auto wall_node_level = wall_node_level_.value();
 
     // Create door node
-    auto door_node = DSR::Node::create<door_node_type>("door__measured");
+//    auto door_node = DSR::Node::create<door_node_type>("door__measured");
 
-    //    auto door_node = DSR::Node::create<door_node_type>("door_"+std::to_string(i)+"_measured");
+    std::vector<float> door_pos, door_orientation;
+
+    auto door_node = DSR::Node::create<door_node_type>("door_"+std::to_string(door.id)+"_measured");
     // Add door attributes
     G->add_or_modify_attrib_local<pos_x_att>(door_node, (float)(rand()%(170)));
     G->add_or_modify_attrib_local<pos_y_att>(door_node, (float)(rand()%170));
     G->add_or_modify_attrib_local<width_att>(door_node, (int)door.width());
     G->add_or_modify_attrib_local<height_att>(door_node, (int)door.height());
-//    G->add_or_modify_attrib_local<angle_att>(door_node, door.angle_to_robot());
-    G->add_or_modify_attrib_local<level_att>(door_node, wall_node_level + 1);
+    G->add_or_modify_attrib_local<level_att>(door_node, robot_node_level + 1);
+    G->insert_node(door_node);
 
     // Add edge between door and robot
-    std::vector<float> door_pos = {door.middle.x(), door.middle.y(), 0.f};
-    std::vector<float> door_orientation = {0.f, 0.f, door.angle_to_robot()};
-    rt->insert_or_assign_edge_RT(wall_node, door_node.id(), door_pos, door_orientation);
+    door_pos = {door.middle.x(), door.middle.y(), 0.f};
+    door_orientation = {0.f, 0.f, door.angle_to_robot()};
+    rt->insert_or_assign_edge_RT(robot_node, door_node.id(), door_pos, door_orientation);
+
+    auto nominal_door_node = DSR::Node::create<door_node_type>("door_"+std::to_string(door.id));
+    // Add door attributes
+    G->add_or_modify_attrib_local<pos_x_att>(nominal_door_node, (float)(rand()%(170)));
+    G->add_or_modify_attrib_local<pos_y_att>(nominal_door_node, (float)(rand()%170));
+    G->add_or_modify_attrib_local<width_att>(nominal_door_node, (int)door.width());
+    G->add_or_modify_attrib_local<height_att>(nominal_door_node, (int)door.height());
+    G->add_or_modify_attrib_local<level_att>(nominal_door_node, wall_node_level + 1);
+    G->insert_node(nominal_door_node);
+
+    // Generate Eigen::Vector3f for door position
+    Eigen::Vector3f door_pos_point {door.middle.x(), door.middle.y(), 0.f};
+    auto door_robot_pos_point_double = door_pos_point.cast<double>();
+    if(auto door_transformed = inner_eigen->transform(wall_node.name(), door_robot_pos_point_double, robot_node.name()); door_transformed.has_value())
+    {
+        auto door_transformed_value = door_transformed.value();
+        auto door_transformed_value_float = door_transformed_value.cast<float>();
+        door_pos = {door_transformed_value_float.x(), door_transformed_value_float.y(), 0.f};
+    }
+
+    // Add edge between door and robot
+    door_orientation = {0.f, 0.f, 0.f};
+    rt->insert_or_assign_edge_RT(wall_node, nominal_door_node.id(), door_pos, door_orientation);
+
 
 //    // Add edge between door and wall
 //    Eigen::Vector3f door_robot_pos_point {door.middle.x(), door.middle.y(), 0.f};
@@ -328,24 +489,100 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsSce
         items.push_back(item);
     }
 }
+// Función para calcular la proyección de un punto sobre un segmento de línea
+QPointF SpecificWorker::projectPointOnLineSegment(const QPointF& p, const QPointF& v, const QPointF& w) {
+    // Vector v -> w
+    QPointF vw = w - v;
+    // Vector v -> p
+    QPointF vp = p - v;
+    // Proyección escalar de vp sobre vw
+    double lengthSquared = vw.x() * vw.x() + vw.y() * vw.y();
+    double t = (vp.x() * vw.x() + vp.y() * vw.y()) / lengthSquared;
+
+    // Clamping t to the range [0, 1]
+    t = std::max(0.0, std::min(1.0, t));
+
+    // Punto proyectado
+    QPointF projection = v + t * vw;
+    return projection;
+}
+
+// Función para calcular la proyección más cercana de un punto sobre un polígono
+Eigen::Vector2f SpecificWorker::projectPointOnPolygon(const QPointF& p, const QPolygonF& polygon) {
+    QPointF closestProjection;
+    double minDistanceSquared = std::numeric_limits<double>::max();
+
+    for (int i = 0; i < polygon.size(); ++i) {
+        QPointF v = polygon[i];
+        QPointF w = polygon[(i + 1) % polygon.size()]; // Ciclar al primer punto
+
+        QPointF projection = projectPointOnLineSegment(p, v, w);
+        double distanceSquared = std::pow(projection.x() - p.x(), 2) + std::pow(projection.y() - p.y(), 2);
+
+        if (distanceSquared < minDistanceSquared) {
+            minDistanceSquared = distanceSquared;
+            closestProjection = projection;
+        }
+    }
+    // Convertir a Eigen::Vector2f
+    Eigen::Vector2f closestProjectionEigen(closestProjection.x(), closestProjection.y());
+    return closestProjectionEigen;
+}
+void SpecificWorker::draw_door(const std::vector<std::tuple<int, Eigen::Vector2f, Eigen::Vector2f>> doors, QGraphicsScene *scene, QColor color)
+{
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ scene->removeItem(i); delete i;}
+    items.clear();
+
+    //Draw ellipse in the doors corners
+    for(const auto &[id, p0, p1]: doors)
+    {
+        auto item = scene->addEllipse(-40, -40, 80, 80, QPen(QColor("red"), 40), QBrush(QColor("red")));
+        item->setPos(p0.x(), p0.y());
+        items.push_back(item);
+        auto item2 = scene->addEllipse(-40, -40, 80, 80, QPen(QColor("red"), 40), QBrush(QColor("red")));
+        item2->setPos(p1.x(), p1.y());
+        items.push_back(item2);
+    }
+    // draw points inside doors
+    for(const auto &[id, p0, p1]: doors)
+    {
+        auto item = scene->addLine(p0.x(), p0.y(), p1.x(), p1.y(), QPen(QColor("red"), 40));
+        items.push_back(item);
+    }
+}
 // Create funcion to draw QPolygonF on 2dwidget
-void SpecificWorker::draw_polygon(const QPolygonF &poly, QGraphicsScene *scene, QColor color)
+void SpecificWorker::draw_polygon(const QPolygonF &poly_in, const QPolygonF &poly_out,QGraphicsScene *scene, QColor color)
 {
     static std::vector<QGraphicsItem *> items;
     for(const auto &i: items){ scene->removeItem(i); delete i;}
     items.clear();
 
     // draw points
-    for(const auto &p: poly)
+    for(const auto &p: poly_in)
     {
         auto item = scene->addEllipse(-20, -20, 40, 40, QPen(color, 20), QBrush(color));
         item->setPos(p.x(), p.y());
         items.push_back(item);
     }
     // Draw lines between corners
-    for(int i = 0; i < poly.size(); i++)
+    for(int i = 0; i < poly_in.size(); i++)
     {
-        auto line = scene->addLine(poly[i].x(), poly[i].y(), poly[(i+1)%poly.size()].x(), poly[(i+1)%poly.size()].y(), QPen(color, 20));
+        auto line = scene->addLine(poly_in[i].x(), poly_in[i].y(), poly_in[(i+1)%poly_in.size()].x(), poly_in[(i+1)%poly_in.size()].y(), QPen(color, 20));
+        items.push_back(line);
+    }
+
+    // draw points
+    for(const auto &p: poly_out)
+    {
+        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(color, 20), QBrush(color));
+        item->setPos(p.x(), p.y());
+        items.push_back(item);
+    }
+    // Draw lines between corners
+    for(int i = 0; i < poly_out.size(); i++)
+    {
+        auto line = scene->addLine(poly_out[i].x(), poly_out[i].y(), poly_out[(i+1)%poly_out.size()].x(), poly_out[(i+1)%poly_out.size()].y(), QPen(color, 20));
         items.push_back(line);
     }
 }

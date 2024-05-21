@@ -32,7 +32,9 @@
 #include "dsr/gui/dsr_gui.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include "door_detector.h"
+#include "Hungarian.h"
 #include <cppitertools/range.hpp>
+#include <cppitertools/sliding_window.hpp>
 #include <cppitertools/enumerate.hpp>
 #include <fps/fps.h>
 
@@ -93,14 +95,14 @@ private:
     // Lidar
     void read_lidar();
     void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
-    void draw_polygon(const QPolygonF &poly, QGraphicsScene *scene, QColor color="blue");
+    void draw_polygon(const QPolygonF &poly_in, const QPolygonF &poly_out,QGraphicsScene *scene, QColor color);
 
 
     std::thread read_lidar_th;
 
     // Lines extractor
     Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
-    void insert_door_into_graph(const DoorDetector::Door &door);
+    void insert_door_into_graph(const DoorDetector::Door &door, int wall_id);
     void update_door_in_graph(const DoorDetector::Door &door);
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
@@ -110,6 +112,14 @@ private:
     // fps
     FPSCounter fps;
 
+    void
+    draw_door(const vector<std::tuple<int, Eigen::Vector2f, Eigen::Vector2f>> doors, QGraphicsScene *scene, QColor color);
+
+    Eigen::Vector2f projectPointOnPolygon(const QPointF &p, const QPolygonF &polygon);
+
+    QPointF projectPointOnLineSegment(const QPointF &p, const QPointF &v, const QPointF &w);
+
+    HungarianAlgorithm HungAlgo;
 };
 
 #endif

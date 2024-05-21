@@ -120,7 +120,7 @@ public:
 
 private:
     Peaks_list extract_peaks(const Lines &lines);
-    Doors_list get_doors(const Peaks_list &peaks, const Lines &lines);
+    Doors_list get_doors(const Peaks_list &peaks, const Lines &lines, const std::vector<Eigen::Vector2f> &corners);
     Doors filter_doors(const Doors_list &doors);
     void draw_doors(const Doors &doors, const Door &current_door, QGraphicsScene *scene, QColor=QColor("yellow"));
     void draw_peaks(const Peaks_list &peaks_list, const Lines &lines, QGraphicsScene *scene);
