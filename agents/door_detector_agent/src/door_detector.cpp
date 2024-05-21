@@ -17,9 +17,10 @@ DoorDetector::Doors
 DoorDetector::detect(const Lines &lines, QGraphicsScene *scene, const std::vector<Eigen::Vector2f> &corners)
 {
     auto peaks = extract_peaks(lines);
+
     // Draw peaks
     draw_peaks(peaks, lines, scene);
-    auto doors = get_doors(peaks, lines);
+    auto doors = get_doors(peaks, lines, corners);
     qInfo() << "Doors" << doors[0].size();
 //    auto final_doors = filter_doors(doors);
 
@@ -30,7 +31,7 @@ DoorDetector::detect(const Lines &lines, QGraphicsScene *scene, const std::vecto
 DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &lines)
 {
     Peaks_list peaks_list(lines.size());
-    const float THRES_PEAK = 1000;
+    const float THRES_PEAK = 500;
     // for each line in lines (each level of lidar) and for each pair of points in the line check
     // if the distance between them is greater than THRES_PEAK
     for(const auto &[i, line] : lines | iter::enumerate)
@@ -43,7 +44,7 @@ DoorDetector::Peaks_list DoorDetector::extract_peaks(const DoorDetector::Lines &
             }
     return peaks_list;
 }
-DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list &peaks_list, const DoorDetector::Lines &lines)
+DoorDetector::Doors_list DoorDetector::get_doors(const DoorDetector::Peaks_list &peaks_list, const DoorDetector::Lines &lines, const std::vector<Eigen::Vector2f> &corners)
 {
     std::vector<Doors> doors_list(peaks_list.size());
     // lambda to check if a door is near another door in the
