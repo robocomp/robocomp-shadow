@@ -42,6 +42,61 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     class TBox:
         def __init__(self, id_, type_, rect_, score_, depth_, x_, y_, z_):
+            """
+            Initializes a `BBox` instance with a set of input parameters: `id`,
+            `type`, `roi`, `score`, `depth`, `x`, `y`, and `z`. These parameters
+            determine the object's properties and values.
+
+            Args:
+                id_ (int): 0-based index of the bounding box in the list of boxes
+                    belonging to the same object.
+                type_ (str): type of the bounding box, which can be one of three
+                    possible values: 'rect', 'polygon', or 'elliptical'.
+                rect_ (tuple): 2D bounding rectangle of the object in the image,
+                    which is used to compute the score and depth of the object.
+                score_ (0-1 real number.): 0-1 probability value for the bounding
+                    box being a positive example.
+                    
+                    		- `score_`: A 0-dimensional numpy array representing the
+                    confidence score of the object detection. The values in the
+                    array correspond to the objects present in the image and their
+                    respective confidence scores.
+                    		- `depth_`: A 1-dimensional numpy array representing the
+                    distance from the center of the bounding box to the center of
+                    the object in millimeters. This attribute helps determine the
+                    size of the object in the image.
+                depth_ (number/double value.): distance to the bounding box center
+                    in millimeters.
+                    
+                    		- `depth_`: This attribute represents the distance to the
+                    bbox center in millimeters (mm).
+                    		- `x_`, `y_`, and `z_`: These attributes represent the
+                    coordinates of the ROI center in camera coordinates.
+                x_ (Coordinate (in a specific format).): 2D center coordinate of
+                    the rectangle of interest (ROI) in camera coordinates.
+                    
+                    		- `x_`: The center coordinate of the bounding box (BX) in
+                    pixels, represented as a tuple `(x, y)` containing the coordinates
+                    of the BX center.
+                y_ (double.): 2D coordinates of the rectangle's center in camera
+                    space.
+                    
+                    		- `x_`: The center coordinates of the ROI in the image,
+                    represented as (x, y) values in camera coordinates.
+                    		- `y_`: The center coordinates of the ROI in the image,
+                    represented as (x, y) values in camera coordinates. This
+                    property may require destruction if it is a deserialized input
+                    and needs to be processed further.
+                    		- `z_`: The distance from the bbox center to the ROI center
+                    in mm.
+                    		- `score_`: A floating-point value representing the score
+                    of the bbox, where 0 indicates no score and 1 indicates the
+                    highest possible score.
+                    		- `depth_`: The distance to the bbox center in mm.
+                z_ (float): 3D position of the ROI center in the world coordinate
+                    system.
+
+            """
             self.id = id_
             self.type = type_
             self.roi = rect_
@@ -53,6 +108,55 @@ class SpecificWorker(GenericWorker):
             self.display = False
 
     def __init__(self, proxy_map, startup_check=False):
+        """
+        Initializes various elements such as image queues, a mouse callback for
+        the window with the segmentation results, camera parameters, and a timer
+        for the compute function. It also creates a thread for reading images from
+        the camera.
+
+        Args:
+            proxy_map (ndarray (or NumPy array).): 3D object map that maps from
+                points in the real world to points in the virtual world of the
+                360-degree camera, allowing the sematic segmentation to correctly
+                interpret the positions and orientations of objects in the virtual
+                world based on their actual locations in the real world.
+                
+                	1/ `proxy`: This is a dictionary that maps the label index (starting
+                from 0) to the corresponding Proxy API endpoint name. The keys in
+                this dictionary are the labels that can be recognized by the model,
+                and the values are the names of the Proxy APIs that handle each
+                label. For example, the key 'door' in `proxy_map` maps to the Proxy
+                API 'doorgui'.
+                	2/ `label_map`: This is a dictionary that maps the index of each
+                label in the `proxy_map` to its corresponding semantic segmentation
+                label (starting from 1). The keys in this dictionary are the label
+                indices, and the values are the label names. For example, the key
+                'door' in `label_map` maps to the label 'building'.
+                	3/ `crs`: This is a tuple containing the intrinsic camera matrix
+                (rotation and translation vectors) for the current camera view.
+                	4/ `image_dims`: This is a tuple containing the width and height
+                of the input image in pixels.
+                	5/ `image_height`: This is the height of the input image in pixels.
+                	6/ `event`: This is an event that triggered the creation of the
+                Semantic Segmentor, which can be any of the events supported by
+                the PyTorch framework (such as a keyboard key press or a mouse
+                button click).
+                
+                	The `read_queue` and `camera_name` variables are also explained:
+                
+                		- `read_queue`: This is a queue that stores the input images to
+                be processed by the Semantic Segmentor. The Semantic Segmentor
+                reads images from this queue using a separate thread.
+                		- `camera_name`: This is the name of the camera view that the
+                Semantic Segmentor is currently processing.
+                
+                	The function also sets up event handling and a timer to call the
+                `compute` method periodically.
+            startup_check (int): 1st time the Semantic Segmentator has been run,
+                and it is used to initialize the image queue for the read thread
+                when it is set to `True`.
+
+        """
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 100
         self.thread_period = 100
@@ -369,6 +473,20 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
+        """
+        Sets a parameter named 'display' to either true or false depending on its
+        value in the input dictionary passed to it.
+
+        Args:
+            params (dict): configuration parameters passed to the function, which
+                are then accessed using square bracket notation (`[]`) to determine
+                whether the `display` variable is set to `true` or not.
+
+        Returns:
+            int: a boolean value indicating whether the display parameter is set
+            to true or false.
+
+        """
         try:
         	self.display = (params["display"] == "true" or params["display"] == "True")
         except:
@@ -378,6 +496,12 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
+        """
+        Performs post-processing on semantic segmentation outputs from a processor,
+        creating instance masks and ROIs for selected classes (door). It then
+        visualizes the segmentation results and displays FPS information.
+
+        """
         now = time.time()
         try:
             rgb_frame, outputs, alive_time, im_pil_size, period = self.read_queue.get()
@@ -440,12 +564,70 @@ class SpecificWorker(GenericWorker):
                 traceback.print_exc()
 
     def create_mask(self, seg):
+        """
+        Creates a binary mask from an input segmatary array based on three specific
+        segment values. The mask elements corresponding to these values are set
+        to 255, while all other elements remain 0.
+
+        Args:
+            seg (ndarray object, more particularly an image.): 2D image of the
+                objects that need to be masked.
+                
+                		- `shape[0]`: The number of pixels in the horizontal direction.
+                		- `shape[1]`: The number of pixels in the vertical direction.
+                		- `dtype`: The data type of the pixel values, which is inferred
+                to be `np.uint8`.
+                		- `seg`: The deserialized input array with shape `(n_pixels,)`
+                containing the segmentation mask values.
+                		- `(seg == 3)`: A boolean vector indicating the locations where
+                the segmentation value is equal to 3.
+                		- `(seg == 91)`: A boolean vector indicating the locations where
+                the segmentation value is equal to 91.
+                		- `(seg == 52)`: A boolean vector indicating the locations where
+                the segmentation value is equal to 52.
+
+        Returns:
+            int: a binary mask where pixels with values of 3, 91, or 52 are set
+            to 255.
+
+        """
         mask = np.zeros((seg.shape[0], seg.shape[1], 1), dtype=np.uint8)  # height, width, 3
         # mask[(seg == 3) | (seg == 91) | (seg == 52), :] = 255
         mask[(seg == 3), :] = 255
         return mask
 
     def extract_roi_instances_seg(self, instance_img, label):
+        """
+        Generates a list of bounding boxes and their corresponding masks for each
+        instance of a given label in an image. It does this by iterating through
+        instances in the image, applying a threshold to determine if they belong
+        to the desired label, and then generating a box and mask for each instance
+        that passes the threshold.
+
+        Args:
+            instance_img (3D NumPy array.): 2D instance segmentation image that
+                contains the objects to be segmented.
+                
+                		- `labels`: a dictionary of label IDs and their corresponding classes.
+                		- `segments_info`: a list of dictionaries containing information
+                about each instance in the image, including the ID, class label,
+                and score (a value between 0 and 1 indicating the instance's
+                confidence level).
+                		- `instance_img`: an array containing the image data with labeled
+                instances.
+                
+                	The function iterates over each instance in the image and extracts
+                the corresponding ROIs using the `do_box` function. The returned
+                boxes are added to a list, and the masks associated with each
+                instance are added to another list.
+            label (int): 3D label that is being detected and segmented in the
+                instance images.
+
+        Returns:
+            list: a list of bounding boxes and their corresponding segmentation
+            masks for the specified label in the input image.
+
+        """
         inst = instance_img['segments_info']
         ids_list = []
         # for sl_key, sl_val in self.labels.items():
@@ -468,6 +650,29 @@ class SpecificWorker(GenericWorker):
         return box_list, mask_list
 
     def convert_to_visualelements_structure(self, rois):
+        """
+        Converts a list of ROIs to a list of `TObjects` instances representing
+        visual elements, and updates the internal `objects_write` and `objects_read`
+        lists.
+
+        Args:
+            rois (`ifaces.RoboCompVisualElements.TRoi` object(s).): 2D ROIs (regions
+                of interest) defined by the user and provides them to the function
+                for generating visual objects based on their type, size, location,
+                and score.
+                
+                		- `type`: An integer value indicating the type of ROI (Region
+                of Interest) element, which can be one of the following values:
+                `0` for a rectangle, `1` for an ellipse, or `2` for a polyline.
+                		- `left`, `top`, `right`, and `bot`: The coordinates of the
+                upper-left corner of the ROI element in pixel coordinates.
+                		- `score`: An integer value indicating the confidence score of
+                the ROI element.
+                		- `roi`: A `TRoi` object containing the dimensions and center
+                coordinates of the ROI element, as well as its final size after
+                image processing.
+
+        """
         self.objects_write = ifaces.RoboCompVisualElements.TObjects()
         for roi in rois:
             act_object = ifaces.RoboCompVisualElements.TObject()
@@ -494,6 +699,42 @@ class SpecificWorker(GenericWorker):
     ############################## UTILS ###############################################
 
     def draw_panoptic_segmentation(self, winname, color_image, seg, rois):
+        """
+        Takes as input a panoptic segmentation mask, an image, and ROIs (regions
+        of interest). It then applies coloring to the mask based on a provided
+        palette, and displays the colored mask with bounding boxes overlaid on the
+        image.
+
+        Args:
+            winname (str): window name for displaying the annotated image and its
+                corresponding mask.
+            color_image (int): 3D numpy array containing the original image data
+                that will be processed and masked based on the ROI labels.
+            seg (ndarray or NumPy array of shape `(n, m, 3)` where `n` and `m` are
+                the number of channels and height/width pixels of an image,
+                respectively.): 2D label image of the object of interest, which
+                is used to determine the corresponding color value for each pixel
+                in the image.
+                
+                	1/ `shape`: The shape of the input segmnetation tensor, which
+                represents the number of rows, columns, and channels (3) in the
+                input data.
+                	2/ `dtype`: The data type of the input segmnetation tensor, which
+                is assumed to be `np.uint8` in this example.
+                	3/ `palette`: An array containing the color palette for the
+                segmentation, which is used to convert the label values to
+                corresponding colors.
+                	4/ `seg`: The input segmentation tensor, which contains the label
+                values for each pixel in the image.
+            rois (int): 2D regions of interest (ROIs) in the image, which are used
+                to display text annotations on the image with their corresponding
+                type and ID.
+
+        Returns:
+            int: a binary mask and an image with segmented objects and their
+            corresponding class labels.
+
+        """
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.color_palette)
         for label, color in enumerate(palette):
@@ -519,6 +760,45 @@ class SpecificWorker(GenericWorker):
         return img
 
     def draw_semantic_segmentation(self, winname, color_image, seg, rois):
+        """
+        Takes a semantic segmentation mask and a ROI (region of interest) array
+        as input and generates an image with labeled regions and bounding boxes
+        around objects of interest.
+
+        Args:
+            winname (int): name of the window to be displayed with the annotations.
+            color_image (ndarray or numerical array.): 3D array of RGB values that
+                make up the image to be labeled, which is used to calculate the
+                background color and create the output image with the segmented objects.
+                
+                		- `color_image`: A 3D numpy array with shape `(H, W, 3)`
+                representing the color image to be drawn on top of the semantic segmentation.
+                		- `H` and `W`: The height and width of the color image, respectively.
+                		- `3`: The number of color channels in the image (red, green,
+                and blue).
+            seg (int): 2D binary mask image of the object of interest, which is
+                used to segment and highlight the object in the original RGB image.
+            rois (ndarray (or NumPy array).): 2D regions of interest (ROIs) to be
+                overlaid on the image and mask, which can include class labels or
+                other information.
+                
+                		- `type`: A string indicating the type of region of interest
+                (ROI) (e.g., "person", "car", etc.)
+                		- `id`: An integer identifying the specific instance of the ROI
+                within its type (e.g., 1, 2, etc.)
+                		- `x_ratio`: A float representing the horizontal alignment of
+                the ROI within the image
+                		- `y_ratio`: A float representing the vertical alignment of the
+                ROI within the image
+                
+                	These properties are used to draw bounding rectangles and text
+                labels around each ROI in the input image, as well as to determine
+                the corresponding class label for each ROI.
+
+        Returns:
+            int: an image with bounding boxes and text annotations for detected objects.
+
+        """
         color_seg = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
         palette = np.array(self.color_palette)
         for label, color in enumerate(palette):
@@ -545,6 +825,37 @@ class SpecificWorker(GenericWorker):
 
     # Given a class, return all instances in a class
     def extract_roi_instances_pan(self, img_dict, img_seg, label):
+        """
+        Generates high-quality documentation for code given to it. It takes a list
+        of image segmentations, a dictionary of labels, and returns a list of
+        bounding boxes and a list of masks corresponding to the labels in the segmentations.
+
+        Args:
+            img_dict (dict): 2D image data with labels, from which the function
+                extracts information about the labels and their corresponding
+                bounding boxes.
+            img_seg (ndarray.): 2D image segmentation output of the network, which
+                is used to compute the corresponding bounding box coordinates and
+                mask values for each label ID in the given image.
+                
+                		- `shape`: The shape of the input image, which is (height, width,
+                channels).
+                		- "info": A dictionary containing information about the image
+                segments, including their IDs and labels.
+                		- "segments_info": An list of dictionaries, where each dictionary
+                represents a segment in the image with its ID and label.
+                
+                	The function then destructures `img_seg` by extracting its ID and
+                label attributes and using them to create boxes and masks for each
+                segment in the image.
+            label (int): 0-based integer index of the label to extract bounding
+                boxes for from the provided image segmentation mask.
+
+        Returns:
+            tuple: a list of bounding box coordinates and their corresponding masks
+            for the specified objects in an image.
+
+        """
         ids = [x["id"] for x in img_dict["segments_info"] if x["label_id"] == label]
         boxes = []
         masks = []
@@ -559,6 +870,56 @@ class SpecificWorker(GenericWorker):
         return boxes, masks
 
     def do_box(self, id_, type_, mask, rgb_shape):
+        """
+        Computes a bounding box for an image mask using OpenCV and creates a
+        `RoboCompVisualElements.TObject` instance with the computed bounding box
+        coordinates, score, depth, and other metadata.
+
+        Args:
+            id_ (int): 4-byte value of an integer that uniquely identifies each
+                instance of the `TObject` class being created, which is used to
+                identify and reference the specific object within a visual scene.
+            type_ (str): 3D shape type of the visual element being created.
+            mask (`numpy.ndarray`.): 2D binary mask that is used to extract the
+                rectangle coordinates of the object of interest in an image.
+                
+                		- `mask`: A NumPy array of shape (X, Y) containing binary pixel
+                values representing a 2D mask for object detection.
+            rgb_shape (ndarray object (e.g., array-like instance or a tensor).):
+                2D shape of the object in the image as a bounding rectangle,
+                providing its left and right coordinates and top and bottom coordinates.
+                
+                		- `id`: an integer identifier for the object, represented as `id_`.
+                		- `type`: a string indicating the type of the object, represented
+                as `str(type_)_.`
+                		- `left`, `top`, `right`, and `bot`: integers representing the
+                bounding box coordinates of the object.
+                		- `score`: a real number representing the score of the object,
+                set to 0.7 by default.
+                		- `depth`: an integer representing the depth of the object, set
+                to 0 by default.
+                		- `x`, `y`, and `z`: integers representing the position of the
+                object in the 3D space, set to 0 by default.
+
+        Returns:
+            instance of `TObject`, with fields representing various coordinates
+            and attributes such as `id`, `type`, `left`, `top`, `right`, `bot`,
+            `score`, `depth`, `x`, and `y`, all initialized to specific values:
+            an instance of the `TObject` class from the RoboCompVisualElements package.
+            
+            		- `id`: The unique identifier for each object.
+            		- `type`: The type of object (either `cv2.BOX_CYLINDROID` or `cv2.BOX_SPHERE`).
+            		- `left`: The left coordinate of the bounding box.
+            		- `top`: The top coordinate of the bounding box.
+            		- `right`: The right coordinate of the bounding box.
+            		- `bot`: The bottom coordinate of the bounding box.
+            		- `score`: The score value (which is set to 0.7 by default).
+            		- `depth`: The depth value, which is set to 0 by default.
+            		- `x`: The x-coordinate of the bounding box.
+            		- `y`: The y-coordinate of the bounding box.
+            		- `z`: The z-coordinate of the bounding box.
+
+        """
         box = cv2.boundingRect(mask)
         left = int(box[0])
         right = int(box[0]+box[2])
@@ -569,6 +930,36 @@ class SpecificWorker(GenericWorker):
                                                      depth=0, x=0, y=0, z=0)
 
     def show_fps(self, alive_time, period):
+        """
+        Updates the display rate (fps) and the thread period based on a sliding
+        window of 1 seconds (1000 milliseconds). It checks if a second has passed
+        since the last update, and if so, calculates and prints the current fps,
+        alive time, and period. It also updates the thread period using a clipped
+        value between 0 and 200 milliseconds.
+
+        Args:
+            alive_time ('ms'.): total time that the current thread has been active,
+                and it is used to calculate the current period and increment of
+                the image processing cycle.
+                
+                		- `alive_time`: A float value representing the total time the
+                program has been running in milliseconds (ms). It is updated at
+                each call to `show_fps` with the current time delay between checks.
+                		- `cont`: An integer value representing the number of intervals
+                between successive `show_fps` calls, expressed in Hz (i.e., 1/cont
+                represents the average rate at which the program is alive). It is
+                used to calculate the interval between subsequent `show_fps` outputs.
+                		- `period`: An integer value representing the duration of each
+                interval in milliseconds (ms) from when the previous `show_fps`
+                call was made until the next check is due.
+                		- `delta`: A variable representing the increment of the wait
+                time for the `show_fps` function's internal clock. Its value ranges
+                from -1 to 1, and it is used to calculate the current wait time
+                before incrementing the thread period.
+            period (int): time interval between image acquisitions or other events
+                and is used to calculate the alive time of the system.
+
+        """
         if time.time() - self.last_time > 1:
             self.last_time = time.time()
             cur_period = int(1000./self.cont)
@@ -581,6 +972,34 @@ class SpecificWorker(GenericWorker):
             self.cont += 1
 
     def mouse_click(self, event, x, y, flags, param):
+        """
+        Updates the selected object and prints the current class label of the
+        clicked point based on YOLO annotations. It then checks if the click was
+        inside a YOLO object and sets the new target object if so.
+
+        Args:
+            event (`cv2.EventType` value, which belongs to a built-in type provided
+                by OpenCV named 'cv2.EventType'.): MouseButtonEvent generated by
+                OpenCV, providing the coordinates of the button press and the
+                object class label associated with it.
+                
+                		- `cv2.EVENT_LBUTTONDOWN`: This event is triggered when the left
+                button of the mouse is pressed down.
+                		- `x`: The x-coordinate of the mouse click in the image coordinates.
+                		- `y`: The y-coordinate of the mouse click in the image coordinates.
+            x (float): 2D coordinates of the event, which can be used to determine
+                the position of the selected object in the image.
+            y (int): 2D coordinate of the point where the left mouse button was clicked.
+            flags (float): event flag that indicates whether the mouse button was
+                pressed on an object detected by YOLO, and it is used to determine
+                which object to select or update the target object when a mouse
+                button is pressed within a specific region of the image.
+            param (float): 2D mouse position, which is used to determine which
+                object in the list of detected objects (represented by the
+                `self.labels` dictionary) was clicked and to set the new target
+                object using the `self.yolo_objects` list.
+
+        """
         if event == cv2.EVENT_LBUTTONDOWN:
             self.selected_object = None
             point = (x, y)
@@ -596,6 +1015,13 @@ class SpecificWorker(GenericWorker):
 
     ##############################################################################################3
     def startup_check(self):
+        """
+        Tests several interfaces from the `ifaces` module, including
+        `RoboCompCameraRGBDSimple`, `RoboCompSemanticSegmentation`, and others.
+        It runs unit tests on each interface using various methods to verify their
+        functionality.
+
+        """
         print(f"Testing RoboCompCameraRGBDSimple.Point3D from ifaces.RoboCompCameraRGBDSimple")
         test = ifaces.RoboCompCameraRGBDSimple.Point3D()
         print(f"Testing RoboCompCameraRGBDSimple.TPoints from ifaces.RoboCompCameraRGBDSimple")
@@ -623,6 +1049,37 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setMasks method from MaskElements interface
     #
     def MaskElements_getMasks(self, masks):
+        """
+        Creates a list of `ifaces.RoboCompMaskElements` objects representing the
+        provided image mask. Each element in the list has the same dimensions as
+        the input image and contains a copy of the image data. Additionally, the
+        ROI (Region Of Interest) of each element is defined based on the input
+        `roi_xcenter`, `roi_ycenter`, `roi_xsize`, and `roi_ysize` parameters.
+
+        Args:
+            masks (`ifaces.RoboCompMaskElements.TMask`.): 2D array of mask elements,
+                which is converted into a list of `ifaces.RoboCompMaskElements`
+                objects and used to define the ROI for each mask element in the list.
+                
+                		- `mask`: A `TMask` object with shape `(height, width)` and an
+                image property of type `numpy.ndarray` of size `(height, width, 3)`.
+                		- `roi`: An instance of `TRoi` with the following properties:
+                		+ `xcenter`: An integer value representing the x-coordinate of
+                the ROI's center.
+                		+ `ycenter`: An integer value representing the y-coordinate of
+                the ROI's center.
+                		+ `xsize`: An integer value representing the width of the ROI.
+                		+ `ysize`: An integer value representing the height of the ROI.
+                		+ `finalxsize`: An integer value representing the desired output
+                size of the ROI after filtering.
+                		+ `finalysize`: An integer value representing the desired output
+                size of the ROI after filtering.
+
+        Returns:
+            list: a list of `ifaces.RoboCompMaskElements` objects, each containing
+            a mask image and a ROI (Region of Interest) specification.
+
+        """
         mask_list = []
         mask = ifaces.RoboCompMaskElements.TMask()
         mask.width = self.mask_image.shape[1]
