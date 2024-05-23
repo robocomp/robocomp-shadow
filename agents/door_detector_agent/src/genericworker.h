@@ -31,6 +31,7 @@
 #include <ui_mainUI.h>
 #include <CommonBehavior.h>
 
+#include <G2Ooptimizer.h>
 #include <Lidar3D.h>
 
 
@@ -38,7 +39,7 @@
 #define BASIC_PERIOD 100
 
 
-using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr>;
+using TuplePrx = std::tuple<RoboCompG2Ooptimizer::G2OoptimizerPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr>;
 
 
 class GenericWorker : public QMainWindow, public Ui_guiDlg
@@ -54,6 +55,7 @@ public:
 	QMutex *mutex;
 
 
+	RoboCompG2Ooptimizer::G2OoptimizerPrxPtr g2ooptimizer_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
 

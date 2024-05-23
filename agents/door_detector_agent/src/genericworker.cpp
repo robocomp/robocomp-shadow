@@ -23,7 +23,8 @@
 GenericWorker::GenericWorker(TuplePrx tprx) : Ui_guiDlg()
 {
 
-	lidar3d_proxy = std::get<0>(tprx);
+	g2ooptimizer_proxy = std::get<0>(tprx);
+	lidar3d_proxy = std::get<1>(tprx);
 
 	mutex = new QMutex();
 

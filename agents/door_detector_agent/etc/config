@@ -1,6 +1,7 @@
 CommonBehavior.Endpoints=tcp -p 10000
 
 # Proxies for required interfaces
+G2OoptimizerProxy = g2ooptimizer:tcp -h localhost -p 11212
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
 
