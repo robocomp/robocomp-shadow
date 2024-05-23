@@ -3,8 +3,12 @@ CommonBehavior.Endpoints=tcp -p 10000
 # Endpoints for implements interfaces
 G2Ooptimizer.Endpoints=tcp -p 11212
 
+# Iterations for the optimizer
 
-Ice.Warn.Connections=0
-Ice.Trace.Network=0
-Ice.Trace.Protocol=0
+Iterations=500
+
+Ice.Warn.Connections=3
+Ice.Trace.Network=3
+Ice.Trace.Protocol=3
 Ice.MessageSizeMax=20004800
+Ice.Override.Timeout=20000

@@ -41,8 +41,8 @@
 #include "g2o/core/optimization_algorithm_with_hessian.h"
 #include "g2o/types/slam2d/types_slam2d.h"
 #include "g2o/core/factory.h"
-#include "g2o/core/sparse_optimizer.h"
 #include <g2o/core/marginal_covariance_cholesky.h>
+#include <memory>
 
 using namespace g2o;
 
@@ -68,11 +68,20 @@ class SpecificWorker : public GenericWorker
     private:
         bool startup_check_flag;
 
+        struct PARAMS
+        {
+            int iterations; // Number of iterations using by the optimizer
+        };
+        PARAMS parameters;
+
+
         // Create the optimizer
         g2o::SparseOptimizer optimizer;
         std::unique_ptr<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>> linear_solver;
         std::unique_ptr<g2o::BlockSolverX> block_solver;
-        std::unique_ptr<g2o::OptimizationAlgorithmLevenberg> algorithm;;
+        std::unique_ptr<g2o::OptimizationAlgorithmLevenberg> algorithm;
+        // Create an instance of the robust kernel
+        g2o::RobustKernelHuber* robustKernel = new g2o::RobustKernelHuber;
 };
 
 #endif
