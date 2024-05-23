@@ -22,7 +22,7 @@ public:
     struct Door
     {
         Eigen::Vector2f p0, p1, middle;
-        int idx_in_peaks_0, idx_in_peaks_1, id;
+        int idx_in_peaks_0, idx_in_peaks_1, id, wall_id;
         const float THRESHOLD = 500; //door equality
 
         Door(){ p0 = p1 = middle = Eigen::Vector2f::Zero();};

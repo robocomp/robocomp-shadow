@@ -129,10 +129,27 @@ int ::door_detector_agent::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	RoboCompG2Ooptimizer::G2OoptimizerPrxPtr g2ooptimizer_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
 	string proxy, tmp;
 	initialize();
+
+	try
+	{
+		if (not GenericMonitor::configGetString(communicator(), prefix, "G2OoptimizerProxy", proxy, ""))
+		{
+			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy G2OoptimizerProxy\n";
+		}
+		g2ooptimizer_proxy = Ice::uncheckedCast<RoboCompG2Ooptimizer::G2OoptimizerPrx>( communicator()->stringToProxy( proxy ) );
+	}
+	catch(const Ice::Exception& ex)
+	{
+		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy G2Ooptimizer: " << ex;
+		return EXIT_FAILURE;
+	}
+	rInfo("G2OoptimizerProxy initialized Ok!");
+
 
 	try
 	{
@@ -150,7 +167,7 @@ int ::door_detector_agent::run(int argc, char* argv[])
 	rInfo("Lidar3DProxy initialized Ok!");
 
 
-	tprx = std::make_tuple(lidar3d_proxy);
+	tprx = std::make_tuple(g2ooptimizer_proxy,lidar3d_proxy);
 	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
 	//Monitor thread
 	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());

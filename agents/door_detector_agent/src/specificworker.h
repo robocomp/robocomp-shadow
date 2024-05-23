@@ -89,6 +89,10 @@ private:
     // Door detector
     DoorDetector door_detector;
 
+    //Robot const
+    float max_robot_advance_speed = 800.0;
+    float max_robot_side_speed = 200;
+
     // DoubleBuffer variable
     DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
@@ -102,7 +106,8 @@ private:
 
     // Lines extractor
     Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
-    void insert_door_into_graph(const DoorDetector::Door &door, int wall_id);
+    void insert_measured_door_into_graph(const DoorDetector::Door &door, int wall_id);
+    void insert_nominal_door_into_graph(const DoorDetector::Door &door, int wall_id);
     void update_door_in_graph(const DoorDetector::Door &door);
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
@@ -120,6 +125,41 @@ private:
     QPointF projectPointOnLineSegment(const QPointF &p, const QPointF &v, const QPointF &w);
 
     HungarianAlgorithm HungAlgo;
+
+    std::optional<std::tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector2f>>>
+    get_corners_and_wall_centers();
+
+    vector<tuple<int, Eigen::Vector2f, Eigen::Vector2f>>
+    get_doors(const RoboCompLidar3D::TData &ldata, const vector<Eigen::Vector2f> &corners,
+              const vector<Eigen::Vector2f> &wall_centers, QGraphicsScene *scene);
+    // Door to stabilize variable initialized as nullptr
+    std::optional<DoorDetector::Door> door_to_stabilize_ = std::nullopt;
+    float distance_to_target = 50;
+    void set_robot_speeds(float adv, float side, float rot);
+
+    vector<float> calculate_speed(const Eigen::Matrix<double, 3, 1> &target);
+
+    bool movement_completed(const Eigen::Vector3d &target, float distance_to_target);
+
+    std::chrono::time_point<std::chrono::system_clock> last_time;
+    vector<float> get_graph_odometry();
+
+    float door_center_matching_threshold = 1500;
+    float odometry_time_factor = 1;
+
+    Eigen::Vector3d door_stabilization_target = {0, 0, 0};
+
+    void generate_target_edge(DSR::Node node);
+
+    string build_g2o_graph(const vector<std::vector<Eigen::Matrix<float, 2, 1>>> &measured_corner_data,
+                           const vector<Eigen::Matrix<float, 2, 1>> &nominal_corner_data,
+                           const vector<std::vector<float>> &odometry_data,
+                           const Eigen::Affine2d &robot_pose,
+                           const vector<std::pair<Eigen::Vector2f, Eigen::Vector2f>> &measured_door_vertices,
+                           const pair<Eigen::Vector2f, Eigen::Vector2f> &nominal_door_vertices);
+    std::vector<Eigen::Vector2f> extract_g2o_data(string optimization);
+    void draw_graph_doors(const std::vector<std::tuple<int, Eigen::Vector2f, Eigen::Vector2f>> doors, QGraphicsScene *scene, QColor color);
+
 };
 
 #endif
