@@ -226,7 +226,25 @@ void SpecificWorker::compute()
             qInfo() << __FUNCTION__ << "Adv: " << adv << "Rot: " << rot << "Side: " << side;
             send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
             return;
-        }    
+        }
+        /// TODO: REMOOOOVE
+        if (auto target_edge = G->get_edges_by_type("goto_action"); not target_edge.empty())
+        {
+            float adv = std::numeric_limits<float>::quiet_NaN(), rot = std::numeric_limits<float>::quiet_NaN(), side = std::numeric_limits<float>::quiet_NaN();
+            if (auto adv_ = G->get_attrib_by_name<robot_ref_adv_speed_att>(robot_node.value()); adv_.has_value())
+                adv = adv_.value();
+            if (auto rot_ = G->get_attrib_by_name<robot_ref_rot_speed_att>(robot_node.value()); rot_.has_value())
+                rot = rot_.value();
+            if (auto side_ = G->get_attrib_by_name<robot_ref_side_speed_att>(robot_node.value()); side_.has_value())
+                side = side_.value();
+            RoboCompGridPlanner::TPlan returning_plan;
+            RoboCompGridder::TPath plan;            returning_plan.valid = true;
+            returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=adv, .side=side, .rot=rot});
+            // Print values
+            qInfo() << __FUNCTION__ << "Adv: " << adv << "Rot: " << rot << "Side: " << side;
+            send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
+            return;
+        }
     }
 
 
@@ -1244,7 +1262,14 @@ void SpecificWorker::modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to
 }
 void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
 {
-
+    /// If edge_tag is "goto_action" and to is a target node, insert stop target in target_buffer
+    if(edge_tag == "goto_action")
+    {
+        RoboCompGridPlanner::TPlan returning_plan;
+        returning_plan.valid = true;
+        returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=0.f});
+        send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
+    }
 }
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {
