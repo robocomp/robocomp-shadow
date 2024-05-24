@@ -18,7 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-
+import numpy as np
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
@@ -40,12 +40,12 @@ class SpecificWorker(GenericWorker):
         self.g = DSRGraph(0, "pythonAgent", self.agent_id)
 
         try:
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
-            signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
+            #signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            #signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            #signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            #signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
+            #signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
         except RuntimeError as e:
             print(e)
@@ -53,6 +53,10 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+            self.rt_api = rt_api(self.g)
+            self.inner_api = inner_api(self.g)
+            self.room_initialized = False
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -60,11 +64,6 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
-        # try:
-        #	self.innermodel = InnerModel(params["InnerModelPath"])
-        # except:
-        #	traceback.print_exc()
-        #	print("Error reading config params")
         return True
 
 
@@ -72,20 +71,40 @@ class SpecificWorker(GenericWorker):
     def compute(self):
 
         # check it there is an active goto edge connecting the robot and a door
-            # if so, then check the robot position. If it is almost at the door
-                # signal that the room is not the current room
-                # remove the current room from the DWM and connect robot to root
-                # save the room in the local graph as local node
-                # save the door just traversed  as a local node connected to the room node. Save its room coordinates
-        # wait for a new room to be created
-        # when new room is created, check for the first door in it
-        # create room in the local graph and connect to the saved door.
-        # Add to the door its coordinates in the new room
-        
+            # if so, then check the robot position. If it is at the door
+                # signal that the current room is not anymore by removing self-edge
+                # wait for a new room to be created
+                # when new room is created, check for the first door in it.  Should be the door used to get in
+                # connect both doors with a new edge "same"
+                ### loop-closure  PARA LA SEGUNDA VUELTA  (gist es una imagen 360 de la habitación usada para reconocerla rápidamente)
+                # check if the current room "gist" is similar to the gists of the other rooms in the agent's internal graph.
+                # if so, then replace the current room by the matching nominal room in the internal graph
+                    # and adjust door connections
+        # if not, then check if there is a room not marked as "current" that has been there for at least 1 minute
+            # if so, then replace the not-current room by a proxy empty room node with the doors as children nodes
+                # save the old room in the agent's internal graph
+                # save a gist of the room in the agent's internal graph
+                # connect the door connecting both rooms with a new edge "same"
+
+        # check it there is an active goto edge connecting the robot and a door
+        goto_edges = self.g.get_edges_by_type("goto")
+        if len(goto_edges) > 0:
+            # search if one of the edges in goto_edges goes to a door
+            for edge in goto_edges:
+                if self.g.get_node_type(edge.fr) == "robot" and self.g.get_node_type(edge.to) == "door":
+                    robot_id = edge.fr
+                    door_id = edge.to
+                    # get door coordinates transformed to robot coordinates are smaller than 100mm
+                    door_coords_in_robot = self.inner_api(robot_id, door_id)
+                    # check that door_coords_in_robot are smaller than 100mm
+                    if np.sqrt(np.power(door_coords_in_robot[0], 2) + np.power(door_coords_in_robot[1], 2)) < 100:
+                        # signal that the current room is not anymore by removing self-edge
+                        self.g.remove_edge(robot_id, door_id)
+                        # wait for a new room to be created
+
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
-
 
     # =============== DSR SLOTS  ================
     # =============================================
