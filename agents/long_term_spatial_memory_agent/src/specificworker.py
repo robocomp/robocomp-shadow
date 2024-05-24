@@ -91,15 +91,13 @@ class SpecificWorker(GenericWorker):
         if len(goto_edges) > 0:
             # search if one of the edges in goto_edges goes to a door
             for edge in goto_edges:
-                if self.g.get_node_type(edge.fr) == "robot" and self.g.get_node_type(edge.to) == "door":
-                    robot_id = edge.fr
-                    door_id = edge.to
+                if edge.fr.name == "robot" and edge.to.name == "door":
                     # get door coordinates transformed to robot coordinates are smaller than 100mm
-                    door_coords_in_robot = self.inner_api(robot_id, door_id)
+                    door_coords_in_robot = self.inner_api(edge.fr.name, edge.to.name)
                     # check that door_coords_in_robot are smaller than 100mm
                     if np.sqrt(np.power(door_coords_in_robot[0], 2) + np.power(door_coords_in_robot[1], 2)) < 100:
                         # signal that the current room is not anymore by removing self-edge
-                        self.g.remove_edge(robot_id, door_id)
+                        self.g.remove_edge(edge.fr.name, edge.to.name, "current")
                         # wait for a new room to be created
 
 
