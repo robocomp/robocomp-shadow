@@ -33,11 +33,11 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 2000
+        self.Period = 100
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
-        self.agent_id = "_CHANGE_THIS_ID_"
-        self.g = DSRGraph(0, "pythonAgent", self.agent_id)
+        self.agent_id = 13
+        self.g = DSRGraph(0, "LongTermSpatialMemory_agent", self.agent_id)
 
         try:
             #signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
