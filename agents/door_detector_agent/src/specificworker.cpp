@@ -174,14 +174,6 @@ void SpecificWorker::compute()
     /// Get corners and wall centers
     auto [corners, wall_centers] = result.value();
 
-    /// Get doors
-    auto doors = get_doors(ldata, corners, wall_centers, &widget_2d->scene);
-    if(doors.empty())
-    {
-        // TODO: if no doors detected, set every measured door as no valid
-        qWarning() << __FUNCTION__ << " No doors detected";
-        return;
-    }
     ///----------------------------TODO:-------------------------------------------
 
     ///Comprobar si existen puertas_estabilizadas en el grafo.
@@ -205,6 +197,156 @@ void SpecificWorker::compute()
 
     /// Check if doors exist in the graph
     auto door_nodes = G->get_nodes_by_type("door");
+    /// Get door nodes witch not contain "measured" in name
+    door_nodes.erase(std::remove_if(door_nodes.begin(), door_nodes.end(), [](auto &n){ return n.name().find("measured") != std::string::npos; }), door_nodes.end());
+    /// Generate a vector with door nominal poses structured in Eigen::Vector2f // TODO: to function
+
+    vector<Eigen::Vector2f> door_poses = get_nominal_door_from_dsr(robot_node, door_nodes);
+
+    /// TEMPORARY ADD A FOLLOWER TO TARGET WHEN EDGE GOTO IS ACTIVE
+    ///SET TARGET TO CROSS THE DOOR
+
+    /// Iterate over doors
+    for (size_t i = 0; i < door_nodes.size(); ++i)
+    {
+        /// Check if any GOTO edge from robot to any door node exists
+        if(auto goto_edge = G->get_edge(robot_node.id(), door_nodes[i].id(), "goto_action"); goto_edge.has_value())
+        {
+            /// Get door parent node
+            if(auto parent_node = G->get_parent_node(door_nodes[i]); parent_node.has_value())
+            {
+                auto parent_node_value = parent_node.value();
+                /// Get door position respect to robot
+                if(auto rt_door_edge = rt->get_edge_RT(parent_node_value, door_nodes[i].id()); rt_door_edge.has_value())
+                {
+                    auto door_edge = rt_door_edge.value();
+                    if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(door_edge); rt_translation.has_value())
+                    {
+                        auto rt_door_value = rt_translation.value().get();
+                        /// Get door width to calculate door vertices
+                        if(auto door_width_ = G->get_attrib_by_name<width_att>(door_nodes[i]); door_width_.has_value()) {
+                            auto door_width = door_width_.value();
+                            /// Generate Eigen::Vector3d for each door vertex
+                            Eigen::Vector3d door_robot_pos_point_0{rt_door_value[0] - (door_width / 2),
+                                                                   rt_door_value[1], 0.f};
+                            Eigen::Vector3d door_robot_pos_point_1{rt_door_value[0] + (door_width / 2),
+                                                                   rt_door_value[1], 0.f};
+                            /// Transform door vertices to robot frame
+                            if (auto door_transformed_0 = inner_eigen->transform(robot_node.name(),
+                                                                                 door_robot_pos_point_0,
+                                                                                 parent_node_value.name()); door_transformed_0.has_value())
+                            {
+                                auto door_transformed_0_value = door_transformed_0.value();
+                                /// Transform door vertices to robot frame
+                                if (auto door_transformed_1 = inner_eigen->transform(robot_node.name(),
+                                                                                     door_robot_pos_point_1,
+                                                                                     parent_node_value.name()); door_transformed_0.has_value())
+                                {
+                                    auto door_transformed_1_value = door_transformed_1.value();
+                                    /// Generate a DoorDetector::Door with door vertices
+                                    DoorDetector::Door act_door{Eigen::Vector2f{door_transformed_0_value.x(), door_transformed_0_value.y()},
+                                                                Eigen::Vector2f{door_transformed_1_value.x(), door_transformed_1_value.y()}, 0, 0};
+                                    /// Generate a target found at 1000 mm in the perpendicular direction to the door
+                                    auto [p1, p2] = act_door.point_perpendicular_to_door_at();
+                                    /// Transform both points to room frame
+                                    if (auto p1_transformed = inner_eigen->transform(room_node.name(),
+                                                                                     Eigen::Vector3d{p1.x(), p1.y(), 0.f},
+                                                                                     robot_node.name()); p1_transformed.has_value())
+                                    {
+                                        auto p1_transformed_value = p1_transformed.value();
+                                        if (auto p2_transformed = inner_eigen->transform(room_node.name(),
+                                                                                         Eigen::Vector3d{p2.x(), p2.y(), 0.f},
+                                                                                         robot_node.name()); p2_transformed.has_value())
+                                        {
+                                            auto p2_transformed_value = p2_transformed.value();
+                                            /// Considering room dimensions, choose as target the point outside the room
+                                            if(auto room_depth = G->get_attrib_by_name<depth_att>(room_node); room_depth.has_value())
+                                            {
+                                                auto room_depth_value = room_depth.value();
+                                                if(auto room_width = G->get_attrib_by_name<width_att>(room_node); room_width.has_value())
+                                                {
+                                                    auto room_width_value = room_width.value();
+                                                    // Check which point is inside the room
+                                                    Eigen::Vector2f target;
+                                                    if(p1_transformed_value.x() > -room_width_value / 2 and p1_transformed_value.x() < room_width_value / 2 and p1_transformed_value.y() > -room_depth_value / 2 and p1_transformed_value.y() < room_depth_value / 2)
+                                                    {
+                                                        qInfo() << "Point 1 inside room";
+                                                        target = p2;
+                                                    }
+                                                    else
+                                                    {
+                                                        qInfo() << "Point 2 inside room";
+                                                        target = p1;
+                                                    }
+                                                    /// Convert target to Eigen::Vector3d
+                                                    Eigen::Vector3d target_point{target.x(), target.y(), 0.f};
+                                                    /// Print target point
+                                                    qInfo() << "Target point: " << target_point.x() << " " << target_point.y();
+                                                    /// Generate speed commands towards room center and insert them in graph
+                                                    auto speeds = calculate_speed(target_point);
+                                                    set_robot_speeds(speeds[0],speeds[1],speeds[2]);
+                                                    if(movement_completed(target_point, distance_to_target))
+                                                    {
+                                                        set_robot_speeds(0.f, 0.f, 0.f);
+                                                        qInfo() << "Door point reached";
+                                                        if(G->delete_edge(robot_node.id(), door_nodes[i].id(), "goto_action"))
+                                                            std::cout << __FUNCTION__ << " Edge successfully deleted: " << std::endl;
+                                                        else
+                                                            std::cout << __FUNCTION__ << " Fatal error deleting edge: " << std::endl;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get doors
+    auto doors = get_doors(ldata, corners, wall_centers, &widget_2d->scene);
+    if(doors.empty())
+    {
+        // TODO: if no doors detected, set every measured door as no valid
+        qWarning() << __FUNCTION__ << " No doors detected";
+        return;
+    }
+
+    // If door exists, update
+    if(door_nodes.size() > 0)
+    {
+        /// Do data association with Hungarian algorithm
+        /// Generate a matrix to store the distances between measured doors poses and calculated door poseds using double vectors instead of Eigen
+        std::vector<std::vector<double>> distances_matrix(doors.size(), std::vector<double>(door_nodes.size()));
+        for(size_t i = 0; i < doors.size(); ++i)
+        {
+            Eigen::Vector2f target_point = (std::get<1>(doors[i]) + std::get<2>(doors[i])) / 2;
+            qInfo() << "Door measured: " << target_point.x() << " " << target_point.y();
+            for(size_t j = 0; j < door_nodes.size(); ++j)
+            {
+                qInfo() << "Door nominal transformed: " << door_poses[j].x() << " " << door_poses[j].y();
+                distances_matrix[i][j] = (door_poses[j] - target_point).norm();
+            }
+        }
+        /// Process metrics matrix with Hungarian algorithm
+        vector<int> assignment;
+        double cost = HungAlgo.Solve(distances_matrix, assignment);
+        /// Get the index in assignment vector with a value different from -1
+        auto door_index = std::find_if(assignment.begin(), assignment.end(), [](auto &a){ return a != -1; });
+
+        /// Check if distance is greater than threshold
+        if(distances_matrix[door_index - assignment.begin()][0] < door_center_matching_threshold)
+        {
+            /// Get door node associated
+            auto associated_door = doors[door_index - assignment.begin()];
+            update_door_in_graph(std::get<1>(associated_door), door_nodes[0].name()+"_measured");
+            qInfo() << "Door updated";
+        }
+    }
 
     static std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> measured_corner_data;
     static std::vector<std::vector<float>> odometry_data;
@@ -241,6 +383,8 @@ void SpecificWorker::compute()
             double cost = HungAlgo.Solve(distances_matrix, assignment);
             /// Get the index in assignment vector with a value different from -1
             auto door_index = std::find_if(assignment.begin(), assignment.end(), [](auto &a) { return a != -1; });
+
+
             /// Check if distance is greater than threshold
             if (distances_matrix[0][door_index - assignment.begin()] < door_center_matching_threshold)
             {
@@ -268,6 +412,8 @@ void SpecificWorker::compute()
                     set_robot_speeds(0.f, 0.f, 0.f);
 
                     qInfo() << "Door point reached";
+
+
                     // Generate room size histogram considering room_size_histogram vector and obtain the most common room size
                     auto most_common_door_width = std::max_element(width_histogram.begin(), width_histogram.end(),
                                                                   [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
@@ -283,6 +429,8 @@ void SpecificWorker::compute()
                     auto door_point_1 = Eigen::Vector3d{door_pose + (door_width * 0.5), 0.f, 0.f};
 
                     std::pair<Eigen::Vector2f, Eigen::Vector2f> nominal_door_points;
+
+
                     /// Transform nominal door points respect to room frame
                     if (auto nominal_door_point_0 = inner_eigen->transform(room_node.name(),
                                                                                door_point_0,
@@ -389,7 +537,8 @@ void SpecificWorker::compute()
                         /// Assign id to doors
                         nominal_door.id = door_to_stabilize.id;
                         act_door.id = door_to_stabilize.id;
-                        insert_nominal_door_into_graph(nominal_door, door_to_stabilize.wall_id);
+                        DSR::Node inserted_door;
+                        inserted_door = insert_nominal_door_into_graph(nominal_door, door_to_stabilize.wall_id);
                         insert_measured_door_into_graph(act_door, door_to_stabilize.wall_id);
 
                         /// INSERT TO DSR
@@ -404,6 +553,13 @@ void SpecificWorker::compute()
 
                         /// Clear door to stabilize
                         door_to_stabilize_ = std::nullopt;
+
+                        ///TODO:
+                        ///WAIT (DEBUG)
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                        /// ADD EDGE GOTO FROM ROBOT TO DOOR
+                        generate_edge_goto_door(robot_node,inserted_door);
+
                     }
                     catch (const std::exception &e)
                     {
@@ -412,18 +568,11 @@ void SpecificWorker::compute()
                     }
                     /// Delete TARGET edge to make robot control agent stop taking into account speed commands
                     G->delete_edge(robot_node.id(), robot_node.id(), "TARGET");
-                    ///Check if door_to_stabilize_ is empty
-                    if (door_to_stabilize_.has_value())
-                    {
-                        qWarning() << __FUNCTION__ << " Door to stabilize not empty";
-                        std::terminate();
-                    }
-                    /// Check if TARGET edge exists
-                    if (auto target_edge_ = G->get_edge(robot_node.id(), robot_node.id(), "TARGET"); target_edge_.has_value())
-                    {
-                        qWarning() << __FUNCTION__ << " TARGET edge not deleted";
-                        std::terminate();
-                    }
+
+
+
+
+
                 }
                 else
                 {
@@ -912,28 +1061,29 @@ SpecificWorker::Lines SpecificWorker::extract_lines(const RoboCompLidar3D::TPoin
                 lines[i].emplace_back(p.x, p.y);
     return lines;
 }
-void SpecificWorker::insert_nominal_door_into_graph(const DoorDetector::Door &door, int wall_id)
-{
+DSR::Node SpecificWorker::insert_nominal_door_into_graph(const DoorDetector::Door &door, int wall_id)
+{   DSR::Node nominal_door_node;
+
     /// Check if room node exists
     auto room_node_ = G->get_node("room");
     if(not room_node_.has_value())
-    { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
+    { qWarning() << __FUNCTION__ << " No room node in graph"; return nominal_door_node; }
     auto room_node = room_node_.value();
 
     auto wall_node_ = G->get_node("wall_"+std::to_string(wall_id));
     if(not wall_node_.has_value())
-    { qWarning() << __FUNCTION__ << " No wall node in graph"; return; }
+    { qWarning() << __FUNCTION__ << " No wall node in graph"; return nominal_door_node; }
     auto wall_node = wall_node_.value();
 
     auto wall_node_level_ = G->get_node_level(wall_node);
     if(not wall_node_level_.has_value())
-    { qWarning() << __FUNCTION__ << " No wall level in graph"; return; }
+    { qWarning() << __FUNCTION__ << " No wall level in graph"; return nominal_door_node; }
     auto wall_node_level = wall_node_level_.value();
 
 
     std::vector<float> door_pos, door_orientation;
 
-    auto nominal_door_node = DSR::Node::create<door_node_type>("door_"+std::to_string(wall_id)+"_"+std::to_string(door.id));
+    nominal_door_node = DSR::Node::create<door_node_type>("door_"+std::to_string(wall_id)+"_"+std::to_string(door.id));
     // Add door attributes
     G->add_or_modify_attrib_local<pos_x_att>(nominal_door_node, (float)(rand()%(170)));
     G->add_or_modify_attrib_local<pos_y_att>(nominal_door_node, (float)(rand()%170));
@@ -955,6 +1105,8 @@ void SpecificWorker::insert_nominal_door_into_graph(const DoorDetector::Door &do
     // Add edge between door and robot
     door_orientation = {0.f, 0.f, 0.f};
     rt->insert_or_assign_edge_RT(wall_node, nominal_door_node.id(), door_pos, door_orientation);
+
+    return nominal_door_node;
 }
 
 void SpecificWorker::insert_measured_door_into_graph(const DoorDetector::Door &door, int wall_id)
@@ -995,19 +1147,24 @@ void SpecificWorker::insert_measured_door_into_graph(const DoorDetector::Door &d
     door_orientation = {0.f, 0.f, door.angle_to_robot()};
     rt->insert_or_assign_edge_RT(robot_node, door_node.id(), door_pos, door_orientation);
 }
-void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door)
+void SpecificWorker::update_door_in_graph(const Eigen::Vector2f &pose, std::string door_name)
 {
-    auto door_node_ = G->get_node("door_1_measured");
+    auto door_node_ = G->get_node(door_name);
     if(not door_node_.has_value())
     { qWarning() << __FUNCTION__ << " No door node in graph"; return; }
     auto door_node = door_node_.value();
 
-    // Add door attributes
-//    G->add_or_modify_attrib_local<pos_x_att>(door_node, door.middle.x());
-//    G->add_or_modify_attrib_local<pos_y_att>(door_node, door.middle.y());
-    G->add_or_modify_attrib_local<width_att>(door_node, (int)door.width());
-    G->add_or_modify_attrib_local<height_att>(door_node, (int)door.height());
-//    G->add_or_modify_attrib_local<angle_att>(door_node, door.angle_to_robot());
+    /// Get robot node
+    auto robot_node_ = G->get_node("Shadow");
+    if(not robot_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+    auto robot_node = robot_node_.value();
+
+    std::vector<float> door_pos, door_orientation;
+    // Add edge between door and robot
+    door_pos = {pose.x(), pose.y(), 0.f};
+    door_orientation = {0.f, 0.f, 0.f};
+    rt->insert_or_assign_edge_RT(robot_node, door_node.id(), door_pos, door_orientation);
 }
 void SpecificWorker::set_robot_speeds(float adv, float side, float rot)
 {
@@ -1302,6 +1459,72 @@ std::vector<Eigen::Vector2f> SpecificWorker::extract_g2o_data(string optimizatio
 
 }
 
+
+void SpecificWorker::asociate_and_update_doors(const vector<tuple<int, Eigen::Vector2f, Eigen::Vector2f>> &doors,
+                                               const vector<DSR::Node> &door_nodes,
+                                               const vector<Eigen::Vector2f> &door_poses)
+{
+    vector<vector<double>> distances_matrix(doors.size(), vector<double>(door_nodes.size()));
+
+    for(size_t i = 0; i < doors.size(); ++i)
+    {
+        Eigen::Vector2f target_point = (std::get<1>(doors[i]) + std::get<2>(doors[i])) / 2;
+        qInfo() << "Door measured: " << target_point.x() << " " << target_point.y();
+        for(size_t j = 0; j < door_nodes.size(); ++j)
+        {
+            qInfo() << "Door nominal transformed: " << door_poses[j].x() << " " << door_poses[j].y();
+            distances_matrix[i][j] = (door_poses[j] - target_point).norm();
+        }
+    }
+    /// Process metrics matrix with Hungarian algorithm
+    vector<int> assignment;
+    double cost = HungAlgo.Solve(distances_matrix, assignment);
+    /// Get the index in assignment vector with a value different from -1
+    auto door_index = find_if(assignment.begin(), assignment.end(), [](auto &a){ return a != -1; });
+    /// Check if distance is greater than threshold
+    if(distances_matrix[door_index - assignment.begin()][0] < door_center_matching_threshold)
+    {
+        auto associated_door = doors[door_index - assignment.begin()];
+        /// Update door data in graph
+        update_door_in_graph(std::get<1>(associated_door), door_nodes[door_index - assignment.begin()].name()+"_measured");
+    }
+}
+
+
+vector<Eigen::Vector2f> SpecificWorker::get_nominal_door_from_dsr(DSR::Node &robot_node, vector<DSR::Node> &door_nodes)
+{
+    vector<Eigen::Vector2f> door_poses;
+    for(auto door_node : door_nodes)
+    {
+        if(auto parent_node = G->get_parent_node(door_node); parent_node.has_value())
+        {
+            auto wall_node = parent_node.value();
+            if(auto rt_door = rt->get_edge_RT(wall_node, door_node.id()); rt_door.has_value())
+            {
+                auto door_edge = rt_door.value();
+                if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(door_edge); rt_translation.has_value())
+                {
+                    auto rt_door_value = rt_translation.value().get();
+                    Eigen::Vector3d door_robot_pos_point(rt_door_value[0], rt_door_value[1], 0);
+                    if(auto door_transformed = inner_eigen->transform(robot_node.name(), door_robot_pos_point, wall_node.name()); door_transformed.has_value())
+                    {
+                        auto door_transformed_value = door_transformed.value().cast<float>();
+                        door_poses.push_back(Eigen::Vector2f{door_transformed_value.x(), door_transformed_value.y()});
+                    }
+                }
+            }
+        }
+    }
+    return door_poses;
+}
+void SpecificWorker::generate_edge_goto_door(DSR::Node &robot_node, DSR::Node &door_node)
+{
+    DSR::Edge goto_door_edge = DSR::Edge::create<goto_action_edge_type>(robot_node.id(), door_node.id());
+    if(G->insert_or_assign_edge(goto_door_edge))
+        std::cout << __FUNCTION__ << " Goto door edge successfully inserted: " << std::endl;
+    else
+        std::cout << __FUNCTION__ << " Fatal error inserting new edge: " << std::endl;
+}
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:

@@ -107,8 +107,7 @@ private:
     // Lines extractor
     Lines extract_lines(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
     void insert_measured_door_into_graph(const DoorDetector::Door &door, int wall_id);
-    void insert_nominal_door_into_graph(const DoorDetector::Door &door, int wall_id);
-    void update_door_in_graph(const DoorDetector::Door &door);
+    DSR::Node insert_nominal_door_into_graph(const DoorDetector::Door &door, int wall_id);
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
@@ -134,7 +133,7 @@ private:
               const vector<Eigen::Vector2f> &wall_centers, QGraphicsScene *scene);
     // Door to stabilize variable initialized as nullptr
     std::optional<DoorDetector::Door> door_to_stabilize_ = std::nullopt;
-    float distance_to_target = 50;
+    float distance_to_target = 150;
     void set_robot_speeds(float adv, float side, float rot);
 
     vector<float> calculate_speed(const Eigen::Matrix<double, 3, 1> &target);
@@ -159,6 +158,12 @@ private:
                            const pair<Eigen::Vector2f, Eigen::Vector2f> &nominal_door_vertices);
     std::vector<Eigen::Vector2f> extract_g2o_data(string optimization);
     void draw_graph_doors(const std::vector<std::tuple<int, Eigen::Vector2f, Eigen::Vector2f>> doors, QGraphicsScene *scene, QColor color);
+    vector<Eigen::Vector2f> get_nominal_door_from_dsr(DSR::Node &robot_node, vector<DSR::Node> &door_nodes);
+
+    void asociate_and_update_doors(const vector<tuple<int, Eigen::Vector2f, Eigen::Vector2f>> &doors,
+                                   const vector<DSR::Node> &door_nodes, const vector<Eigen::Vector2f> &door_poses);
+    void generate_edge_goto_door(DSR::Node &robot_node, DSR::Node &door_node);
+    void update_door_in_graph(const Eigen::Vector2f &pose, string door_name);
 
 };
 

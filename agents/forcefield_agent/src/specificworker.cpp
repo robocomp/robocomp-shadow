@@ -768,6 +768,7 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
 //    if (last_corners.size() == target_points.size())
 //        for (int i = 0; i < 4; i++)
 //            if (last_corners[i] == target_points[i])
+//            if (last_corners[i] == target_points[i])
 //            {
 //                std::string corner_name = "corner_" + std::to_string(i) + "_measured";
 //                if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
