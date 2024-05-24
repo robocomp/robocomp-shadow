@@ -168,7 +168,7 @@ class SpecificWorker(GenericWorker):
                     opt_orientation += np.pi
 
                 print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
-                cov_matrix = self.get_covariance_matrix(last_vertex)
+                # cov_matrix = self.get_covariance_matrix(last_vertex)
                 # print("Covariance matrix:", cov_matrix)
                 # self.visualizer.update_graph(self.g2o, None, cov_matrix)
                     # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
