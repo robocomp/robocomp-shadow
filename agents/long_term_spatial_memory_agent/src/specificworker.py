@@ -33,16 +33,16 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         """
-        Sets up an instance of `DSRGraph` and connects it to signals for updating
-        node and edge attributes, as well as deleting nodes and edges. It also
-        initializes a timer to run the `compute` function at a set interval.
+        Initializes a `DSRGraph` instance with a unique agent ID, connects signals
+        to update and delete nodes and edges, prints connected signals, performs
+        startup check and sets up timer for computing updates every 100ms.
 
         Args:
-            proxy_map (int): map of agent id to agent object, which is used to
-                create instances of the SpecificWorker class and initialize their
-                internal state.
-            startup_check (int): Whether the code inside the `if` statement should
-                run when it's initialized, in which `startup_check` is `True`.
+            proxy_map (dict): map of proxies that the instance of the `SpecificWorker`
+                class will use to access the remote machine's graph.
+            startup_check (bool): initialization check of the worker's components,
+                such as g graph and rt_api API, if it is set to `True`, it will
+                run the startup check; otherwise, it will not.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -101,24 +101,24 @@ class SpecificWorker(GenericWorker):
 
         # check it there is an active goto edge connecting the robot and a door
         """
-        Retrieves the edges from the graph with the `get_edges_by_type` method and
-        checks if any edge connects a robot node to a door node. If so, it removes
-        that edge and waits for a new room to be created.
+        1) retrieves the edges from the graph labeled as `goto`, 2) searches for
+        an edge connecting a `robot` frame to a `door` frame, 3) transforms the
+        door coordinates to robot coordinates and checks if they are smaller than
+        100mm, and 4) if a suitable door is found, removes the self-edge and waits
+        for a new room to be created.
 
         """
         goto_edges = self.g.get_edges_by_type("goto")
         if len(goto_edges) > 0:
             # search if one of the edges in goto_edges goes to a door
             for edge in goto_edges:
-                if self.g.get_node_type(edge.fr) == "robot" and self.g.get_node_type(edge.to) == "door":
-                    robot_id = edge.fr
-                    door_id = edge.to
+                if edge.fr.name == "robot" and edge.to.name == "door":
                     # get door coordinates transformed to robot coordinates are smaller than 100mm
-                    door_coords_in_robot = self.inner_api(robot_id, door_id)
+                    door_coords_in_robot = self.inner_api(edge.fr.name, edge.to.name)
                     # check that door_coords_in_robot are smaller than 100mm
                     if np.sqrt(np.power(door_coords_in_robot[0], 2) + np.power(door_coords_in_robot[1], 2)) < 100:
                         # signal that the current room is not anymore by removing self-edge
-                        self.g.remove_edge(robot_id, door_id)
+                        self.g.remove_edge(edge.fr.name, edge.to.name, "current")
                         # wait for a new room to be created
 
 
