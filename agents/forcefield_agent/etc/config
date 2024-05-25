@@ -7,7 +7,7 @@ G2OoptimizerProxy = g2ooptimizer:tcp -h localhost -p 11212
 agent_id = 3 # Change id
 agent_name = forcefield_agent
 tree_view = false
-graph_view = false
+graph_view = true
 2d_view = true
 3d_view = false
 

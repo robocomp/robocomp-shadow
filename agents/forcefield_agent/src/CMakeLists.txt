@@ -38,7 +38,7 @@ ROBOCOMP_IDSL_TO_ICE( CommonBehavior G2Ooptimizer Lidar3D)
 ROBOCOMP_ICE_TO_SRC( CommonBehavior G2Ooptimizer Lidar3D)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
-QT_WRAP_UI( UI_HEADERS mainUI.ui )
+QT6_WRAP_UI( UI_HEADERS mainUI.ui localUI.ui)
 
 # no-char8_t to avoid a problem with ICE Connection lib.
 add_definitions(-fmax-errors=1 -fno-char8_t)
