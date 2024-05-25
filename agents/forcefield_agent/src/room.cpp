@@ -68,7 +68,7 @@ namespace rc
         rect.points(pts);
         Eigen::Matrix<float, 4, 2> rcorners;
         rcorners << Eigen::Vector2f(pts[0].x, pts[0].y), Eigen::Vector2f(pts[1].x, pts[1].y),
-                Eigen::Vector2f(pts[2].x, pts[2].y), Eigen::Vector2f(pts[3].x, pts[3].y);
+                    Eigen::Vector2f(pts[2].x, pts[2].y), Eigen::Vector2f(pts[3].x, pts[3].y);
         return rcorners;
     }
     std::vector<Eigen::Vector2f> Room::get_corners() const

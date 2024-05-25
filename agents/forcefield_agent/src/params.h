@@ -12,6 +12,7 @@ namespace rc
 {
     struct Params
     {
+        std::string robot_name = "Shadow";
         std::string lidar_name = "helios";
         std::vector<std::pair<float, float>> ranges_list = {{1000, 2500}};
         float MAX_LIDAR_LOW_RANGE = 10000;  // mm

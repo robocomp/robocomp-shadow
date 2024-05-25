@@ -17,6 +17,7 @@
 #include "room.h"
 #include <cmath>
 #include <ranges>
+#include <expected>
 
 namespace rc
 {
