@@ -308,7 +308,7 @@ void SpecificWorker::read_lidar()
 }
 void SpecificWorker::target_active_and_security_breach(const std::vector<Eigen::Vector2f> &displacements)
 {
-    qInfo() << "Target active and security breach -------------------------------";
+    qInfo() << __FUNCTION__ << " Target active and security breach -------------------------------";
     if (not displacements.empty())
     {
         // we need to find the element that is the minimum in the following cost function: J = target.eigen().transpose * a + a.norm()
@@ -365,17 +365,17 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     // check activation status of targets and combine results
     if(target.active and not reaction.active)
     {
-        qInfo() << "Target active and reaction NOT active";
+        qInfo() << __FUNCTION__ << " Target active and reaction NOT active";
         robot_current_speed = {t_side, t_adv, t_rot};
     }
     else if(target.active ) // also reaction.active is true
     {
-        qInfo() << "Target active and reaction active";
+        qInfo() << __FUNCTION__ << " Target active and reaction active";
         robot_current_speed = {params.LAMBDA_GAIN * t_side + (1 - params.LAMBDA_GAIN) * r_side, params.LAMBDA_GAIN * t_adv + (1 - params.LAMBDA_GAIN) * r_adv, t_rot};
     }
     else if(reaction.active) // also target.active is false
     {
-        qInfo() << "Target NOT active and reaction active";
+        qInfo() << __FUNCTION__ << " Target NOT active and reaction active";
         robot_current_speed = {r_side, r_adv, 0.f};
     }
     else
@@ -644,9 +644,7 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
         plan.controls.emplace_back(side*1000.f, adv*1000.f, rot);
         buffer_target.put(std::move(plan));
     }
-
 }
-
 
 ////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////

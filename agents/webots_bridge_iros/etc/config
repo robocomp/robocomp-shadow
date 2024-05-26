@@ -18,10 +18,10 @@ JoystickAdapterTopic.Endpoints=tcp -p 11025
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 agent_id = 10 # Change id
 agent_name = Webots2Robocomp
-tree_view = true
+tree_view = false
 graph_view = true
-2d_view = true
-3d_view = true
+2d_view = false
+3d_view = false
 #Ice.MessageSizeMax=20004800
 
 delay=False  # activate delay for the simulation

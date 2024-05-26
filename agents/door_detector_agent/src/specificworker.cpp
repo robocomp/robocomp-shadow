@@ -24,9 +24,6 @@
 SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
 {
 	this->startup_check_flag = startup_check;
-	// Uncomment if there's too many debug messages
-	// but it removes the possibility to see the messages
-	// shown in the console with qDebug()
 	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 
@@ -39,28 +36,12 @@ SpecificWorker::~SpecificWorker()
 	//G->write_to_json_file("./"+agent_name+".json");
 	auto grid_nodes = G->get_nodes_by_type("grid");
 	for (auto grid : grid_nodes)
-	{
 		G->delete_node(grid);
-	}
 	G.reset();
 }
 
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
-//	THE FOLLOWING IS JUST AN EXAMPLE
-//	To use innerModelPath parameter you should uncomment specificmonitor.cpp readConfig method content
-//	try
-//	{
-//		RoboCompCommonBehavior::Parameter par = params.at("InnerModelPath");
-//		std::string innermodel_path = par.value;
-//		innerModel = std::make_shared(innermodel_path);
-//	}
-//	catch(const std::exception &e) { qFatal("Error reading config params"); }
-
-
-
-
-
 	try
 	{
 		agent_name = params.at("agent_name").value;
@@ -72,7 +53,6 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
         this->consts.DISPLAY = params.at("display").value == "true" or (params.at("delay").value == "True");
     }
 	catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
-
 	return true;
 }
 
@@ -124,7 +104,6 @@ void SpecificWorker::initialize(int period)
 		}
 		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-
         widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
 
 		/***
@@ -143,9 +122,35 @@ void SpecificWorker::initialize(int period)
         // timers
         Period = 50;
         timer.start(Period);
-//        if( not consts.DISPLAY) hide();
+        //        if( not consts.DISPLAY) hide();
 	}
 }
+
+/// Proto CODE
+// general goal: waits for a room to have a "current" self edge. Check if there are nominal doors in it, detect doors from sensors and try to match both sets.
+//               The actions to take are:
+//                   1. if there is NO nominal door matching a measured one in the room, start stabilization procedure
+//                   2. if there is a nominal door matching a measured one, write in G the measured door as valid
+//                   3. if there is a nominal door NOT matching a measured one in the room, IGNORE for now.
+
+// requirements:
+
+// compute
+// real lidar data
+// check for robot and current room
+// get nominal doors from room in robot's frame  -> std::vector<Nominal_Doors> nominal_doors
+// get measured doors from lidar in robot's frame -> std::vector<Doors> measured_doors
+// match both sets
+// write each nominal door matching a measured door in G as a valid measured door
+// if there is a nominal door not matching a measured one, and is not being stabilized, start stabilization procedure for it
+//      one option is to start a thread for each door to stabilize. This thread would have to:
+//          1. initialize with current measured door and reset accumulators for trajectory
+//          2. create a "target" edge, meaning that the agent has an intention to reach a target. "target" edge has the agent id as attribute
+//          3. wait for the "target" edge to be upgraded to "goto" edge
+//          4. once the "goto" edge is active, start recording poses and landmarks
+//          5. once the target is reached, delete the "goto" edge and create a new "measured" door in G
+//          6. finish thread
+//     the thread has to respond when compute asks if a given measured door is being stabilized by it.
 
 void SpecificWorker::compute()
 {

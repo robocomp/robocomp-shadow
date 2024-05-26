@@ -226,6 +226,7 @@ void SpecificWorker::initialize(int period)
 		***/
 		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
 
+        hide();
         //Insert in the config?
         timer.start(Period);
     }
