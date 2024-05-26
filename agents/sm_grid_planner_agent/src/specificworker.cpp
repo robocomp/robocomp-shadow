@@ -83,57 +83,38 @@ void SpecificWorker::initialize(int period)
     }
     else
     {	
-	// create graph
-	G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
-    rt = G->get_rt_api();
-	std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
+        // create graph
+        G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
+        rt = G->get_rt_api();
+        std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;
 
-	//dsr update signals
-	connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-	connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-	connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
-	connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-	connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-	connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+        //dsr update signals
+        connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+        connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
+        connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
+        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
-	// Graph viewer
-	using opts = DSR::DSRViewer::view;
-	int current_opts = 0;
-	opts main = opts::none;
-	if(tree_view)
-	{
-	    current_opts = current_opts | opts::tree;
-	}
-	if(graph_view)
-	{
-	    current_opts = current_opts | opts::graph;
-	    main = opts::graph;
-	}
-	if(qscene_2d_view)
-	{
-	    current_opts = current_opts | opts::scene;
-	}
-	if(osg_3d_view)
-	{
-	    current_opts = current_opts | opts::osg;
-	}
-	graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
-	setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+        // Graph viewer
+        using opts = DSR::DSRViewer::view;
+        int current_opts = 0;
+        opts main = opts::none;
+        if(tree_view)
+            current_opts = current_opts | opts::tree;
+        if(graph_view)
+        {
+            current_opts = current_opts | opts::graph;
+            main = opts::graph;
+        }
+        if(qscene_2d_view)
+            current_opts = current_opts | opts::scene;
+        if(osg_3d_view)
+            current_opts = current_opts | opts::osg;
 
-    //Viewer
-
-
-        // grid
-    //QRectF dim{params.xMin, params.yMin, static_cast<qreal>(params.grid_width), static_cast<qreal>(params.grid_length)};
-	/***
-	Custom Widget
-	In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
-	The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
-	either with a QtDesigner or directly from scratch in a class of its own.
-	The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
-	***/
-
-    widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
+        graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+        setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+        widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
 
         // mouse
         connect(widget_2d, &DSR::QScene2dViewer::mouse_left_click, [this](QPointF p)
@@ -186,7 +167,7 @@ void SpecificWorker::initialize(int period)
             std::cout << __FUNCTION__ << "Odometry Reset" << std::endl;}
         catch (const Ice::Exception &e) { std::cout << "Error reading from LidarOdometry" << e << std::endl;}
 
-        //Set grid dimensions
+        // set grid dimensions in gridder componente
         try
         {
             gridder_proxy->setGridDimensions(RoboCompGridder::TDimensions{-7500, -7500, 15000, 15000});
@@ -198,12 +179,48 @@ void SpecificWorker::initialize(int period)
             std::terminate();
         }
         if(not params.DISPLAY)
-        {
             hide();
-        }
+
         timer.start(params.PERIOD);
     }
 }
+
+/// Proto CODE
+// general goal: detects a goto edge between the robot and another node (or itself) and makes everything possible to reach or "track" the target
+//               (people tracking could be done by another specialized agent)
+// requirements:
+//        a threshold distance can be set as an edge attribute to stop the robot when it is close enough to the target
+//        if the edge points to another node, the stop condition is computed as the furthest distance along the path that
+//            avoids collision with target and meets the threshold, if one.
+//        if the edge points to itself, it means the robot has to keep a speed updated in the edge attributes.
+//            No stop condition is computed but a deviating free path is computed if there are obstacles. Velocity vector is taken as target direction.
+//        if the edge points to the room, it means that the edge holds coordinates in room frame as an attribute
+//        to check that the target has been reached, it checks the distance minus the threshold and the sign of the time derivative of the distance
+//        for debugging, a debug agent can show a room-grid and take targets with the mouse. The target is written in G as a goto edge to the room with
+//           the corresponding room coordinates.
+//        the "goto" edge is NOT removed by this agent. Upon reaching the target, it remains there under control until other agent removes the edge.
+
+// resources
+//      the agent can use a "robot_gridder" and a "room_gridder" to compute a path if there is no LoS to the target.
+//      the agent can use a smoother such as MPC to refine the path, if available.
+//      If no griddera are available, it will compute a LoS path
+//      The path is executed by sending at a fixed rate the velocity commands to the Bumper
+//      The agent will monitor the execution of the path at all times, taking action when an unexpected event occurs.
+
+// compute
+// waits for a "goto" edge to be created in the graph. There can be only one goto edge at a time. Edge creation is detected by the "update_edge_signal"
+// if a "del_edge" signal has NOT been received
+//      compute target coordinates in robot frame (or extract velocity vector)
+//      if the target is reached, the agent stops the robot and waits for the "goto" edge to be removed (maybe create an "at_target" edge)
+//      if the target is not reached,
+//          check is there is a LoS path to the target using only lidar data. Note that if there is no gridder, it still has to compute the path
+//          if there is a LoS path, start sending commands to the Bumper.
+//          if there is no LoS path,
+//              if there is a gridder, compute a path to the target calling preferably a room_gridder.
+//              if there is no gridder, compute a LoS path to the obstacle that blocks the LoS path to the target.
+//              send commands to the Bumper
+//          register the command sent so the estimated position can be checked in the next iteration
+
 void SpecificWorker::compute()
 {
     // Check if auto edge exist. in case -> external control
@@ -219,9 +236,10 @@ void SpecificWorker::compute()
                 rot = rot_.value();
             if (auto side_ = G->get_attrib_by_name<robot_ref_side_speed_att>(robot_node.value()); side_.has_value())
                 side = side_.value();
-            RoboCompGridPlanner::TPlan returning_plan;
-            RoboCompGridder::TPath plan;            returning_plan.valid = true;
+            RoboCompGridPlanner::TPlan returning_plan{.valid = true};
+            RoboCompGridder::TPath plan;
             returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=adv, .side=side, .rot=rot});
+
             // Print values
             qInfo() << __FUNCTION__ << "Adv: " << adv << "Rot: " << rot << "Side: " << side;
             send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
@@ -246,7 +264,6 @@ void SpecificWorker::compute()
             return;
         }
     }
-
 
     /// read LiDAR
     auto res_ = buffer_lidar_data.try_get();
@@ -335,13 +352,13 @@ void SpecificWorker::compute()
     }
 
     qInfo() << __FUNCTION__ <<  "Transformed Target: " << target.pos_eigen().x() << target.pos_eigen().y();
+
     /// if robot is not tracking and at target, stop
     if(not target.is_tracked() and robot_is_at_target(target))
     {
         inject_ending_plan();
         return;
     }  /// check if target has been reached. Is reached, inject zero plan, empty buffer and return
-
 
     /// compute path
     RoboCompGridder::Result returning_plan = compute_path(Eigen::Vector2f::Zero(), target, robot_pose_and_change);
@@ -382,15 +399,9 @@ void SpecificWorker::compute()
         }
     }
 
-
-
-    /// MPC
     RoboCompGridPlanner::TPlan final_plan;
 
     //if returning_plan.paths.front().size() < 2 or dist to target < 1m
-
-
-
 
     if(returning_plan.paths.front().size() < 3)
     {
@@ -633,7 +644,7 @@ RoboCompGridder::Result SpecificWorker::compute_plan_from_grid(const Target &tar
         std::vector<Eigen::Vector2f> local_path;
         local_path.reserve(current_path.size());
         // get the inverse of the robot current pose wrt the last reset
-        const auto &inv = robot_pose_and_change.first.inverse().matrix();
+        const auto &inv = robot_pose_and_change.first.inverse();//.matrix();
         // it has to be the original path, not the current_path, since the robot_pose is accumulated from the last reset to lidar_odometry
         // the type in the lambda return must be explicit, otherwise it does not work
         std::ranges::transform(original_path, std::back_inserter(local_path), [inv](auto &p)
@@ -1270,10 +1281,14 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
         returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=0.f});
         send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
     }
+//     if (from == 200 and to == 200 and edge_tag == "TARGET")
+//    {
+//        qInfo() << __FUNCTION__ << "TARGET DELETED";    inject_ending_plan();
+//        cancel_from_mouse = true;
+//    }
 }
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {
-
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////// Interfaces

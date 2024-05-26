@@ -41,12 +41,6 @@ console = Console(highlight=False)
 from pydsr import *
 
 
-# If RoboComp was compiled with Python bindings you can use InnerModel in Python
-# import librobocomp_qmat
-# import librobocomp_osgviewer
-# import librobocomp_innermodel
-
-
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -55,8 +49,6 @@ class SpecificWorker(GenericWorker):
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 20
         self.g = DSRGraph(0, "G2O_agent", self.agent_id)
-
-
 
         if startup_check:
             self.startup_check()
@@ -76,13 +68,13 @@ class SpecificWorker(GenericWorker):
             self.measurement_noise_std_dev = 1  # Standard deviation for measurement noise
             # self.room_initialized = True if self.initialize_g2o_graph() else False
             # time.sleep(2)
+            self.elapsed = time.time()
             self.room_initialized = False
             self.iterations = 0
+            self.hide()
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
             self.init_graph = False
-
-
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -101,9 +93,13 @@ class SpecificWorker(GenericWorker):
     def setParams(self, params):
         return True
 
-
     @QtCore.Slot()
     def compute(self):
+        if time.time() - self.elapsed > 1:
+            print("Frame rate: ", self.iterations, " fps")
+            self.elapsed = time.time()
+            self.iterations = 0
+        self.iterations += 1
 
         if self.room_initialized:
             # Get robot odometry
@@ -123,7 +119,6 @@ class SpecificWorker(GenericWorker):
                                             [0.0, 1, 0.0],
                                             [0.0, 0.0, 0.1]])
                 # print("Odometry information:", odom_information)
-
 
 
                 # self.g2o.add_odometry(0.0,
@@ -178,17 +173,12 @@ class SpecificWorker(GenericWorker):
                     # self.g.insert_or_assign_edge(rt_robot_edge)
 
                 self.rt_api.insert_or_assign_edge_RT(room_node, robot_node.id, [opt_translation[0], opt_translation[1], 0], [0, 0, opt_orientation])
-                # self.g2o.optimizer.save("test_post.g2o")
-                # self.iterations += 1
-                # if self.iterations == 100:
                 self.last_odometry = robot_odometry   # Save last odometry
                 # print("Time elapsed compute:", time.time() - init_time)
         elif self.init_graph:
             self.room_initialized = True
             self.init_graph = False
             self.initialize_g2o_graph()
-
-
 
     def add_noise(self, value, std_dev):
         # print("Value", value, "Noise", np.random.normal(0, std_dev))

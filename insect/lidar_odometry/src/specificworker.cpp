@@ -61,6 +61,7 @@ void SpecificWorker::initialize(int period)
         if(display)
         {
             viewer = new AbstractGraphicViewer(this->frame, dim);
+            // TODO: get params from config
             auto [rob, las] = viewer->add_robot(400, 500, 0, 100, QColor("Blue"));
             robot_polygon = rob;
             viewer->show();
@@ -76,9 +77,13 @@ void SpecificWorker::initialize(int period)
         connect(resetButton, &QPushButton::clicked, [this]()
         {
             qInfo() << "[UI] Reset";
-            fastgicp.reset();
-            draw_path(true);
-            path.clear();
+            LidarOdometry_reset();
+        });
+
+        // path check button
+        connect(pathCheck, &QCheckBox::clicked, [this]()
+        {
+            qInfo() << "[UI] path check is " << pathCheck->isChecked();
         });
 
         // pause variable
@@ -95,6 +100,7 @@ void SpecificWorker::compute()
     if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
     {
         fps.print("No requests in the last 5 seconds. Pausing. Reset to continue", 3000);
+        pauseCheck->setChecked(true);
         return;
     }
     /// read LiDAR
@@ -102,10 +108,9 @@ void SpecificWorker::compute()
     if( auto res = read_lidar(); not res.has_value()) return;
     else pcl_cloud_source = res.value();
 
-    // gets accumulated pose and instantaneous change (first, second)
+    // get accumulated pose and instantaneous change (first, second)
     auto robot_pose = fastgicp.align(pcl_cloud_source);
 
-    
     buffer_odometry.put(std::move(robot_pose), [](auto &&input, auto &output)
             {
 
@@ -154,7 +159,7 @@ std::optional<pcl::PointCloud<pcl::PointXYZ>::Ptr> SpecificWorker::read_lidar()
     pcl_cloud_source->reserve(ldata.points.size());
     RoboCompLidar3D::TPoints lidar_points;
     for (const auto &[i, p]: ldata.points | iter::enumerate)
-        if(p.z > 1000)  // only points above 2m
+        if(p.z > 1000)  // only points above 1m   //TODO: move to config
         {
             pcl_cloud_source->emplace_back(pcl::PointXYZ{p.x / 1000.f, p.y / 1000.f, p.z / 1000.f});
             lidar_points.emplace_back(p);
@@ -230,7 +235,11 @@ void SpecificWorker::draw_robot(const Eigen::Isometry3d &robot_pose)
     robot_polygon->setRotation(robot_pose.rotation().eulerAngles(0, 1, 2).z() * 180.0 / M_PI);
     path.emplace_back(robot_pose.translation().x()*1000, robot_pose.translation().y()*1000);
     if(path.size() > 1000) path.erase(path.begin(), path.begin() + 1);
-    draw_path();
+    if(pathCheck->isChecked())
+        draw_path();
+    lcdNumber_X->display(robot_pose.translation().x()*1000);
+    lcdNumber_Y->display(robot_pose.translation().y()*1000);
+    lcdNumber_A->display(robot_pose.rotation().eulerAngles(0, 1, 2).z());
 }
 
 int SpecificWorker::startup_check()
@@ -255,6 +264,7 @@ void SpecificWorker::LidarOdometry_reset()
 {
     last_read.store(std::chrono::high_resolution_clock::now());
     fastgicp.reset();   // TODO: this might crash without a mutex
+    pauseCheck->setChecked(false);
 }
 RoboCompLidarOdometry::PoseAndChange SpecificWorker::LidarOdometry_getPoseAndChange()
 {

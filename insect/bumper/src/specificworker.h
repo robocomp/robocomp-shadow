@@ -92,7 +92,7 @@ public slots:
             float REPULSION_GAIN = 10.f;
             int PERIOD = 50;    // ms (20 Hz) for compute timer
             float LAMBDA_GAIN = 0.3f;   // gain to split contributions between the bumper and the target. 1 -> target
-            bool ENABLE_JOYSTICk = false;
+            bool ENABLE_JOYSTICk = true;
         };
         Params params;
 
