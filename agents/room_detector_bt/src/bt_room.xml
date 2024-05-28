@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4"
+      main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="MainSequence">
+      <Fallback>
+        <ExistsRoom/>
+        <CreateTargetEdge name="GoToCenter"/>
+      </Fallback>
+      <ReactiveFallback>
+        <InRoomCenter/>
+        <RoomStabilitation _description="Noe&apos;s algorithm"/>
+      </ReactiveFallback>
+      <CreateRoom/>
+      <Sleep msec="500"/>
+      <UpdateRoom/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="CreateRoom"
+            editable="true"/>
+    <Action ID="CreateTargetEdge"
+            editable="true"/>
+    <Condition ID="ExistsRoom"
+               editable="true"/>
+    <Condition ID="InRoomCenter"
+               editable="true"/>
+    <Action ID="RoomStabilitation"
+            editable="true"/>
+    <Action ID="UpdateRoom"
+            editable="true"/>
+  </TreeNodesModel>
+
+</root>
