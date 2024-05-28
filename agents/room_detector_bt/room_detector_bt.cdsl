@@ -1,0 +1,15 @@
+import "Lidar3D.idsl";
+import "G2Ooptimizer.idsl";
+
+Component room_detector_bt
+{
+    Communications
+    {
+        requires Lidar3D, G2Ooptimizer;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+
+};
+
