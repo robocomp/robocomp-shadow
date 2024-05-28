@@ -137,14 +137,15 @@ namespace Nodes
     BT::NodeStatus UpdateRoom::onStart()
     {
         std::cout << this->name() << "onStart" << std::endl;
+        check_corner_matching();
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus UpdateRoom::onRunning()
     {
-        std::cout << this->name() << "onRunning" << std::endl;
-        check_corner_matching();
-        update_room();
+//        std::cout << this->name() << "onRunning" << std::endl;
+//        check_corner_matching();
+//        update_room();
         return BT::NodeStatus::RUNNING;
     }
 

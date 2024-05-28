@@ -12,7 +12,6 @@
         <RoomStabilitation _description="Noe&apos;s algorithm"/>
       </ReactiveFallback>
       <CreateRoom/>
-      <Sleep msec="500"/>
       <UpdateRoom/>
     </Sequence>
   </BehaviorTree>
