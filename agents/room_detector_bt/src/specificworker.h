@@ -108,6 +108,7 @@ class SpecificWorker : public GenericWorker
         std::thread read_lidar_th;
         void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
         void draw_transformed_corners(QGraphicsScene *scene, QColor color="red");
+        void draw_nominal_corners_in_room_frame(QGraphicsScene *scene, const QColor &color="lightblue");
 
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
@@ -159,7 +160,7 @@ class SpecificWorker : public GenericWorker
 
         void insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> optimized_room_data, const rc::Room &current_room);
         std::vector<Eigen::Vector2d> get_transformed_corners(QGraphicsScene *scene);
-
+        std::tuple<std::vector<Eigen::Vector2d>, std::vector<Eigen::Vector2d>> get_transformed_corners_v2();
         string build_g2o_graph( const vector<std::vector<Eigen::Matrix<float, 2, 1>>> &corner_data,
                                const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,
                                const vector<Eigen::Vector2d> nominal_corners, const std::vector<Eigen::Vector2f> &room_sizes, std::vector<int> room_size);
@@ -175,6 +176,7 @@ class SpecificWorker : public GenericWorker
     BT::BehaviorTreeFactory factory;
     BT::Tree tree;
     std::thread BT_th;
+    bool update_room_valid = false;
 
     struct Data{
         double corner_matching_threshold = 1000;

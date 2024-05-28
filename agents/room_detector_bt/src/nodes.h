@@ -120,7 +120,6 @@ namespace Nodes
         std::function<void()> room_stabilitation;
     };
 
-
 #pragma endregion ACTION_NODES
 
 } // namespace Nodes

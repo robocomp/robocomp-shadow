@@ -120,7 +120,6 @@ void SpecificWorker::initialize(int period)
 //            return std::make_unique<Nodes::Test>(name, std::bind(set_robot_speeds));
 //        };
 
-
         this->factory.registerSimpleCondition("ExistsRoom", std::bind(Nodes::ExistsRoom, this->G));
         this->factory.registerNodeType<Nodes::CreateTargetEdge>("CreateTargetEdge", this->G);
         this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G, std::bind(&SpecificWorker::distance_to_center, this));
@@ -128,14 +127,7 @@ void SpecificWorker::initialize(int period)
         this->factory.registerNodeType<Nodes::CreateRoom>("CreateRoom", this->G, std::bind(&SpecificWorker::create_room, this));
         this->factory.registerNodeType<Nodes::UpdateRoom>("UpdateRoom", this->G, std::bind(&SpecificWorker::check_corner_matching, this),
                                                           std::bind(&SpecificWorker::update_room, this));
-
-//        this->factory.registerSimpleCondition("ExistsRoom", std::bind(Nodes::ExistsRoom, this->G));
-//        this->factory.registerNodeType<Nodes::CreateTargetEdge>("CreateTargetEdge", this->G);
-//        this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G, this);
-//        this->factory.registerNodeType<Nodes::RoomStabilitation>("RoomStabilitation", this->G, this);
-//        this->factory.registerNodeType<Nodes::CreateRoom>("CreateRoom", this->G, this);
-//        this->factory.registerNodeType<Nodes::UpdateRoom>("UpdateRoom", this->G, this);
-//        this->factory.registerNodeType<Nodes::DeleteTargetEdge>("DeleteTargetEdge", this->G, this);
+//        this->factory.registerNodeType<Nodes::UpdateRoomV2>("UpdateRoomV2", this->G, std::bind(&SpecificWorker::update_room, this));
 
         // Crear el árbol de comportamiento
         try
@@ -151,7 +143,7 @@ void SpecificWorker::initialize(int period)
         // Save the current time using std::chrono
         starting_time = std::chrono::system_clock::now();
 
-        hide();
+//        hide();
         // timers
         Period = params.PERIOD;    //  used in the lidar reader thread
         timer.start(Period);
@@ -160,7 +152,12 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    if(this->update_room_valid)
+    {
+        update_room();
+        draw_nominal_corners_in_room_frame(&widget_2d->scene);
 
+    }
 }
 
 void SpecificWorker::BTFunction()
@@ -174,7 +171,7 @@ void SpecificWorker::BTFunction()
         status = this->tree.tickOnce();
         std::cout << "BT function tree status: " << status << std::endl;
         //sleep with std::chrono
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 //        tree.sleep(std::chrono::milliseconds(50));
     }
     std::cout << "BT function end" << std::endl;
@@ -318,6 +315,7 @@ void SpecificWorker::check_corner_matching()
             }
         }
     }
+    this->update_room_valid = true;
 }
 
 void SpecificWorker::create_room()
@@ -573,7 +571,8 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
         }
     }
     // Transform optimized corners to robot frame
-    auto transformed_corners = get_transformed_corners(&widget_2d->scene);
+//    auto transformed_corners = get_transformed_corners(&widget_2d->scene);
+    auto [transformed_corners, _] = get_transformed_corners_v2();
     // Compare optimized corners with measured corners
     // Get room corners
     auto target_points_ = current_room.get_corners();
@@ -651,6 +650,7 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                         rt_corner_edge.value()); rt_translation.has_value())
             {
                 auto rt_translation_value = rt_translation.value().get();
+                std::cout << "RT_translation_value: " << rt_translation_value[0] << " " << rt_translation_value[1] << std::endl;
                 // Get robot pose
                 if (auto rt_robot_edge = rt->get_edge_RT(room_node, robot_node.id()); rt_robot_edge.has_value())
                     if (auto rt_translation_robot = G->get_attrib_by_name<rt_translation_att>(
@@ -661,8 +661,8 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                                     rt_robot_edge.value()); rt_rotation_robot.has_value())
                         {
                             auto rt_rotation_robot_value = rt_rotation_robot.value().get();
-//                            qInfo() << "Robot pose: " << rt_translation_robot_value[0] << " "
-//                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
+                            qInfo() << "Robot pose: " << rt_translation_robot_value[0] << " "
+                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
                             // Transform nominal corner position to robot frame
                             Eigen::Vector3f corner_robot_pos_point(rt_translation_value[0],
                                                                    rt_translation_value[1], 0.f);
@@ -672,6 +672,8 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                                                                                  wall_aux.name()); corner_transformed.has_value())
                             {
                                 auto corner_transformed_value = corner_transformed.value();
+                                std::cout << "Push back to rt_corner_values" << corner_transformed_value.x() << corner_transformed_value.y() << std::endl;
+                                std::cout << "Nominal corners in robot frame head(2)" << corner_transformed.value().head(2) << std::endl;
                                 rt_corner_values.push_back({corner_transformed_value.x(), corner_transformed_value.y()});
                             }
                             if (auto nominal_corner = inner_eigen->transform(room_node.name(),
@@ -705,6 +707,111 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
     }
     return rt_corner_values;
 }
+
+std::tuple<std::vector<Eigen::Vector2d>, std::vector<Eigen::Vector2d>>
+SpecificWorker::get_transformed_corners_v2()
+{
+    std::vector<Eigen::Vector2d> nominal_corners_in_robot_frame;
+    std::vector<Eigen::Vector2d> nominal_corners_in_room_frame;
+
+//    static std::vector<QGraphicsItem *> items;
+//    for (const auto &i: items) {
+//        scene->removeItem(i);
+//        delete i;
+//    }
+//    items.clear();
+
+    auto robot_node_ = G->get_node(params.robot_name);
+    if(not robot_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot node in graph"; return {}; }
+    auto robot_node = robot_node_.value();
+
+    //std::vector<Eigen::Vector3d> drawn_corners{4};
+    for (int i = 0; i < 4; i++)
+    {
+        auto corner_aux_ = G->get_node("corner_" + std::to_string(i));
+        if (not corner_aux_.has_value())
+        {
+            qWarning() << __FUNCTION__ << " No nominal corner " << i << " in graph";
+            return {};
+        }
+        auto corner_aux = corner_aux_.value();
+
+        auto wall_aux_ = G->get_node("wall_" + std::to_string(i));
+        if (not wall_aux_.has_value()) {
+            qWarning() << __FUNCTION__ << " No wall " << i << " in graph";
+            return {};
+        }
+        auto wall_aux = wall_aux_.value();
+
+        auto room_node_ = G->get_node("room"); //TODO: Ampliar si existe más de una room en el grafo
+        if(not room_node_.has_value())
+        { qWarning() << __FUNCTION__ << " No room level in graph"; return {}; }
+        auto room_node = room_node_.value();
+
+        if (auto rt_corner_edge = rt->get_edge_RT(wall_aux, corner_aux.id()); rt_corner_edge.has_value())
+            if (auto rt_translation = G->get_attrib_by_name<rt_translation_att>(
+                        rt_corner_edge.value()); rt_translation.has_value())
+            {
+                auto rt_translation_value = rt_translation.value().get();
+
+                // Get robot pose
+//                if (auto rt_robot_edge = rt->get_edge_RT(room_node, robot_node.id()); rt_robot_edge.has_value())
+//                    if (auto rt_translation_robot = G->get_attrib_by_name<rt_translation_att>(
+//                                rt_robot_edge.value()); rt_translation_robot.has_value())
+//                    {
+//                        auto rt_translation_robot_value = rt_translation_robot.value().get();
+//                        if (auto rt_rotation_robot = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(
+//                                    rt_robot_edge.value()); rt_rotation_robot.has_value())
+//                        {
+//                            auto rt_rotation_robot_value = rt_rotation_robot.value().get();
+
+                // Transform nominal corner position to robot frame
+                Eigen::Vector3f corner_robot_pos_point(rt_translation_value[0],
+                                                       rt_translation_value[1], 0.f);
+                auto corner_robot_pos_point_double = corner_robot_pos_point.cast<double>();
+                if (auto corner_transformed = inner_eigen->transform(robot_node.name(),
+                                                                     corner_robot_pos_point_double,
+                                                                     wall_aux.name()); corner_transformed.has_value())
+                {
+                    std::cout << "Nominal corners in robot frame x y: " << corner_transformed.value().x() << " " << corner_transformed.value().y() << std::endl;
+                    std::cout << "Nominal corners in robot frame head(2): " << corner_transformed.value().head(2) << std::endl;
+                    nominal_corners_in_robot_frame.push_back(corner_transformed.value().head(2));
+                }
+                if (auto nominal_corner = inner_eigen->transform(room_node.name(),
+                                                                 corner_robot_pos_point_double,
+                                                                 wall_aux.name()); nominal_corner.has_value())
+                {
+                    nominal_corners_in_room_frame.push_back(nominal_corner.value().head(2));
+
+//                                auto corner_transformed_value = nominal_corner.value();
+//                                drawn_corners[i] = corner_transformed_value;
+//                                // Print corner transformed value
+//                                qInfo() << "Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+//                                // Draw corner
+//                                auto item = scene->addEllipse(-100, -100, 200, 200, QPen(QColor("green"), 100), QBrush(QColor("green")));
+//                                item->setPos(corner_transformed_value.x(), corner_transformed_value.y());
+//                                items.push_back(item);
+//                                // Draw line between ellipses
+//                                if(i > 0)
+//                                {
+//                                    if(i == 3)
+//                                    {
+//                                        auto line2 = scene->addLine(drawn_corners[0].x(), drawn_corners[0].y(), drawn_corners[i].x(), drawn_corners[i].y(), QPen(QColor("blue"), 100));
+//                                        items.push_back(line2);
+//                                    }
+//                                    auto line = scene->addLine(drawn_corners[i-1].x(), drawn_corners[i-1].y(), drawn_corners[i].x(), drawn_corners[i].y(), QPen(QColor("blue"), 100));
+//                                    items.push_back(line);
+
+//                               }
+                }
+                //                       }
+                //                   }
+            }
+    }
+    return {nominal_corners_in_robot_frame, nominal_corners_in_room_frame};
+}
+
 std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> SpecificWorker::get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth)
 {
     // Cast first corners to Eigen::Vector2d
@@ -825,10 +932,10 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
     if (auto edge_robot_ = rt->get_edge_RT(room_node, robot_node.id()); edge_robot_.has_value())
     {
         //get the rt values from edge in of corner measured nodes and insert the in a std::vector
-        std::vector<Eigen::Vector2d> rt_corner_values;
+//        std::vector<Eigen::Vector2d> rt_corner_values;
 
         //OBTENER CORNERS NOMINALES TRANSFORMADOS
-        rt_corner_values = get_transformed_corners(&widget_2d->scene);
+        auto [rt_corner_values, _] = get_transformed_corners_v2();
 
         //print rt_corner_values
         for(const auto &corner : rt_corner_values)
@@ -1379,7 +1486,30 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsSce
         items.push_back(item);
     }
 }
+void SpecificWorker::draw_nominal_corners_in_room_frame(QGraphicsScene *scene, const QColor &color)
+{
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ scene->removeItem(i); delete i;}
+    items.clear();
 
+    // get corners from G
+    auto [_, nominal_corners] = get_transformed_corners_v2();
+
+    // draw corners
+    for(const auto &corner: nominal_corners)
+    {
+        auto item = scene->addEllipse(-200, -200, 400, 400, QPen(color, 100), QBrush(color));
+        item->setPos(corner.x(), corner.y());
+        items.push_back(item);
+
+    }
+    // draw polygon with the corners
+    QPolygonF poly;
+    for(const auto &corner: nominal_corners)
+        poly << QPointF(corner.x(), corner.y());
+    auto poly_item = scene->addPolygon(poly, QPen(QColor("red"), 100));
+    items.push_back(poly_item);
+}
 ////////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
