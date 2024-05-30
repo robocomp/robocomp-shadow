@@ -38,6 +38,24 @@ import pyautogui
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, params, startup_check=False):
+        """
+        Initializes a `SuperWorker` instance with various parameters and settings,
+        including the physics client, simulation time, time step, forward speed,
+        ellipse path, and collision shape. It also sets up event handling for
+        displaying and updating the simulation.
+
+        Args:
+            proxy_map (dict): 3D object or character that is being controlled by
+                the agent, and it is used to generate the appropriate collision
+                shape for the object in PyBullet.
+            params (dict): 3D environment parameters, such as geometry, materials,
+                and collision shapes, which are used to initialize the physics
+                engine and generate the robot's movement path.
+            startup_check (int): outcome of checking the status of PyBullet upon
+                initialization, which may include launching the GUI or running the
+                simulation directly, and it is not executed if it's false.
+
+        """
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 1000
         if startup_check:
@@ -50,7 +68,7 @@ class SpecificWorker(GenericWorker):
             print("DISPLAY", self.display)
             # Start PyBullet in GUI mode
             if self.display:
-                self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
+                self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphic user interface, p.DIRECT to hide it
             else:
                 self.physicsClient = p.connect(p.DIRECT)
 
@@ -142,6 +160,19 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         # try:
+        """
+        Sets the `display` attribute of an object based on a provided configuration
+        parameter.
+
+        Args:
+            params (dict): configuration parameters provided to the function, which
+                determines the value of `self.display`.
+
+        Returns:
+            bool: a boolean value indicating whether the display parameter is set
+            to true or false.
+
+        """
         print("Params read. Starting...", params)
         self.display = params["display"] == "true" or params["display"] == "True"
 
@@ -153,6 +184,16 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # print simulation time
+        """
+        Simulates a physics engine and performs the following tasks:
+        1/ Generates high-quality documentation for given code.
+        2/ Calculates the forward direction based on orientation.
+        3/ Moves the person based on its target position and speed.
+        4/ Applies an external force to move the cylinder towards the desired position.
+        5/ Computes the view matrix and projection matrix for rendering.
+        6/ Captures a camera image of the scene and converts it to OpenCV's BGR format.
+
+        """
         pass
         # if not self.singleshot_simple:
         #     self.mission(self.data_dict)
@@ -222,6 +263,49 @@ class SpecificWorker(GenericWorker):
 
     def generate_equidistant_path(self, x, y, z, d):
         # Calcular la distancia total al punto dado
+        """
+        Calculates the number of points needed to cover a given distance using a
+        vector of length equal to the desired distance, and generates a path of
+        evenly spaced points along that vector.
+
+        Args:
+            x (ndarray (i.e., a Python object of class `numpy.array`).): 2D
+                coordinate of the point along the equispaced path.
+                
+                		- `x`: The initial position of the path, represented as a 3D
+                array with shape `(N,)`. where `N` is the number of points in the
+                path.
+            y (scalar number.): 2D coordinate of the point on the line that will
+                be used to calculate the distance.
+                
+                	1/ `y`: The input value is a scalar representing the vertical
+                coordinate of the point on the curve. It is used to calculate the
+                position of the point in the 3D space.
+            z (numeric (or numerical).): 3D coordinate of the points in the generated
+                path.
+                
+                		- `z`: A 3D numerical array representing the target distance in
+                each direction.
+            d (int): distance value that the function needs to cover in order to
+                generate the path.
+
+        Returns:
+            ndarray` (a multi-dimensional NumPy array: a list of `num_points`
+            points on a sphere, evenly spaced along a path from the origin to a
+            specified destination.
+            
+            		- `path_points`: A numpy array containing the equidistant points on
+            the surface, with dimensions `(x, y, z)`
+            		- Length: The number of points in the `path_points` array is
+            `num_points`, which is calculated using the formula `int(total_distance
+            / d) + 1`.
+            		- Distribution: The points are distributed evenly across the surface
+            of the cube, with no gaps or overlaps.
+            		- Spatial relationship: The points are spaced equidistant from each
+            other in all three dimensions, regardless of the location of the
+            starting point.
+
+        """
         total_distance = np.sqrt(x ** 2 + y ** 2 + z ** 2)
 
         # Calcular el número de puntos necesario para lograr la distancia deseada
@@ -233,6 +317,21 @@ class SpecificWorker(GenericWorker):
         return path_points
     def mission(self, data):
 
+        """
+        Takes as input a dictionary containing obstacles' position and radius, a
+        path for a person (as a list of x y coordinates), speed, and time step.
+        It simulates a person following the given path using the physics engine,
+        updates the pose of the person in case of contact with obstacles, and
+        returns if the path was completed successfully or not.
+
+        Args:
+            data (dict): 3D robot simulation data structure containing information
+                about the robot's position, orientation, and obstacles in the environment.
+
+        Returns:
+            tuple: a tuple of three values: `True`, `sim_time`, and `person_collision_pose`.
+
+        """
         t1 = time.time()
         # Especificar las dimensiones del cilindro
         cylinder_radius = 0.20
@@ -322,12 +421,38 @@ class SpecificWorker(GenericWorker):
     def mouse_click(self, event, x, y, flags, param):
 
         # to check if left mouse  button was clicked
+        """
+        Adjusts the yaw angle of a camera based on the left and right mouse button
+        presses, respectively increasing or decreasing the yaw angle by one unit.
+
+        Args:
+            event (int): mouse button pressed, with possible values of
+                `cv2.EVENT_LBUTTONDOWN` for the left button and `cv2.EVENT_RBUTTONDOWN`
+                for the right button, indicating the direction of yaw rotation.
+            x (float): 2D mouse position in the image coordinate system and is
+                used to calculate the corresponding angle change for the camera
+                yaw movement.
+            y (int): 3D orientation of the object in the world, and the function
+                increments or decrements its value based on the presses of the
+                left and right mouse buttons, respectively.
+            flags (int): 3D mouse buttons and indicates whether the left or right
+                button was pressed, with a value of 0 for the left button and 1
+                for the right button.
+            param (int): 3D mouse position and provides the change in yaw angle
+                based on the left or right mouse button press.
+
+        """
         if event == cv2.EVENT_LBUTTONDOWN:
             self.yaw += 1
         if event == cv2.EVENT_RBUTTONDOWN:
             self.yaw -= 1
 
     def startup_check(self):
+        """
+        Tests RoboCompBulletSim's `TPoint` and `Result` classes and then quits the
+        application after 200 milliseconds.
+
+        """
         print(f"Testing RoboCompBulletSim.TPoint from ifaces.RoboCompBulletSim")
         test = ifaces.RoboCompBulletSim.TPoint()
         print(f"Testing RoboCompBulletSim.Result from ifaces.RoboCompBulletSim")
@@ -444,6 +569,54 @@ class SpecificWorker(GenericWorker):
         # write your CODE here
         #
 	
+        """
+        Modifies a set of waypoints to have their X and Y coordinates scaled by
+        1000, then feeds the path into a separate function called `mission` to
+        generate collision information. The result is returned as an object with
+        collision, collision time, and collision pose components in mm units.
+
+        Args:
+            path (float): 2D path for the robot to follow, which is processed and
+                used to determine collision detection and response.
+            speed (int): speed at which the robot should move to navigate through
+                the obstacles in the environment, and it is used in the mission
+                computation to determine the appropriate motion planning and control
+                commands for the robot to follow the desired path while avoiding
+                collisions.
+            obstacles (`obbule`.): 3D positions of obstacles that the robot must
+                avoid during its motion, and is used in the simulation to check
+                for collisions with those obstacles.
+                
+                		- `speed`: A floating-point number representing the velocity of
+                the robot (in mm/s).
+                		- `obstacles`: A list of obstacle objects, where each obstacle
+                object has the following properties:
+                		+ `position`: A 3D float vector representing the position of the
+                obstacle in the world frame (in mm).
+                		+ `size`: A floating-point number representing the size of the
+                obstacle (in mm).
+                		+ `orientation`: A 3D float vector representing the orientation
+                of the obstacle in the world frame (in radians).
+
+        Returns:
+            ifaces.RoboCompBulletSim.Result: a `RoboCompBulletSim.Result` object
+            containing collision, collision time, and collision pose information.
+            
+            		- `collision`: This is a boolean value that indicates whether there
+            was a collision during the simulation or not. If `True`, it means there
+            was a collision, otherwise, it means no collision occurred.
+            		- `collisionTime`: This is a floating-point number representing the
+            time it took for the robot to collide with an obstacle during the
+            simulation. It is expressed in seconds.
+            		- `collisionPose`: This is a 3D vector representing the position of
+            the robot when it collided with an obstacle during the simulation. Its
+            components are expressed in meters (m).
+            
+            	Therefore, these properties can be used to determine whether there
+            was a collision, how long it took for the robot to collide, and where
+            exactly it collided during the simulation.
+
+        """
         for point in path:
             point.x, point.y = point.x / 1000, point.y / 1000
 
