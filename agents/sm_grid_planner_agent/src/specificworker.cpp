@@ -1281,11 +1281,12 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
         returning_plan.controls.emplace_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=0.f});
         send_and_publish_plan(returning_plan);  // send zero plan to stop robot in bumper
     }
-//     if (from == 200 and to == 200 and edge_tag == "TARGET")
-//    {
-//        qInfo() << __FUNCTION__ << "TARGET DELETED";    inject_ending_plan();
-//        cancel_from_mouse = true;
-//    }
+
+    if (from == 200 and to == 200 and edge_tag == "TARGET")
+    {
+        qInfo() << __FUNCTION__ << "TARGET DELETED";    inject_ending_plan();
+        cancel_from_mouse = true;
+    }
 }
 void SpecificWorker::del_node_slot(std::uint64_t from)
 {

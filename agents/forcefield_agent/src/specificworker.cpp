@@ -691,6 +691,8 @@ std::tuple<std::vector<Eigen::Vector2d>, std::vector<Eigen::Vector2d>>
                                                                                  corner_robot_pos_point_double,
                                                                                  wall_aux.name()); corner_transformed.has_value())
                             {
+                                std::cout << "Nominal corners in robot frame x y" << corner_transformed.value().x() << " " << corner_transformed.value().y() << std::endl;
+                                std::cout << "Nominal corners in robot frame head(2)" << corner_transformed.value().head(2) << std::endl;
                                 nominal_corners_in_robot_frame.push_back(corner_transformed.value().head(2));
                             }
                             if (auto nominal_corner = inner_eigen->transform(room_node.name(),

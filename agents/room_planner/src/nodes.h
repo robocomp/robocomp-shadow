@@ -7,7 +7,8 @@
 namespace Nodes
 {
 
-////////////////////////////////////////// CONDITION NODES ////////////////////////////////////////////
+#pragma region CONDITION_NODES
+
 BT::NodeStatus IsDoor(std::shared_ptr<DSR::DSRGraph> G_);
 
 class IsPerson : public BT::ConditionNode {
@@ -50,7 +51,10 @@ private:
     std::shared_ptr<DSR::DSRGraph> G;
 };
 
-//////////////////////////////////////////// ACTION NODES ////////////////////////////////////////////
+#pragma endregion CONDITION_NODES
+
+#pragma region ACTION_NODES
+
 class MoveToDoor : public BT::SyncActionNode {
     public:
         MoveToDoor(const std::string& name) : BT::SyncActionNode(name, {}) {}
@@ -112,6 +116,31 @@ public:
 private:
     std::shared_ptr<DSR::DSRGraph> G;
 };
+
+class ChoosePerson : public BT::SyncActionNode
+{
+public:
+    ChoosePerson(const std::string& name) :
+            BT::SyncActionNode(name, {})
+    {}
+    ChoosePerson(const std::string& name, const BT::NodeConfig& config, std::shared_ptr<DSR::DSRGraph> G_) :
+            BT::SyncActionNode(name, config), G(G_) {}
+
+    static BT::PortsList providedPorts()
+    {
+        // This action has a single input port called "message"
+        return { BT::InputPort<std::string>("person") };
+    }
+
+protected:
+    virtual BT::NodeStatus tick() override;
+
+private:
+    std::shared_ptr<DSR::DSRGraph> G;
+    std::vector<int> visited_people;
+};
+
+#pragma endregion ACTION_NODES
 
 /*class GoThroughDoor : public BT::SyncActionNode {
     public:

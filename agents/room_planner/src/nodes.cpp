@@ -2,7 +2,9 @@
 
 namespace Nodes
 {
-////////////////////////////////////////// CONDITION NODES ////////////////////////////////////////////
+
+#pragma region CONDITION_NODES
+
     BT::NodeStatus IsDoor(std::shared_ptr<DSR::DSRGraph> G)
     {
         if (std::optional<DSR::Node> person_node_ = G->get_node("person_1"); person_node_.has_value())
@@ -46,7 +48,7 @@ namespace Nodes
 
     BT::NodeStatus Reached::tick()
     {
-        std::cout << this->name() << std::endl;
+//        std::cout << this->name() << std::endl;
 
         BT::Expected<std::string> msg = getInput<std::string>("person");
         // Check if expected is valid. If not, throw its error
@@ -70,10 +72,12 @@ namespace Nodes
                 {
                     auto rt_translation_value = rt_translation.value().get();
                     auto norm = std::sqrt(rt_translation_value[0] * rt_translation_value[0] + rt_translation_value[1] * rt_translation_value[1]);
-                    if (norm < 200)
+                    std::cout << "Norm: " << norm << std::endl;
+
+                    if (norm < 1500.)
                     {
                         std::cout << "Reached person successful" << std::endl;
-                        G->delete_edge(robot_node.id(), person_node.id(), "goto_action");
+//                        G->delete_edge(robot_node.id(), person_node.id(), "goto_action");
                         return BT::NodeStatus::SUCCESS;
                     }
                     else
@@ -93,7 +97,9 @@ namespace Nodes
         return BT::NodeStatus::FAILURE;
     }
 
-//////////////////////////////////////////// ACTION NODES ////////////////////////////////////////////
+#pragma endregion CONDITION_NODES
+
+#pragma region ACTION_NODES
 
     BT::NodeStatus Rotate::onStart()
     {
@@ -144,6 +150,20 @@ namespace Nodes
         }
     }
 
+    BT::NodeStatus ChoosePerson::tick()
+    {
+        std::cout << this->name() << std::endl;
+
+        BT::Expected<std::string> msg = getInput<std::string>("person");
+        // Check if expected is valid. If not, throw its error
+        if (!msg)
+            throw BT::RuntimeError("MOVETOPERSON: missing required input [message]: ", msg.error());
+
+        return BT::NodeStatus::SUCCESS;
+
+    }
+
+#pragma endregion ACTION_NODES
 
 //    BT::NodeStatus MoveToDoor::tick()
 //    {

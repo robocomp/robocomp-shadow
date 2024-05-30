@@ -50,7 +50,7 @@ class SpecificWorker(GenericWorker):
             print("DISPLAY", self.display)
             # Start PyBullet in GUI mode
             if self.display:
-                self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphio user interface, p.DIRECT to hide it
+                self.physicsClient = p.connect(p.GUI) # p.GUI to see the graphic user interface, p.DIRECT to hide it
             else:
                 self.physicsClient = p.connect(p.DIRECT)
 
