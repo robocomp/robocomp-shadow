@@ -129,7 +129,7 @@ void SpecificWorker::initialize(int period)
         // Registrar nodos
 //        this->factory.registerSimpleCondition("IsDoor", std::bind(Nodes::IsDoor, this->G));
 //        this->factory.registerNode    Type<Nodes::MoveToDoor>("MoveToDoor", this->G);
-
+        this->factory.registerNodeType<Nodes::ChoosePerson>("ChoosePerson", this->G);
         this->factory.registerNodeType<Nodes::IsPerson>("IsPerson", this->G);
         this->factory.registerNodeType<Nodes::Rotate>("Rotate", this->G);
         this->factory.registerNodeType<Nodes::Reached>("Reached", this->G);
@@ -157,12 +157,10 @@ void SpecificWorker::compute()
 
 void SpecificWorker::BTFunction()
 {
-
     while(true)
     {
-        std::cout << "BTFunction" << std::endl;
         auto status = this->tree.tickOnce();
-        std::cout << "STATUS: " << status << std::endl;
+        std::cout << "BT function tree status: " << status << std::endl;
         sleep(1);
     }
 }

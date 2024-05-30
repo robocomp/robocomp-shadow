@@ -1,16 +1,21 @@
 CommonBehavior.Endpoints=tcp -p 10000
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 G2OoptimizerProxy = g2ooptimizer:tcp -h localhost -p 11212
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
-agent_id = 456# Change id
-agent_name = forcefield_agent
+
+agent_id = 55 # Change id
+agent_name = door_detector_agent
 tree_view = false
 graph_view = true
 2d_view = true
 3d_view = false
+#Ice.MessageSizeMax=20004800
 
+display = true
+
+InnerModelPath = innermodel.xml
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0
