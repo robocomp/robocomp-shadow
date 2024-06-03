@@ -78,8 +78,20 @@ namespace Nodes
         DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(shadow_node.id(), room_measured.id());
 
         // Valid attribute of intention edge. Should be set by the SCHEDULER
-        G->add_or_modify_attrib_local<valid_att>(intention_edge, true);
+        G->add_or_modify_attrib_local<valid_att>(intention_edge, false);
 
+        /// Set robot target to a position close to the room center
+        std::vector<float> offset_target = {0, 0, 0};
+        G->add_or_modify_attrib_local<offset_xyz_att>(intention_edge, offset_target);
+
+        /// Set tolerance to reach the target
+        std::vector<float> tolerance = {100, 100, 0.f, 0.f, 0.f, 0.5};
+        G->add_or_modify_attrib_local<tolerance_att>(intention_edge, tolerance);
+
+        /// Set intention status to "waiting"
+        std::string intention_status = "waiting";
+        G->add_or_modify_attrib_local<state_att>(intention_edge, intention_status);
+        
         if (G->insert_or_assign_edge(intention_edge))
         {
             std::cout << __FUNCTION__ << " Intention edge successfully inserted: " << std::endl;
