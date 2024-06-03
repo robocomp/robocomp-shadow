@@ -102,31 +102,28 @@ class SpecificWorker : public GenericWorker
         float max_robot_advance_speed = 800.0;
         float max_robot_side_speed = 200;
 
-
         // Lidar
         void read_lidar();
         std::thread read_lidar_th;
         void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
         void draw_transformed_corners(QGraphicsScene *scene, QColor color="red");
         void draw_nominal_corners_in_room_frame(QGraphicsScene *scene, const QColor &color="lightblue");
-
         DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
         void generate_target_edge(DSR::Node node);
 
-        // Lines extractor
+        // Room features
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
-
         void update_room_data(const rc::Room_Detector::Corners &corners, QGraphicsScene *scene);
         std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
-
         void create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal=true);
         void create_corner(int id, const std::vector<float> &p, DSR::Node parent_node, bool nominal=true);
 
         void check_room_orientation();
         bool is_on_a_wall(float x, float y, float width, float depth);
         static uint64_t get_actual_time();
+
         // fps
         FPSCounter fps;
 
@@ -178,7 +175,8 @@ class SpecificWorker : public GenericWorker
     std::thread BT_th;
     bool update_room_valid = false;
 
-    struct Data{
+    struct Data
+    {
         double corner_matching_threshold = 1000;
         bool corner_matching_threshold_setted = false;
         Eigen::Matrix<float,2,1> room_center = {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()};
@@ -193,7 +191,6 @@ class SpecificWorker : public GenericWorker
     void BTFunction();
 
 };
-
 #include "nodes.h"
 
 #endif

@@ -76,7 +76,7 @@ void icp::align()
             }
 
             // Almacenar la correspondencia encontrada
-            correspondences.push_back({*source_iter, closest_point});
+            correspondences.push_back({*source_iter, closest_point});  // TODO: Cambiar a emplace_back
 
             // Eliminar los puntos correspondientes de sus vectores originales
             source_iter = source_points_copy.erase(source_iter);
