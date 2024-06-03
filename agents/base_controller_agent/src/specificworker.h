@@ -72,6 +72,7 @@ class SpecificWorker : public GenericWorker
 
         struct Params
         {
+            std::string robot_name = "Shadow";
             float ROBOT_WIDTH = 460;  // mm
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
@@ -124,8 +125,21 @@ class SpecificWorker : public GenericWorker
         //  draw
         void draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color="green", int step=1);
 
+        // RT APi
+        std::unique_ptr<DSR::RT_API> rt_api;
+        std::unique_ptr<DSR::InnerEigenAPI> inner_api;
 
+        // path
+        std::list<Eigen::Vector2f> current_path;  // list to remove elements from the front
 
+        std::optional<DSR::Edge> there_is_intention_edge_marked_as_valid();
+        bool target_node_is_measurement(const DSR::Edge &edge);
+        optional<Eigen::Vector3d> get_translation_vector_from_target_node(const DSR::Edge &edge);
+        bool robot_at_target(const Eigen::Vector3d &matrix, const DSR::Edge &edge);
+        void stop_robot();
+        bool line_of_sight(const Eigen::Vector3d &matrix);
+        std::tuple<float, float, float> compute_velocity_commands(const Eigen::Vector3d &matrix);
+        void send_velocity_commands(float advx, float advz, float rot);
 };
 
 #endif
