@@ -100,6 +100,7 @@ void SpecificWorker::initialize(int period)
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
         // get pointer to 2D viewer
         widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
+        widget_2d->set_draw_axis(true);
 
 		/***
 		Custom Widget
@@ -108,7 +109,10 @@ void SpecificWorker::initialize(int period)
 		either with a QtDesigner or directly from scratch in a class of its own.
 		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 		***/
-		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
+
+        room_widget = new CustomWidget();
+   	    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
+
 
         // Lidar thread is created
         read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
@@ -134,42 +138,60 @@ void SpecificWorker::initialize(int period)
 //             else send velocity commands to the bumper for the next path step
 //          ask local_gridder for a path to the target position
 
-
 void SpecificWorker::compute()
 {
     /// read LiDAR
     auto ldata = buffer_lidar_data.get_idemp();
 
     /// draw lidar in robot frame
-    //draw_lidar(ldata, &widget_2d->scene, 50);
+    draw_lidar_in_robot_frame(ldata, &widget_2d->scene, 50);
+
+    // check if there is a room with a current self pointing edge
+    //draw_room_frame(ldata, &room_widget->viewer->scene);  // draws lidar and robot in room frame
+
+    /// check if pushButton_stop is checked and stop robot and return if so
+    if(room_widget->ui->pushButton_stop->isChecked())
+    { qWarning() << __FUNCTION__ << " Stop button checked"; stop_robot(); return; }
 
     /// check if there is a "has_intention" edge in G. If so get the intention edge
     DSR::Edge intention_edge;
-    if( auto intention_edge_ =  there_is_intention_edge_marked_as_valid(); not intention_edge_.has_value() )
-    { std::cout << __FUNCTION__ << "There is no intention edge. Returning." << std::endl; return;}
+    if( auto intention_edge_ =  there_is_intention_edge_marked_as_active(); not intention_edge_.has_value() )
+    {
+        std::cout << __FUNCTION__ << " There is no intention edge. Returning." << std::endl;
+        stop_robot();
+        return;
+    }
+    else intention_edge = intention_edge_.value();
+
+    qInfo() << intention_edge.from() << intention_edge.to();
+    std::cout << rt_api->get_translation(intention_edge.from(), intention_edge.to()).value() << std::endl;
 
     /// Check if there is final orientation and tolerance in the intention edge
 //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
 //    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
 //        orientation = { orientation_.value().get()[0], orientation_.value().get()[1], orientation_.value().get()[2] };
 //
-
     /// Get translation vector from target node with offset applied to it
     Eigen::Vector3d vector_to_target = Eigen::Vector3d::Zero();
     if(auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
-    { qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning."; return;}
+    {
+        qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning.";
+        return;
+    }
     else vector_to_target = vector_to_target_.value();
+
+    std::cout << __FUNCTION__ << "\n [" << vector_to_target << "]" << std::endl;
+    draw_vector_to_target(vector_to_target, &widget_2d->scene );
 
     /// If robot is at target, stop
     if(robot_at_target(vector_to_target, intention_edge))
     {   stop_robot(); return;}
 
     /// Check if the target position is in line of sight
-    if( line_of_sight(vector_to_target) )
+    if( line_of_sight(vector_to_target, ldata) )
     {
-        // compute rotation, advance and side speed. Send to bumper
-        auto [adv, side, rot] = compute_velocity_commands(vector_to_target);
-        send_velocity_commands(adv, side, rot);
+        auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
+        move_robot(adv, side, rot);
         return;
     }
 
@@ -215,16 +237,16 @@ void SpecificWorker::read_lidar()
             buffer_lidar_data.put(std::move(eig_data));
         }
         catch (const Ice::Exception &e)
-        { std::cout << "Error reading from Lidar3D" << e << std::endl; }
+        { std::cout << "Error reading from Lidar3D " << e << std::endl; }
         std::this_thread::sleep_for(wait_period);
     }
 } // Thread to read the lidar
-std::optional<DSR::Edge> SpecificWorker::there_is_intention_edge_marked_as_valid()
+std::optional<DSR::Edge> SpecificWorker::there_is_intention_edge_marked_as_active()
 {
     auto edges = G->get_edges_by_type("has_intention");
     for(const auto &edge: edges)
     {
-        if(G->get_attrib_by_name<valid_att>(edge).has_value() && G->get_attrib_by_name<valid_att>(edge).value())
+        if(G->get_attrib_by_name<active_att>(edge).has_value() && G->get_attrib_by_name<active_att>(edge).value())
             return edge;
     }
     return {};
@@ -272,7 +294,7 @@ std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_from_targe
     return {};
 }
 /////////////////// Draw  /////////////////////////////////////////////////////////////
-void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color, int step)
+void SpecificWorker::draw_lidar_in_robot_frame(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color, int step)
 {
     static std::vector<QGraphicsItem *> items;
     for(const auto &i: items){ scene->removeItem(i); delete i;}
@@ -287,6 +309,19 @@ void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraph
         items.push_back(item);
     }
 }
+void SpecificWorker::draw_vector_to_target(const Eigen::Vector3d &target, QGraphicsScene *pScene)
+{
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ pScene->removeItem(i); delete i;}
+    items.clear();
+
+    items.push_back(pScene->addLine(0, 0, target.x(), target.y(), QPen(QColor("red"), 10)));
+    auto item = pScene->addEllipse(-50, -50, 100, 100, QPen(QColor("red"), 20), QBrush(QColor("red")));
+    item->setPos(target.x(), target.y());
+    items.push_back(item);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
 bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::Edge &edge)
 {
     // get tolerance from intention edge
@@ -299,20 +334,84 @@ bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::E
 }
 void SpecificWorker::stop_robot()
 {
-
+    try
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        RoboCompGridPlanner::TPlan plan = {.path={}, .controls={}, .timestamp=now, .subtarget={} , .valid=false};
+        gridplanner_proxy->setPlan(plan);
+    }
+    catch (const Ice::Exception &e) { std::cout << "Error sending target to bumper" << e << std::endl; }
 }
-bool SpecificWorker::line_of_sight(const Eigen::Vector3d &matrix)
+std::tuple<float, float, float> SpecificWorker::compute_line_of_sight_target_velocities(const Eigen::Vector3d &vector_to_target)
 {
-    return false;
-}
-std::tuple<float, float, float> SpecificWorker::compute_velocity_commands(const Eigen::Vector3d &matrix)
-{
+    // final point control. adv velocity is proportional to the distance to the target, clamped with params.MAX_ADV_VELOCITY
+    float adv = std::clamp( (float)vector_to_target.y(), 0.f, params.MAX_ADVANCE_VELOCITY);
+    float side = std::clamp( (float)vector_to_target.x(), -params.MAX_SIDE_VELOCITY, params.MAX_SIDE_VELOCITY);
+    float rot = std::clamp( (float)atan2(vector_to_target.x(), vector_to_target.y()), -params.MAX_ROTATION_VELOCITY, params.MAX_ROTATION_VELOCITY);
 
+    return {adv, side, rot};
 }
-void SpecificWorker::send_velocity_commands(float advx, float advz, float rot)
+void SpecificWorker::move_robot(float adv, float side, float rot)
 {
-
+    try
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        RoboCompGridPlanner::TPlan plan = {.path={},
+                                           .controls={{RoboCompGridPlanner::TControl{adv, side, rot}}},
+                                           .timestamp=now,
+                                           .subtarget={} ,
+                                           .valid=true};
+        gridplanner_proxy->setPlan(plan);
+    }
+    catch (const Ice::Exception &e) { std::cout << "Error sending target to bumper" << e << std::endl; }
 }
+bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vector<Eigen::Vector3f >& ldata)
+{
+    // check if there is a line of sight from the robot to the target using only local info: lidar3D
+    // create a 2D rectangular shape linking the robot and the target with the width of the robot plus a safe zone and check that no lidar points fall inside
+    // filter the 3D lidar points to remove those with z component close to zero
+    auto points = iter::filter([](const auto &p){ return p.z() > 0.1; }, ldata);
+
+    // given a 2D point t and the robot width, compute two vectors l and r placed at 90 degrees from the target and with length equal to the robot width
+    Eigen::Vector2d target_2d = target.head(2).normalized();
+    Eigen::Vector2d l = Eigen::Vector2d(target_2d.y(), -target_2d.x()) * params.ROBOT_WIDTH;
+    Eigen::Vector2d r = Eigen::Vector2d (-target_2d.y(), target_2d.x()) * params.ROBOT_WIDTH;
+
+    // create a QPolygon rectangular shape linking the robot and the target with the width of the robot plus a safe zone
+    QPolygonF robot_safe_band;
+    robot_safe_band << QPointF(l.x(), l.y()) <<
+                       QPointF(l.x(), (target.head(2) + r).y()) <<
+                       QPointF(r.x(), (target.head(2) + r).y()) <<
+                       QPointF(r.x(), r.y());
+
+    // check if there are points inside the rectangular shape
+    for(const auto &p: points)
+        if(robot_safe_band.containsPoint(QPointF(p.x(), p.y()), Qt::FillRule::OddEvenFill))
+            return false;
+
+    return true;
+}
+RoboCompGridPlanner::Points SpecificWorker::compute_line_of_sight_target(const Eigen::Vector2d &target)
+{
+    RoboCompGridPlanner::Points path;
+
+    if(target.norm() < params.MIN_DISTANCE_TO_TARGET or target.norm() < params.ROBOT_WIDTH)
+    {
+        qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
+        return path;
+    }
+
+    // fill path with equally spaced points from the robot to the target at a distance of consts.ROBOT_LENGTH
+    int npoints = ceil(target.norm() / params.ROBOT_SEMI_LENGTH);
+    Eigen::Vector2d dir = target.normalized();  // direction vector from robot to target
+    for (const auto &i: iter::range(npoints))
+    {
+        Eigen::Vector2f p = (dir * (params.ROBOT_SEMI_LENGTH * (float)i)).cast<float>();
+        path.emplace_back(RoboCompGridPlanner::TPoint(p.x(), p.y()));
+    }
+    return path;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
@@ -320,6 +419,9 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
+
+
+
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:

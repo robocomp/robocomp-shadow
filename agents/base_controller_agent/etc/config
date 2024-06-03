@@ -2,6 +2,7 @@ CommonBehavior.Endpoints=tcp -p 10000
 
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
+GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
 
 agent_id = 666
 agent_name = base_controller_agent
