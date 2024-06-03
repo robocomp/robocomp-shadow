@@ -27,7 +27,7 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 	// Uncomment if there's too many debug messages
 	// but it removes the possibility to see the messages
 	// shown in the console with qDebug()
-//	QLoggingCategory::setFilterRules("*.debug=false\n");
+	QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 
 /**
@@ -94,7 +94,7 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -137,20 +137,24 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-	//computeCODE
-	//QMutexLocker locker(mutex);
-	//try
-	//{
-	//  camera_proxy->getYImage(0,img, cState, bState);
-	//  memcpy(image_gray.data, &img[0], m_width*m_height*sizeof(uchar));
-	//  searchTags(image_gray);
-	//}
-	//catch(const Ice::Exception &e)
-	//{
-	//  std::cout << "Error reading from Camera" << e << std::endl;
-	//}
-	
-	
+    qInfo() << "sdfg";
+    auto has_intention_edges = G->get_edges_by_type("has_intention");
+
+    if (!has_intention_edges.empty() && !this->intention_active)
+    {
+        if(auto is_valid = G->get_attrib_by_name<valid_att>(has_intention_edges[0]); is_valid.has_value())
+        {
+            qInfo() << "Intention edge found";
+            qInfo() << "Is valid" << is_valid.value();
+            G->add_or_modify_attrib_local<valid_att>(has_intention_edges[0], true);
+            G->insert_or_assign_edge(has_intention_edges[0]);
+            this->intention_active = true;
+            qInfo() << "asdftg";
+            return;
+        }
+    }
+    else
+        std::cout << "No intention edges found" << std::endl;
 }
 
 int SpecificWorker::startup_check()
@@ -160,6 +164,12 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
-
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if(edge_tag == "has_intention")
+    {
+        this->intention_active = false;
+    }
+}
 
 

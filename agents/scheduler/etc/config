@@ -1,6 +1,6 @@
 CommonBehavior.Endpoints=tcp -p 10000
 
-agent_id = 0 # Change id
+agent_id = 667 # Change id
 agent_name = scheduler
 tree_view = true
 graph_view = true
