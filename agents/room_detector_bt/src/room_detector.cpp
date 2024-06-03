@@ -32,12 +32,12 @@ namespace rc
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
 
             /// TODO: Bug sometimes when executing Noe's algorithm
-            qInfo() << "Suspect start";
+            // qInfo() << __FUNCTION__ << "Suspect start";
             /// Print poly pòints
-            for(const auto &p: poly)
-                qInfo() << "Point" << p.x << p.y;
+            //for(const auto &p: poly)
+                //qInfo() << "Point" << p.x << p.y;
             current_room.rect = cv::minAreaRect(poly);
-            qInfo() << "Suspect end";
+            //qInfo() << __FUNCTION__ << "Suspect end";
             current_room.is_initialized = true;
         }
 

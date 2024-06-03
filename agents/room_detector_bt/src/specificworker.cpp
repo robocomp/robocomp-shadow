@@ -218,7 +218,7 @@ int SpecificWorker::distance_to_center()
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, false);
     auto room_center = current_room.estimated_center;
 
-    //std::cout << __FUNCTION__ << " InRoomCenter pre-condition" << std::endl;
+    //std::cout << __FUNCTION__ << " InRoomCenter pre-condition " << room_center << std::endl;
     //print room center norm
     //std::cout << __FUNCTION__ << " Room center norm: " << room_center.norm() << std::endl;
 
@@ -318,9 +318,6 @@ void SpecificWorker::create_room()
 {
     auto ldata  = buffer_lidar_data.get_idemp();
 
-//        auto res_  = component->buffer_lidar_data.try_get();
-//        if (not res_.has_value()) { qWarning() << "No lidar data available"; return BT::NodeStatus::FAILURE; }
-//        auto ldata = res_.value();
     auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, false);
     auto most_common_room_size = std::max_element(BTdata.room_size_histogram.begin(), BTdata.room_size_histogram.end(),
