@@ -1,10 +1,11 @@
 import "Lidar3D.idsl";
+import "GridPlanner.idsl";
 
 Component base_controller_agent
 {
     Communications
     {
-	requires Lidar3D;
+	    requires Lidar3D, GridPlanner;
     };
     language Cpp11;
     gui Qt(QMainWindow);

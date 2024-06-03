@@ -28,10 +28,13 @@
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
+#include "GridPlanner.h"
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
 #include <timer/timer.h>
 #include <Eigen/Eigen>
+#include <custom_widget.h>
+#include <ui_localUI.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -70,6 +73,9 @@ class SpecificWorker : public GenericWorker
         bool startup_check_flag;
         DSR::QScene2dViewer* widget_2d;
 
+        //Local widget
+        CustomWidget *room_widget;
+
         struct Params
         {
             std::string robot_name = "Shadow";
@@ -77,6 +83,9 @@ class SpecificWorker : public GenericWorker
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
+            float MAX_ADVANCE_VELOCITY = 1000;  // mm/s
+            float MAX_SIDE_VELOCITY = 1000;  // mm/s
+            float MAX_ROTATION_VELOCITY = 0.9;  // rad/s
             float TILE_SIZE = 100;   // mm
             float MIN_DISTANCE_TO_TARGET = ROBOT_WIDTH / 2.f; // mm
             std::string LIDAR_NAME_LOW = "bpearl";
@@ -123,7 +132,7 @@ class SpecificWorker : public GenericWorker
         void read_lidar();
 
         //  draw
-        void draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color="green", int step=1);
+        void draw_lidar_in_robot_frame(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color="green", int step=1);
 
         // RT APi
         std::unique_ptr<DSR::RT_API> rt_api;
@@ -132,14 +141,18 @@ class SpecificWorker : public GenericWorker
         // path
         std::list<Eigen::Vector2f> current_path;  // list to remove elements from the front
 
-        std::optional<DSR::Edge> there_is_intention_edge_marked_as_valid();
+        std::optional<DSR::Edge> there_is_intention_edge_marked_as_active();
         bool target_node_is_measurement(const DSR::Edge &edge);
         optional<Eigen::Vector3d> get_translation_vector_from_target_node(const DSR::Edge &edge);
         bool robot_at_target(const Eigen::Vector3d &matrix, const DSR::Edge &edge);
         void stop_robot();
-        bool line_of_sight(const Eigen::Vector3d &matrix);
-        std::tuple<float, float, float> compute_velocity_commands(const Eigen::Vector3d &matrix);
-        void send_velocity_commands(float advx, float advz, float rot);
+        bool line_of_sight(const Eigen::Vector3d &matrix, const std::vector<Eigen::Vector3f> &ldata);
+
+        RoboCompGridPlanner::Points compute_line_of_sight_target(const Eigen::Vector2d &target);
+        void draw_vector_to_target(const Eigen::Vector3d &matrix, QGraphicsScene *pScene);
+        std::tuple<float, float, float> compute_line_of_sight_target_velocities(const Eigen::Vector3d &matrix);
+        void move_robot(float adv, float side, float rot);
+
 };
 
 #endif
