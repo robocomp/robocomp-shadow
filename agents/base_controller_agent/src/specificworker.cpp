@@ -144,9 +144,14 @@ void SpecificWorker::compute()
     //draw_lidar(ldata, &widget_2d->scene, 50);
 
     /// check if there is a "has_intention" edge in G. If so get the intention edge
-    DSR::Edge intention_edge;
-    if( auto intention_edge_ =  there_is_intention_edge_marked_as_valid(); not intention_edge_.has_value() )
+//    DSR::Edge intention_edge;
+//    if( auto intention_edge_ =  there_is_intention_edge_marked_as_valid(); not intention_edge_.has_value() )
+//    { std::cout << __FUNCTION__ << "There is no intention edge. Returning." << std::endl; return;}
+
+    auto intention_edge_ = there_is_intention_edge_marked_as_valid();
+    if(not intention_edge_.has_value())
     { std::cout << __FUNCTION__ << "There is no intention edge. Returning." << std::endl; return;}
+    auto intention_edge = intention_edge_.value();
 
     /// Check if there is final orientation and tolerance in the intention edge
 //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
@@ -162,7 +167,11 @@ void SpecificWorker::compute()
 
     /// If robot is at target, stop
     if(robot_at_target(vector_to_target, intention_edge))
-    {   stop_robot(); return;}
+    {
+        qInfo() << "Robot at target. Stopping.";
+        stop_robot();
+        return;
+    }
 
     /// Check if the target position is in line of sight
     if( line_of_sight(vector_to_target) )
@@ -294,12 +303,17 @@ bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::E
     if(auto threshold_ = G->get_attrib_by_name<tolerance_att>(edge); threshold_.has_value())
         tolerance = { threshold_.value().get()[0], threshold_.value().get()[1], threshold_.value().get()[2],
                       threshold_.value().get()[3], threshold_.value().get()[4], threshold_.value().get()[5] };
-
+    /// Print target and tolerance
+    std::cout << "Target: " << target.transpose() << std::endl;
+    std::cout << "Tolerance: " << tolerance.transpose() << std::endl;
+    std::cout << "Distance to target: " << target.head(2).norm() << std::endl;
+    std::cout << "Tolerance norm: " << tolerance.head(2).norm() << std::endl;
     return target.head(2).norm() <= tolerance.head(2).norm();
 }
 void SpecificWorker::stop_robot()
 {
-
+    send_velocity_commands(0.f, 0.f, 0.f);
+    return;
 }
 bool SpecificWorker::line_of_sight(const Eigen::Vector3d &matrix)
 {

@@ -50,7 +50,7 @@ public slots:
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
 	void del_node_slot(std::uint64_t from){};     
 private:
 	// DSR graph
@@ -69,6 +69,8 @@ private:
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
 	bool startup_check_flag;
+
+    bool intention_active = false;
 
 };
 

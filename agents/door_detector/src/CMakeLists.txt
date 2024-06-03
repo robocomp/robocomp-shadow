@@ -24,7 +24,6 @@ SET ( SOURCES
   genericmonitor.cpp
   commonbehaviorI.cpp
   genericworker.cpp
-        ../specificworker_odl.cpp
 )
 
 
