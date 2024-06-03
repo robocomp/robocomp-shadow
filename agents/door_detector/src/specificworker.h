@@ -121,10 +121,25 @@ private:
     void update_door_in_graph(const DoorDetector::Door &door, std::string door_name, DSR::Node world_node);
     void set_doors_to_stabilize(const std::vector<DoorDetector::Door> &doors, DSR::Node room_node);
 
-    void insert_measured_door_in_graph(DoorDetector::Door door, DSR::Node room, std::string door_name);
+    DSR::Node insert_door_in_graph(DoorDetector::Door door, DSR::Node room, std::string door_name);
 
     void stabilize_door(DoorDetector::Door door, string door_name);
+    vector<float> get_graph_odometry();
+    std::chrono::time_point<std::chrono::system_clock> last_time;
+    float odometry_time_factor = 1;
     void door_prefilter(vector<DoorDetector::Door> &detected_door);
+
+
+    int g2o_nominal_door_id = 4;
+
+    std::string build_g2o_graph(const std::vector<std::vector<Eigen::Matrix<float, 2, 1>>> &measured_corner_data,
+        const std::vector<Eigen::Matrix<float, 2, 1>> &nominal_corner_data,
+        const std::vector<std::vector<float>> &odometry_data,
+        const Eigen::Affine2d &robot_pose,
+        const std::vector<Eigen::Vector2f> &measured_door_center,
+        const Eigen::Vector2f &nominal_door_center);
+
+    Eigen::Vector2f extract_g2o_data(string optimization);
 };
 
 #endif

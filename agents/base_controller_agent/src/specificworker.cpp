@@ -163,9 +163,6 @@ void SpecificWorker::compute()
     }
     else intention_edge = intention_edge_.value();
 
-    qInfo() << intention_edge.from() << intention_edge.to();
-    std::cout << rt_api->get_translation(intention_edge.from(), intention_edge.to()).value() << std::endl;
-
     /// Check if there is final orientation and tolerance in the intention edge
 //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
 //    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
@@ -185,7 +182,11 @@ void SpecificWorker::compute()
 
     /// If robot is at target, stop
     if(robot_at_target(vector_to_target, intention_edge))
-    {   stop_robot(); return;}
+    {
+        qInfo() << "Robot at target. Stopping.";
+        stop_robot();
+        return;
+    }
 
     /// Check if the target position is in line of sight
     if( line_of_sight(vector_to_target, ldata) )
@@ -268,8 +269,7 @@ std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_from_targe
     Eigen::Vector3d offset = Eigen::Vector3d::Zero();
     if( auto offset_ = G->get_attrib_by_name<offset_xyz_att>(intention_edge); offset_.has_value())
         offset = { offset_.value().get()[0], offset_.value().get()[1], offset_.value().get()[2] };
-
-    Eigen::Vector3d translation = Eigen::Vector3d::Zero();
+    
     // get the pose of the target_node + offset in the intention edge
     if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value()); not translation_.has_value())
     { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node plus offset. Returning." << std::endl; return {};}
@@ -329,7 +329,11 @@ bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::E
     if(auto threshold_ = G->get_attrib_by_name<tolerance_att>(edge); threshold_.has_value())
         tolerance = { threshold_.value().get()[0], threshold_.value().get()[1], threshold_.value().get()[2],
                       threshold_.value().get()[3], threshold_.value().get()[4], threshold_.value().get()[5] };
-
+    /// Print target and tolerance
+    std::cout << "Target: " << target.transpose() << std::endl;
+    std::cout << "Tolerance: " << tolerance.transpose() << std::endl;
+    std::cout << "Distance to target: " << target.head(2).norm() << std::endl;
+    std::cout << "Tolerance norm: " << tolerance.head(2).norm() << std::endl;
     return target.head(2).norm() <= tolerance.head(2).norm();
 }
 void SpecificWorker::stop_robot()
