@@ -11,7 +11,7 @@ namespace Nodes
         {
             DSR::Node room_node = room_node_.value();
 
-            std::cout << "Room node found" << room_node.id() << std::endl;
+            std::cout << __FUNCTION__  << " Current room node found" << room_node.id() << std::endl;
             //Pasar nodo persona por los puertos? para no checkear en el siguiente nodo si se encuentra o no?
             return BT::NodeStatus::SUCCESS;
         }
@@ -28,13 +28,13 @@ namespace Nodes
         int distance = distance_to_center();
 
         //Calculate distance to room center
-        if (distance < 150.)
+        if (distance < 150.)    // TODO: Move to params
         {
             static auto start = std::chrono::high_resolution_clock::now();
 
             if(time_in_center < 0)
             {
-                std::cout << "In_room_center" << std::endl;
+                //std::cout << __FUNCTION__ << " In_room_center" << std::endl;
                 return BT::NodeStatus::SUCCESS;
             }
             auto end = std::chrono::high_resolution_clock::now();
@@ -42,12 +42,12 @@ namespace Nodes
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
             time_in_center -= elapsed;
             start = end;
-            std::cout << "Time in center:" << time_in_center << std::endl;
+            //std::cout << __FUNCTION__ << " Time in center:" << time_in_center << std::endl;
             return BT::NodeStatus::FAILURE;
         }
         else
         {
-            std::cout << "Not in room center" << std::endl;
+            //std::cout << __FUNCTION__ << " Not in room center" << std::endl;
             return BT::NodeStatus::FAILURE;
         }
     }
@@ -60,27 +60,33 @@ namespace Nodes
     {
         std::cout << this->name() << std::endl;
 
-        if (std::optional<DSR::Node> shadow_node_ = G->get_node("Shadow"); shadow_node_.has_value())
+        DSR::Node shadow_node;
+        if (std::optional<DSR::Node> shadow_node_ = G->get_node("Shadow"); not shadow_node_.has_value())
+        { qWarning() << __FUNCTION__ << " No Shadow node found"; return BT::NodeStatus::FAILURE;}
+        else
+            shadow_node = shadow_node_.value();
+
+        DSR::Node room_measured = DSR::Node::create<room_node_type>("room_measured");
+        G->add_or_modify_attrib_local<pos_x_att>(room_measured, (float)(rand()%(170)));
+        G->add_or_modify_attrib_local<pos_y_att>(room_measured, (float)(rand()%170));
+        G->add_or_modify_attrib_local<obj_checked_att>(room_measured, false);
+        G->add_or_modify_attrib_local<level_att>(room_measured, G->get_node_level(shadow_node).value());
+        G->insert_node(room_measured);
+        G->update_node(room_measured);
+        room_measured = G->get_node(room_measured.id()).value();
+        G->get_rt_api()->insert_or_assign_edge_RT(shadow_node, room_measured.id(), { 0.f, 0.f, 0.f }, { 0.f, 0.f, 0.f });
+        DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(shadow_node.id(), room_measured.id());
+
+        // Valid attribute of intention edge. Should be set by the SCHEDULER
+        G->add_or_modify_attrib_local<valid_att>(intention_edge, true);
+
+        if (G->insert_or_assign_edge(intention_edge))
         {
-            DSR::Node shadow_node = shadow_node_.value();
-            DSR::Node room_measured = DSR::Node::create<room_node_type>("room_measured");
-            G->add_or_modify_attrib_local<pos_x_att>(room_measured, (float)(rand()%(170)));
-            G->add_or_modify_attrib_local<pos_y_att>(room_measured, (float)(rand()%170));
-            G->add_or_modify_attrib_local<obj_checked_att>(room_measured, false);
-            G->add_or_modify_attrib_local<level_att>(room_measured, G->get_node_level(shadow_node).value());
-            G->insert_node(room_measured);
-            G->update_node(room_measured);
-            room_measured = G->get_node(room_measured.id()).value();
-            G->get_rt_api()->insert_or_assign_edge_RT(shadow_node, room_measured.id(), { 0.f, 0.f, 0.f }, { 0.f, 0.f, 0.f });
-            DSR::Edge target_edge = DSR::Edge::create<TARGET_edge_type>(shadow_node.id(), room_measured.id());
-            if (G->insert_or_assign_edge(target_edge))
-            {
-                std::cout << __FUNCTION__ << " Target edge successfully inserted: " << std::endl;
-                return BT::NodeStatus::SUCCESS;
-            }
-            else
-                std::cout << __FUNCTION__ << " Fatal error inserting new edge: " << std::endl;
+            std::cout << __FUNCTION__ << " Intention edge successfully inserted: " << std::endl;
+            return BT::NodeStatus::SUCCESS;
         }
+        else
+            std::cout << __FUNCTION__ << " Fatal error inserting Intention edge: " << std::endl;
 
         return BT::NodeStatus::FAILURE;
     }

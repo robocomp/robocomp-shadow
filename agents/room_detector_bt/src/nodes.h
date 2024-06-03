@@ -14,11 +14,12 @@
 namespace Nodes
 {
 
-#pragma region CONDITION_NODES
+    #pragma region CONDITION_NODES
 
     BT::NodeStatus ExistsRoom(std::shared_ptr<DSR::DSRGraph> G);
 
-    class InRoomCenter : public BT::ConditionNode {
+    class InRoomCenter : public BT::ConditionNode
+    {
         public:
             InRoomCenter(const std::string& name) : BT::ConditionNode(name, {}) {}
             InRoomCenter(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<int()>& _distance_to_center) :
@@ -37,7 +38,8 @@ namespace Nodes
 
 #pragma region ACTION_NODES
 
-    class CreateTargetEdge : public BT::SyncActionNode {
+    class CreateTargetEdge : public BT::SyncActionNode
+    {
         public:
             CreateTargetEdge(const std::string& name) : BT::SyncActionNode(name, {}) {}
             CreateTargetEdge(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_) :
@@ -50,7 +52,8 @@ namespace Nodes
             std::shared_ptr<DSR::DSRGraph> G;
     };
 
-    class DeleteTargetEdge : public BT::SyncActionNode {
+    class DeleteTargetEdge : public BT::SyncActionNode
+    {
         public:
             DeleteTargetEdge(const std::string& name) : BT::SyncActionNode(name, {}) {}
             DeleteTargetEdge(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_) :
@@ -63,61 +66,64 @@ namespace Nodes
             std::shared_ptr<DSR::DSRGraph> G;
     };
 
-    class CreateRoom : public BT::SyncActionNode {
-    public:
-        CreateRoom(const std::string& name) : BT::SyncActionNode(name, {}) {}
-        CreateRoom(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _create_room) :
+    class CreateRoom : public BT::SyncActionNode
+    {
+        public:
+            CreateRoom(const std::string& name) : BT::SyncActionNode(name, {}) {}
+            CreateRoom(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _create_room) :
                 BT::SyncActionNode(name, {}), G(G_), create_room(_create_room) {}
 
-    protected:
-        virtual BT::NodeStatus tick() override;
+        protected:
+            virtual BT::NodeStatus tick() override;
 
-    private:
-        std::shared_ptr<DSR::DSRGraph> G;
-        std::function<void()> create_room;
+        private:
+            std::shared_ptr<DSR::DSRGraph> G;
+            std::function<void()> create_room;
     };
 
-    class UpdateRoom : public BT::StatefulActionNode {
-    public:
-        UpdateRoom(const std::string& name) : BT::StatefulActionNode(name, {}) {}
-        UpdateRoom(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _check_corner_matching
-                   , const std::function<void()>& _update_room) :
-                BT::StatefulActionNode(name, {}), G(G_), check_corner_matching(_check_corner_matching), update_room(_update_room) {}
+    class UpdateRoom : public BT::StatefulActionNode
+    {
+        public:
+            UpdateRoom(const std::string& name) : BT::StatefulActionNode(name, {}) {}
+            UpdateRoom(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _check_corner_matching
+                       , const std::function<void()>& _update_room) :
+                    BT::StatefulActionNode(name, {}), G(G_), check_corner_matching(_check_corner_matching), update_room(_update_room) {}
 
-    protected:
-        // this function is invoked once at the beginning.
-        BT::NodeStatus onStart() override;
+        protected:
+            // this function is invoked once at the beginning.
+            BT::NodeStatus onStart() override;
 
-        // You must override the virtual function onRunning()
-        BT::NodeStatus onRunning() override;
+            // You must override the virtual function onRunning()
+            BT::NodeStatus onRunning() override;
 
-        // callback to execute if the action was aborted by another node
-        void onHalted() override;
+            // callback to execute if the action was aborted by another node
+            void onHalted() override;
 
-    private:
-        std::shared_ptr<DSR::DSRGraph> G;
-        std::function<void()> update_room;
-        std::function<void()> check_corner_matching;
+        private:
+            std::shared_ptr<DSR::DSRGraph> G;
+            std::function<void()> check_corner_matching;
+            std::function<void()> update_room;
     };
 
-    class RoomStabilitation : public BT::StatefulActionNode {
-    public:
-        RoomStabilitation(const std::string& name) : BT::StatefulActionNode(name, {}) {}
-        RoomStabilitation(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _room_stabilitation) :
-                BT::StatefulActionNode(name, {}), G(G_), room_stabilitation(_room_stabilitation) {}
+    class RoomStabilitation : public BT::StatefulActionNode
+    {
+        public:
+            RoomStabilitation(const std::string& name) : BT::StatefulActionNode(name, {}) {}
+            RoomStabilitation(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _room_stabilitation) :
+                    BT::StatefulActionNode(name, {}), G(G_), room_stabilitation(_room_stabilitation) {}
 
-        // this function is invoked once at the beginning.
-        BT::NodeStatus onStart() override;
+            // this function is invoked once at the beginning.
+            BT::NodeStatus onStart() override;
 
-        // You must override the virtual function onRunning()
-        BT::NodeStatus onRunning() override;
+            // You must override the virtual function onRunning()
+            BT::NodeStatus onRunning() override;
 
-        // callback to execute if the action was aborted by another node
-        void onHalted() override;
+            // callback to execute if the action was aborted by another node
+            void onHalted() override;
 
-    private:
-        std::shared_ptr<DSR::DSRGraph> G;
-        std::function<void()> room_stabilitation;
+        private:
+            std::shared_ptr<DSR::DSRGraph> G;
+            std::function<void()> room_stabilitation;
     };
 
 #pragma endregion ACTION_NODES

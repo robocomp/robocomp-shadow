@@ -6,12 +6,12 @@ To use *room_detector_bt* we need to install the BehaviorTree.CPP library. It is
 
 ```
 $ cd ~/software
-$ git clone https://github.com/BehaviorTree/BehaviorTree.CPP/tree/master
+$ git clone https://github.com/BehaviorTree/BehaviorTree.CPP
 $ cd BehaviorTree.CPP
 $ sudo apt-get install libzqm3-dev libboost-dev
-$ mkdir build ; cd build
+$ mkdir build ; cd build; cmake ..
 $ make -j30
-$ sudo make -j30 install
+$ sudo make install
 ```
 ## CMake options
 It is necessary to set the following CMake options to compile the component:
