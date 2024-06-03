@@ -114,9 +114,26 @@ void SpecificWorker::initialize(int period)
         read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
         std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
-		timer.start(Period);
+        rt_api = G->get_rt_api();
+        inner_api = G->get_inner_eigen_api();
+
+        timer.start(Period);
 	}
 }
+
+/// ProtoCODE
+// 1. Read LiDAR
+// 2. Check if there is a "has_intention" edge in G. If so get the intention edge
+// 3. Check if there is offset position, final orientation and thresholds in the intention edge
+// 4. Get translation vector from offset in target node
+// 5. Check if robot distance to target offset is lower than the threshold in the intention edge, then stop
+// 6. Else, if target position is in line of sight, then send velocity commands to bumper.
+//    else, if there is current room,
+//             if there is no current_path or the target_position in the room has changed,
+//                ask room_gridder for a path to the target position
+//             else send velocity commands to the bumper for the next path step
+//          ask local_gridder for a path to the target position
+
 
 void SpecificWorker::compute()
 {
@@ -124,7 +141,58 @@ void SpecificWorker::compute()
     auto ldata = buffer_lidar_data.get_idemp();
 
     /// draw lidar in robot frame
-    draw_lidar(ldata, &widget_2d->scene, 50);
+    //draw_lidar(ldata, &widget_2d->scene, 50);
+
+    /// check if there is a "has_intention" edge in G. If so get the intention edge
+    DSR::Edge intention_edge;
+    if( auto intention_edge_ =  there_is_intention_edge_marked_as_valid(); not intention_edge_.has_value() )
+    { std::cout << __FUNCTION__ << "There is no intention edge. Returning." << std::endl; return;}
+
+    /// Check if there is final orientation and tolerance in the intention edge
+//    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
+//    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
+//        orientation = { orientation_.value().get()[0], orientation_.value().get()[1], orientation_.value().get()[2] };
+//
+
+    /// Get translation vector from target node with offset applied to it
+    Eigen::Vector3d vector_to_target = Eigen::Vector3d::Zero();
+    if(auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
+    { qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning."; return;}
+    else vector_to_target = vector_to_target_.value();
+
+    /// If robot is at target, stop
+    if(robot_at_target(vector_to_target, intention_edge))
+    {   stop_robot(); return;}
+
+    /// Check if the target position is in line of sight
+    if( line_of_sight(vector_to_target) )
+    {
+        // compute rotation, advance and side speed. Send to bumper
+        auto [adv, side, rot] = compute_velocity_commands(vector_to_target);
+        send_velocity_commands(adv, side, rot);
+        return;
+    }
+
+    /// not in line of sight
+    // if there is a node of type ROOM and it has a self edge of type "current" in it
+//    bool found = false;  // flag to check if the current room has been found
+//    auto current_edges = G->get_edges_by_type("current");
+//    for(const auto &e : current_edges)
+//        if(G->get_node(e.from())->type() == "room" and G->get_node(e.to())->type() == "room")
+//        {
+//            // if there is no current_path or the target_position in the room has changed
+//            if (current_path.empty() or vector_to_target != vector_to_target_ant)
+//                current_path = room_gridder->get_path_to_target(vector_to_target);
+//            found = true;
+//            break;
+//        }
+//    if(not found) // ask local_gridder for a path to the target position
+//        current_path = local_gridder->get_path_to_target(vector_to_target);
+//
+//    // update path and send it to MPC and get velocity commands for the bumper
+//    auto [new_path, adv, side, rot] = update_and_smooth_path(current_path);
+//    send_velocity_commands(adv, side, rot);
+//    current_path = new_path;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -151,7 +219,58 @@ void SpecificWorker::read_lidar()
         std::this_thread::sleep_for(wait_period);
     }
 } // Thread to read the lidar
+std::optional<DSR::Edge> SpecificWorker::there_is_intention_edge_marked_as_valid()
+{
+    auto edges = G->get_edges_by_type("has_intention");
+    for(const auto &edge: edges)
+    {
+        if(G->get_attrib_by_name<valid_att>(edge).has_value() && G->get_attrib_by_name<valid_att>(edge).value())
+            return edge;
+    }
+    return {};
+}
+bool SpecificWorker::target_node_is_measurement(const DSR::Edge &edge)
+{
+    DSR::Node robot_node;
+    if(auto robot_node_ = G->get_node("Shadow"); not robot_node_.has_value())
+    { std::cout << __FUNCTION__ << "Robot node not found. Returning." << std::endl;}
+    else robot_node = robot_node_.value();
+    if(G->get_node(edge.from()).value().id() == robot_node.id())
+       return true; // measurement
+    else // nominal
+        return false;
+}
+std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_from_target_node(const DSR::Edge &intention_edge)
+{
+    // get offset for target node
+    Eigen::Vector3d offset = Eigen::Vector3d::Zero();
+    if( auto offset_ = G->get_attrib_by_name<offset_xyz_att>(intention_edge); offset_.has_value())
+        offset = { offset_.value().get()[0], offset_.value().get()[1], offset_.value().get()[2] };
 
+    Eigen::Vector3d translation = Eigen::Vector3d::Zero();
+    // get the pose of the target_node + offset in the intention edge
+    if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value()); not translation_.has_value())
+    { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node plus offset. Returning." << std::endl; return {};}
+    else
+        return translation_.value();
+
+    /// check if the intention edge starts from the robot or else is a nominal node
+    if( target_node_is_measurement(intention_edge))
+    {
+        // get the pose of the target_node + offset in the intention edge
+        if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value()); not translation_.has_value())
+        { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node plus offset. Returning." << std::endl; return {};}
+        else
+            return translation_.value();
+    }
+    else // nominal
+    {
+        if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value()); not translation_.has_value())
+        { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning." << std::endl;}
+        else return translation_.value();
+    }
+    return {};
+}
 /////////////////// Draw  /////////////////////////////////////////////////////////////
 void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color, int step)
 {
@@ -168,7 +287,32 @@ void SpecificWorker::draw_lidar(const std::vector<Eigen::Vector3f> &data, QGraph
         items.push_back(item);
     }
 }
+bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::Edge &edge)
+{
+    // get tolerance from intention edge
+    Eigen::Vector<float, 6> tolerance = Eigen::Vector<float, 6>::Zero().array() - 1.f; // -1 means no tolerance is applied
+    if(auto threshold_ = G->get_attrib_by_name<tolerance_att>(edge); threshold_.has_value())
+        tolerance = { threshold_.value().get()[0], threshold_.value().get()[1], threshold_.value().get()[2],
+                      threshold_.value().get()[3], threshold_.value().get()[4], threshold_.value().get()[5] };
 
+    return target.head(2).norm() <= tolerance.head(2).norm();
+}
+void SpecificWorker::stop_robot()
+{
+
+}
+bool SpecificWorker::line_of_sight(const Eigen::Vector3d &matrix)
+{
+    return false;
+}
+std::tuple<float, float, float> SpecificWorker::compute_velocity_commands(const Eigen::Vector3d &matrix)
+{
+
+}
+void SpecificWorker::send_velocity_commands(float advx, float advz, float rot)
+{
+
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
@@ -176,7 +320,6 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
-
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
