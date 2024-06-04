@@ -148,11 +148,19 @@ void SpecificWorker::compute()
     if(const auto plan = buffer_target.try_get(); plan.has_value())
     {
         //const auto &[side, adv, rot, debug] = ext.value();
-        //qInfo() << __FUNCTION__ << plan->valid << plan->controls.size() << plan->controls.front().adv << plan->controls.front().side << plan->controls.front().rot;
+        qInfo() << __FUNCTION__ << plan->valid;
+        if(not plan->valid or plan->controls.empty())
+        {
+            move_robot(Target(), Target(), true);
+            qInfo() << "Invalid target. Stopping robot";
+            target.active = false;
+            return;
+        }
         target.set(plan->controls.front().side, plan->controls.front().adv, plan->controls.front().rot);
         if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 
+    qInfo() << "-------------------------------------------------------------------";
     if(not params.REACTION)
     {
         move_robot(target, Target{.active=false});
@@ -344,16 +352,20 @@ void SpecificWorker::not_target_active_and_security_breach(const std::vector<Eig
 }
 void SpecificWorker::move_robot(const Target &target, const Target &reaction, bool stop)
 {
-    if(stop and not robot_stopped)
-    try
+    if(stop)
     {
-        omnirobot_proxy->setSpeedBase(0.f, 0.f, 0.f);
-        robot_stopped = true;
-        qInfo() << "Stopping robot -------------------------------";
+        if(not robot_stopped)
+            try
+            {
+                omnirobot_proxy->setSpeedBase(0.f, 0.f, 0.f);
+                robot_stopped = true;
+                qInfo() << "Stopping robot -------------------------------";
+
+            }
+            catch (const Ice::Exception &e)
+            { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
         return;
     }
-    catch (const Ice::Exception &e)
-    { std::cout << __FUNCTION__  << " Error talking to OmniRobot " << e.what() << std::endl; }
 
     // check speed limits
     float t_adv = std::clamp(target.y, -params.MAX_BACKWARDS_ADV_SPEED, params.MAX_ADV_SPEED);
@@ -601,10 +613,7 @@ void SpecificWorker::self_adjust_period(int new_period)
 /////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::GridPlanner_setPlan(RoboCompGridPlanner::TPlan plan)
 {
-    if(plan.valid and not plan.controls.empty())
-        buffer_target.put(std::move(plan));
-    else
-        qWarning() << __FUNCTION__ << "Plan is not valid";
+    buffer_target.put(std::move(plan));
 }
 void SpecificWorker::new_mouse_coordinates(QPointF p)
 {

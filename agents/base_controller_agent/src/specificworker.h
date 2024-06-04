@@ -153,6 +153,7 @@ class SpecificWorker : public GenericWorker
         std::tuple<float, float, float> compute_line_of_sight_target_velocities(const Eigen::Vector3d &matrix);
         void move_robot(float adv, float side, float rot);
 
+    void set_intention_edge_state(DSR::Edge &edge, const std::string &string);
 };
 
 #endif

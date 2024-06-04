@@ -144,9 +144,8 @@ namespace Nodes
             if(auto room_measured = G->get_node("room_measured"); room_measured.has_value())
             {
                 if (G->delete_node(room_measured.value().id()))
-                {
                     std::cout << __FUNCTION__ << " Room measured node successfully deleted: " << std::endl;
-                } else
+                else
                     std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
             }
 

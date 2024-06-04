@@ -172,7 +172,7 @@ void SpecificWorker::compute()
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
 //    If door has been seen for N times. insertion
     door_prefilter(to_prefilter_doors);
-    qInfo() << "------------------------set_doors_to_stabilize--------------------------------";
+//    qInfo() << "------------------------set_doors_to_stabilize--------------------------------";
 
     set_doors_to_stabilize(to_prefilter_doors, room_node);
 
@@ -368,7 +368,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
 //                    qInfo() << "Wall center: " << wall_center.x() << wall_center.y();
                     /// Get the index of the wall center
                     auto wall_center_index = std::distance(wall_centers.begin(), std::find(wall_centers.begin(), wall_centers.end(), wall_center));
-                    qInfo() << "Wall center index: " << wall_center_index;
+//                    qInfo() << "Wall center index: " << wall_center_index;
                     //TODO: transform to room reference frame.
                     Eigen::Vector3d p_0_ {p0_projected_eigen.x(), p0_projected_eigen.y(), 0};
                     Eigen::Vector3d p_1_ {p1_projected_eigen.x(), p1_projected_eigen.y(), 0};
@@ -399,7 +399,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
 
                             door.wall_id = wall_center_index;
 
-                            qInfo() << __FUNCTION__ << "Door: " << door.id << " Wall: " << door.wall_id;
+//                            qInfo() << __FUNCTION__ << "Door: " << door.id << " Wall: " << door.wall_id;
                             doors.push_back(door);
                         }
                     }
@@ -432,7 +432,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
             auto middle = (p0_projected_eigen + p1_projected_eigen) / 2;
             auto wall_center = *std::min_element(wall_centers.begin(), wall_centers.end(), [&middle](const Eigen::Vector2f &a, const Eigen::Vector2f &b){ return (a - middle).norm() < (b - middle).norm(); });
             auto wall_center_index = std::distance(wall_centers.begin(), std::find(wall_centers.begin(), wall_centers.end(), wall_center));
-            qInfo() << "Wall center index: " << wall_center_index;
+//            qInfo() << "Wall center index: " << wall_center_index;
             //TODO: transform to room reference frame.
             Eigen::Vector3d p_0_ {p0_projected_eigen.x(), p0_projected_eigen.y(), 0};
             Eigen::Vector3d p_1_ {p1_projected_eigen.x(), p1_projected_eigen.y(), 0};
@@ -462,7 +462,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                         door.id = std::get<1>(*it) + 1;
                         *it = std::make_tuple(wall_center_index, door.id);
                     }
-                    qInfo() << "Door: " << door.id << " Wall: " << door.wall_id;
+//                    qInfo() << "Door: " << door.id << " Wall: " << door.wall_id;
                     doors.push_back(door);
                 }
             }
@@ -629,7 +629,7 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
 //        qInfo() << "--------------FIRST DOORS DETECTED--------------------";
         for(auto &d: detected_door)
         {
-            qInfo() << "First doors detected: " << d.wall_id << d.id;
+//            qInfo() << "First doors detected: " << d.wall_id << d.id;
             last_detected_doors.push_back({d, 1});
         }
 
@@ -646,12 +646,6 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
         }
 
 
-    /// Draw distances matrix in matrix form
-    qInfo() << "Distance Matrix prefilter";
-    for(size_t i = 0; i < distances_matrix.size(); i++)
-        for(size_t j = 0; j < distances_matrix[i].size(); j++)
-            qInfo() << distances_matrix[i][j];
-    qInfo() << "---------------";
 
     // Use the Hungarian algorithm to solve the assignment problem
     vector<int> assignment;
@@ -664,15 +658,15 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     // last_detected_doors vector
     for(size_t i = 0; i < assignment.size(); i++)
     {
-        qInfo() << "Assignment: " << i << " --- " << assignment[i];
+//        qInfo() << "Assignment: " << i << " --- " << assignment[i];
         if(assignment[i] != -1)
         {
-            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
+//            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
 
             if(distances_matrix[i][assignment[i]] < detected_door[assignment[i]].width() * 0.75)
             {
-                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
-                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
+//                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
+//                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
                 get<1>(last_detected_doors[i])++;
                 if(get<1>(last_detected_doors[i]) == N)
                 {
@@ -714,11 +708,7 @@ std::vector<std::pair<int, int>> SpecificWorker::door_matching(const std::vector
             distances_matrix[i][j] = (measured_doors[i].middle - nominal_doors[j].middle).norm(); //TODO: incorporate rotation or door width to distance_matrix
 //            qInfo() << "Distance: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[j].wall_id << nominal_doors[j].id << distances_matrix[i][j];
         }
-//    qInfo() << "Distance Matrix";
-    for(size_t i = 0; i < distances_matrix.size(); i++)
-        for(size_t j = 0; j < distances_matrix[i].size(); j++)
-            qInfo() << distances_matrix[i][j];
-//    qInfo() << "---------------";
+
     vector<int> assignment;
     double cost = HungAlgo.Solve(distances_matrix, assignment);
     for(size_t i = 0; i < assignment.size(); i++)
@@ -736,12 +726,6 @@ std::vector<std::pair<int, int>> SpecificWorker::door_matching(const std::vector
              matching.push_back({i, -1});
         }
     }
-
-    //TODO: PRINT COMPLETE MATCHING
-
-
-
-    qInfo() << "########################################################################";
     return matching;
 }
 std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vector<std::pair<int, int>> matches, const std::vector<DoorDetector::Door> &measured_doors, const std::vector<DoorDetector::Door> &graph_doors, bool nominal, DSR::Node room_node)
@@ -762,8 +746,8 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
 //            qInfo() << "Updating door data in graph";
             /// Get graph door name
             auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_pre";
-            qInfo() << "Door name first: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.first].middle.x() << measured_doors[match.first].middle.y() ;
-            qInfo() << "Door name second: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.second].middle.x() << measured_doors[match.second].middle.y() ;
+//            qInfo() << "Door name first: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.first].middle.x() << measured_doors[match.first].middle.y() ;
+//            qInfo() << "Door name second: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.second].middle.x() << measured_doors[match.second].middle.y() ;
             /// Update measured door with the matched door
             update_door_in_graph(measured_doors[match.first], door_name, room_node);
             /// Insert in indexes_to_remove vector the index of the door to remove
@@ -789,8 +773,8 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
     auto parent_node = parent_node_.value();
 
     auto pose = door.middle;
-    qInfo() << "Updating node" << door_node.id() << "Name:" << QString::fromStdString(door_node.name());
-    qInfo() << "Pose to update" << pose[0] << pose[1];
+//    qInfo() << "Updating node" << door_node.id() << "Name:" << QString::fromStdString(door_node.name());
+//    qInfo() << "Pose to update" << pose[0] << pose[1];
 
     /// Insert robot reference pose in node attribute
     std::vector<float> measured_pose = {pose[0], pose[1], 0.f};
@@ -802,7 +786,7 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
     if(auto pose_transformed_ = inner_eigen->transform(parent_node.name(), Eigen::Vector3d{pose[0], pose[1], 0.f}, room_node.name()); pose_transformed_.has_value())
     {
         auto pose_transformed = pose_transformed_.value().cast<float>();
-        qInfo() << "Pose to update transformed" << pose_transformed.x() << pose_transformed.y();
+//        qInfo() << "Pose to update transformed" << pose_transformed.x() << pose_transformed.y();
         // Add edge between door and robot
         rt->insert_or_assign_edge_RT(parent_node, door_node.id(), {pose_transformed.x(), 0.f, 0.f}, {0.f, 0.f, 0.f});
     }
@@ -810,7 +794,7 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
 //Function to insert a new measured door in the graph, generate a thread in charge of stabilizing the door and set a has_intention edge
 void SpecificWorker::set_doors_to_stabilize(const std::vector<DoorDetector::Door> &doors, DSR::Node room_node)
 {
-    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
+//    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
     /// Iterate over doors using enumerate
     for(const auto &[i, door] : doors | iter::enumerate)
     {
@@ -835,7 +819,7 @@ void SpecificWorker::set_doors_to_stabilize(const std::vector<DoorDetector::Door
             new_door_id = *std::max_element(door_ids.begin(), door_ids.end()) + 1;
 //        std::string door_name = "door_" + std::to_string(wall_id) + "_" + std::to_string(new_door_id) + "_measured";
         std::string door_name = "door_" + std::to_string(wall_id) + "_" + std::to_string(new_door_id) + "_pre";
-        qInfo() << "Door name: " << QString::fromStdString(door_name) << "Mid point: " << door.middle.x() << door.middle.y() << "Width: " << door.width();
+//        qInfo() << "Door name: " << QString::fromStdString(door_name) << "Mid point: " << door.middle.x() << door.middle.y() << "Width: " << door.width();
         //  10 create new_measured door to stabilize.
         insert_door_in_graph(door, room_node, door_name);
 
@@ -927,7 +911,7 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
         G->insert_node(door_node);
 
         auto pose = door.middle;
-        qInfo() << " name: " << QString::fromStdString(door_name) << " Width: " << door.width() << " Center: " << door_middle_transformed_value.x() << door_middle_transformed_value.y();
+//        qInfo() << " name: " << QString::fromStdString(door_name) << " Width: " << door.width() << " Center: " << door_middle_transformed_value.x() << door_middle_transformed_value.y();
         // Add edge between door and robot
         rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),door_middle_transformed_value.y(), 0.0},
                                      {0.0, 0.0, 0.0});
@@ -965,6 +949,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
     while(not is_stabilized)
     {
+        qInfo() << "Stabilizing door: " << QString::fromStdString(door_name_);
         auto start = std::chrono::high_resolution_clock::now();
 
         /// get has intention edge between robot and doo
@@ -1164,10 +1149,11 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     }
 
                     /// Get door center coordinates in robot reference frame
-
-
-
-
+                    if(auto door_translation_ = G->get_attrib_by_name<rt_translation_att >(door_node); door_translation_.has_value())
+                    {
+                        auto door_translation = door_translation_.value().get();
+                        measured_door_points.push_back(Eigen::Vector2f{door_translation[0], door_translation[1]});
+                    }
 
                     /// Iterate over corners
                     std::vector<Eigen::Matrix<float, 2, 1>> actual_measured_corner_points;
@@ -1186,22 +1172,53 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     }
                     measured_corner_points.push_back(actual_measured_corner_points);
 
-
                     /// Get robot odometry
                     auto odometry = get_graph_odometry();
                     odometry_data.push_back(odometry);
-
                 }
             }
             else if(intention_state_value == "waiting")
             {
                 qInfo() << "Waiting to base controller...";
+                continue;
             }
             else if(intention_state_value == "aborted" or intention_state_value == "failed")
             {
-                qInfo() << "Problem found stabilizing door. Door is aborted or failed.";
+                qInfo() << "Problem found stabilizing door. Door is aborted or failed. Waiting scheduler to remove data";
+                continue;
             }
             else if(intention_state_value == "completed")
+            {
+                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
+                continue;
+            }
+        }
+        else // IS_ACTIVE == FALSE
+        {
+            if(intention_state_value == "aborted" or intention_state_value == "failed") //WAITING TO START is_active== false and state = waiting
+            {
+                qInfo() << "Problem found stabilizing door. Door is aborted or failed.";
+                /// in case a problem is found stabilizing the door:
+                    /// remove intention edge ????
+                    /// Remove measured door in graph ????
+
+                //Delete edge between wall and door in all cases
+                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                //delete door node
+                G->delete_node(door_node.id());
+                return;
+
+            }
+            else if(intention_state_value == "completed") //TODO: is_active == false $ state == completed, else if (state== fail, aborted)
             {
                 /// Robot arrived to designed position
                 /// Getting most common door width and pose
@@ -1224,10 +1241,6 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     qInfo() << "Most common door data transformed: " << door_nominal_respect_to_room_value.x() << " " << door_nominal_respect_to_room_value.y() << "#############################";
                 }
 
-                //TODO: CONTINUACIÓN DEL ALMACENAMIENTO DE DATOS
-                //TODO:: ALMACENAR HISTOGRAMAS (CENTRO, ANCHO).
-                //TODO: ESPERAR A IS_ACTIVE == FALSE, STATE=="completed" PARA MONTAR ARCHIVO G20, PROXY->G2O, RECOGER PUERTA OPTIMIZADA
-                //TODO: get door pose and transform from wall to room, apply transform and get Eigen::Vector2f nominal_door_pose in the room frame
 
                 std::string g2o_data = build_g2o_graph(measured_corner_points, nominal_corner_points, odometry_data, first_robot_pose, measured_door_points , door_nominal_respect_to_room_value);
 
@@ -1245,12 +1258,8 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                     //Build new door with optimized data
                     auto optimized_door = DoorDetector::Door{Eigen::Vector2f{optimized_door_center.x(), optimized_door_center.y()},  door_width, door.wall_id, door.id};
-                    
-                    //Delete edge between wall and door
-                    G->delete_edge(wall_node.id(), door_node.id(), "rt");
 
-                    //delete door node
-                    G->delete_node(door_node.id());
+
                     std::string door_name = "door_" + std::to_string(optimized_door.wall_id) + "_" + std::to_string(optimized_door.id);
                     //Create new door node
                     auto nominal_node = insert_door_in_graph(optimized_door, room_node, door_name);
@@ -1263,33 +1272,35 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 catch (const std::exception &e)
                 {
                     qWarning() << __FUNCTION__ << " Error optimizing door data";
-                    return;
-                }
-            }
-        }
-        else // IS_ACTIVE == FALSE
-        {
-            if(intention_state_value == "aborted" or intention_state_value == "failed") //WAITING TO START is_active== false and state = waiting
-            {
-                qInfo() << "Problem found stabilizing door. Door is aborted or failed.";
-                /// in case a problem is found stabilizing the door:
-                    /// remove intention edge ????
-                    /// Remove measured door in graph ????
-            }
-            else if(intention_state_value == "completed") //TODO: is_active == false $ state == completed, else if (state== fail, aborted)
-            {
-                qInfo() << "Action Completed, delete intention_edge and close thread. ";
-                /// in case stabuilization is completed:
-                    /// remove intention edge
-                    /// Create nominal door in graph
-                    /// Remove measured door in graph
-                //TODO: INSERTAR PUERTA OPTIMIZADA,
 
-                // TODO: if is_active == false, status = completed, delete edge, delete thread.
+                }
+                qInfo() << "Action Completed, delete intention_edge and close thread. ";
+
+                //Delete edge between wall and door in all cases
+                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                //delete door node
+                G->delete_node(door_node.id());
+
+                return;
             }
             else if(intention_state_value == "waiting")
             {
-                qInfo() << "Waiting to action.";
+                qInfo() << "Waiting activation.";
+                continue;
+            }
+            else if(intention_state_value == "in_progress")
+            {
+                qInfo() << "This state shouldn't appear.";
+                continue;
             }
         }
 
