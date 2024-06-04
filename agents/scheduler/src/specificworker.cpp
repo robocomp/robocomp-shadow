@@ -94,12 +94,14 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+//		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
 		using opts = DSR::DSRViewer::view;
+        qInfo() << "asdg";
 		int current_opts = 0;
+        qInfo() << "asdg";
 		opts main = opts::none;
 		if(tree_view)
 		{
@@ -118,7 +120,9 @@ void SpecificWorker::initialize(int period)
 		{
 		    current_opts = current_opts | opts::osg;
 		}
+        qInfo() << "asdg";
 		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+        qInfo() << "asdg";
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
 		/***
@@ -129,7 +133,7 @@ void SpecificWorker::initialize(int period)
 		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 		***/
 		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
-
+        qInfo() << "asdg";
 		timer.start(Period);
 	}
 
@@ -138,7 +142,7 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     auto has_intention_edges = G->get_edges_by_type("has_intention");
-
+    qInfo() << active_node_id;
     if(!this->intention_active)
     {
         if (!has_intention_edges.empty())
@@ -156,10 +160,23 @@ void SpecificWorker::compute()
     }
     else
     {
-        if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
-            if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
-                if(edge_state.value() == "completed")
-                    this->active_node_id = set_intention_active(edge.value(), false);
+        qInfo() << "Intention active";
+        if (G->get_node(this->active_node_id).has_value())
+        {
+            qInfo() << "Active node: " << this->active_node_id;
+            if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
+            {
+                qInfo() << "Active edge: " << edge.value().to();
+                if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
+                {
+                    if(edge_state.value() == "completed")
+                    {
+
+                        this->active_node_id = set_intention_active(edge.value(), false);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -170,10 +187,12 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
-int SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)
+u_int64_t SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)
 {
+    qInfo() << "Setting intention active";
     G->add_or_modify_attrib_local<active_att>(edge, active);
     G->insert_or_assign_edge(edge);
+    qInfo() << "Intention active: " << active;
     this->intention_active = active;
 
     if (!active)

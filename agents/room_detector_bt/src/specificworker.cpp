@@ -276,6 +276,7 @@ void SpecificWorker::room_stabilitation()
     else
     {
         std::cout << __FUNCTION__ << " Room not initialized. Can't store data." << std::endl;
+        return;
     }
 
     auto room_center = current_room.get_center();
@@ -857,7 +858,6 @@ std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> SpecificWorker::get_rob
     Eigen::Matrix2d rotation_matrix;
     rotation_matrix << cos(angle_rad), sin(angle_rad),
             -sin(angle_rad), cos(angle_rad);
-
 
     Eigen::Vector2d translation = rotation_matrix * -room_center_double;
 
