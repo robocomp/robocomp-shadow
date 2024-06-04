@@ -78,7 +78,7 @@ namespace Nodes
         DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(shadow_node.id(), room_measured.id());
 
         // Valid attribute of intention edge. Should be set by the SCHEDULER
-        G->add_or_modify_attrib_local<valid_att>(intention_edge, false);
+        G->add_or_modify_attrib_local<active_att>(intention_edge, false);
 
         /// Set robot target to a position close to the room center
         std::vector<float> offset_target = {0, 0, 0};

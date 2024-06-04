@@ -137,16 +137,15 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-    qInfo() << "sdfg";
     auto has_intention_edges = G->get_edges_by_type("has_intention");
 
     if (!has_intention_edges.empty() && !this->intention_active)
     {
-        if(auto is_valid = G->get_attrib_by_name<valid_att>(has_intention_edges[0]); is_valid.has_value())
+        if(auto is_valid = G->get_attrib_by_name<active_att>(has_intention_edges[0]); is_valid.has_value())
         {
             qInfo() << "Intention edge found";
             qInfo() << "Is valid" << is_valid.value();
-            G->add_or_modify_attrib_local<valid_att>(has_intention_edges[0], true);
+            G->add_or_modify_attrib_local<active_att>(has_intention_edges[0], true);
             G->insert_or_assign_edge(has_intention_edges[0]);
             this->intention_active = true;
             qInfo() << "asdftg";

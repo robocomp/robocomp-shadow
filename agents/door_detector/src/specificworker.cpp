@@ -854,6 +854,19 @@ void SpecificWorker::set_doors_to_stabilize(const std::vector<DoorDetector::Door
 //        G->insert_edge(robot_node, door_node.value().id(), "has_intention", {{"is_active", false}, {"state", "waiting"}});
         DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(robot_node.id(), door_node.value().id());
         G->add_or_modify_attrib_local<active_att>(intention_edge, false);
+
+        /// Set robot target to a position close to the room center
+        std::vector<float> offset_target = {0, -1000, 0};
+        G->add_or_modify_attrib_local<offset_xyz_att>(intention_edge, offset_target);
+
+        /// Set tolerance to reach the target
+        std::vector<float> tolerance = {200, 200, 0.f, 0.f, 0.f, 0.5};
+        G->add_or_modify_attrib_local<tolerance_att>(intention_edge, tolerance);
+
+        /// Set intention status to "waiting"
+        std::string intention_status = "waiting";
+        G->add_or_modify_attrib_local<state_att>(intention_edge, intention_status);
+
         G->insert_or_assign_edge(intention_edge);
 
 //        insert measured_id_door
