@@ -163,6 +163,18 @@ void SpecificWorker::compute()
     }
     else intention_edge = intention_edge_.value();
 
+    auto intention_status_ = G->get_attrib_by_name<state_att>(intention_edge);
+    if(not intention_status_.has_value())
+    {
+        std::cout << __FUNCTION__ << " Error getting intention status. Returning." << std::endl;
+        return;
+    }
+    auto intention_status = intention_status_.value();
+
+    /// Set string to set intention state
+    std::string intention_state = "waiting";
+
+
     /// Check if there is final orientation and tolerance in the intention edge
 //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
 //    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
@@ -185,8 +197,11 @@ void SpecificWorker::compute()
     {
         qInfo() << "Robot at target. Stopping.";
         stop_robot();
+        set_intention_edge_state(intention_edge, "completed");
         return;
     }
+
+    set_intention_edge_state(intention_edge, "in_progress");
 
     /// Check if the target position is in line of sight
     if( line_of_sight(vector_to_target, ldata) )
@@ -415,7 +430,16 @@ RoboCompGridPlanner::Points SpecificWorker::compute_line_of_sight_target(const E
     }
     return path;
 }
-
+void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const string &string)
+{
+    /// Set edge attribute state to string
+    qInfo() << __FUNCTION__ << "Setting intention edge state to " << string.c_str();
+    G->add_or_modify_attrib_local<state_att>(edge, string);
+    if(G->insert_or_assign_edge(edge))
+        std::cout << __FUNCTION__ << "Intention edge state set to " << string << std::endl;
+    else
+        std::cout << __FUNCTION__ << "Error setting intention edge state to " << string << std::endl;
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////
 int SpecificWorker::startup_check()
 {
@@ -423,6 +447,8 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
 }
+
+
 
 
 

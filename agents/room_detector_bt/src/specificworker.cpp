@@ -130,7 +130,7 @@ void SpecificWorker::initialize(int period)
         {
             //Executing in /bin
             this->tree = factory.createTreeFromFile("./src/bt_room.xml"); // , blackboard
-        } catch (const std::exception& e) { std::cerr << __FUNCTION__ << " Error creating BheaviorTree: " << e.what() << std::endl; }
+        } catch (const std::exception& e) { std::cerr << __FUNCTION__ << " Error creating BehaviorTree: " << e.what() << std::endl; }
 
         BT_th = std::move(std::thread(&SpecificWorker::BTFunction, this));
 
