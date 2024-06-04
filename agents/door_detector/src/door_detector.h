@@ -21,7 +21,7 @@ public:
     DoorDetector();
     struct Door
     {
-        Eigen::Vector2f p0, p1, middle;
+        Eigen::Vector2f p0, p1, middle, middle_measured;
         int idx_in_peaks_0, idx_in_peaks_1, id, wall_id;
         float angle;
         const float THRESHOLD = 500; //door equality

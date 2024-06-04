@@ -6,7 +6,6 @@
 #define FORCEFIELD_AGENT_PARAMS_H
 
 #include <QColor>
-#include <opencv2/core/cvdef.h>
 
 namespace rc
 {
@@ -39,8 +38,8 @@ namespace rc
         double rhoMax = 8000.0;
         double rhoStep = 20;
         double thetaMin = 0;
-        double thetaMax = CV_PI;
-        double thetaStep = CV_PI / 180.0f;
+        double thetaMax = M_PI;
+        double thetaStep = M_PI / 180.0f;
         double MIN_VOTES = 100;
         int LINES_MAX = 10;
         int LINE_THRESHOLD = 25;

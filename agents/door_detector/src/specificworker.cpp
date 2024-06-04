@@ -161,19 +161,28 @@ void SpecificWorker::compute()
     auto nominal_matches = door_matching(doors, std::get<1>(door_nodes));
 //   6. remove from doors detected the doors matched with DSR data and make new association with the measure_door_nodes,
 //   return matched doors and update measured_door nodes.
-    update_and_remove_doors(nominal_matches, doors, std::get<1>(door_nodes), true, room_node);
+    auto to_measured_doors = update_and_remove_doors(nominal_matches, doors, std::get<1>(door_nodes), true, room_node);
+
+    //Print to_measured_doors size
+    std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
+
     //  7 matching function between DSR doors_measured data and measured doors in last lidar. return matching and "other" doors.
-    auto measure_matches = door_matching(doors, std::get<0>(door_nodes));
+    auto measure_matches = door_matching(to_measured_doors, std::get<0>(door_nodes));
+    std::cout << "Measure match size: " << measure_matches.size() << std::endl;
     /// Print measure matches
 //  8 remove from observed doors detected the last matched doors. If door_detected>0 it's a door in process of stabilization or a new_door
 //  and update the measured_nodes
-    auto to_prefilter_doors = update_and_remove_doors(measure_matches, doors, std::get<0>(door_nodes), false, room_node);
-//  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
+    auto to_prefilter_doors = update_and_remove_doors(measure_matches, to_measured_doors, std::get<0>(door_nodes), false, room_node);
+
+    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
+
+    //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
 //    If door has been seen for N times. insertion
     door_prefilter(to_prefilter_doors);
 //    qInfo() << "------------------------set_doors_to_stabilize--------------------------------";
 
+    //Print
     set_doors_to_stabilize(to_prefilter_doors, room_node);
 
 //  10 create new_measured door to stabilize.
@@ -398,6 +407,9 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                             }
 
                             door.wall_id = wall_center_index;
+
+                            //calculate door middle using p_0_ p_1_ and assign to doos.middle_measured
+                            door.middle_measured = Eigen::Vector2f{(p_0_.x() + p_1_.x()) / 2, (p_0_.y() + p_1_.y()) / 2};
 
 //                            qInfo() << __FUNCTION__ << "Door: " << door.id << " Wall: " << door.wall_id;
                             doors.push_back(door);
@@ -737,15 +749,17 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
     for(const auto &[i, match] : matches | iter::enumerate)
         if(match.second != -1 and match.first != -1)
         {
-//            if(nominal)
-//            {
-//                qInfo() << "Deleting because is matched with a nominal";
+            auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_pre";
+            if(nominal)
+            {
+                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
 //                measured_doors.erase(measured_doors.begin() + i);
-//                continue;
-//            }
+                indexes_to_remove.push_back(match.first);
+                continue;
+            }
 //            qInfo() << "Updating door data in graph";
             /// Get graph door name
-            auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_pre";
+
 //            qInfo() << "Door name first: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.first].middle.x() << measured_doors[match.first].middle.y() ;
 //            qInfo() << "Door name second: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.second].middle.x() << measured_doors[match.second].middle.y() ;
             /// Update measured door with the matched door
@@ -773,14 +787,16 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
     auto parent_node = parent_node_.value();
 
     auto pose = door.middle;
+    auto pose_measured = door.middle_measured;
 //    qInfo() << "Updating node" << door_node.id() << "Name:" << QString::fromStdString(door_node.name());
 //    qInfo() << "Pose to update" << pose[0] << pose[1];
 
     /// Insert robot reference pose in node attribute
-    std::vector<float> measured_pose = {pose[0], pose[1], 0.f};
-    std::vector<float> measured_orientation = {pose[0], pose[1], 0.f};
+    std::vector<float> measured_pose = {pose_measured[0], pose_measured[1], 0.f};
+    std::vector<float> measured_orientation = {0.f, 0.f, 0.f};
     G->add_or_modify_attrib_local<rt_translation_att>(door_node, measured_pose);
     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att >(door_node, measured_orientation);
+    G->update_node(door_node);
 
     /// Transform pose to parent node reference frame
     if(auto pose_transformed_ = inner_eigen->transform(parent_node.name(), Eigen::Vector3d{pose[0], pose[1], 0.f}, room_node.name()); pose_transformed_.has_value())
@@ -1027,7 +1043,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                             // Set rotation and traslation data
                             first_robot_pose.setIdentity();
-                            first_robot_pose.rotate(-rt_rotation_value[2]).pretranslate(Eigen::Vector2d {rt_translation_value[0], rt_translation_value[1]});
+                            first_robot_pose.rotate(rt_rotation_value[2]).pretranslate(Eigen::Vector2d {rt_translation_value[0], rt_translation_value[1]});
                         }
                     }
 
@@ -1152,6 +1168,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     if(auto door_translation_ = G->get_attrib_by_name<rt_translation_att >(door_node); door_translation_.has_value())
                     {
                         auto door_translation = door_translation_.value().get();
+
                         measured_door_points.push_back(Eigen::Vector2f{door_translation[0], door_translation[1]});
                     }
 
@@ -1289,7 +1306,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 //delete door node
                 G->delete_node(door_node.id());
-
+                is_stabilized = true;
                 return;
             }
             else if(intention_state_value == "waiting")
@@ -1309,6 +1326,8 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     }
     /// Kill thread
     qInfo() << "Thread finished";
+
+
 }
 std::vector<float> SpecificWorker::get_graph_odometry()
 {

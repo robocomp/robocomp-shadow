@@ -75,8 +75,8 @@ private:
     rc::Params params;
 
     bool intention_active = false;
-    int active_node_id = -1;
-    int set_intention_active(DSR::Edge &edge, bool active);
+    u_int64_t active_node_id = -1;
+    u_int64_t set_intention_active(DSR::Edge &edge, bool active);
 
 };
 
