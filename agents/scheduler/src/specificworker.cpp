@@ -139,21 +139,28 @@ void SpecificWorker::compute()
 {
     auto has_intention_edges = G->get_edges_by_type("has_intention");
 
-    if (!has_intention_edges.empty() && !this->intention_active)
+    if(!this->intention_active)
     {
-        if(auto is_valid = G->get_attrib_by_name<active_att>(has_intention_edges[0]); is_valid.has_value())
+        if (!has_intention_edges.empty())
         {
-            qInfo() << "Intention edge found";
-            qInfo() << "Is valid" << is_valid.value();
-            G->add_or_modify_attrib_local<active_att>(has_intention_edges[0], true);
-            G->insert_or_assign_edge(has_intention_edges[0]);
-            this->intention_active = true;
-            qInfo() << "asdftg";
-            return;
+            for (auto edge : has_intention_edges)
+                if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+                    if (edge_state.value() == "waiting")
+                    {
+                        this->active_node_id = set_intention_active(edge, true);
+                        break;
+                    }
         }
+        else
+            std::cout << "No intention edges found" << std::endl;
     }
     else
-        std::cout << "No intention edges found" << std::endl;
+    {
+        if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
+            if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
+                if(edge_state.value() == "completed")
+                    this->active_node_id = set_intention_active(edge.value(), false);
+    }
 }
 
 int SpecificWorker::startup_check()
@@ -163,12 +170,24 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
+int SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)
+{
+    G->add_or_modify_attrib_local<active_att>(edge, active);
+    G->insert_or_assign_edge(edge);
+    this->intention_active = active;
+
+    if (!active)
+        return -1;
+    else
+        return edge.to();
+}
+
 void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
 {
-    if(edge_tag == "has_intention")
-    {
-        this->intention_active = false;
-    }
+//    if(edge_tag == "has_intention")
+//    {
+//        this->intention_active = false;
+//    }
 }
 
 
