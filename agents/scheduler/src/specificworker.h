@@ -27,6 +27,7 @@
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
+#include "params.h"
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
@@ -70,7 +71,12 @@ private:
 	QHBoxLayout mainLayout;
 	bool startup_check_flag;
 
+    // Params
+    rc::Params params;
+
     bool intention_active = false;
+    int active_node_id = -1;
+    int set_intention_active(DSR::Edge &edge, bool active);
 
 };
 
