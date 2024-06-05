@@ -10,6 +10,7 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/chunked.hpp>
+#include "params.h"
 
 namespace Nodes
 {
@@ -22,16 +23,15 @@ namespace Nodes
     {
         public:
             InRoomCenter(const std::string& name) : BT::ConditionNode(name, {}) {}
-            InRoomCenter(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<int()>& _distance_to_center) :
-                BT::ConditionNode(name, {}), G(G_), distance_to_center(_distance_to_center) {}
+            InRoomCenter(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_) :
+                BT::ConditionNode(name, {}), G(G_) {}
 
         protected:
             virtual BT::NodeStatus tick() override;
 
         private:
             std::shared_ptr<DSR::DSRGraph> G;
-            std::function<int()> distance_to_center;
-            int time_in_center = 3000;
+            rc::Params params;
     };
 
 #pragma endregion CONDITION_NODES
@@ -124,6 +124,7 @@ namespace Nodes
         private:
             std::shared_ptr<DSR::DSRGraph> G;
             std::function<void()> room_stabilitation;
+            rc::Params params;
     };
 
 #pragma endregion ACTION_NODES

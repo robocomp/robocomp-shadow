@@ -118,7 +118,7 @@ void SpecificWorker::initialize(int period)
 
         this->factory.registerSimpleCondition("ExistsRoom", std::bind(Nodes::ExistsRoom, this->G));
         this->factory.registerNodeType<Nodes::CreateTargetEdge>("CreateTargetEdge", this->G);
-        this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G, std::bind(&SpecificWorker::distance_to_center, this));
+        this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G);
         this->factory.registerNodeType<Nodes::RoomStabilitation>("RoomStabilitation", this->G, std::bind(&SpecificWorker::room_stabilitation, this));
         this->factory.registerNodeType<Nodes::CreateRoom>("CreateRoom", this->G, std::bind(&SpecificWorker::create_room, this));
         this->factory.registerNodeType<Nodes::UpdateRoom>("UpdateRoom", this->G, std::bind(&SpecificWorker::check_corner_matching, this),

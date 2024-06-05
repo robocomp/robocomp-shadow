@@ -24,32 +24,42 @@ namespace Nodes
 
     BT::NodeStatus InRoomCenter::tick()
     {
-        //get start time
-        int distance = distance_to_center();
-
-        //Calculate distance to room center
-        if (distance < 150.)    // TODO: Move to params
+        if (std::optional<DSR::Node> room_node_ = G->get_node("room_measured"); room_node_.has_value())
         {
-            static auto start = std::chrono::high_resolution_clock::now();
-
-            if(time_in_center < 0)
+            DSR::Node room_node = room_node_.value();
+            if (auto has_intention_edge = G->get_edge(params.ROBOT_ID, room_node.id(), "has_intention"); has_intention_edge.has_value())
             {
-                //std::cout << __FUNCTION__ << " In_room_center" << std::endl;
-                return BT::NodeStatus::SUCCESS;
+                std::cout << "Intention edge found" << std::endl;
+
+                if (auto active = G->get_attrib_by_name<active_att>(has_intention_edge.value()); active.has_value())
+                {
+                    std::cout << "Active:" << active.value() << std::endl;
+                    if (!active.value())
+                        if (auto state = G->get_attrib_by_name<state_att>(has_intention_edge.value()); state.has_value())
+                        {
+                            if (state.value() == "completed")
+                            {
+                                std::cout << "Intention edge COMPLETED" << std::endl;
+                                return BT::NodeStatus::SUCCESS;
+                            }
+                            else
+                            {
+                                std::cout << "Intention edge NON COMPLETED" << std::endl;
+                                return BT::NodeStatus::FAILURE;
+                            }
+                        }
+                }
             }
-            auto end = std::chrono::high_resolution_clock::now();
-            //get end time and calculate duration
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            time_in_center -= elapsed;
-            start = end;
-            //std::cout << __FUNCTION__ << " Time in center:" << time_in_center << std::endl;
-            return BT::NodeStatus::FAILURE;
+            else
+            {
+                            std::cout << "No intention edge found" << std::endl;
+            }
         }
         else
         {
-            //std::cout << __FUNCTION__ << " Not in room center" << std::endl;
-            return BT::NodeStatus::FAILURE;
+            std::cout << "Room node not found" << std::endl;
         }
+        return BT::NodeStatus::FAILURE;
     }
 
 #pragma endregion CONDITION_NODES
@@ -139,28 +149,39 @@ namespace Nodes
     void RoomStabilitation::onHalted()
     {
         std::cout << "Room stabilitation halted" << std::endl;
-        if (std::optional<DSR::Node> shadow_node_ = G->get_node("Shadow"); shadow_node_.has_value())
-        {
-            if(auto room_measured = G->get_node("room_measured"); room_measured.has_value())
-            {
-                if (G->delete_node(room_measured.value().id()))
-                    std::cout << __FUNCTION__ << " Room measured node successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
-            }
 
-//            DSR::Node shadow_node = shadow_node_.value();
-//            if (std::optional<DSR::Edge> target_edge_ = G->get_edge(shadow_node.id(), shadow_node.id(),"TARGET"); target_edge_.has_value())
-//            {
-//                DSR::Edge target_edge = target_edge_.value();
-//                if ( G->delete_edge(shadow_node.id(), shadow_node.id(), "TARGET") )
-//                {
-//                    std::cout << __FUNCTION__ << " Target edge successfully deleted: " << std::endl;
-//
-//                } else
-//                    std::cout << __FUNCTION__ << " Fatal error deleting edge: " << std::endl;
-//            }
+        if(auto room_measured = G->get_node("room_measured"); room_measured.has_value())
+        {
+            auto room_node = room_measured.value();
+            if (auto has_intention_edge = G->get_edge(params.ROBOT_ID, room_node.id(), "has_intention"); has_intention_edge.has_value())
+            {
+                std::cout << "Has_intention" << std::endl;
+
+                if (auto active = G->get_attrib_by_name<active_att>(has_intention_edge.value()); active.has_value())
+                {
+                    std::cout << "Active:" << active.value() << std::endl;
+
+                    if (auto state = G->get_attrib_by_name<state_att>(has_intention_edge.value()); state.has_value())
+                    {
+                        std::cout << "State:" << state.value() << std::endl;
+
+                        if (state.value() == "completed" && !active.value())
+                        {
+                            if (G->delete_node(room_node.id()))
+                                std::cout << __FUNCTION__ << " Room measured node successfully deleted: " << std::endl;
+                            else
+                                std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+                        }
+                    }
+                }
+            }
         }
+        else
+        {
+            std::cout << "Room measured node not found" << std::endl;
+        }
+
+//        std::terminate();
     }
 
     BT::NodeStatus CreateRoom::tick()

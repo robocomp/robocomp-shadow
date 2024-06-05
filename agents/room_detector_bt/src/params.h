@@ -12,6 +12,7 @@ namespace rc
 {
     struct Params
     {
+        int ROBOT_ID = 200;
         std::string robot_name = "Shadow";
         std::string lidar_name = "helios";
         std::vector<std::pair<float, float>> ranges_list = {{1000, 2500}};
