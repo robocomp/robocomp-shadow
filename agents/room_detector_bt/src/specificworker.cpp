@@ -1019,7 +1019,10 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
     std::string g2o_graph;
     int id = 0; // Id for g2o graph vertices
     auto updated_robot_pose = robot_pose;
-    
+
+    //set std::to_string decimal separator dot
+    std::setlocale(LC_NUMERIC, "C");
+
     /// Add nominal corners as VERTEX_XY
     for (size_t i = 0; i < nominal_corners.size(); ++i)
     {
