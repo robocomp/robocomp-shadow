@@ -57,6 +57,9 @@ SESSION_ID_13=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSessi
 TERMINAL_ID_13=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 13)
 qdbus org.kde.yakuake /yakuake/tabs setTabTitle 13 "door_detector"
 
+SESSION_ID_14=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+TERMINAL_ID_14=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 14)
+qdbus org.kde.yakuake /yakuake/tabs setTabTitle 14 "scheduler"
 # SESSION_ID_16=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 # TERMINAL_ID_16=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 16)
 # qdbus org.kde.yakuake /yakuake/tabs setTabTitle 16 "BulletSim"
@@ -139,5 +142,10 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "bin/room_detect
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "cd ~/robocomp/components/robocomp-shadow/agents/door_detector"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "bin/door_detector etc/config"
+
+#Scheduler
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "cd ~/robocomp/components/robocomp-shadow/agents/scheduler"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "bin/scheduler etc/config"
 
 
