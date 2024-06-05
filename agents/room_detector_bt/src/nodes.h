@@ -32,6 +32,7 @@ namespace Nodes
         private:
             std::shared_ptr<DSR::DSRGraph> G;
             rc::Params params;
+            int time_in_center = 3000;
     };
 
 #pragma endregion CONDITION_NODES

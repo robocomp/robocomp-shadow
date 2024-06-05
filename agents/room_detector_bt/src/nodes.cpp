@@ -39,8 +39,18 @@ namespace Nodes
                         {
                             if (state.value() == "completed")
                             {
-                                std::cout << "Intention edge COMPLETED" << std::endl;
-                                return BT::NodeStatus::SUCCESS;
+                                static auto start = std::chrono::high_resolution_clock::now();
+                                if(time_in_center < 0)
+                                {
+                                    std::cout << "Completed!" << std::endl;
+                                    return BT::NodeStatus::SUCCESS;
+                                }
+
+                                auto end = std::chrono::high_resolution_clock::now();
+                                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+                                time_in_center -= elapsed;
+                                start = end;
+                                return BT::NodeStatus::FAILURE;
                             }
                             else
                             {

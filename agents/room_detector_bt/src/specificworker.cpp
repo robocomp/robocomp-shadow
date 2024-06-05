@@ -263,7 +263,7 @@ void SpecificWorker::room_stabilitation()
         }
 
         //print room size histogram size
-        //std::cout << __FUNCTION__ << " Room size histogram size: " << BTdata.room_size_histogram.size() << std::endl;
+        std::cout << __FUNCTION__ << " Room size histogram size: " << BTdata.room_size_histogram.size() << std::endl;
         //std::cout << __FUNCTION__ << " Room sizes size: " << BTdata.room_sizes.size() << std::endl;
 
         // Get robot odometry
@@ -945,21 +945,16 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
             qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
             qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
             std::string corner_name = "corner_" + std::to_string(i) + "_measured";
-            qInfo() << -1;
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
-                qInfo() << 0;
                 if (std::optional<DSR::Edge> edge = G->get_edge(robot_node.id(), updated_corner.value().id(),
                                                                 "RT"); edge.has_value())
                 {
-                    qInfo() << 1;
                     if (auto corner_id = G->get_attrib_by_name<corner_id_att>(
                                 updated_corner.value()); corner_id.has_value())
                     {
-                        qInfo() << 2;
                         if (corner_id.value() == std::get<0>(rt_corners_correspondences[i]))
                         {
-                            qInfo() << 3;
                             //insert the rt values in the edge
                             G->add_or_modify_attrib_local<valid_att>(updated_corner.value(), std::get<3>(
                                     rt_corners_correspondences[i]));
