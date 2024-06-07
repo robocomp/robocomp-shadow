@@ -395,6 +395,11 @@ void SpecificWorker::move_robot(float adv, float side, float rot)
 }
 bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vector<Eigen::Vector3f >& ldata, QGraphicsScene *pScene)
 {
+    /// Static variables for drawing
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ pScene->removeItem(i); delete i;}
+    items.clear();
+
     // check if there is a line of sight from the robot to the target using only local info: lidar3D
     // create a 2D rectangular shape linking the robot and the target with the width of the robot plus a safe zone and check that no lidar points fall inside
     // filter the 3D lidar points to remove those with z component close to zero
@@ -415,7 +420,7 @@ bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vec
                        QPointF(r.x(), r.y());
 
     // draw safe band
-    pScene->addPolygon(robot_safe_band, QPen(QColor("blue"), 10));
+    items.push_back(pScene->addPolygon(robot_safe_band, QPen(QColor("blue"), 10)));
 
     // check if there are points inside the rectangular shape
     for(const auto &p: points)

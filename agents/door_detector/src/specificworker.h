@@ -37,6 +37,8 @@
 #include "Hungarian.h"
 #include "nodes.h"
 #include "params.h"
+#include <custom_widget.h>
+#include <ui_localUI.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -81,6 +83,9 @@ private:
 	QHBoxLayout mainLayout;
 	bool startup_check_flag;
 
+    //Local widget
+    CustomWidget *room_widget;
+
     struct Constants
     {
         std::string lidar_name = "helios";
@@ -95,7 +100,7 @@ private:
     void read_lidar();
     void draw_lidar(const RoboCompLidar3D::TData &data, QGraphicsScene *scene, QColor color="green");
     void draw_polygon(const QPolygonF &poly_in, const QPolygonF &poly_out,QGraphicsScene *scene, QColor color);
-    void draw_door(const vector<DoorDetector::Door> &doors, QGraphicsScene *scene, QColor color);
+    void draw_door(const std::vector<DoorDetector::Door> &nominal_doors, const std::vector<DoorDetector::Door> &measured_doors, QColor nominal_color, QColor measured_color, QGraphicsScene *scene);
 
     // Thread for reading lidar
     std::thread read_lidar_th;
@@ -110,7 +115,7 @@ private:
     DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
 
     //DOOR METHODS
-    std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> get_measured_and_nominal_doors(DSR::Node room_node);
+    std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> get_measured_and_nominal_doors(DSR::Node room_node, DSR::Node robot_node);
 
     std::vector<DoorDetector::Door> get_doors(const RoboCompLidar3D::TData &ldata, QGraphicsScene *scene, DSR::Node robot_node, DSR::Node room_node);
     optional<tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector2f>>> get_corners_and_wall_centers();
@@ -122,9 +127,9 @@ private:
     std::vector<DoorDetector::Door> update_and_remove_doors(vector<std::pair<int, int>> matches, const vector<DoorDetector::Door> &measured_doors,
                                  const vector<DoorDetector::Door> &graph_doors, bool nominal, DSR::Node world_node);
     void update_door_in_graph(const DoorDetector::Door &door, std::string door_name, DSR::Node world_node);
-    void set_doors_to_stabilize(const std::vector<DoorDetector::Door> &doors, DSR::Node room_node);
+    void set_doors_to_stabilize(std::vector<DoorDetector::Door> doors, DSR::Node room_node);
 
-    DSR::Node insert_door_in_graph(DoorDetector::Door door, DSR::Node room, std::string door_name);
+    DSR::Node insert_door_in_graph(DoorDetector::Door door, DSR::Node room, const std::string& door_name);
 
     void stabilize_door(DoorDetector::Door door, string door_name);
     vector<float> get_graph_odometry();
@@ -143,6 +148,16 @@ private:
         const Eigen::Vector2f &nominal_door_center);
 
     Eigen::Vector2f extract_g2o_data(string optimization);
+
+    void draw_vector_of_doors(QGraphicsScene *scene, vector<QGraphicsItem *> &items, vector<DoorDetector::Door> doors,
+                              QColor color) const;
+
+    void
+    draw_door_robot_frame(const vector<DoorDetector::Door> &nominal_doors,
+                          const vector<DoorDetector::Door> &measured_doors,
+                          QColor nominal_color, QColor measured_color, QGraphicsScene *scene);
+
+    void clear_doors();
 
     void affordance();
     void affordance_thread(uint64_t aff_id);
