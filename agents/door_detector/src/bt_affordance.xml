@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4"
+      main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="CrossDoor">
+      <Sequence name="InFrontOfDoor">
+        <ExistsParent door_id="{door_id}"/>
+        <CreateHasIntention door_id="{door_id}"
+                            target_vector="-1000"/>
+        <IsIntentionCompleted/>
+      </Sequence>
+      <Sequence name="InMiddleOfDoor">
+        <ExistsParent door_id="{door_id}"/>
+        <CreateHasIntention door_id="{door_id}"
+                            target_vector="0"/>
+        <IsIntentionCompleted/>
+      </Sequence>
+      <Sequence name="ThroughDoor">
+        <ExistsParent door_id="{door_id}"/>
+        <CreateHasIntention door_id="{door_id}"
+                            target_vector="1000"/>
+        <IsIntentionCompleted/>
+      </Sequence>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="CreateHasIntention"
+            editable="true">
+      <input_port name="door_id"/>
+      <input_port name="target_vector"
+                  default="0"/>
+    </Action>
+    <Condition ID="ExistsParent"
+               editable="true">
+      <output_port name="door_id"/>
+    </Condition>
+    <Condition ID="IsIntentionCompleted"
+               editable="true"/>
+  </TreeNodesModel>
+
+</root>

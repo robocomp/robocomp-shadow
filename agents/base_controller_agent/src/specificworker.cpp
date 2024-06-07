@@ -146,6 +146,11 @@ void SpecificWorker::compute()
     /// draw lidar in robot frame
     draw_lidar_in_robot_frame(ldata, &widget_2d->scene, 50);
 
+
+    draw_robot_in_room(&room_widget->viewer->scene, ldata);
+
+
+
     // check if there is a room with a current self pointing edge
     //draw_room_frame(ldata, &room_widget->viewer->scene);  // draws lidar and robot in room frame
 
@@ -204,12 +209,16 @@ void SpecificWorker::compute()
     set_intention_edge_state(intention_edge, "in_progress");
 
     /// Check if the target position is in line of sight
-    if( line_of_sight(vector_to_target, ldata) )
+    if( line_of_sight(vector_to_target, ldata, &widget_2d->scene) )
     {
         auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
         move_robot(adv, side, rot);
         return;
     }
+
+
+
+
 
     /// not in line of sight
     // if there is a node of type ROOM and it has a self edge of type "current" in it
@@ -384,7 +393,7 @@ void SpecificWorker::move_robot(float adv, float side, float rot)
     }
     catch (const Ice::Exception &e) { std::cout << "Error sending target to bumper" << e << std::endl; }
 }
-bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vector<Eigen::Vector3f >& ldata)
+bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vector<Eigen::Vector3f >& ldata, QGraphicsScene *pScene)
 {
     // check if there is a line of sight from the robot to the target using only local info: lidar3D
     // create a 2D rectangular shape linking the robot and the target with the width of the robot plus a safe zone and check that no lidar points fall inside
@@ -398,15 +407,24 @@ bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vec
 
     // create a QPolygon rectangular shape linking the robot and the target with the width of the robot plus a safe zone
     QPolygonF robot_safe_band;
+    auto sup_iz = l + target.head(2);
+    auto sup_de = r + target.head(2);
     robot_safe_band << QPointF(l.x(), l.y()) <<
-                       QPointF(l.x(), (target.head(2) + r).y()) <<
-                       QPointF(r.x(), (target.head(2) + r).y()) <<
+                       QPointF(sup_iz.x(), sup_iz.y()) <<
+                       QPointF(sup_de.x(), sup_de.y()) <<
                        QPointF(r.x(), r.y());
+
+    // draw safe band
+    pScene->addPolygon(robot_safe_band, QPen(QColor("blue"), 10));
 
     // check if there are points inside the rectangular shape
     for(const auto &p: points)
         if(robot_safe_band.containsPoint(QPointF(p.x(), p.y()), Qt::FillRule::OddEvenFill))
+        {
+            qInfo() << __FUNCTION__ << "Line of sight blocked by point " << p.transpose().x() << " " << p.transpose().y();
             return false;
+        }
+
 
     return true;
 }
@@ -446,6 +464,94 @@ int SpecificWorker::startup_check()
 	std::cout << "Startup check" << std::endl;
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
+}
+
+void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eigen::Vector3f> &lidar_data)
+{
+    static bool drawn_room = false; // TODO: Probably needs to be reseted when room changes
+    static std::vector<QGraphicsItem *> room;
+    static std::vector<QGraphicsItem *> items;
+    for(const auto &i: items){ pScene->removeItem(i); delete i;}
+    items.clear();
+
+    /// Check if room node exists
+    auto room_node_ = G->get_node("room");
+    if(auto room_node_ = G->get_node("room"); not room_node_.has_value()) // TODO: check if auto edge "current" exists
+    { std::cout << __FUNCTION__ << "Error getting room node. Returning." << std::endl; return;}
+    auto room_node = room_node_.value();
+
+    if(not drawn_room)
+    {
+        /// Get room corners
+        auto corner_nodes = G->get_nodes_by_type("corner");
+        /// Get corners that not contains "measured" in name string
+        auto corners = iter::filter([](const auto &c){ return c.name().find("measured") == std::string::npos; }, corner_nodes);
+        QPolygonF room_poly;
+        for(const auto &c: corners)
+        {
+            auto corner_to_room_transformation_ = inner_api->transform("room", c.name());
+            if(not corner_to_room_transformation_.has_value())
+            { std::cout << __FUNCTION__ << "Error getting corner to room transformation. Returning." << std::endl; return;}
+            auto corner_to_room_transformation = corner_to_room_transformation_.value();
+            room_poly << QPointF(corner_to_room_transformation.x(), corner_to_room_transformation.y());
+        }
+        room.push_back(pScene->addPolygon(room_poly, QPen(QColor("black"), 30)));
+        drawn_room = true;
+    }
+
+    /// Get robot pose in room
+    if(auto rt_room_robot = inner_api->get_transformation_matrix("room", params.robot_name); not rt_room_robot.has_value())
+    { std::cout << __FUNCTION__ << "Error getting robot pose in room. Returning." << std::endl; return;}
+    else
+    {
+        auto rt_room_robot_ = rt_room_robot.value();
+        auto matrix_translation = rt_room_robot_.translation();
+        auto matrix_angles = rt_room_robot_.rotation().eulerAngles(0, 1, 2);
+        room_widget->viewer->robot_poly()->setPos(matrix_translation.x(), matrix_translation.y());
+        room_widget->viewer->robot_poly()->setRotation(qRadiansToDegrees(matrix_angles[2]));
+    }
+
+    /// Get doors from graph
+    auto door_nodes = G->get_nodes_by_type("door");
+    /// Iterate over doors
+    for(const auto &door_node: door_nodes)
+    {
+        auto door_width_ = G->get_attrib_by_name<width_att>(door_node);
+        if(not door_width_.has_value())
+        { std::cout << __FUNCTION__ << "Error getting door width. Returning." << std::endl; return;}
+        auto door_width = door_width_.value();
+
+        /// Get door corner pose
+        auto door_peak_0_ = inner_api->transform("room", Eigen::Vector3d{-door_width/2.f, 0.f, 0.f}, door_node.name());
+        if(not door_peak_0_.has_value())
+        { std::cout << __FUNCTION__ << "Error getting door corner pose. Returning." << std::endl; return;}
+        auto door_peak_0 = door_peak_0_.value();
+
+        auto door_peak_1_ = inner_api->transform("room", Eigen::Vector3d{door_width/2.f, 0.f, 0.f}, door_node.name());
+        if(not door_peak_1_.has_value())
+        { std::cout << __FUNCTION__ << "Error getting door corner pose. Returning." << std::endl; return;}
+        auto door_peak_1 = door_peak_1_.value();
+        /// Check if door name contains "pre"
+        if(door_node.name().find("pre") != std::string::npos)
+        {
+            /// Draw door
+            items.push_back(pScene->addLine(door_peak_0.x(), door_peak_0.y(), door_peak_1.x(), door_peak_1.y(), QPen(QColor("blue"), 30)));
+            /// Draw door peaks
+            items.push_back(pScene->addEllipse(door_peak_0.x()-30, door_peak_0.y()-30, 60, 60, QPen(QColor("blue"), 30), QBrush(QColor("blue"))));
+            items.push_back(pScene->addEllipse(door_peak_1.x()-30, door_peak_1.y()-30, 60, 60, QPen(QColor("blue"), 30), QBrush(QColor("blue"))));
+        }
+        else
+        {
+            /// Draw door
+            items.push_back(pScene->addLine(door_peak_0.x(), door_peak_0.y(), door_peak_1.x(), door_peak_1.y(), QPen(QColor("red"), 30)));
+            /// Draw door peaks
+            items.push_back(pScene->addEllipse(door_peak_0.x()-30, door_peak_0.y()-30, 60, 60, QPen(QColor("red"), 30), QBrush(QColor("red"))));
+            items.push_back(pScene->addEllipse(door_peak_1.x()-30, door_peak_1.y()-30, 60, 60, QPen(QColor("red"), 30), QBrush(QColor("red"))));
+        }
+
+
+
+    }
 }
 
 

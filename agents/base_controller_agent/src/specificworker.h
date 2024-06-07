@@ -146,7 +146,7 @@ class SpecificWorker : public GenericWorker
         optional<Eigen::Vector3d> get_translation_vector_from_target_node(const DSR::Edge &edge);
         bool robot_at_target(const Eigen::Vector3d &matrix, const DSR::Edge &edge);
         void stop_robot();
-        bool line_of_sight(const Eigen::Vector3d &matrix, const std::vector<Eigen::Vector3f> &ldata);
+        bool line_of_sight(const Eigen::Vector3d &matrix, const std::vector<Eigen::Vector3f> &ldata, QGraphicsScene *pScene);
 
         RoboCompGridPlanner::Points compute_line_of_sight_target(const Eigen::Vector2d &target);
         void draw_vector_to_target(const Eigen::Vector3d &matrix, QGraphicsScene *pScene);
@@ -154,6 +154,8 @@ class SpecificWorker : public GenericWorker
         void move_robot(float adv, float side, float rot);
 
     void set_intention_edge_state(DSR::Edge &edge, const std::string &string);
+
+    void draw_robot_in_room(QGraphicsScene *pScene, const vector<Eigen::Vector3f> &lidar_data);
 };
 
 #endif

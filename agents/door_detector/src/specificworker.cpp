@@ -164,17 +164,17 @@ void SpecificWorker::compute()
     auto to_measured_doors = update_and_remove_doors(nominal_matches, doors, std::get<1>(door_nodes), true, room_node);
 
     //Print to_measured_doors size
-    std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
+//    std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
 
     //  7 matching function between DSR doors_measured data and measured doors in last lidar. return matching and "other" doors.
     auto measure_matches = door_matching(to_measured_doors, std::get<0>(door_nodes));
-    std::cout << "Measure match size: " << measure_matches.size() << std::endl;
+//    std::cout << "Measure match size: " << measure_matches.size() << std::endl;
     /// Print measure matches
 //  8 remove from observed doors detected the last matched doors. If door_detected>0 it's a door in process of stabilization or a new_door
 //  and update the measured_nodes
     auto to_prefilter_doors = update_and_remove_doors(measure_matches, to_measured_doors, std::get<0>(door_nodes), false, room_node);
 
-    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
+//    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
 
     //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
@@ -185,6 +185,7 @@ void SpecificWorker::compute()
     //Print
     set_doors_to_stabilize(to_prefilter_doors, room_node);
 
+    affordance();
 //  10 create new_measured door to stabilize.
 //        insert measured_id_door
 //    start a thread for each door to stabilize. This thread would have to:
@@ -204,6 +205,149 @@ void SpecificWorker::compute()
 //          6. finish thread
 //     the thread has to respond when compute asks if a given measured door is being stabilized by it.
 
+}
+
+void SpecificWorker::affordance()
+{
+
+    static std::map<std::uint64_t , std::thread> threads;
+
+    auto nominal_doors = G->get_nodes_by_type("door");
+
+    if (nominal_doors.empty())
+    { qWarning() << __FUNCTION__ << " No nominal doors in graph"; return; }
+
+    //print nominal doors size
+    auto edges = G->get_edges_by_type("has");
+
+    for (const auto &door : nominal_doors)
+    {
+        //check if door node name does not contain "pre"
+        if (door.name().find("_pre") == std::string::npos)
+        {
+            if (auto r = std::ranges::find_if(edges, [&door](DSR::Edge e) { return e.from() == door.id(); }); r == edges.end())
+            {
+                std::cout << "No affordance node found, inserting" << std::endl;
+
+                string aux = "";
+                if(door.name().find("_") != std::string::npos)
+                    aux = door.name().substr(door.name().find("_"));
+
+                //create DSR::Node of type affordance
+                DSR::Node affordance = DSR::Node::create<affordance_node_type>("aff_cross" + aux);
+                G->add_or_modify_attrib_local<parent_att>(affordance, door.id());
+                G->add_or_modify_attrib_local<active_att>(affordance, false);
+                G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("waiting"));
+                G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(rand()%(170)) );
+                G->add_or_modify_attrib_local<pos_y_att>(affordance, (float)(rand()%(170)));
+                if (auto door_level = G->get_attrib_by_name<level_att>(door.id()) ; door_level.has_value())
+                    G->add_or_modify_attrib_local<level_att>(affordance,  door_level.value() + 1);
+
+                //TODO: CHANGE
+                if (auto aff_id = G->insert_node(affordance); aff_id.has_value())
+                {
+                    std::cout << "Affordance node inserted aff_id:" << aff_id.value() << std::endl;
+                    //create has edge from door to affordance
+                    DSR::Edge has = DSR::Edge::create<has_edge_type>(door.id(), aff_id.value());
+                    qInfo() << "Edge insertion result:" << G->insert_or_assign_edge(has);
+                }
+            }
+        }
+    }
+
+    //check all exisisitng affordance nodes for an active attribute that is true
+    auto affordance_nodes = G->get_nodes_by_type("affordance");
+    for (const auto &aff : affordance_nodes)
+    {
+        if (auto active = G->get_attrib_by_name<active_att>(aff.id()); active.has_value())
+        {
+            if (active.value())
+            {
+                //check if there is a thread for this affordance node
+                if (threads.contains(aff.id()))
+                {
+                    //read affordance node BT status attribute is_completed
+                    if (auto bt_state = G->get_attrib_by_name<bt_state_att>(aff.id()); bt_state.has_value())
+                    {
+                        if (bt_state.value() == "completed")
+                        {
+                            std::cout << "Affordance node completed" << std::endl;
+                            //join thread
+                            threads[aff.id()].join();
+                            threads.erase(aff.id());
+                            std::terminate();
+                        }
+                    }
+                }
+                else
+                {
+                    //create a thread for this affordance node
+                    threads[aff.id()] = std::thread(&SpecificWorker::affordance_thread, this, aff.id());
+                }
+            }
+        }
+    }
+}
+
+void SpecificWorker::affordance_thread(uint64_t aff_id)
+{
+    BT::BehaviorTreeFactory factory;
+    BT::Tree tree;
+
+    //tick a behavior tree that goes through door
+    factory.registerNodeType<Nodes::ExistsParent>("ExistsParent", this->G, aff_id);
+    factory.registerNodeType<Nodes::CreateHasIntention>("CreateHasIntention", this->G, aff_id);
+    factory.registerNodeType<Nodes::IsIntentionCompleted>("IsIntentionCompleted", this->G, aff_id);
+
+    auto door_parent = G->get_attrib_by_name<parent_att>(aff_id);
+
+    //Get parent attribute from node aff_id
+    if (!door_parent.has_value())
+    { qWarning () << __FUNCTION__ << " No parent attribute found"; return; }
+
+    // Create BehaviorTree
+    try
+    {
+        //Executing in /bin
+        tree = factory.createTreeFromFile("./src/bt_affordance.xml"); // , blackboard
+    } catch (const std::exception& e) { std::cerr << __FUNCTION__ << " Error creating BehaviorTree: " << e.what() << std::endl; }
+
+    // Execute the behavior tree
+    BT::NodeStatus status = BT::NodeStatus::RUNNING;
+    while (status == BT::NodeStatus::RUNNING)
+    {
+        std::cout << "Status: " << status << std::endl;
+        status = tree.tickOnce();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::cout << "Status: " << status << std::endl;
+
+    //check is status is success and change bt_state from affordance to completed
+    if (status == BT::NodeStatus::SUCCESS)
+    {
+        //Check if node with door_parent id exists in G
+        if (auto door_parent_node = G->get_node(door_parent.value()); door_parent_node.has_value())
+        {
+            //create a edge called exist from robot node to door node
+            DSR::Edge exit = DSR::Edge::create<exit_edge_type>(params.ROBOT_ID, door_parent_node.value().id());
+            G->insert_or_assign_edge(exit);
+        }
+
+        if (auto aff = G->get_node(aff_id); aff.has_value())
+        {
+            G->add_or_modify_attrib_local<bt_state_att>(aff.value(), std::string("completed"));
+            G->update_node(aff.value());
+        }
+    }
+    else if (status == BT::NodeStatus::FAILURE)
+    {
+        if (auto aff = G->get_node(aff_id); aff.has_value())
+        {
+            G->add_or_modify_attrib_local<bt_state_att>(aff.value(), std::string("failed"));
+            G->update_node(aff.value());
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -752,7 +896,7 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
             auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_pre";
             if(nominal)
             {
-                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
+//                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
 //                measured_doors.erase(measured_doors.begin() + i);
                 indexes_to_remove.push_back(match.first);
                 continue;
@@ -911,12 +1055,27 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
     if( auto door_middle_transformed = inner_eigen->transform(wall_node.name(), door_middle, room.name()); door_middle_transformed.has_value())
     {
         auto door_middle_transformed_value = door_middle_transformed.value().cast<float>();
+
+        //check if wall node level attribute has value
+        auto wall_node_level_ = G->get_attrib_by_name<level_att>(wall_node);
+        if(not wall_node_level_.has_value())
+            { qWarning() << __FUNCTION__ << " No level attribute in wall node"; return DSR::Node{}; }
+
         // Get wall node level
         auto wall_node_level = G->get_attrib_by_name<level_att>(wall_node).value();
 
-        // get wall node pos_x and pos_y attributes
-        auto wall_node_pos_x = G->get_attrib_by_name<pos_x_att>(wall_node).value();
-        auto wall_node_pos_y = G->get_attrib_by_name<pos_y_att>(wall_node).value();
+        //check if wall node pos_x and pos_y attributes have value
+        auto wall_node_pos_x_ = G->get_attrib_by_name<pos_x_att>(wall_node);
+        auto wall_node_pos_y_ = G->get_attrib_by_name<pos_y_att>(wall_node);
+
+        auto wall_node_pos_x = (float)(rand()%(170));
+        auto wall_node_pos_y = (float)(rand()%(170));
+
+        if(wall_node_pos_x_.has_value() and wall_node_pos_y_.has_value())
+        {
+            wall_node_pos_x = G->get_attrib_by_name<pos_x_att>(wall_node).value();
+            wall_node_pos_y = G->get_attrib_by_name<pos_y_att>(wall_node).value();
+        }
 
         // Add door attributes
         // set pos_x and pos_y attributes to door node

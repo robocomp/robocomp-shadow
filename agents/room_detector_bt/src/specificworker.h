@@ -26,7 +26,7 @@
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
-#include "params.h"
+#include "../../door_detector/src/params.h"
 #include <random>
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"

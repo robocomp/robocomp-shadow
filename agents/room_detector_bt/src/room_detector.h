@@ -5,7 +5,7 @@
 #ifndef FORCEFIELD_ROOM_DETECTOR_H
 #define FORCEFIELD_ROOM_DETECTOR_H
 
-#include "params.h"
+#include "../../door_detector/src/params.h"
 #include <vector>
 #include <abstract_graphic_viewer/abstract_graphic_viewer.h>
 #include <Eigen/Dense>
