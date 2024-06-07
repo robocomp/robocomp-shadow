@@ -10,7 +10,7 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/chunked.hpp>
-#include "params.h"
+#include "../../door_detector/src/params.h"
 
 namespace Nodes
 {

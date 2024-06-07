@@ -35,7 +35,8 @@
 #include <cppitertools/enumerate.hpp>
 #include "door_detector.h"
 #include "Hungarian.h"
-
+#include "nodes.h"
+#include "params.h"
 
 class SpecificWorker : public GenericWorker
 {
@@ -87,6 +88,8 @@ private:
         bool DISPLAY = false;
     };
     Constants consts;
+
+    rc::Params params;
 
     // Lidar
     void read_lidar();
@@ -140,6 +143,10 @@ private:
         const Eigen::Vector2f &nominal_door_center);
 
     Eigen::Vector2f extract_g2o_data(string optimization);
+
+    void affordance();
+    void affordance_thread(uint64_t aff_id);
+
 };
 
 #endif
