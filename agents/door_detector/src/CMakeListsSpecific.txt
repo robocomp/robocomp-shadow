@@ -6,6 +6,7 @@ SET ( SOURCES
   Hungarian.cpp
   door_detector.cpp
   nodes.cpp
+  custom_widget.h
 )
 
 # Headers set

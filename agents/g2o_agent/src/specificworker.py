@@ -59,14 +59,11 @@ class SpecificWorker(GenericWorker):
             self.odometry_node_id = None
             self.odometry_queue = deque(maxlen=15)
             self.last_odometry = None
-            # Initialize g2o graph with visualizer
-            self.g2o = G2OGraph(verbose=False)
-            # self.visualizer = G2OVisualizer("G2O Graph")
 
             self.odometry_noise_std_dev = 1  # Standard deviation for odometry noise
             self.odometry_noise_angle_std_dev = 1  # Standard deviation for odometry noise
             self.measurement_noise_std_dev = 1  # Standard deviation for measurement noise
-            # self.room_initialized = True if self.initialize_g2o_graph() else False
+
             # time.sleep(2)
             self.elapsed = time.time()
             self.room_initialized = False
@@ -75,6 +72,11 @@ class SpecificWorker(GenericWorker):
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
             self.init_graph = False
+
+            # Initialize g2o graph with visualizer
+            self.g2o = G2OGraph(verbose=False)
+            self.room_initialized = True if self.initialize_g2o_graph() else False
+            self.visualizer = G2OVisualizer("G2O Graph")
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -102,7 +104,7 @@ class SpecificWorker(GenericWorker):
         self.iterations += 1
 
         if self.room_initialized:
-            # Get robot odometry
+            # Initialize g2o graph with visualizer
             if self.odometry_queue:
                 init_time = time.time()
                 robot_node = self.g.get_node("Shadow")
@@ -113,7 +115,10 @@ class SpecificWorker(GenericWorker):
                 adv_displacement, side_displacement, ang_displacement = self.get_displacement(robot_odometry)
                 # print("Time elapsed get_displacement:", time.time() - time_1)
                 if len(self.g2o.pose_vertex_ids) == self.g2o.queue_max_len:
-                    self.g2o.remove_first_vertex()
+                    print("Clearing graph")
+                    # self.g2o.remove_first_vertex()
+                    self.g2o.clear_graph()
+                    self.initialize_g2o_graph()
                 # Generate information matrix considering the noise
                 odom_information = np.array([[1, 0.0, 0.0],
                                             [0.0, 1, 0.0],
@@ -132,15 +137,13 @@ class SpecificWorker(GenericWorker):
                 landmark_information = np.array([[1/self.measurement_noise_std_dev, 0.0],
                                                 [0.0, 1/self.measurement_noise_std_dev]])
                 # print("Landmark information:", landmark_information)
-
                 for i in range(4):
-                    print("Corner", i, "....................................................................................")
                     corner_node = self.g.get_node("corner_"+str(i)+"_measured")
                     is_corner_valid = corner_node.attrs["valid"].value
                     if is_corner_valid:
                         corner_edge = self.rt_api.get_edge_RT(robot_node, corner_node.id)
                         corner_edge_mat = self.rt_api.get_edge_RT_as_rtmat(corner_edge, robot_odometry[3])[0:3, 3]
-                        # print("Vertex count ", self.g2o.vertex_count)
+
                         # self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                         self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
                         # self.g2o.add_landmark(self.add_noise(corner_edge_mat[0], self.measurement_noise_std_dev), self.add_noise(corner_edge_mat[1], self.measurement_noise_std_dev), landmark_information, pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
@@ -151,8 +154,6 @@ class SpecificWorker(GenericWorker):
                 # print("Chi value:", chi_value)
                 time_3 = time.time()
 
-                # print("Time elapsed update_graph:", time.time() - time_3)
-
                 last_vertex = self.g2o.optimizer.vertices()[self.g2o.vertex_count - 1]
                 opt_translation = last_vertex.estimate().translation()
                 opt_orientation = last_vertex.estimate().rotation().angle()
@@ -162,19 +163,9 @@ class SpecificWorker(GenericWorker):
                 elif opt_orientation < -np.pi:
                     opt_orientation += np.pi
 
-                print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
-                # cov_matrix = self.get_covariance_matrix(last_vertex)
-                # print("Covariance matrix:", cov_matrix)
-                # self.visualizer.update_graph(self.g2o, None, cov_matrix)
-                    # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
-                    # rt_robot_edge.attrs['rt_translation'] = [opt_translation[0], opt_translation[1], .0]
-                    # rt_robot_edge.attrs['rt_rotation_euler_xyz'] = [.0, .0, opt_orientation]
-                    # # rt_robot_edge.attrs['rt_se2_covariance'] = cov_matrix
-                    # self.g.insert_or_assign_edge(rt_robot_edge)
-
                 self.rt_api.insert_or_assign_edge_RT(room_node, robot_node.id, [opt_translation[0], opt_translation[1], 0], [0, 0, opt_orientation])
                 self.last_odometry = robot_odometry   # Save last odometry
-                # print("Time elapsed compute:", time.time() - init_time)
+                self.visualizer.update_graph(self.g2o)
         elif self.init_graph:
             self.room_initialized = True
             self.init_graph = False
@@ -195,13 +186,13 @@ class SpecificWorker(GenericWorker):
             print("Room or robot node does not exist. g2o graph cannot be initialized")
             return False
         robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
-        print("Robot edge RT", robot_edge_rt.attrs)
+        # print("Robot edge RT", robot_edge_rt.attrs)
         robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
         _, _, robot_rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
         # Add fixed pose to g2o
         self.g2o.add_fixed_pose(g2o.SE2(robot_tx, robot_ty, robot_rz))
         self.last_odometry = (.0, .0, .0, int(time.time()*1000))
-        print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
+        # print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
 
         # Get corner values from room node
         # corner_nodes = self.g.get_nodes_by_type("corner")
@@ -211,27 +202,31 @@ class SpecificWorker(GenericWorker):
         corner_list_measured = []
         for i in range(4):
             corner_list.append(self.g.get_node("corner_"+str(i)))
-            corner_list_measured.append(self.g.get_node("corner_"+str(i)+"_measured"))
+            corner_measured = self.g.get_node("corner_" + str(i) + "_measured")
+            if corner_measured.attrs["valid"].value:
+                corner_list_measured.append(self.g.get_node("corner_"+str(i)+"_measured"))
+            else:
+                corner_list_measured.append(None)
 
         for i in range(4):
-            corner_edge_measured_rt = self.rt_api.get_edge_RT(odom_node, corner_list_measured[i].id)
-            corner_measured_tx, corner_measured_ty, _ = corner_edge_measured_rt.attrs['rt_translation'].value
+            corner_edge_measured_rt_value = None
+            if corner_list_measured[i] is not None:
+                corner_edge_measured_rt = self.rt_api.get_edge_RT(odom_node, corner_list_measured[i].id)
+                corner_measured_tx, corner_measured_ty, _ = corner_edge_measured_rt.attrs['rt_translation'].value
+                corner_edge_measured_rt_value = corner_edge_measured_rt.attrs['rt_translation'].value
             corner_edge_rt = self.inner_api.transform(room_node.name, corner_list[i].name)
             corner_tx, corner_ty, _ = corner_edge_rt
-            print("Nominal corners", corner_tx, corner_ty)
-            print("Measured corners", corner_measured_tx, corner_measured_ty)
+            # print("Nominal corners", corner_tx, corner_ty)
+            # print("Measured corners", corner_measured_tx, corner_measured_ty)
             landmark_information = np.array([[0.05, 0.0],
                                              [0.0, 0.05]])
-            print("Eye matrix", 0.1 * np.eye(2))
-            print("Landmark information:", landmark_information)
+            # print("Eye matrix", 0.1 * np.eye(2))
+            # print("Landmark information:", landmark_information)
             if corner_tx != 0.0 or corner_ty != 0.0:
                 # self.g2o.add_landmark(corner_tx, corner_ty, 0.1 * np.eye(2), pose_id=0)
                 self.g2o.add_nominal_corner(corner_edge_rt,
-                                          corner_edge_measured_rt.attrs['rt_translation'].value,
+                                          corner_edge_measured_rt_value,
                                           landmark_information, pose_id=0)
-
-        # self.visualizer.update_graph(self.g2o)
-        # self.g2o.optimizer.save("init_graph.g2o")
 
         return True
 
@@ -252,9 +247,6 @@ class SpecificWorker(GenericWorker):
             desplazamiento_avance += self.odometry_queue[i + 1][0] * (self.odometry_queue[i + 1][3] - self.odometry_queue[i][3]) * 0.8
             desplazamiento_lateral += self.odometry_queue[i + 1][1] * (self.odometry_queue[i + 1][3] - self.odometry_queue[i][3]) *0.8
             desplazamiento_angular -= self.odometry_queue[i + 1][2] * (self.odometry_queue[i + 1][3] - self.odometry_queue[i][3]) *0.8 / 1000
-        print("Desplazamiento total avance:", desplazamiento_avance)
-        print("Desplazamiento total lateral:", desplazamiento_lateral)
-        print("Desplazamiento total angular:", desplazamiento_angular)
         return desplazamiento_lateral, desplazamiento_avance, desplazamiento_angular
 
     def get_covariance_matrix(self, vertex):
@@ -314,7 +306,6 @@ class SpecificWorker(GenericWorker):
         if room_node is not None and not self.init_graph:
             if id == room_node.id and "valid" in attribute_names:
                 self.init_graph = True
-                print("INIT GRAPH")
 
         if id == self.odometry_node_id:
             odom_node = self.g.get_node("Shadow")

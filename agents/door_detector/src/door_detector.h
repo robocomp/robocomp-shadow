@@ -21,7 +21,7 @@ public:
     DoorDetector();
     struct Door
     {
-        Eigen::Vector2f p0, p1, middle, middle_measured;
+        Eigen::Vector2f p0, p1, middle, middle_measured, p0_measured, p1_measured;
         int idx_in_peaks_0, idx_in_peaks_1, id, wall_id;
         float angle;
         const float THRESHOLD = 500; //door equality
@@ -32,14 +32,26 @@ public:
              int idx_0, int idx_1) : p0(p0_), p1(p1_), idx_in_peaks_0(idx_0), idx_in_peaks_1(idx_1)
         {
             middle = (p0 + p1)/2.f;
-            angle = door_angle_respect_to_robot();
-//            auto door_width = (p0 - p1).norm();
-//            auto p0_calc = middle + Eigen::Vector2f{cos(angle), sin(angle)} * door_width/2;
-//            auto p1_calc = middle - Eigen::Vector2f{cos(angle), sin(angle)} * door_width/2;
-//            // Print the door point
-//            qInfo() << "Door point 0:" << "REAL" << p0_.x() << p0_.y() << "CALC" << p0_calc.x() << p0_calc.y();
-//            qInfo() << "Door point 1:" << "REAL" << p1_.x() << p1_.y() << "CALC" << p1_calc.x() << p1_calc.y();
         };
+        //Create new constructor to create a door from measured peaks, the wall id and the door id
+        Door(const Eigen::Vector2f &p0_,
+             const Eigen::Vector2f &p1_,
+             const Eigen::Vector2f &p0_measured_,
+             const Eigen::Vector2f &p1_measured_) : p0(p0_), p1(p1_), p0_measured(p0_measured_), p1_measured(p1_measured_)  /// Consider not using constructor to calculate middle point
+        {
+            angle = door_angle_respect_to_robot();
+            middle = (p0 + p1)/2.f;
+            middle_measured = (p0_measured + p1_measured) * 0.5;
+        }
+        Door(const Eigen::Vector2f &central_point,
+             int width, int wall_id_, int id_, float angle_) : middle(central_point), wall_id(wall_id_), id(id_), angle(angle_)
+        {
+            /// Considering angle respect to robot and the width of the door, calculate the left and right points
+            Eigen::Vector2f p0_, p1_;
+            p0 = middle + Eigen::Vector2f{cos(angle), sin(angle)} * width/2;
+            p1 = middle - Eigen::Vector2f{cos(angle), sin(angle)} * width/2;
+        };
+
         Door(const Eigen::Vector2f &central_point,
              int width, int wall_id, int id) : middle(central_point), wall_id(wall_id), id(id)
         {
@@ -85,14 +97,26 @@ public:
         float door_angle_respect_to_robot()
         {
             /// Get the vector from door center to the perpendicular point to door closer to the robot
-            auto p = point_perpendicular_to_door_at();
+            auto p = point_perpendicular_to_door_at_measured();
             auto closest = p.first.norm() < p.second.norm() ? p.first : p.second;
             /// Considering robot pose is (0, 0), generate a Eigen::Vector2f from center point to 100 mm in front of the robot
             Eigen::Vector2f robot_front{0, 100};
             /// Get vector starting in robot center and ending in the closest point to the door
-            Eigen::Vector2f door_to_robot = middle - closest;
+            Eigen::Vector2f door_to_robot = middle_measured - closest;
             /// Calculate the angle between the robot front and the closest point to the robot
             return min_angle_between_vectors(robot_front, door_to_robot);
+        }
+        std::pair<Eigen::Vector2f, Eigen::Vector2f> point_perpendicular_to_door_at_measured(float dist=1000.f) const // mm
+        {
+            // Calculate the direction vector from p1 to p2 and rotate it by 90 degrees
+            Eigen::Vector2f d_perp{-(p0_measured.y() - p1_measured.y()), p0_measured.x() - p1_measured.x()};
+            // Normalize the perpendicular vector to get the unit vector
+            Eigen::Vector2f u_perp = d_perp.normalized();
+            // Calculate the points P1 and P2 at a distance of 1 meter from M along the perpendicular
+            Eigen::Vector2f a, b;
+            a = middle_measured + (u_perp * dist); // 1 meter in the direction of u_perp
+            b = middle_measured - (u_perp * dist); // 1 meter in the opposite direction of u_perp
+            return a.norm() < b.norm() ? std::make_pair(a,b) : std::make_pair(b,a);
         }
         float perp_dist_to_robot() const
         {
@@ -124,8 +148,8 @@ public:
             if(corners.empty()) { qWarning() << __FUNCTION__  << "Corner vector empty"; return -1.f;};
             auto closest_corner = std::ranges::min_element(corners, [same_sign](auto &c1, auto &c2)
             {  double a1 = atan2(c1.x(), c1.y());
-               double a2 = atan2(c2.x(), c2.y());
-               return same_sign(a1, a2) ? fabs(a1)<fabs(a2) : a1 > a2;
+                double a2 = atan2(c2.x(), c2.y());
+                return same_sign(a1, a2) ? fabs(a1)<fabs(a2) : a1 > a2;
             });
             // the distance to this wall's corner is the norm of the vector from the middle of the door to the corner
             return (middle - *closest_corner).norm();
