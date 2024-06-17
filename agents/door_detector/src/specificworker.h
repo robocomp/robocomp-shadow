@@ -162,6 +162,8 @@ private:
     void affordance();
     void affordance_thread(uint64_t aff_id);
 
+    int actual_room_id = -1;
+
 };
 
 #endif
