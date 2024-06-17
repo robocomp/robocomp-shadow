@@ -1464,6 +1464,9 @@ const Eigen::Vector2f &nominal_door_center)
     std::string g2o_graph;
     int id = 0; // Id for g2o graph vertices
     auto updated_robot_pose = robot_pose;
+    
+    //set std::to_string decimal separator dot
+    std::setlocale(LC_NUMERIC, "C");
 
     /// Add nominal corners as VERTEX_XY (ROOM), FIXED using nominal_corners_data in
     for (size_t i = 0; i < nominal_corner_data.size(); ++i)
