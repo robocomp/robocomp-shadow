@@ -136,6 +136,7 @@ class SpecificWorker : public GenericWorker
         float odometry_time_factor = 1;
         std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth);
         std::vector<Eigen::Vector2d> aux_corners;
+        uint64_t room_id = 1;
 
         std::vector<Eigen::Vector2d> last_corner_values{4};
         std::vector<float> last_robot_pose{0.f, 0.f, 0.f};

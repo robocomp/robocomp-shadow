@@ -380,6 +380,7 @@ void SpecificWorker::create_room()
 
     // Insert room data in graph
     insert_room_into_graph(g2o_data, current_room);
+    room_id++;
 }
 void SpecificWorker::update_room()
 {
@@ -497,7 +498,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     auto room_width = static_cast<int>((room_corners[1] - room_corners[0]).norm());
     auto room_depth = static_cast<int>((room_corners[0] - room_corners[3]).norm());
     // Create room node and insert it in graph
-    DSR::Node room_node = DSR::Node::create<room_node_type>("room");
+    DSR::Node room_node = DSR::Node::create<room_node_type>("room_"+ std::to_string(room_id));
     G->add_or_modify_attrib_local<width_att>(room_node, room_width);
     G->add_or_modify_attrib_local<depth_att>(room_node, room_depth);
     G->add_or_modify_attrib_local<pos_x_att>(room_node, (float)(rand()%(170)));
@@ -554,7 +555,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
         std::cout << __FUNCTION__ << " Corner position: " << corner_pos[0] << " " << corner_pos[1] << std::endl;
         // insert nominal values
         create_wall(i, wall_pos, wall_angle, room_node);
-        if(auto wall_node_ = G->get_node("wall_" + std::to_string(i)); wall_node_.has_value())
+        if(auto wall_node_ = G->get_node("wall_" + std::to_string(i) + "_" + std::to_string(room_id)); wall_node_.has_value())
         {
             auto wall_node = wall_node_.value();
             create_corner(i, corner_pos, wall_node);
@@ -563,6 +564,9 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     // Transform optimized corners to robot frame
     //    auto transformed_corners = get_transformed_corners(&widget_2d->scene);
     auto [transformed_corners, _] = get_transformed_corners_v2();
+    //print transformed corners size
+    std::cout << __FUNCTION__ << " Transformed corners size: " << transformed_corners.size() << std::endl;
+
     // Compare optimized corners with measured corners
     // Get room corners
     auto target_points_ = current_room.get_corners();
@@ -581,6 +585,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
 
     // Calculate correspondences between optimized and measured corners
     auto correspondences = calculate_rooms_correspondences_id(transformed_corners, target_points);
+    std::cout << __FUNCTION__ << "Pre measurec corners insertion" << std::endl;
     // Insert measured corners in graph
     for (const auto &[id, p, p2, valid] : correspondences)
     {
@@ -590,7 +595,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
         }
     }
 
-    auto new_room_node_ = G->get_node("room");
+    auto new_room_node_ = G->get_node("room_"+ std::to_string(room_id));
     if(not new_room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
 
@@ -716,10 +721,22 @@ SpecificWorker::get_transformed_corners_v2()
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return {}; }
     auto robot_node = robot_node_.value();
 
-    //std::vector<Eigen::Vector3d> drawn_corners{4};
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return {};}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
+    if(not room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No room level in graph"; return {}; }
+    auto room_node = room_node_.value();
+
+    //get number from room_node.name
+    std::string room_id_str = room_node.name();
+    std::string room_id = room_id_str.substr(room_id_str.find("_") + 1);
+
     for (int i = 0; i < 4; i++)
     {
-        auto corner_aux_ = G->get_node("corner_" + std::to_string(i));
+        auto corner_aux_ = G->get_node("corner_" + std::to_string(i) + "_" + room_id);
         if (not corner_aux_.has_value())
         {
             qWarning() << __FUNCTION__ << " No nominal corner " << i << " in graph";
@@ -727,17 +744,12 @@ SpecificWorker::get_transformed_corners_v2()
         }
         auto corner_aux = corner_aux_.value();
 
-        auto wall_aux_ = G->get_node("wall_" + std::to_string(i));
+        auto wall_aux_ = G->get_node("wall_" + std::to_string(i) + "_" + room_id);
         if (not wall_aux_.has_value()) {
             qWarning() << __FUNCTION__ << " No wall " << i << " in graph";
             return {};
         }
         auto wall_aux = wall_aux_.value();
-
-        auto room_node_ = G->get_node("room"); //TODO: Ampliar si existe más de una room en el grafo
-        if(not room_node_.has_value())
-        { qWarning() << __FUNCTION__ << " No room level in graph"; return {}; }
-        auto room_node = room_node_.value();
 
         if (auto rt_corner_edge = rt->get_edge_RT(wall_aux, corner_aux.id()); rt_corner_edge.has_value())
             if (auto rt_translation = G->get_attrib_by_name<rt_translation_att>(
@@ -888,7 +900,12 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
     auto robot_node = robot_node_.value();
 
-    auto room_node_ = G->get_node("room"); //TODO: Ampliar si existe más de una room en el grafo
+
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
     if(not room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
     auto room_node = room_node_.value();
@@ -1172,7 +1189,7 @@ void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angl
     { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
     auto parent_level = parent_level_.value();
 
-    std::string wall_name = "wall_" + std::to_string(id);
+    std::string wall_name = "wall_" + std::to_string(id) + "_" + std::to_string(room_id);
     if(not nominal)
     {
         wall_name = "wall_" + std::to_string(id) + "_measured";
@@ -1181,7 +1198,7 @@ void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angl
     auto new_wall = DSR::Node::create<wall_node_type>(wall_name);
 
     //Get room node pos_x and pos_y attributes
-    auto room_node_ = G->get_node("room");
+    auto room_node_ = G->get_node("room_"+ std::to_string(room_id));
 
     if(not room_node_.has_value())
     {
@@ -1218,7 +1235,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     if(not parent_level_.has_value())
     { qWarning() << __FUNCTION__ << " No parent level in graph"; return; }
     auto parent_level = parent_level_.value();
-    std::string corner_name = "corner_" + std::to_string(id);
+    std::string corner_name = "corner_" + std::to_string(id) + "_" + std::to_string(room_id);
     if(not nominal)
     {
         corner_name = "corner_" + std::to_string(id) + "_measured";
@@ -1226,7 +1243,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     auto new_corner = DSR::Node::create<corner_node_type>(corner_name);
 
     //Get room node pos_x and pos_y attributes
-    auto room_node_ = G->get_node("room");
+    auto room_node_ = G->get_node("room_" + std::to_string(room_id));
 
     if(not room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
