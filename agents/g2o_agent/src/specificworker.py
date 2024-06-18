@@ -135,7 +135,6 @@ class SpecificWorker(GenericWorker):
                 if len(room_nodes) > 0:
                     room_node = room_nodes[0]
                     for i in range(4):
-                        print("Corner", i, "....................................................................................")
                         corner_node = self.g.get_node("corner_"+str(i)+"_measured")
                         is_corner_valid = corner_node.attrs["valid"].value
                         if is_corner_valid:
@@ -184,10 +183,16 @@ class SpecificWorker(GenericWorker):
         return value + np.random.normal(0, std_dev)
 
     def initialize_g2o_graph(self):
+        print("Initializing g2o graph")
         room_nodes = [node for node in self.g.get_nodes_by_type("room") if self.g.get_edge(node.id, node.id, "current")]
         if len(room_nodes) > 0:
+            self.g2o.clear_graph()
             room_node = room_nodes[0]
             self.actual_room_id = room_node.name.split("_")[-1]
+            print("###########################################################")
+            print("INITIALIZ>INDºG G2O GRAPH")
+            print("Room changed to", self.actual_room_id)
+            print("###########################################################")
 
             # get robot pose in room
             odom_node = self.g.get_node("Shadow")
@@ -347,7 +352,11 @@ class SpecificWorker(GenericWorker):
         if type == "current" and self.g.get_node(fr).type == "room":
             # Get number after last "_" in room name
             self.actual_room_id = self.g.get_node(fr).name.split("_")[-1]
+            print("###########################################################")
+            print("Room changed to", self.actual_room_id)
+            print("###########################################################")
             self.init_graph = True
+            self.room_initialized = False
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         pass
