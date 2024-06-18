@@ -293,7 +293,6 @@ void SpecificWorker::affordance()
                             //join thread
                             threads[aff.id()].join();
                             threads.erase(aff.id());
-                            std::terminate();
                         }
                     }
                 }
