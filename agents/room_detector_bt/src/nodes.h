@@ -126,6 +126,7 @@ namespace Nodes
             std::shared_ptr<DSR::DSRGraph> G;
             std::function<void()> room_stabilitation;
             rc::Params params;
+
     };
 
 #pragma endregion ACTION_NODES
