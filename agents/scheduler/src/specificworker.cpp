@@ -181,14 +181,21 @@ void SpecificWorker::compute()
                 // change the active attribute of an affordance node to true
                 for(auto affordance : affordance_nodes)
                 {
-//                    this->intention_active = true;
-                    G->add_or_modify_attrib_local<active_att>(affordance, true);
-                    //set affordance bt_state attribute to in_progress
-                    G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
-                    affordance_activated_id = affordance.id();
-                    G->update_node(affordance);
-                    affordance_activated = true;
-                    return;
+                    //get affordance bt_state attribute
+                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
+                    {
+                        if (affordance_state.value() == "waiting")
+                        {
+                            qInfo() << "Affordance node found and waiting";
+                            G->add_or_modify_attrib_local<active_att>(affordance, true);
+                            //set affordance bt_state attribute to in_progress
+                            G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
+                            affordance_activated_id = affordance.id();
+                            G->update_node(affordance);
+                            affordance_activated = true;
+                            return;
+                        }
+                    }
                 }
             }
             else
@@ -210,6 +217,7 @@ void SpecificWorker::compute()
                             affordance_activated = false;
                             affordance_activated_id = -1;
                             this->intention_active = false;
+//                            std::terminate();
                         }
                     }
                 }
