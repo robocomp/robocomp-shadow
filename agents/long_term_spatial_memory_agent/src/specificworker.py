@@ -131,10 +131,10 @@ class SpecificWorker(GenericWorker):
 
     def crossing(self):
         print("CROSSING")
-        if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
-            print("Removing current edge from room")
-            print(self.room_exit_door_id)
-            self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
+        # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
+        #     print("Removing current edge from room")
+        #     print(self.room_exit_door_id)
+        #     self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
         # Check if affordance_node has status attribute completed and is not active
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
@@ -152,7 +152,7 @@ class SpecificWorker(GenericWorker):
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             # Remove "current" self-edge from the room
-            # self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
+            self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
 
     def initializing_room(self):
@@ -165,6 +165,7 @@ class SpecificWorker(GenericWorker):
         else:
             # Get the enter room node id
             self.enter_room_node_id = room_nodes[0].id
+            self.insert_current_edge(self.enter_room_node_id)
             self.state = "initializing_doors"
     #
     # def new_room(self):
