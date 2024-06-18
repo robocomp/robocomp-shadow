@@ -80,6 +80,7 @@ namespace Nodes
     {
         std::cout << this->name() << std::endl;
 
+
         DSR::Node shadow_node;
         if (std::optional<DSR::Node> shadow_node_ = G->get_node("Shadow"); not shadow_node_.has_value())
         { qWarning() << __FUNCTION__ << " No Shadow node found"; return BT::NodeStatus::FAILURE;}

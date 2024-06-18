@@ -149,10 +149,16 @@ void SpecificWorker::compute()
     if (not res_.has_value()) { return; }
     auto ldata = res_.value();
 // 2. check for current room
-    auto room_node_ = G->get_node("room");
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
     if(not room_node_.has_value())
-    { qWarning() << __FUNCTION__ << " No room node in graph. Waiting for room..."; return; }
+    { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
     auto room_node = room_node_.value();
+    // Store as actual room id the number after the last "_"
+    actual_room_id = std::stoi(room_node.name().substr(room_node.name().find_last_of("_") + 1));
     // Check if robot node exists in graph
     auto robot_node_ = G->get_node("Shadow");
     if(not robot_node_.has_value())
@@ -183,7 +189,7 @@ void SpecificWorker::compute()
 //  and update the measured_nodes
     auto to_prefilter_doors = update_and_remove_doors(measure_matches, to_measured_doors, std::get<0>(door_nodes), false, room_node);
 
-//    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
+    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
 
     //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
@@ -674,20 +680,23 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     for(const auto &[i, d] : last_detected_doors | iter::enumerate)
     {
         if(get<1>(d) == N)
+        {
+            std::cout << "Door detected for N times: " << get<0>(d).wall_id << get<0>(d).id << std::endl;
             last_detected_doors.erase(last_detected_doors.begin() + i);
+        }
     }
 
 //    qInfo() << "DOOR PREFILTER";
     // If detected_door is empty, clear the last_detected_doors vector and return
     if(detected_door.empty())
     {
-//        qInfo() << "--------------NO DOORS--------------------";
+        qInfo() << "--------------NO DOORS--------------------";
         last_detected_doors.clear();
         return;
     }
     if(last_detected_doors.empty())
     {
-//        qInfo() << "--------------FIRST DOORS DETECTED--------------------";
+        qInfo() << "--------------FIRST DOORS DETECTED--------------------";
         for(auto &d: detected_door)
         {
 //            qInfo() << "First doors detected: " << d.wall_id << d.id;
@@ -719,15 +728,15 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     // last_detected_doors vector
     for(size_t i = 0; i < assignment.size(); i++)
     {
-//        qInfo() << "Assignment: " << i << " --- " << assignment[i];
+        qInfo() << "Assignment: " << i << " --- " << assignment[i];
         if(assignment[i] != -1)
         {
-//            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
+            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
 
             if(distances_matrix[i][assignment[i]] < detected_door[assignment[i]].width() * 0.25)
             {
-//                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
-//                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
+                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
+                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
                 get<1>(last_detected_doors[i])++;
                 if(get<1>(last_detected_doors[i]) == N)
                 {
@@ -798,7 +807,7 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
     for(const auto &[i, match] : matches | iter::enumerate)
         if(match.second != -1 and match.first != -1)
         {
-            auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_pre";
+            auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_" + std::to_string(actual_room_id) + "_pre";
             if(nominal)
             {
 //                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
@@ -859,7 +868,7 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
 //Function to insert a new measured door in the graph, generate a thread in charge of stabilizing the door and set a has_intention edge
 void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> doors, DSR::Node room_node)
 {
-//    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
+    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
     /// Iterate over doors using enumerate
     for(const auto &[i, door] : doors | iter::enumerate)
     {
@@ -883,7 +892,7 @@ void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> door
         else
             new_door_id = *std::max_element(door_ids.begin(), door_ids.end()) + 1;
         door.id = new_door_id;
-        std::string door_name = "door_" + std::to_string(wall_id) + "_" + std::to_string(new_door_id) + "_pre";
+        std::string door_name = "door_" + std::to_string(wall_id) + "_" + std::to_string(new_door_id) + "_" + std::to_string(actual_room_id) + "_pre";
 //        qInfo() << "Door name: " << QString::fromStdString(door_name) << "Mid point: " << door.middle.x() << door.middle.y() << "Width: " << door.width();
         //  10 create new_measured door to stabilize.
         insert_door_in_graph(door, room_node, door_name);
@@ -947,7 +956,7 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
 {
 
     /// Get wall node from door id
-    auto wall_node_ = G->get_node("wall_" + std::to_string(door.wall_id));
+    auto wall_node_ = G->get_node("wall_" + std::to_string(door.wall_id) + "_" + std::to_string(actual_room_id));
     if(not wall_node_.has_value())
     { qWarning() << __FUNCTION__ << " No wall node in graph"; return DSR::Node{}; }
 
@@ -976,7 +985,7 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
         G->insert_node(door_node);
 
         // Add edge between door and robot
-        rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),door_middle_transformed_value.y(), 0.0},
+        rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),0.0, 0.0},
                                      {0.0, 0.0, 0.0});
     }
 
@@ -1038,10 +1047,13 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
         { qWarning() << __FUNCTION__ << " No state attribute in graph"; return; }
         auto intention_state_value = intention_state.value();
 
-        /// Get room node
-        auto room_node_ = G->get_node("room");
+        auto current_edges = G->get_edges_by_type("current");
+        if(current_edges.empty())
+        {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+        auto room_node_ = G->get_node(current_edges[0].to());
         if(not room_node_.has_value())
-        { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
+        { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
         auto room_node = room_node_.value();
 
         /// Get door wall node
@@ -1223,7 +1235,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     auto optimized_door = DoorDetector::Door{Eigen::Vector2f{optimized_door_center.x(), optimized_door_center.y()},  door_width, door.wall_id, door.id};
 
 
-                    std::string door_name = "door_" + std::to_string(optimized_door.wall_id) + "_" + std::to_string(optimized_door.id);
+                    std::string door_name = "door_" + std::to_string(optimized_door.wall_id) + "_" + std::to_string(optimized_door.id) + "_" + std::to_string(actual_room_id);
                     //Create new door node
                     auto nominal_node = insert_door_in_graph(optimized_door, room_node, door_name);
 
@@ -1464,6 +1476,9 @@ const Eigen::Vector2f &nominal_door_center)
     std::string g2o_graph;
     int id = 0; // Id for g2o graph vertices
     auto updated_robot_pose = robot_pose;
+    
+    //set std::to_string decimal separator dot
+    std::setlocale(LC_NUMERIC, "C");
 
     /// Add nominal corners as VERTEX_XY (ROOM), FIXED using nominal_corners_data in
     for (size_t i = 0; i < nominal_corner_data.size(); ++i)
