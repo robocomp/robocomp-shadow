@@ -381,6 +381,14 @@ void SpecificWorker::create_room()
     // Insert room data in graph
     insert_room_into_graph(g2o_data, current_room);
     room_id++;
+
+    //clear data
+    BTdata.corner_data.clear();
+    BTdata.odometry_data.clear();
+    BTdata.room_centers.clear();
+    BTdata.room_sizes.clear();
+    BTdata.room_size_histogram.clear();
+
 }
 void SpecificWorker::update_room()
 {
