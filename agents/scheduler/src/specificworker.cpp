@@ -79,6 +79,7 @@ void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
 	this->Period = period;
+
 	if(this->startup_check_flag)
 	{
 		this->startup_check();
@@ -140,22 +141,36 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+
+    qInfo() << "************************************Compute*************************************************";
     auto has_intention_edges = G->get_edges_by_type("has_intention");
 //    qInfo() << active_node_id;
     static bool affordance_activated = false;
     static uint64_t affordance_activated_id = -1;
 
+    //print this->intention_active
+    qInfo() << "Intention active: " << this->intention_active;
+
     if(!this->intention_active)
     {
-        if (!has_intention_edges.empty() && !affordance_activated)
+        if (!has_intention_edges.empty())
         {
+            qInfo()<< "Has intention edges found";
             for (auto edge : has_intention_edges)
+            {
                 if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+                {
                     if (edge_state.value() == "waiting")
                     {
+                        qInfo() << "Intention edge found and waiting";
                         this->active_node_id = set_intention_active(edge, true);
+                        this->intention_active = true;
+
+                        qInfo() << "Intention_active = true";
                         break;
                     }
+                }
+            }
         }
         else
         {
@@ -166,6 +181,7 @@ void SpecificWorker::compute()
                 // change the active attribute of an affordance node to true
                 for(auto affordance : affordance_nodes)
                 {
+//                    this->intention_active = true;
                     G->add_or_modify_attrib_local<active_att>(affordance, true);
                     //set affordance bt_state attribute to in_progress
                     G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
@@ -200,19 +216,22 @@ void SpecificWorker::compute()
             }
         }
     }
-    else
+    else //Intention ACTIVE
     {
-//        qInfo() << "Intention active";
-        if (G->get_node(this->active_node_id).has_value())
+        qInfo() << "Intention active";
+        if (auto active_node_ = G->get_node(this->active_node_id); active_node_.has_value())
         {
-            qInfo() << "Active node: " << this->active_node_id;
+            std::cout << "Node name" << active_node_.value().name() << std::endl;
+
             if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
             {
-                qInfo() << "Active edge: " << edge.value().to();
                 if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
                 {
+                    std::cout << "Edge state: " << edge_state.value() << std::endl;
+
                     if(edge_state.value() == "completed")
                     {
+                        qInfo() << "HAS INTENTION EDGE COMPLETED";
                         this->active_node_id = set_intention_active(edge.value(), false);
                     }
                 }
@@ -230,10 +249,9 @@ int SpecificWorker::startup_check()
 
 u_int64_t SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)
 {
-    qInfo() << "Setting intention active";
+    qInfo() << "Setting intention active: " << active;
     G->add_or_modify_attrib_local<active_att>(edge, active);
     G->insert_or_assign_edge(edge);
-    qInfo() << "Intention active: " << active;
     this->intention_active = active;
 
     if (!active)
