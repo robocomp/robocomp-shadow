@@ -33,43 +33,33 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         """
-        Establishes an instance of `DSRGraph` with the given `proxy_map`. It sets
-        agent ID, establishes node and edge signals connections, and initializes
-        inner APIs.
+        Sets up an instance of a worker class, initializing various components
+        such as a graph, a timer, and signal connections to handle updates,
+        deletions, and other events within the graph.
 
         Args:
-            proxy_map (`object`.): mapping between the original worker's ID and
-                the agent's ID, which is required to update the agent's internal
-                state accordingly.
+            proxy_map (int): mapping of original agent IDs to proxy IDs used in
+                the agent's deployment.
+            startup_check (`object`): initialization check that runs when the
+                object is created to verify if all the required components are
+                available and functional, and performs any necessary actions before
+                moving on to the main logic of the function.
                 
-                	* `proxy_map`: a dict containing the proxy information for each
-                agent in the simulation. Each agent's proxy map contains the
-                following attributes:
-                		+ `agent_id`: an integer identifier unique to each agent (13 in
-                this case)
-                		+ `g`: a DSRGraph object representing the spatial memory of the
-                agent
-                		+ ` Period`: an integer representing the time interval between
-                updates (100 in this case)
-            startup_check (`object`.): check whether to execute the `startup_check()`
-                method, which is intended to set up specific attributes and
-                connections within the agent's internal graph representation when
-                it is first created or after its graph has been updated.
-                
-                	* `startup_check`: A boolean attribute that indicates whether the
-                check for starting up the agent has been performed or not.
-                	* `rt_api`: An instance of the `rt_api` class, which is a method
-                for handling RT API calls.
-                	* `inner_api`: An instance of the `inner_api` class, which is a
-                method for handling inner API calls.
-                	* `room_initialized`: A boolean attribute that indicates whether
-                the room has been initialized or not.
-                	* `affordance_node_active_id`: The unique identifier of the
-                affordance node that is active at the moment.
-                	* `room_exit_door_id`: The unique identifier of the room exit door.
-                	* `enter_room_node_id`: The unique identifier of the enter room
-                node.
-                	* `exit_door_id`: The unique identifier of the exit door.
+                	1/ `startup_check`: A boolean variable indicating whether the
+                startup check is appropriate or not.
+                	2/ `rt_api`: An instance of `rt_api`, which represents the RT API
+                for the agent.
+                	3/ `inner_api`: An instance of `inner_api`, which represents the
+                inner API for the agent.
+                	4/ `room_initialized`: A boolean variable indicating whether the
+                room has been initialized or not.
+                	5/ `states`: A list of strings, representing the possible states
+                of the agent.
+                	6/ `affordance_node_active_id`: The ID of the affordance node
+                that is currently active.
+                	7/ `room_exit_door_id`: The ID of the room exit door.
+                	8/ `enter_room_node_id`: The ID of the enter room node.
+                	9/ `exit_door_id`: The ID of the exit door.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -121,19 +111,42 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         """
-        Determines if a node of type `aff_cross` has its valid attribute set to
-        true, checks the status and position of the robot within the room polygon,
-        and then removes an edge labeled "current" from the room if the conditions
-        are met.
+        Updates the parameters of a robot based on the environment it is navigating.
+        It removes a "current" self-edge from a room, stores the ID of an exit
+        door, waits for a new room to stabilize, and updates attributes in nodes
+        related to doors.
 
         Args:
-            params (dict): 3D mesh data structure that contains the nodes and edges
-                that make up the environment, which is used to determine whether
-                there is a node of type `aff_cross` with a valid `true` attribute
-                and other properties relevant to the function's purpose.
+            params (ndarray (a Python NumPy array).): 3D model's data, which is
+                used to determine whether a node is an aff_cross and if it has its
+                valid attribute set to true, as well as other relevant information
+                for making decisions about the node.
+                
+                	* `params`: A dictionary-like object containing various attributes
+                and values, including:
+                		+ `aff_cross`: A node with a valid attribute set to `True`.
+                		+ `room`: The current room where the function is called.
+                		+ `status`: An integer value representing the completion state
+                of the aff_cross node (0 = not completed, 1 = completed).
+                		+ `robotPose`: A tuple containing the robot's position outside
+                the room.
+                		+ `otherSideDoor`: The ID of an exit door in the new room.
+                
+                	The function then provides explanations for each step of its execution:
+                
+                	* Remove `current` self-edge from the room.
+                	* Store the ID of the exit door in a variable.
+                	* Wait until a new room is stabilized.
+                	* When a new room is stabilized, check for the door used to get
+                inside.
+                	* Store in both doors the other side door name attribute.
+                	* Read exit door node and add an attribute other side door with
+                the name of the entrance door in the new room.
+                	* Read entrance door node and add an attribute other side door
+                with the name of the exit door in the new room.
 
         Returns:
-            undefined: a boolean value indicating whether the parameters were set
+            undefined: a boolean value indicating whether the nodes were updated
             successfully.
 
         """
@@ -153,8 +166,9 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         """
-        Is a state machine that determines the behavior of a code agent based on
-        its current state and updates the state accordingly.
+        Is a state machine that handles various scenarios related to the movement
+        and layout of doors. It transitions between states based on the current
+        state and receives additional input for further action.
 
         """
         match self.state:
@@ -175,10 +189,10 @@ class SpecificWorker(GenericWorker):
 
     def idle(self):
         """
-        1) checks if there are any nodes of type "affordance" with their "active"
-        attribute set to True, 2) verifies that there is only one current room,
-        and 3) sets the `room_exit_door_id`, `affordance_node_active_id`, and
-        `state` variables based on these conditions.
+        Checks if there are any nodes of type "affordance" with valid attribute
+        "active" set to true, and if not, it prints an error message and returns.
+        If there is only one such node, it sets the `room_exit_door_id`,
+        `affordance_node_active_id`, and `state` variables accordingly and returns.
 
         """
         print("IDLE")
@@ -200,17 +214,16 @@ class SpecificWorker(GenericWorker):
 
     def crossing(self):
         """
-        1/ Checks if an edge exists connecting a room to another node, removes it,
-        and marks the room as crossed. 2. It also checks if an affordance node has
-        completed state and is not active, marks it as crossed and moves to that
-        state.
+        Updates the state of a grid node based on its current state and affinity
+        edges. When an edge with the `completed` status is found and the affinity
+        node is not active, the function changes the node's state to "crossed".
 
         """
         print("CROSSING")
-        if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
-            print("Removing current edge from room")
-            print(self.room_exit_door_id)
-            self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
+        # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
+        #     print("Removing current edge from room")
+        #     print(self.room_exit_door_id)
+        #     self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
         # Check if affordance_node has status attribute completed and is not active
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
@@ -220,8 +233,9 @@ class SpecificWorker(GenericWorker):
 
     def crossed(self):
         """
-        Obtains the parent node of an affordance node and updates the variable
-        `self.exit_door_id` if the parent node exists.
+        Gets the parent node of an affordance node, and if it has no parent, it
+        returns a message. Otherwise, it sets the exit door ID to the value of the
+        parent node attribute and deletes the "current" self-edge from the room graph.
 
         """
         print("CROSSED")
@@ -233,13 +247,13 @@ class SpecificWorker(GenericWorker):
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             # Remove "current" self-edge from the room
-            # self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
+            self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
 
     def initializing_room(self):
         """
-        Retrieves a list of room nodes different from the exit node and stores the
-        ID of the enter room node.
+        Obtains room nodes, identifies the node to enter, and updates state to
+        initialize doors.
 
         """
         print("INITIALIZING ROOM")
@@ -251,6 +265,7 @@ class SpecificWorker(GenericWorker):
         else:
             # Get the enter room node id
             self.enter_room_node_id = room_nodes[0].id
+            self.insert_current_edge(self.enter_room_node_id)
             self.state = "initializing_doors"
     #
     # def new_room(self):
@@ -258,8 +273,9 @@ class SpecificWorker(GenericWorker):
 
     def initializing_doors(self):
         """
-        1) checks if a node called "room_entry" of type "room" exists, and 2)
-        updates nodes with "other_side_door" attributes based on edges of type "same".
+        Updates an autonomous agent's graph, by setting an edge's attribute
+        'other_side_door' based on a named edge connecting a door node with a
+        nominal room, and setting the agent's state to "removing".
 
         """
         print("INITIALIZING DOORS")
@@ -286,12 +302,9 @@ class SpecificWorker(GenericWorker):
 
     def removing(self):
         """
-        Determines if a robot is currently located near a door and performs actions
-        based on that discovery. If the robot is at a door, it signals that the
-        current room is no longer and removes an edge labeled "current." Then, it
-        waits for a new room to be created before checking if it is similar to
-        previous rooms in the internal graph and replacing the current room with
-        a matching nominal room if necessary.
+        Checks if there is an active goto edge connecting the robot and a door.
+        If so, it removes the "current" self-edge and waits for a new room to be
+        created.
 
         """
         pass
@@ -347,14 +360,11 @@ class SpecificWorker(GenericWorker):
         # Insert current edge to the room
         # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
         """
-        Updates the current edge of a room node based on specified conditions,
-        ensuring only one room exists and the node has no "measured" label.
+        Updates a node's "current" edge based on a set of given conditions.
 
         Args:
-            id (int): unique identifier of a node for which to set the current edge.
-            type (str): type of edge or node to be checked for existence in the
-                graph, and in this function, it must be set to "room" to perform
-                the appropriate action.
+            id (int): 1D lattice node for which the current edge is to be set.
+            type (str): type of edge to be checked for existence.
 
         """
         if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
