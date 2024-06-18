@@ -479,10 +479,14 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
     for(const auto &i: items){ pScene->removeItem(i); delete i;}
     items.clear();
 
-    /// Check if room node exists
-    auto room_node_ = G->get_node("room");
-    if(auto room_node_ = G->get_node("room"); not room_node_.has_value()) // TODO: check if auto edge "current" exists
-    { std::cout << __FUNCTION__ << "Error getting room node. Returning." << std::endl; return;}
+// 2. check for current room
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
+    if(not room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
     auto room_node = room_node_.value();
 
     if(not drawn_room)
@@ -494,7 +498,7 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
         QPolygonF room_poly;
         for(const auto &c: corners)
         {
-            auto corner_to_room_transformation_ = inner_api->transform("room", c.name());
+            auto corner_to_room_transformation_ = inner_api->transform(room_node.name(), c.name());
             if(not corner_to_room_transformation_.has_value())
             { std::cout << __FUNCTION__ << "Error getting corner to room transformation. Returning." << std::endl; return;}
             auto corner_to_room_transformation = corner_to_room_transformation_.value();
@@ -505,7 +509,7 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
     }
 
     /// Get robot pose in room
-    if(auto rt_room_robot = inner_api->get_transformation_matrix("room", params.robot_name); not rt_room_robot.has_value())
+    if(auto rt_room_robot = inner_api->get_transformation_matrix(room_node.name(), params.robot_name); not rt_room_robot.has_value())
     { std::cout << __FUNCTION__ << "Error getting robot pose in room. Returning." << std::endl; return;}
     else
     {
@@ -527,12 +531,12 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
         auto door_width = door_width_.value();
 
         /// Get door corner pose
-        auto door_peak_0_ = inner_api->transform("room", Eigen::Vector3d{-door_width/2.f, 0.f, 0.f}, door_node.name());
+        auto door_peak_0_ = inner_api->transform(room_node.name(), Eigen::Vector3d{-door_width/2.f, 0.f, 0.f}, door_node.name());
         if(not door_peak_0_.has_value())
         { std::cout << __FUNCTION__ << "Error getting door corner pose. Returning." << std::endl; return;}
         auto door_peak_0 = door_peak_0_.value();
 
-        auto door_peak_1_ = inner_api->transform("room", Eigen::Vector3d{door_width/2.f, 0.f, 0.f}, door_node.name());
+        auto door_peak_1_ = inner_api->transform(room_node.name(), Eigen::Vector3d{door_width/2.f, 0.f, 0.f}, door_node.name());
         if(not door_peak_1_.has_value())
         { std::cout << __FUNCTION__ << "Error getting door corner pose. Returning." << std::endl; return;}
         auto door_peak_1 = door_peak_1_.value();

@@ -114,15 +114,15 @@ class SpecificWorker(GenericWorker):
     def idle(self):
         print("IDLE")
         # Check if there is a node of type aff_cross and it has it's valid attribute to true using comprehension list
-        aff_cross_nodes = [node for node in self.g.get_nodes_by_type("aff_cross") if node.attrs["active"] == "true"]
+        aff_cross_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value == True]
         # Check if not empty
         if len(aff_cross_nodes) == 0 or len(aff_cross_nodes) > 1:
             print("No aff_cross nodes with valid attribute or more than one valid affordance")
             return
         else:
-            current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.to).type == "room" and self.g.get_node(edge.fr).type == "room"]
+            current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.destination).type == "room" and self.g.get_node(edge.origin).type == "room"]
             if len(current_edges) == 1:
-                self.room_exit_door_id = current_edges[0].fr
+                self.room_exit_door_id = current_edges[0].origin
                 self.affordance_node_active_id = aff_cross_nodes[0].id
                 self.state = "crossing"
             else:
@@ -131,10 +131,15 @@ class SpecificWorker(GenericWorker):
 
     def crossing(self):
         print("CROSSING")
+        # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
+        #     print("Removing current edge from room")
+        #     print(self.room_exit_door_id)
+        #     self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
         # Check if affordance_node has status attribute completed and is not active
         affordance_node = self.g.get_node(self.affordance_node_active_id)
-        if affordance_node.attrs["status"] == "completed" and affordance_node.attrs["active"] == "false":
+        if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
             print("Affordance node is completed and not active. Go to crossed state")
+            # Remove "current" self-edge from the room
             self.state = "crossed"
 
     def crossed(self):
@@ -153,13 +158,14 @@ class SpecificWorker(GenericWorker):
     def initializing_room(self):
         print("INITIALIZING ROOM")
         # Get room nodes
-        room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id]
+        room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
         if len(room_nodes) == 0:
             print("No room nodes different from the exit one found")
             return
         else:
             # Get the enter room node id
             self.enter_room_node_id = room_nodes[0].id
+            self.insert_current_edge(self.enter_room_node_id)
             self.state = "initializing_doors"
     #
     # def new_room(self):
@@ -240,6 +246,7 @@ class SpecificWorker(GenericWorker):
 
     def update_node(self, id: int, type: str):
         # Insert current edge to the room
+        # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
         if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
             print("Room node exists but no current edge. Setting as current")
             self.insert_current_edge(id)
