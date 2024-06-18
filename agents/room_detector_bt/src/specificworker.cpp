@@ -497,6 +497,11 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     { qWarning() << __FUNCTION__ << " No root node in graph"; return; }
     auto root_node = root_node_.value();
 
+    auto root_level_ = G->get_node_level(root_node);
+    if(not root_level_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
+    auto root_level = root_level_.value();
+
     auto robot_node_ = G->get_node("Shadow");
     if(not robot_node_.has_value())
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
@@ -522,14 +527,19 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     G->add_or_modify_attrib_local<pos_x_att>(room_node, pos_x);
     G->add_or_modify_attrib_local<pos_y_att>(room_node, pos_y);
     G->add_or_modify_attrib_local<obj_checked_att>(room_node, false);
-    G->add_or_modify_attrib_local<level_att>(room_node, robot_level);
+    G->add_or_modify_attrib_local<level_att>(room_node, root_level + 1);
     G->insert_node(room_node);
+
+    auto room_level_ = G->get_node_level(room_node);
+    if(not room_level_.has_value())
+    { qWarning() << __FUNCTION__ << " No robot level in graph"; return; }
+    auto room_level = room_level_.value();
 
     rt->insert_or_assign_edge_RT(root_node, room_node.id(), { 0.f, 0.f, 0.f }, { 0.f, 0.f, 0.f });
     G->delete_edge(root_node.id(), robot_node.id(), "RT");
 
     // Increase robot node level
-    G->add_or_modify_attrib_local<level_att>(robot_node, robot_level + 1);
+    G->add_or_modify_attrib_local<level_att>(robot_node, room_level + 1);
     G->update_node(robot_node);
     // Insert robot pose in room
     auto robot_pose = std::get<1>(optimized_room_data);
@@ -542,6 +552,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
         if(auto edge = G->get_edge(room.id(), robot_node.id(), "RT"); edge.has_value())
         {
             G->delete_edge(room.id(), robot_node.id(), "RT");
+            std::cout << __FUNCTION__ << " Edge between robot and room deleted" << room.name() << std::endl;
         }
     }
     rt->insert_or_assign_edge_RT(room_node, robot_node.id(), {robot_pose_float.x(), robot_pose_float.y(), 0.f}, { 0.f, 0.f, robot_pose_float.z() });
