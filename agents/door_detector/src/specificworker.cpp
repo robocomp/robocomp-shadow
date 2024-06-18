@@ -189,7 +189,7 @@ void SpecificWorker::compute()
 //  and update the measured_nodes
     auto to_prefilter_doors = update_and_remove_doors(measure_matches, to_measured_doors, std::get<0>(door_nodes), false, room_node);
 
-    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
+//    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
 
     //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
@@ -522,8 +522,8 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                     //TODO: transform to room reference frame.
                     Eigen::Vector3d p_0_ {p0_projected_eigen.x(), p0_projected_eigen.y(), 0};
                     Eigen::Vector3d p_1_ {p1_projected_eigen.x(), p1_projected_eigen.y(), 0};
-                    qInfo() << "ID" << wall_center_index;
-                    qInfo() << "p_0: " << p_0_.x() << p_0_.y() << " p_1: " << p_1_.x() << p_1_.y();
+//                    qInfo() << "ID" << wall_center_index;
+//                    qInfo() << "p_0: " << p_0_.x() << p_0_.y() << " p_1: " << p_1_.x() << p_1_.y();
                     /// Transform p_0 and p_1 to room reference frame
                     if (auto p_0_transformed = inner_eigen->transform(room_node.name(),
                                                                       p_0_,
@@ -549,7 +549,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                                 *it = std::make_tuple(wall_center_index, door.id);
                             }
                             door.wall_id = wall_center_index;
-                            qInfo() << "Measured door center: " << door.middle_measured[0] << door.middle_measured[1];
+//                            qInfo() << "Measured door center: " << door.middle_measured[0] << door.middle_measured[1];
 
                             doors.push_back(door);
                         }
@@ -690,13 +690,13 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     // If detected_door is empty, clear the last_detected_doors vector and return
     if(detected_door.empty())
     {
-        qInfo() << "--------------NO DOORS--------------------";
+//        qInfo() << "--------------NO DOORS--------------------";
         last_detected_doors.clear();
         return;
     }
     if(last_detected_doors.empty())
     {
-        qInfo() << "--------------FIRST DOORS DETECTED--------------------";
+//        qInfo() << "--------------FIRST DOORS DETECTED--------------------";
         for(auto &d: detected_door)
         {
 //            qInfo() << "First doors detected: " << d.wall_id << d.id;
@@ -728,15 +728,15 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     // last_detected_doors vector
     for(size_t i = 0; i < assignment.size(); i++)
     {
-        qInfo() << "Assignment: " << i << " --- " << assignment[i];
+//        qInfo() << "Assignment: " << i << " --- " << assignment[i];
         if(assignment[i] != -1)
         {
-            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
+//            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << get<0>(last_detected_doors[assignment[i]]).width() * 0.75;
 
             if(distances_matrix[i][assignment[i]] < detected_door[assignment[i]].width() * 0.25)
             {
-                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
-                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
+//                qInfo() << "Matching: " << detected_door[i].wall_id << detected_door[i].id << " --- " << get<0>(last_detected_doors[assignment[i]]).wall_id << get<0>(last_detected_doors[assignment[i]]).id;
+//                qInfo() << "Mid points" << detected_door[i].middle[0] << detected_door[i].middle[1] << get<0>(last_detected_doors[assignment[i]]).middle[0] << get<0>(last_detected_doors[assignment[i]]).middle[1];
                 get<1>(last_detected_doors[i])++;
                 if(get<1>(last_detected_doors[i]) == N)
                 {
@@ -868,7 +868,7 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
 //Function to insert a new measured door in the graph, generate a thread in charge of stabilizing the door and set a has_intention edge
 void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> doors, DSR::Node room_node)
 {
-    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
+//    qInfo() << "Door sizes set_doors_to_stabilize: " << doors.size();
     /// Iterate over doors using enumerate
     for(const auto &[i, door] : doors | iter::enumerate)
     {
@@ -1016,7 +1016,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
     while(not is_stabilized)
     {
-        qInfo() << "Stabilizing door: " << QString::fromStdString(door_name);
+//        qInfo() << "Stabilizing door: " << QString::fromStdString(door_name);
         auto start = std::chrono::high_resolution_clock::now();
 
         /// get has intention edge between robot and doo
@@ -1206,14 +1206,14 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 /// Get the most common room size
                 auto door_pose_x = most_common_door_pose->first;
                 auto door_width = most_common_door_width->first;
-                qInfo() << "Most common door data: " << door_pose_x << " " << door_width << "#############################";
+//                qInfo() << "Most common door data: " << door_pose_x << " " << door_width << "#############################";
                 Eigen::Vector3d door_nominal_respect_to_wall{(double)door_pose_x, 0.f, 0.f};
                 /// Transform to room frame
                 Eigen::Vector2f door_nominal_respect_to_room_value;
                 if(auto door_nominal_respect_to_room = inner_eigen->transform(room_node.name(), door_nominal_respect_to_wall, wall_node.name()); door_nominal_respect_to_room.has_value())
                 {
                     door_nominal_respect_to_room_value = {door_nominal_respect_to_room.value().x(), door_nominal_respect_to_room.value().y()};
-                    qInfo() << "Most common door data transformed: " << door_nominal_respect_to_room_value.x() << " " << door_nominal_respect_to_room_value.y() << "#############################";
+//                    qInfo() << "Most common door data transformed: " << door_nominal_respect_to_room_value.x() << " " << door_nominal_respect_to_room_value.y() << "#############################";
                 }
 
 
@@ -1457,7 +1457,7 @@ void SpecificWorker::draw_door_robot_frame(const std::vector<DoorDetector::Door>
     for(const auto &i: items){ scene->removeItem(i); delete i;}
     items.clear();
     //Print function name
-    std::cout << __FUNCTION__ << std::endl;
+//    std::cout << __FUNCTION__ << std::endl;
 
 
     //draw
@@ -1610,3 +1610,5 @@ int SpecificWorker::startup_check()
     QTimer::singleShot(200, qApp, SLOT(quit()));
     return 0;
 }
+
+
