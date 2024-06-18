@@ -51,6 +51,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 		qscene_2d_view = params.at("2d_view").value == "true";
 		osg_3d_view = params.at("3d_view").value == "true";
         this->params.DISPLAY = params.at("display").value == "true" or (params.at("delay").value == "True");
+
 	}
 	catch(const std::exception &e){ std::cout << __FUNCTION__ << e.what() << " Error reading params from config file" << std::endl;};
 	return true;
@@ -77,7 +78,7 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -146,10 +147,15 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    qInfo() << __FUNCTION__ << " Compute";
     if(this->update_room_valid)
     {
         update_room();
         draw_nominal_corners_in_room_frame(&widget_2d->scene);
+    }
+    else
+    {
+
     }
 }
 
@@ -501,8 +507,12 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     DSR::Node room_node = DSR::Node::create<room_node_type>("room_"+ std::to_string(room_id));
     G->add_or_modify_attrib_local<width_att>(room_node, room_width);
     G->add_or_modify_attrib_local<depth_att>(room_node, room_depth);
-    G->add_or_modify_attrib_local<pos_x_att>(room_node, (float)(rand()%(170)));
-    G->add_or_modify_attrib_local<pos_y_att>(room_node, (float)(rand()%170));
+
+    // create pos_x, pos_y value as function of room id
+    float pos_x = 200.0;
+    float pos_y = 200.0 * (room_id - 1);
+    G->add_or_modify_attrib_local<pos_x_att>(room_node, pos_x);
+    G->add_or_modify_attrib_local<pos_y_att>(room_node, pos_y);
     G->add_or_modify_attrib_local<obj_checked_att>(room_node, false);
     G->add_or_modify_attrib_local<level_att>(room_node, robot_level);
     G->insert_node(room_node);
@@ -516,6 +526,16 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     // Insert robot pose in room
     auto robot_pose = std::get<1>(optimized_room_data);
     auto robot_pose_float = robot_pose.cast<float>();
+    //Get all nodes of type room
+    auto room_nodes = G->get_nodes_by_type("room");
+    // Check if exist previous edge between robot and any room
+    for(const auto &room : room_nodes)
+    {
+        if(auto edge = G->get_edge(room.id(), robot_node.id(), "RT"); edge.has_value())
+        {
+            G->delete_edge(room.id(), robot_node.id(), "RT");
+        }
+    }
     rt->insert_or_assign_edge_RT(room_node, robot_node.id(), {robot_pose_float.x(), robot_pose_float.y(), 0.f}, { 0.f, 0.f, robot_pose_float.z() });
 
     // insert walls and corners in graph
@@ -591,7 +611,16 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     {
         if(valid)
         {
-            create_corner(id, {(float)p2.x(), (float)p2.y(), 0.0}, robot_node, false);
+            //Check if exist previous corner
+            auto corner_aux_ = G->get_node("corner_" + std::to_string(id) + "_measured");
+            if(not corner_aux_.has_value())
+            {
+                create_corner(id, {(float)p2.x(), (float)p2.y(), 0.0}, robot_node, false);
+            }
+            else
+            {
+                qWarning() << __FUNCTION__ << " Corner already exists in graph";
+            }
         }
     }
 
@@ -1124,6 +1153,7 @@ std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWor
 //        for (size_t i = 0; i < source_points_.size(); ++i)
 //            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], Eigen::Vector2d(0, 0), false));
 //        return correspondences;
+        return correspondences;
     }
     /// Process metrics matrix with Hungarian algorithm
     vector<int> assignment;
@@ -1212,8 +1242,8 @@ void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angl
         auto pos_y = G->get_attrib_by_name<pos_y_att>(room_node);
         //Set corner pos_x and pos_y attributes as corners of square room centered in pos_x and pos_y
         if(pos_x.has_value() and pos_y.has_value()){
-            G->add_or_modify_attrib_local<pos_x_att>(new_wall, pos_x.value() + p[0]/ 25);
-            G->add_or_modify_attrib_local<pos_y_att>(new_wall, pos_y.value() + p[1]/ 25);
+            G->add_or_modify_attrib_local<pos_x_att>(new_wall, pos_x.value() + p[0]/ 38);
+            G->add_or_modify_attrib_local<pos_y_att>(new_wall, pos_y.value() + p[1]/ 38);
         }
         else{
             qWarning() << __FUNCTION__ << " No pos_x or pos_y attributes in room node";
@@ -1374,6 +1404,28 @@ int SpecificWorker::startup_check()
 	return 0;
 }
 
+
+
+///////////////////////////////////////////////////// SLOT /////////////////////////////////////
+
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    //If type "current" set update_room_valid to False
+    if(edge_tag == "current")
+    {
+        update_room_valid = false;
+        //Print "current" edge deleted
+        std::cout << __FUNCTION__ << "Current Edge " << edge_tag << " deleted" << std::endl;
+
+        qInfo() << __FUNCTION__ << " Update room not valid";
+        if(BT_th.joinable())
+        {
+            qInfo() << __FUNCTION__ << " Joining BT thread";
+            BT_th.join();
+            BT_th = std::thread(&SpecificWorker::BTFunction, this);
+        }
+    }
+}
 /**************************************/
 // From the RoboCompG2Ooptimizer you can call this methods:
 // this->g2ooptimizer_proxy->optimize(...)
