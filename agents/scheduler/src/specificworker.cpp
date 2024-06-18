@@ -145,77 +145,76 @@ void SpecificWorker::compute()
     static bool affordance_activated = false;
     static uint64_t affordance_activated_id = -1;
 
-    if(!affordance_activated)
+    if(!this->intention_active)
     {
-        //get nodes of type affordance
-        auto affordance_nodes = G->get_nodes_by_type("affordance");
-        // change the active attribute of an affordance node to true
-        for(auto affordance : affordance_nodes)
+        if (!has_intention_edges.empty() && !affordance_activated)
         {
-            G->add_or_modify_attrib_local<active_att>(affordance, true);
-            //set affordance bt_state attribute to in_progress
-            G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
-            affordance_activated_id = affordance.id();
-            G->update_node(affordance);
-            affordance_activated = true;
-            return;
-        }
-
-        if(!this->intention_active)
-        {
-            if (!has_intention_edges.empty())
-            {
-                for (auto edge : has_intention_edges)
-                    if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
-                        if (edge_state.value() == "waiting")
-                        {
-                            this->active_node_id = set_intention_active(edge, true);
-                            break;
-                        }
-            }
-            else
-                std::cout << "No intention edges found" << std::endl;
+            for (auto edge : has_intention_edges)
+                if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+                    if (edge_state.value() == "waiting")
+                    {
+                        this->active_node_id = set_intention_active(edge, true);
+                        break;
+                    }
         }
         else
         {
-//        qInfo() << "Intention active";
-            if (G->get_node(this->active_node_id).has_value())
+            if(!affordance_activated)
             {
-                qInfo() << "Active node: " << this->active_node_id;
-                if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
+                //get nodes of type affordance
+                auto affordance_nodes = G->get_nodes_by_type("affordance");
+                // change the active attribute of an affordance node to true
+                for(auto affordance : affordance_nodes)
                 {
-                    qInfo() << "Active edge: " << edge.value().to();
-                    if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
+                    G->add_or_modify_attrib_local<active_att>(affordance, true);
+                    //set affordance bt_state attribute to in_progress
+                    G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
+                    affordance_activated_id = affordance.id();
+                    G->update_node(affordance);
+                    affordance_activated = true;
+                    return;
+                }
+            }
+            else
+            {
+                std::cout << "Affordance activated" << std::endl;
+
+                //Check if affordance node is completed
+                if(auto affordance_node = G->get_node(affordance_activated_id); affordance_node.has_value())
+                {
+                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance_node.value()); affordance_state.has_value())
                     {
-                        if(edge_state.value() == "completed")
+                        std::cout << "Affordance bt_state:" << affordance_state.value() << std::endl;
+
+                        if(affordance_state.value() == "completed")
                         {
-                            this->active_node_id = set_intention_active(edge.value(), false);
+                            std::cout << "Affordance node completed" << std::endl;
+                            G->add_or_modify_attrib_local<active_att>(affordance_node.value(), false);
+                            G->update_node(affordance_node.value());
+                            affordance_activated = false;
+                            affordance_activated_id = -1;
+                            this->intention_active = false;
                         }
                     }
                 }
             }
         }
-
     }
     else
     {
-        std::cout << "Affordance activated" << std::endl;
-
-        //Check if affordance node is completed
-        if(auto affordance_node = G->get_node(affordance_activated_id); affordance_node.has_value())
+//        qInfo() << "Intention active";
+        if (G->get_node(this->active_node_id).has_value())
         {
-            if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance_node.value()); affordance_state.has_value())
+            qInfo() << "Active node: " << this->active_node_id;
+            if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
             {
-                std::cout << "Affordance bt_state:" << affordance_state.value() << std::endl;
-
-                if(affordance_state.value() == "completed")
+                qInfo() << "Active edge: " << edge.value().to();
+                if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
                 {
-                    std::cout << "Affordance node completed" << std::endl;
-                    G->add_or_modify_attrib_local<active_att>(affordance_node.value(), false);
-                    G->update_node(affordance_node.value());
-//                    affordance_activated = false;
-//                    affordance_activated_id = -1;
-//                    this->intention_active = false;
+                    if(edge_state.value() == "completed")
+                    {
+                        this->active_node_id = set_intention_active(edge.value(), false);
+                    }
                 }
             }
         }
