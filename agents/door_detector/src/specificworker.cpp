@@ -403,7 +403,7 @@ void SpecificWorker::match_exit_door()
                         DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.id(), exited_door.value().id());
                         G->insert_or_assign_edge(match);
                     }
-                    std::terminate();
+//                    std::terminate();
                 }
                 else
                 {

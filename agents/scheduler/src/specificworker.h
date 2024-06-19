@@ -78,6 +78,9 @@ private:
     u_int64_t active_node_id = -1;
     u_int64_t set_intention_active(DSR::Edge &edge, bool active);
 
+    bool affordance_activated = false;
+    uint64_t affordance_activated_id = -1;
+
 };
 
 #endif
