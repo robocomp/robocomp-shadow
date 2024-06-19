@@ -522,8 +522,9 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     G->add_or_modify_attrib_local<depth_att>(room_node, room_depth);
 
     // create pos_x, pos_y value as function of room id
-    float pos_x = 200.0;
-    float pos_y = 200.0 * (room_id - 1);
+    float pos_x = 350.0;
+    float pos_y = 250.0 * (room_id - 1);
+
     G->add_or_modify_attrib_local<pos_x_att>(room_node, pos_x);
     G->add_or_modify_attrib_local<pos_y_att>(room_node, pos_y);
     G->add_or_modify_attrib_local<obj_checked_att>(room_node, false);
@@ -1261,8 +1262,8 @@ void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angl
         auto pos_y = G->get_attrib_by_name<pos_y_att>(room_node);
         //Set corner pos_x and pos_y attributes as corners of square room centered in pos_x and pos_y
         if(pos_x.has_value() and pos_y.has_value()){
-            G->add_or_modify_attrib_local<pos_x_att>(new_wall, pos_x.value() + p[0]/ 38);
-            G->add_or_modify_attrib_local<pos_y_att>(new_wall, pos_y.value() + p[1]/ 38);
+            G->add_or_modify_attrib_local<pos_x_att>(new_wall, pos_x.value() + p[0]/ 50);
+            G->add_or_modify_attrib_local<pos_y_att>(new_wall, pos_y.value() + p[1]/ 50);
         }
         else{
             qWarning() << __FUNCTION__ << " No pos_x or pos_y attributes in room node";
