@@ -95,7 +95,7 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-//		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		// Graph viewer
@@ -144,12 +144,18 @@ void SpecificWorker::compute()
 
     qInfo() << "************************************Compute*************************************************";
     auto has_intention_edges = G->get_edges_by_type("has_intention");
-//    qInfo() << active_node_id;
-    static bool affordance_activated = false;
-    static uint64_t affordance_activated_id = -1;
 
     //print this->intention_active
     qInfo() << "Intention active: " << this->intention_active;
+
+    //get_edges of type exit
+    auto exit_edges = G->get_edges_by_type("exit");
+
+    //This code is for the case when affordances must not be activated because someone is doing important things
+    if (not exit_edges.empty() and not affordance_activated)
+    {
+        affordance_activated = true;
+    }
 
     if(!this->intention_active)
     {
@@ -270,10 +276,12 @@ u_int64_t SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)
 
 void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
 {
-//    if(edge_tag == "has_intention")
-//    {
-//        this->intention_active = false;
-//    }
+    if(edge_tag == "exit")
+    {
+        qInfo() << "Exit edge deleted";
+        affordance_activated = false;
+        affordance_activated_id = -1;
+    }
 }
 
 
