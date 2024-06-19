@@ -56,7 +56,7 @@ public slots:
 	void initialize(int period);
 	void modify_node_slot(std::uint64_t, const std::string &type){};
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
 	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
 	void del_node_slot(std::uint64_t from){};     
@@ -163,6 +163,7 @@ private:
     void match_exit_door();
     bool exit_door_exists = false;
     Eigen::Vector3d exit_door_center;
+    Eigen::Vector3d exit_door_room_pose;
     void affordance_thread(uint64_t aff_id);
 
     int actual_room_id = -1;
