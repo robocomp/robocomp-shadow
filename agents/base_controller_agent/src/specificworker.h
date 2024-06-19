@@ -79,7 +79,7 @@ class SpecificWorker : public GenericWorker
         struct Params
         {
             std::string robot_name = "Shadow";
-            float ROBOT_WIDTH = 460;  // mm
+            float ROBOT_WIDTH = 250;  // mm
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm

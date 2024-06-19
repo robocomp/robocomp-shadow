@@ -506,7 +506,7 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
 //                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
                             if (n.name().find("_pre") != std::string::npos)
                                 measured_doors.push_back(door);
-                            else
+                            else if(std::stoi(n.name().substr(n.name().find_last_of("_") + 1)) == actual_room_id)
                                 nominal_doors.push_back(door);
                         }
                     }
