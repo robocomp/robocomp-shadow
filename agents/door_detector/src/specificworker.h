@@ -160,6 +160,9 @@ private:
     void clear_doors();
 
     void affordance();
+    void match_exit_door();
+    bool exit_door_exists = false;
+    Eigen::Vector3d exit_door_center;
     void affordance_thread(uint64_t aff_id);
 
     int actual_room_id = -1;
