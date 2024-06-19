@@ -292,13 +292,17 @@ void SpecificWorker::affordance()
                 if(door.name().find("_") != std::string::npos)
                     aux = door.name().substr(door.name().find("_"));
 
+                //get pos_x_att and pos_y_att from door node
+                auto pos_x = G->get_attrib_by_name<pos_x_att>(door.id()).value();
+                auto pos_y = G->get_attrib_by_name<pos_y_att>(door.id()).value();
+
                 //create DSR::Node of type affordance
                 DSR::Node affordance = DSR::Node::create<affordance_node_type>("aff_cross" + aux);
                 G->add_or_modify_attrib_local<parent_att>(affordance, door.id());
                 G->add_or_modify_attrib_local<active_att>(affordance, false);
                 G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("waiting"));
-                G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(rand()%(170)) );
-                G->add_or_modify_attrib_local<pos_y_att>(affordance, (float)(rand()%(170)));
+                G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(pos_x) );
+                G->add_or_modify_attrib_local<pos_y_att>(affordance, pos_y + 25);
                 if (auto door_level = G->get_attrib_by_name<level_att>(door.id()) ; door_level.has_value())
                     G->add_or_modify_attrib_local<level_att>(affordance,  door_level.value() + 1);
 
@@ -1068,8 +1072,8 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
 
         // Add door attributes
         // set pos_x and pos_y attributes to door node
-        G->add_or_modify_attrib_local<pos_x_att>(door_node, wall_node_pos_x + (int)(door_middle_transformed_value.x() / 20.0) );
-        G->add_or_modify_attrib_local<pos_y_att>(door_node, wall_node_pos_y + (int)(door_middle_transformed_value.y() / 20.0));
+        G->add_or_modify_attrib_local<pos_x_att>(door_node, (wall_node_pos_x / 2));
+        G->add_or_modify_attrib_local<pos_y_att>(door_node, wall_node_pos_y + 30 * door.id);
         G->add_or_modify_attrib_local<width_att>(door_node, (int)door.width());
         G->add_or_modify_attrib_local<level_att>(door_node, wall_node_level + 1);
         G->insert_node(door_node);
