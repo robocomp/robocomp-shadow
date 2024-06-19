@@ -89,9 +89,9 @@ void SpecificWorker::initialize(int period)
 
         //dsr update signals
         //connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-        //connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
         //connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
-        //connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
+//        connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
         //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
         //connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
@@ -171,14 +171,31 @@ void SpecificWorker::compute()
         { qWarning() << __FUNCTION__ << " No exit node in graph"; return; }
         auto exit_node = exit_node_.value();
 
-        if (auto exit_door_robot_pose_ = inner_eigen->transform(robot_node.name(),
-                                                                exit_node.name()); exit_door_robot_pose_.has_value())
+        //get robot parent node
+        auto robot_parent = G->get_attrib_by_name<parent_att>(robot_node.id());
+        if(not robot_parent.has_value())
+        { qWarning() << __FUNCTION__ << " No robot parent node in graph"; return; }
+        auto robot_parent_node = G->get_node(robot_parent.value());
+        if(not robot_parent_node.has_value())
+        { qWarning() << __FUNCTION__ << " No robot parent node in graph"; return; }
+
+        //get robot parent node name
+        auto robot_parent_node_name = robot_parent_node.value().name();
+        auto room_id = robot_parent_node_name.substr(robot_parent_node_name.find_last_of("_") + 1);
+//        exit_node.name().substr(exit_node.name().rfind('_') + 1) ==
+
+        if(exit_node.name().substr(exit_node.name().rfind('_') + 1) == room_id)
         {
-            auto exit_door_robot_pose = exit_door_robot_pose_.value();
-            std::cout << "Exit door robot pose: " << exit_door_robot_pose.x() << " " << exit_door_robot_pose.y() << std::endl;
-            exit_door_center = exit_door_robot_pose;
-            exit_door_exists = true;
+            if (auto exit_door_robot_pose_ = inner_eigen->transform(robot_node.name(),
+                                                                    exit_node.name()); exit_door_robot_pose_.has_value())
+            {
+                auto exit_door_robot_pose = exit_door_robot_pose_.value();
+                std::cout << "Exit door robot pose: " << exit_door_robot_pose.x() << " " << exit_door_robot_pose.y() << std::endl;
+                exit_door_center = exit_door_robot_pose;
+                exit_door_exists = true;
+            }
         }
+
         return;
     }
 
@@ -191,16 +208,7 @@ void SpecificWorker::compute()
     // Store as actual room id the number after the last "_"
     actual_room_id = std::stoi(room_node.name().substr(room_node.name().find_last_of("_") + 1));
     qInfo() << "Actual room id: " << actual_room_id;
-    // If exit door exists, transform it to room frame
-    if(exit_door_exists)
-    {
-        if (auto exit_door_room_pose_ = inner_eigen->transform(room_node.name(),
-                                                               exit_door_center, robot_node.name()); exit_door_room_pose_.has_value())
-        {
-            auto exit_door_room_pose = exit_door_room_pose_.value();
-            std::cout << "Exit door room pose: " << exit_door_room_pose.x() << " " << exit_door_room_pose.y() << std::endl;
-        }
-    }
+
 //3. get nominal and measured doors from graph from room in robot's frame
     auto door_nodes = get_measured_and_nominal_doors(room_node, robot_node);
     //Draw nominal doors in green and measured doors in red
@@ -240,8 +248,7 @@ void SpecificWorker::compute()
     affordance();
 
     auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty())
-    {    match_exit_door();
-    }
+    {    match_exit_door(); }
 //  10 create new_measured door to stabilize.
 //        insert measured_id_door
 //    start a thread for each door to stabilize. This thread would have to:
@@ -377,8 +384,12 @@ void SpecificWorker::match_exit_door()
                                                                  nominal_door.name()); nominal_door_pose_.has_value())
             {
                 auto nominal_door_robot_pose = nominal_door_pose_.value();
+                std::cout << "Nominal door robot pose: " << nominal_door_robot_pose.x() << " " << nominal_door_robot_pose.y() << std::endl;
+                //print exit_door_center
+                std::cout << "Exit door center: " << exit_door_room_pose.x() << " " << exit_door_room_pose.y() << std::endl;
+
                 //Check if norminal_door_robot_pose is close to exit_door_pose
-                if (nominal_door_robot_pose.isApprox(exit_door_center, 1.))
+                if (nominal_door_robot_pose.isApprox(exit_door_room_pose, 1.))
                 {
                     //get exit edges in graph
                     auto exit_edges = G->get_edges_by_type("exit");
@@ -392,6 +403,11 @@ void SpecificWorker::match_exit_door()
                         DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.id(), exited_door.value().id());
                         G->insert_or_assign_edge(match);
                     }
+                    std::terminate();
+                }
+                else
+                {
+                    std::cout << "Nominal door not matching exit door" << std::endl;
                 }
             }
         }
@@ -1704,5 +1720,36 @@ int SpecificWorker::startup_check()
     QTimer::singleShot(200, qApp, SLOT(quit()));
     return 0;
 }
+
+//create update_edge_slot
+void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+{
+    //check if type == current
+    if(type == "current")
+    {
+        //get from node
+        auto from_node = G->get_node(from);
+        if(not from_node.has_value())
+        { qWarning() << __FUNCTION__ << " No from node in graph"; return; }
+        //get to node
+
+        auto room_node = G->get_node(to);
+        if(not room_node.has_value())
+        { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
+
+        if(exit_door_exists)
+        {
+            if (auto exit_door_room_pose_ = inner_eigen->transform(room_node.value().name(),
+                                                                   exit_door_center, params.robot_name); exit_door_room_pose_.has_value())
+            {
+                exit_door_room_pose = exit_door_room_pose_.value();
+                std::cout << "SLOT! Exit door room pose: " << exit_door_room_pose.x() << " " << exit_door_room_pose.y() << std::endl;
+            }
+        }
+    }
+    // If exit door exists, transform it to room frame
+
+}
+
 
 

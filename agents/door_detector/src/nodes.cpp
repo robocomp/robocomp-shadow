@@ -22,7 +22,7 @@ namespace Nodes
 
     BT::NodeStatus IsIntentionCompleted::tick()
     {
-        std::cout << "IntentionCompleted" << std::endl;
+//        std::cout << "IntentionCompleted" << std::endl;
 
         auto parent = G->get_attrib_by_name<parent_att>(aff_id);
 
@@ -33,7 +33,7 @@ namespace Nodes
             return BT::NodeStatus::FAILURE;
         }
         //Print parent value.name
-        std::cout << "Parent :" << parent.value() << "aff_id:" << aff_id << std::endl;
+//        std::cout << "Parent :" << parent.value() << "aff_id:" << aff_id << std::endl;
 
         if (auto has_intention_edge = G->get_edge(params.ROBOT_ID, parent.value(),
                                                   "has_intention"); has_intention_edge.has_value())
@@ -43,7 +43,7 @@ namespace Nodes
 
                 if (auto state = G->get_attrib_by_name<state_att>(has_intention_edge.value()); state.has_value())
                 {
-                    qInfo() << "State & active";
+//                    qInfo() << "State & active";
 
                     //get afford node and check if has value
                     std::optional<DSR::Node> aff_node_ = G->get_node(aff_id);
@@ -86,7 +86,7 @@ namespace Nodes
                         }
                         else
                         {
-                            std::cout << "WTF-------" << state.value() << aff_state.value() << std::endl;
+//                            std::cout << "WTF-------" << state.value() << aff_state.value() << std::endl;
                         }
                     }
                 }
@@ -96,7 +96,6 @@ namespace Nodes
                 std::cout << "Active attribute not found, returning FAILURE" << std::endl;
                 return BT::NodeStatus::FAILURE;
             }
-
         }
         else
         {
