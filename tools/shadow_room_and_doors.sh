@@ -69,7 +69,7 @@ qdbus org.kde.yakuake /yakuake/tabs setTabTitle 15 "ltsma"
 # TERMINAL_ID_16=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.terminalIdsForSessionId 16)
 # qdbus org.kde.yakuake /yakuake/tabs setTabTitle 16 "BulletSim"
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 python3"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 python3 &"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "rcnode &"
 sleep 1
 # Webots

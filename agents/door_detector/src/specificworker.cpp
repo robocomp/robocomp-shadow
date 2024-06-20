@@ -1158,6 +1158,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     /// Generate static map for histogram with coordinate in wall and door width
     std::map<int, int> width_histogram;
     std::map<int, int> pose_histogram;
+    int time_collecting_data = 1000;
 
     while(not is_stabilized)
     {
@@ -1208,11 +1209,15 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
         auto wall_node = wall_node_.value();
 
         /// If "is active" attribute is true, the schedules assigns priority to stabilizing the door
-        if(is_active.value())
+        if(is_active.value() or time_collecting_data > 0)
         {
             /// If intention state is "in_progress", start getting data from the door and the room to stabilize the door
-            if(intention_state_value == "in_progress")
+            if(intention_state_value == "in_progress" or time_collecting_data > 0)
             {
+                static auto start = std::chrono::high_resolution_clock::now();
+                //print time_collecting data
+                qInfo() << "Time_collecting_data" << time_collecting_data;
+
                 /// Get measured corners from graph
                 auto corner_nodes = G->get_nodes_by_type("corner");
                 if(corner_nodes.empty())
@@ -1296,6 +1301,11 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 /// Get robot odometry data
                 odometry_data.push_back(get_graph_odometry());
+
+                auto end = std::chrono::high_resolution_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+                time_collecting_data -= elapsed;
+                start = end;
             }
             else if(intention_state_value == "waiting")
             {
@@ -1343,6 +1353,8 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 /// Robot arrived to designed position
                 /// Getting most common door width and pose
                 qInfo() << "Door point reached";
+                //print width_histogram size
+                qInfo() << "Width histogram size: " << width_histogram.size();
                 // Generate room size histogram considering room_size_histogram vector and obtain the most common room size
                 auto most_common_door_width = std::max_element(width_histogram.begin(), width_histogram.end(),
                                                                [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
@@ -1360,7 +1372,6 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     door_nominal_respect_to_room_value = {door_nominal_respect_to_room.value().x(), door_nominal_respect_to_room.value().y()};
 //                    qInfo() << "Most common door data transformed: " << door_nominal_respect_to_room_value.x() << " " << door_nominal_respect_to_room_value.y() << "#############################";
                 }
-
 
                 std::string g2o_data = build_g2o_graph(measured_corner_points, nominal_corner_points, odometry_data, first_robot_pose, measured_door_points , door_nominal_respect_to_room_value);
 
@@ -1400,12 +1411,12 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                     std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
                 else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+                    std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
 
                 if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
                     std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                 else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+                    std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
 
                 //delete door node
                 G->delete_node(door_node.id());
@@ -1429,7 +1440,6 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     }
     /// Kill thread
     qInfo() << "Thread finished";
-
 
 }
 std::vector<float> SpecificWorker::get_graph_odometry()

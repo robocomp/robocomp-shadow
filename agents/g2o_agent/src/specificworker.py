@@ -34,12 +34,18 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import threading
 import time
+import setproctitle
+from pydsr import *
+
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
-from pydsr import *
-
+try:
+    setproctitle.setproctitle(os.path.basename(os.getcwd()))
+    print("Process title set to", os.path.basename(os.getcwd()))
+except:
+    pass
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
