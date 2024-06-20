@@ -220,10 +220,8 @@ class SpecificWorker(GenericWorker):
             print("###########################################################")
 
             # get robot pose in room
-            odom_node = self.g.get_node("Shadow")
-            self.odometry_node_id = odom_node.id
-
             robot_node = self.g.get_node("Shadow")
+            self.odometry_node_id = robot_node.id
             # Check if room and robot nodes exist
             if room_node is None or robot_node is None:
                 print("Room or robot node does not exist. g2o graph cannot be initialized")
@@ -256,7 +254,7 @@ class SpecificWorker(GenericWorker):
             self.room_polygon = QPolygonF()
 
             for i in range(4):
-                corner_edge_measured_rt = self.rt_api.get_edge_RT(odom_node, corner_list_measured[i].id)
+                corner_edge_measured_rt = self.rt_api.get_edge_RT(robot_node, corner_list_measured[i].id)
                 corner_measured_tx, corner_measured_ty, _ = corner_edge_measured_rt.attrs['rt_translation'].value
                 corner_edge_rt = self.inner_api.transform(room_node.name, corner_list[i].name)
                 corner_tx, corner_ty, _ = corner_edge_rt

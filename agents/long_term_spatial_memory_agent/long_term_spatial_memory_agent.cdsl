@@ -4,6 +4,7 @@ Component long_term_spatial_memory_agent
     {
     };
     language python;
+    gui Qt(QWidget);
     options dsr;
 };
 

@@ -23,7 +23,11 @@ from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
+import igraph as ig
 import interfaces as ifaces
+import matplotlib.pyplot as plt
+import time
+import cv2
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -59,11 +63,21 @@ class SpecificWorker(GenericWorker):
 
             # self.states = ["idle", "crossing", "crossed", "initializing_room", "new_room", "initializing_doors", "removing"]
             self.state = "idle"
+            print("IDLE")
+            # self.state = "removing"
             self.affordance_node_active_id = None
             self.room_exit_door_id = None
+            # self.room_exit_door_id = 183581510069125123
             self.exit_room_node_id = None
             self.enter_room_node_id = None
             self.exit_door_id = None
+
+            self.graph = ig.Graph()
+            self.vertex_size = 0
+            self.not_required_attrs = ["parent", "timestamp_alivetime", "timestamp_creation"]
+            self.fig, self.ax = plt.subplots()
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
 
             # Check if there is a current room node in the graph
             room_nodes = self.g.get_nodes_by_type("room")
@@ -128,19 +142,25 @@ class SpecificWorker(GenericWorker):
                 self.initializing_doors()
             case "removing":
                 self.removing()
+            case "draw_graph":
+
+
+                self.state = "idle"
+
 
     def idle(self):
-        print("IDLE")
+
         # Check if there is a node of type aff_cross and it has it's valid attribute to true using comprehension list
         aff_cross_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value == True]
         # Check if not empty
         if len(aff_cross_nodes) == 0 or len(aff_cross_nodes) > 1:
-            print("No aff_cross nodes with valid attribute or more than one valid affordance")
+            # print("No aff_cross nodes with valid attribute or more than one valid affordance")
             return
         else:
             current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.destination).type == "room" and self.g.get_node(edge.origin).type == "room"]
             if len(current_edges) == 1:
                 self.room_exit_door_id = current_edges[0].origin
+                # self.generate_room_picture(self.room_exit_door_id)
                 self.affordance_node_active_id = aff_cross_nodes[0].id
                 self.state = "crossing"
                 print("CROSSING")
@@ -171,6 +191,7 @@ class SpecificWorker(GenericWorker):
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
+
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
@@ -253,56 +274,131 @@ class SpecificWorker(GenericWorker):
     #             self.state = "removing"
 
     def removing(self):
-
-        # Get last number in the name of the room
-        room_number = self.g.get_node(self.room_exit_door_id).name.split("_")[-1]
-        has_edges = self.g.get_edges_by_type("has")
-        old_room_has_edges = [edge for edge in has_edges if self.g.get_node(edge.origin).name.split("_")[-1] == room_number]
-        for edge in old_room_has_edges:
-            self.g.delete_node(self.g.get_node(edge.destination).id)
-
-        # Get all RT edges
+        print("ENTER")
+        self.traverse_graph(self.room_exit_door_id)
+        print("EXIT")
+        print(self.graph)
+        self.draw_graph()
+        # Draw graph
+        # layout = self.graph.layout("kk")
+        #
+        # ig.plot(self.graph, layout=layout)
+        # time.sleep(10)
+        self.state = "draw_graph"
+        # # Get last number in the name of the room
+        room_number = self.g.get_node(self.room_exit_door_id).attrs["room_id"].value
+        # # Get all RT edges
         rt_edges = self.g.get_edges_by_type("RT")
-        # Get all RT edges which last number in name is the same as the room number and generate a dictionary with the origin node as key and the origin node level as value
-        old_room_rt_edges = [edge for edge in rt_edges if self.g.get_node(edge.destination).name.split("_")[-1] == room_number]
-        old_room_dict = {edge: int(self.g.get_node(edge.destination).attrs["level"].value) for edge in old_room_rt_edges}
+        # # Get all RT edges which last number in name is the same as the room number and generate a dictionary with the origin node as key and the origin node level as value
+        old_room_rt_edges = [edge for edge in rt_edges if self.check_element_room_number(edge.origin) == room_number or self.check_element_room_number(edge.destination) == room_number]
+        has_edges = self.g.get_edges_by_type("has")
+        old_room_has_edges = [edge for edge in has_edges if self.check_element_room_number(edge.origin) == room_number]
+        for edge in old_room_has_edges:
+            self.g.delete_node(edge.destination)
+
+        old_room_dict = {edge: int(self.check_element_room_number(edge.destination)) for edge in old_room_rt_edges}
         # Order dictionary by level value in descending order
         old_room_dict = dict(sorted(old_room_dict.items(), key=lambda item: item[1], reverse=True))
         # iterate over the dictionary in descending order
         for item in old_room_dict:
             # self.g.delete_node(self.g.get_node(item.origin).id)
-            self.g.delete_node(self.g.get_node(item.destination).id)
+            self.g.delete_node(item.destination)
             # self.g.delete_edge(item.origin, item.destination, "RT")
-
         self.state = "idle"
 
+    def traverse_graph(self, node_id):
+        # Mark the current node as visited and print it
+        node = self.g.get_node(node_id)
+        rt_children = [edge for edge in self.g.get_edges_by_type("RT") if edge.origin == node_id]
+        self.insert_vertex(node)
+        # Recur for all the vertices adjacent to this vertex
+        for i in rt_children:
+            self.traverse_graph(i.destination)
+            self.insert_edge_rt(i)
 
+    def insert_vertex(self, node):
+        self.graph.add_vertex(name=node.name, id=node.id)
+        print("Inserting vertex", node.name, node.id)
+        for attr in node.attrs:
+            if attr in self.not_required_attrs:
+                continue
+            self.graph.vs[self.vertex_size][attr] = node.attrs[attr].value
+            # Check if current attribute is other_side_door_name and, if it has value, check if the node with that name exists in the graph
+            if attr == "other_side_door_name" and node.attrs[attr].value:
+                try:
+                    print("Matched other_side_door_name", node.attrs[attr].value)
+                    origin_node = self.graph.vs.find(id=node.id)
+                    try:
+                        other_side_door_node = self.graph.vs.find(name=node.attrs[attr].value)
+                        try:
+                            self.graph.add_edge(origin_node, other_side_door_node)
+                            print("Matched other_side_door_name", node.attrs[attr].value, other_side_door_node.id)
+                        except Exception as e:
+                            print("No other_side_door_name node found", node.attrs[attr].value)
+                            print(e)
+                    except:
+                        print("No other_side_door_name node found", node.attrs[attr].value)
+                except:
+                    print("No origin node found")
 
+            # Check if current attribute is connected_room_name and, if it has value, check if the node with that name exists in the graph
+            # if attr == "connected_room_name" and node.attrs[attr].value:
+            #     try:
+            #         connected_room_node = self.graph.vs.find(name=node.attrs[attr].value)
+            #         if connected_room_node:
+            #             self.graph.add_edge(self.vertex_size, connected_room_node.id)
+            #     except:
+            #         print("No connected_room_name attribute found")
+        self.vertex_size += 1
 
-        # # Store considering that level value is the level of the origin node, store names in a dictionary considering jerarchy
-        # old_room_names = {}
-        # for item in old_room_dict:
-        #     print(old_room_names)
-        #     # Print item level
-        #     print(old_room_dict[item])
-        #     match old_room_dict[item]:
-        #         case 1:
-        #             # If origin.name is in the dictionary, add a dictionary with the key as the origin name and the value as a list with the destination name
-        #             if self.g.get_node(item.origin).name in old_room_names:
-        #                 old_room_names[self.g.get_node(item.origin).name].append({self.g.get_node(item.destination).name})
-        #             else:
-        #                 old_room_names[self.g.get_node(item.origin).name] = [{self.g.get_node(item.destination).name}]
-        #         case 2:
-        #             # Search in every key of the dictionary and inside the list of values, if the destination name is in the list, add a dictionary with the key as the origin name and the value as a list with the destination name
-        #             for key in old_room_names:
-        #                 for value in old_room_names[key]:
-        #                     if self.g.get_node(item.origin).name in value:
-        #                         old_room_names[value].append({self.g.get_node(item.destination).name})
-        #                     else:
-        #                         old_room_names[value] = [{self.g.get_node(item.destination).name}]
-        #                     break
+    def insert_edge_rt(self, edge):
+        # Search for the origin and destination nodes in the graph
+        origin_node = self.graph.vs.find(id=edge.origin)
+        destination_node = self.graph.vs.find(id=edge.destination)
+        # Add the edge to the graph
+        self.graph.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value)
+        # Print origin and destination nodes
 
+    def draw_graph(self):
+        self.ax.clear()
+        # Obtener las coordenadas de los vértices
+        layout = self.graph.layout("kamada_kawai")  # Utiliza el layout Kamada-Kawai
+        # Dibujar los vértices
+        x, y = zip(*layout)
+        self.ax.scatter(x, y, s=100)  # Ajustar el tamaño de los vértices con el parámetro 's'
+        # Dibujar las aristas
+        for edge in self.graph.get_edgelist():
+            # Print rt_translation attribute
+            # Get edge data
+            # edge_data = self.graph.es[self.graph.get_eid(edge[0], edge[1])]
+            # print(edge_data["rt"])
+            self.ax.plot([x[edge[0]], x[edge[1]]], [y[edge[0]], y[edge[1]]], color="grey")
+        for i, txt in enumerate([f"Node {i}" for i in range(self.graph.vcount())]):
+            # Get name attribute
+            name = self.graph.vs[i]["name"]
+            self.ax.annotate(name, (x[i], y[i]), textcoords="offset points", xytext=(0, 10), ha='center')
+        # Adapt ax to the graph
+        self.ax.set_xlim([min(x) - 2, max(x) + 2])
+        self.ax.set_ylim([min(y) - 2, max(y) + 2])
+        plt.show()
 
+    def check_element_room_number(self, node_id):
+        node = self.g.get_node(node_id)
+        try:
+            room_id = node.attrs["room_id"].value
+            return room_id
+        except:
+            print("No room_id attribute found")
+            return None
+
+    def check_element_level(self, node_id):
+        node = self.g.get_node(node_id)
+        try:
+            element_level = node.attrs["level"].value
+            return element_level
+        except:
+            print("No element_level attribute found")
+            return -1
 
 
 
@@ -337,6 +433,41 @@ class SpecificWorker(GenericWorker):
         #                 # signal that the current room is not anymore by removing self-edge
         #                 self.g.remove_edge(edge.fr.name, edge.to.name, "current")
         #                 # wait for a new room to be created
+
+    def generate_room_picture(self, room_node_id):
+
+        room_node = self.g.get_node(room_node_id)
+        # Get room node room_id attribute
+        room_id = room_node.attrs["room_id"].value
+        # Get RT edges from the room node
+        old_room_rt_edges = self.g.get_edges_by_type("RT")
+        #Iterate over the RT edges
+        for edge in old_room_rt_edges:
+            print(edge.origin, edge.destination)
+            # Get destination node
+            origin_node = self.g.get_node(edge.origin)
+            # Get room_id attribute
+            try:
+                print(origin_node.attrs)
+                origin_room_id = origin_node.attrs["room_id"].value
+                # Check if the room_id attribute is the same as the room_id attribute of the room node
+                if origin_room_id == room_id:
+                    # Get translation attribute
+                    translation = edge.attrs["rt_translation"].value
+                    print(translation)
+            except:
+                print("No room_id attribute found")
+
+
+        # # Create a black image which size is proportional to the room size
+        # room_image = np.zeros((int(corners[1] - corners[3]), int(corners[0] - corners[2]), 3), np.uint8)
+        # # Draw the room polygon
+        # cv2.fillPoly(room_image, [np.array(corners, np.int32)], (255, 255, 255))
+        # # Draw the doors
+        # for door in doors:
+        #     cv2.circle(room_image, (int(door[0]), int(door[1])), 5, (0, 0, 255), -1)
+        # # Save the image
+        # cv2.imwrite("room_image.jpg", room_image)
 
     def insert_current_edge(self, room_id):
         # Insert current edge to the room
