@@ -1321,6 +1321,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
             {
                 G->add_or_modify_attrib_local<pos_x_att>(new_corner, pos_x.value() + 30);
                 G->add_or_modify_attrib_local<pos_y_att>(new_corner, pos_y.value() + 30);
+                G->add_or_modify_attrib_local<room_id_att>(new_corner, room_id);
             }
             else //Set measured Corner
             {
@@ -1337,7 +1338,6 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
     G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());
-    G->add_or_modify_attrib_local<room_id_att>(new_corner, room_id);
     G->add_or_modify_attrib_local<level_att>(new_corner, parent_level + 1);
     G->insert_node(new_corner);
 
