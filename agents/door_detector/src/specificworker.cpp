@@ -1781,7 +1781,7 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
         auto room_node = G->get_node(to);
         if(not room_node.has_value())
         { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
-
+        std::cout << "Transforming robot to room: " << room_node.value().name() << std::endl;
         if(exit_door_exists)
         {
             if (auto exit_door_room_pose_ = inner_eigen->transform(room_node.value().name(),
