@@ -9,15 +9,20 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 door_
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 scheduler"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 long_term_spatial_memory"
 
-sleep 2
+sleep 1
 
 #RELAUNCH
 #Bridge
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 8 "bin/Webots2Robocomp etc/config"
-
-#SM_Grid
-
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 9 "bin/base_controller_agent etc/config"
+
+#SM_Grid#Scheduler
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "bin/scheduler etc/config"
+
+#ltsma
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "src/long_term_spatial_memory_agent.py etc/config"
+
+
 
 #Forcefield
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/g2o_cpp etc/config"
@@ -25,16 +30,12 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 10 "bin/g2o_cpp etc
 #Forcefield
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 11 "src/g2o_agent.py etc/config"
 
+sleep 2
 # #Model
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 12 "bin/room_detector_bt etc/config"
-
 #Forcefield
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 13 "bin/door_detector etc/config"
 
-#Scheduler
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 14 "bin/scheduler etc/config"
 
-#ltsma
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 15 "src/long_term_spatial_memory_agent.py etc/config"
 
 
