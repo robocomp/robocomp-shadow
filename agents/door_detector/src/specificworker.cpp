@@ -211,43 +211,47 @@ void SpecificWorker::compute()
 
 //3. get nominal and measured doors from graph from room in robot's frame
     auto door_nodes = get_measured_and_nominal_doors(room_node, robot_node);
+    qInfo() << 1;
     //Draw nominal doors in green and measured doors in red
     draw_door_robot_frame(std::get<1>(door_nodes), std::get<0>(door_nodes), QColor("blue"), QColor("red"), &widget_2d->scene);
-
+    qInfo() << 2;
 //4. get measured doors from lidar in robot's frame
     auto doors = get_doors(ldata, &widget_2d->scene, robot_node, room_node);
+    qInfo() << 3;
 //5. matching function between DSR doors_nominals data and measured doors in last lidar. return matching and "other" doors.
 // update measured_door corresponding to these match with new measure
     auto nominal_matches = door_matching(doors, std::get<1>(door_nodes));
+    qInfo() << 4;
 //   6. remove from doors detected the doors matched with DSR data and make new association with the measure_door_nodes,
 //   return matched doors and update measured_door nodes.
     auto to_measured_doors = update_and_remove_doors(nominal_matches, doors, std::get<1>(door_nodes), true, room_node);
 
     //Print to_measured_doors size
-//    std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
+    std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
 
     //  7 matching function between DSR doors_measured data and measured doors in last lidar. return matching and "other" doors.
     auto measure_matches = door_matching(to_measured_doors, std::get<0>(door_nodes));
-//    std::cout << "Measure match size: " << measure_matches.size() << std::endl;
+    std::cout << "Measure match size: " << measure_matches.size() << std::endl;
     /// Print measure matches
 //  8 remove from observed doors detected the last matched doors. If door_detected>0 it's a door in process of stabilization or a new_door
 //  and update the measured_nodes
     auto to_prefilter_doors = update_and_remove_doors(measure_matches, to_measured_doors, std::get<0>(door_nodes), false, room_node);
 
-//    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
+    std::cout << "to_prefilter_doors match size: " << to_prefilter_doors.size() << std::endl;
 
     //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
 //    If door has been seen for N times. insertion
+    qInfo() << 5;
     door_prefilter(to_prefilter_doors);
-//    qInfo() << "------------------------set_doors_to_stabilize--------------------------------";
+    qInfo() << "------------------------set_doors_to_stabilize--------------------------------";
 
     //Print
     set_doors_to_stabilize(to_prefilter_doors, room_node);
-
+    qInfo() << 6;
     affordance();
 
-    auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty())
+    auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty() and exit_door_exists)
     {    match_exit_door(); }
 //  10 create new_measured door to stabilize.
 //        insert measured_id_door
@@ -310,6 +314,7 @@ void SpecificWorker::affordance()
                 G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("waiting"));
                 G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(pos_x) );
                 G->add_or_modify_attrib_local<pos_y_att>(affordance, pos_y + 25);
+                G->add_or_modify_attrib_local<room_id_att>(affordance, actual_room_id);
                 if (auto door_level = G->get_attrib_by_name<level_att>(door.id()) ; door_level.has_value())
                     G->add_or_modify_attrib_local<level_att>(affordance,  door_level.value() + 1);
 
@@ -372,6 +377,11 @@ void SpecificWorker::match_exit_door()
 
     //compare exit_door_pose with all nominal doors of the current room
     auto nominal_doors = G->get_nodes_by_type("door");
+
+    //return if the number of doors with "_pre" in the name is not '0
+    if (std::ranges::count_if(nominal_doors, [](DSR::Node n) { return n.name().find("_pre") != std::string::npos; }) != 0)
+    {qWarning() << __FUNCTION__ << " There are doors with _pre in the name"; return;}
+
     for (const auto &nominal_door : nominal_doors)
     {
         if (nominal_door.name().find("_pre") == std::string::npos and nominal_door.name().substr(nominal_door.name().rfind('_') + 1) == room_number_id)
@@ -402,6 +412,7 @@ void SpecificWorker::match_exit_door()
                         //create a edge called match from nominal_door to exit_door
                         DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.id(), exited_door.value().id());
                         G->insert_or_assign_edge(match);
+                        exit_door_exists = false;
                     }
 //                    std::terminate();
                 }
@@ -479,38 +490,61 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
 {
     std::vector<DoorDetector::Door> nominal_doors, measured_doors;
     auto door_nodes = G->get_nodes_by_type("door");
+    if(door_nodes.empty())
+    { qWarning() << __FUNCTION__ << " No door nodes in graph"; return{}; }
+
+    // remove doors which room_id attribute is different from actual_room_id
+    door_nodes.erase(std::remove_if(door_nodes.begin(), door_nodes.end(), [this](DSR::Node n)
+    {
+        if(auto room_id = G->get_attrib_by_name<room_id_att>(n); room_id.has_value())
+        {
+            return room_id.value() != actual_room_id;
+        }
+        return true;
+    }), door_nodes.end());
+
     /// Iterate over door nodes and check if they contain "measured" in their name
     for(auto &n: door_nodes)
     {
+        qInfo() << "Door name: " << QString::fromStdString(n.name());
         /// Get wall id knowing that is the 5 string element in the name
         auto wall_id = std::stoi(n.name().substr(5, 1));
         /// Get door id knowing that is the 7 string element in the name
         auto door_id = std::stoi(n.name().substr(7, 1));
         if(auto door_width = G->get_attrib_by_name<width_att>(n); door_width.has_value())
         {
+            qInfo() << "INSIDE DOOR WIDTH";
+
             auto p_0_ = Eigen::Vector3d {-(double)door_width.value() / 2, 0, 0};
+            qInfo() << "POST P_0_";
+
             auto p_1_ = Eigen::Vector3d {(double)door_width.value() / 2, 0, 0};
+            qInfo() << "POST P_1_";
 
             if (auto p_0_transformed = inner_eigen->transform(room_node.name(),
                                                               p_0_,
                                                               n.name()); p_0_transformed.has_value())
             {
+                qInfo() << "P0_transformed";
                 auto p_0 = p_0_transformed.value();
                 if (auto p_1_transformed = inner_eigen->transform(room_node.name(),
                                                                   p_1_,
                                                                   n.name()); p_1_transformed.has_value())
                 {
 
+                    qInfo() << "P1_transformed";
                     auto p_1 = p_1_transformed.value();
                     if (auto p_0_transformed_robot = inner_eigen->transform(robot_node.name(),
                                                                             p_0_,
                                                                             n.name()); p_0_transformed_robot.has_value())
                     {
+                        qInfo() << "P0_robot_transformed";
                         auto p_0_robot = p_0_transformed_robot.value();
                         if (auto p_1_transformed_robot = inner_eigen->transform(robot_node.name(),
                                                                                 p_1_,
                                                                                 n.name()); p_1_transformed_robot.has_value())
                         {
+                            qInfo() << "P1_robot_transformed";
                             auto p_1_robot = p_1_transformed_robot.value();
                             DoorDetector::Door door(Eigen::Vector2f{p_0.x(), p_0.y()},
                                                     Eigen::Vector2f{p_1.x(), p_1.y()},
@@ -518,8 +552,8 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
                                                     Eigen::Vector2f{p_1_robot.x(), p_1_robot.y()});
                             door.id = door_id;
                             door.wall_id = wall_id;
-//                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
-//                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
+                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
+                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
                             if (n.name().find("_pre") != std::string::npos)
                                 measured_doors.push_back(door);
                             else if(std::stoi(n.name().substr(n.name().find_last_of("_") + 1)) == actual_room_id)
@@ -1092,6 +1126,7 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
         G->add_or_modify_attrib_local<pos_y_att>(door_node, wall_node_pos_y + 30 * door.id);
         G->add_or_modify_attrib_local<width_att>(door_node, (int)door.width());
         G->add_or_modify_attrib_local<level_att>(door_node, wall_node_level + 1);
+        G->add_or_modify_attrib_local<room_id_att>(door_node, actual_room_id);
         G->insert_node(door_node);
 
         // Add edge between door and robot
@@ -1379,7 +1414,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
             }
             else if(intention_state_value == "waiting")
             {
-                qInfo() << "Waiting activation.";
+//                qInfo() << "Waiting activation.";
                 continue;
             }
             else if(intention_state_value == "in_progress")
