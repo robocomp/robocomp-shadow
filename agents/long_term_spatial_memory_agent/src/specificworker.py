@@ -23,12 +23,19 @@ from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
+import setproctitle
 import interfaces as ifaces
+from pydsr import *
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
-from pydsr import *
+
+try:
+    setproctitle.setproctitle(os.path.basename(os.getcwd()))
+    print("Process title set to", os.path.basename(os.getcwd()))
+except:
+    pass
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -61,7 +68,6 @@ class SpecificWorker(GenericWorker):
             self.state = "idle"
             self.affordance_node_active_id = None
             self.room_exit_door_id = None
-            self.exit_room_node_id = None
             self.enter_room_node_id = None
             self.exit_door_id = None
 
@@ -96,23 +102,6 @@ class SpecificWorker(GenericWorker):
         # - Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
     @QtCore.Slot()
     def compute(self):
-        # rt_edges = self.g.get_edges_by_type("RT")
-        # if len(rt_edges) > 0:
-        #     print("RT edges")
-        #     for edge in rt_edges:
-        #         # get node of edge.origin and edge.destination
-        #         origin_node = self.g.get_node(edge.origin)
-        #         destination_node = self.g.get_node(edge.destination)
-        #         #check if the origin node is a room and the destination node is not none
-        #         if origin_node is not None and destination_node is not None:
-        #             print(self.g.get_node(edge.origin).name, self.g.get_node(edge.destination).name)
-        #             #get level of the origin node and the destination node
-        #             origin_level = origin_node.attrs["level"].value
-        #             destination_level = origin_node.attrs["level"].value
-        #             #check if the origin level is not none and the destination level is not none
-        #             if origin_level is not None and destination_level is not None:
-        #                 print(origin_level, destination_level)
-
         match self.state:
             case "idle":
                 self.idle()
@@ -143,13 +132,12 @@ class SpecificWorker(GenericWorker):
                 self.room_exit_door_id = current_edges[0].origin
                 self.affordance_node_active_id = aff_cross_nodes[0].id
                 self.state = "crossing"
-                print("CROSSING")
             else:
                 print("No current room")
                 return
 
     def crossing(self):
-
+        print("CROSSING")
         # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
         #     print("Removing current edge from room")
         #     print(self.room_exit_door_id)
@@ -158,152 +146,64 @@ class SpecificWorker(GenericWorker):
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
             print("Affordance node is completed and not active. Go to crossed state")
+
             # Remove "current" self-edge from the room
             self.state = "crossed"
-            print("CROSSED")
 
     def crossed(self):
-
+        print("CROSSED")
         # Get parent node of affordance node
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if not affordance_node.attrs["parent"].value:
-            # print("Affordance node has no parent")
+            print("Affordance node has no parent")
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
-            print("INITIALIZING ROOM")
 
     def initializing_room(self):
-
+        print("INITIALIZING ROOM")
         # Get room nodes
         room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
         if len(room_nodes) == 0:
-            # print("No room nodes different from the exit one found")
+            print("No room nodes different from the exit one found")
             return
         else:
             # Get the enter room node id
             self.enter_room_node_id = room_nodes[0].id
             self.insert_current_edge(self.enter_room_node_id)
             self.state = "initializing_doors"
-            print("INITIALIZING DOORS")
     #
     # def new_room(self):
     #     pass
 
     def initializing_doors(self):
-
+        print("INITIALIZING DOORS")
         # Check if node called "room_entry" of type room exists
-        exit_edges = [edge for edge in self.g.get_edges_by_type("exit") if edge.destination == self.exit_door_id]
-        if len(exit_edges) > 0:
+        door_entry_node = self.g.get_node("door_entry")
+        if door_entry_node and door_entry_node.type == "door":
             # Check if edge of type "same" exists between door_entry and enter_room_node
-            same_edges = self.g.get_edges_by_type("match")
+            same_edges = self.g.get_edges_by_type("same")
             if len(same_edges) == 0:
                 print("No same edges found")
                 return
             else:
                 # Get the other side door id TODO: the edge comes from door_entry to nominal door (set in door_detector)
-                other_side_door_id = same_edges[0].origin
-                other_side_door_node = self.g.get_node(other_side_door_id)
-                exit_door_id = same_edges[0].destination
-                exit_door_node = self.g.get_node(exit_door_id)
-
-                print(other_side_door_node.name, exit_door_node.name)
-
+                other_side_door_id = same_edges[0].to
                 # Read exit door node and add an attribute other_side_door with the name of the entrance door in the new room
-
-                exit_door_node.attrs["other_side_door_name"] = Attribute(other_side_door_node.name, self.agent_id)
-                # Insert the last number in the name of the room to the connected_room_id attribute
-                exit_door_node.attrs["connected_room_name"] = Attribute(self.g.get_node(self.g.get_node(other_side_door_node.attrs["parent"].value).attrs["parent"].value).name, self.agent_id)
-
+                exit_door_node = self.g.get_node(self.exit_door_id)
+                exit_door_node.attrs["other_side_door"] = other_side_door_id
                 # Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
-
-                other_side_door_node.attrs["other_side_door_name"] = Attribute(exit_door_node.name, self.agent_id)
-                other_side_door_node.attrs["connected_room_name"] = Attribute(self.g.get_node(self.room_exit_door_id).name, self.agent_id)
+                enter_door_node = self.g.get_node(self.enter_room_node_id)
+                enter_door_node.attrs["other_side_door"] = self.exit_door_id
                 self.g.update_node(exit_door_node)
-                self.g.update_node(other_side_door_node)
+                self.g.update_node(enter_door_node)
                 self.state = "removing"
-                print("REMOVING")
-
-
-
-    # def initializing_doors(self):
-    #     print("INITIALIZING DOORS")
-    #     # Check if node called "room_entry" of type room exists
-    #     door_entry_node = self.g.get_node("door_entry")
-    #     if door_entry_node and door_entry_node.type == "door":
-    #         # Check if edge of type "same" exists between door_entry and enter_room_node
-    #         same_edges = self.g.get_edges_by_type("same")
-    #         if len(same_edges) == 0:
-    #             print("No same edges found")
-    #             return
-    #         else:
-    #             # Get the other side door id TODO: the edge comes from door_entry to nominal door (set in door_detector)
-    #             other_side_door_id = same_edges[0].to
-    #             # Read exit door node and add an attribute other_side_door with the name of the entrance door in the new room
-    #             exit_door_node = self.g.get_node(self.exit_door_id)
-    #             exit_door_node.attrs["other_side_door"] = other_side_door_id
-    #             # Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
-    #             enter_door_node = self.g.get_node(self.enter_room_node_id)
-    #             enter_door_node.attrs["other_side_door"] = self.exit_door_id
-    #             self.g.update_node(exit_door_node)
-    #             self.g.update_node(enter_door_node)
-    #             self.state = "removing"
 
     def removing(self):
-
-        # Get last number in the name of the room
-        room_number = self.g.get_node(self.room_exit_door_id).name.split("_")[-1]
-        has_edges = self.g.get_edges_by_type("has")
-        old_room_has_edges = [edge for edge in has_edges if self.g.get_node(edge.origin).name.split("_")[-1] == room_number]
-        for edge in old_room_has_edges:
-            self.g.delete_node(self.g.get_node(edge.destination).id)
-
-        # Get all RT edges
-        rt_edges = self.g.get_edges_by_type("RT")
-        # Get all RT edges which last number in name is the same as the room number and generate a dictionary with the origin node as key and the origin node level as value
-        old_room_rt_edges = [edge for edge in rt_edges if self.g.get_node(edge.destination).name.split("_")[-1] == room_number]
-        old_room_dict = {edge: int(self.g.get_node(edge.destination).attrs["level"].value) for edge in old_room_rt_edges}
-        # Order dictionary by level value in descending order
-        old_room_dict = dict(sorted(old_room_dict.items(), key=lambda item: item[1], reverse=True))
-        # iterate over the dictionary in descending order
-        for item in old_room_dict:
-            # self.g.delete_node(self.g.get_node(item.origin).id)
-            self.g.delete_node(self.g.get_node(item.destination).id)
-            # self.g.delete_edge(item.origin, item.destination, "RT")
-
-        self.state = "idle"
-
-
-
-
-        # # Store considering that level value is the level of the origin node, store names in a dictionary considering jerarchy
-        # old_room_names = {}
-        # for item in old_room_dict:
-        #     print(old_room_names)
-        #     # Print item level
-        #     print(old_room_dict[item])
-        #     match old_room_dict[item]:
-        #         case 1:
-        #             # If origin.name is in the dictionary, add a dictionary with the key as the origin name and the value as a list with the destination name
-        #             if self.g.get_node(item.origin).name in old_room_names:
-        #                 old_room_names[self.g.get_node(item.origin).name].append({self.g.get_node(item.destination).name})
-        #             else:
-        #                 old_room_names[self.g.get_node(item.origin).name] = [{self.g.get_node(item.destination).name}]
-        #         case 2:
-        #             # Search in every key of the dictionary and inside the list of values, if the destination name is in the list, add a dictionary with the key as the origin name and the value as a list with the destination name
-        #             for key in old_room_names:
-        #                 for value in old_room_names[key]:
-        #                     if self.g.get_node(item.origin).name in value:
-        #                         old_room_names[value].append({self.g.get_node(item.destination).name})
-        #                     else:
-        #                         old_room_names[value] = [{self.g.get_node(item.destination).name}]
-        #                     break
-
-
-
+        pass
 
 
 
