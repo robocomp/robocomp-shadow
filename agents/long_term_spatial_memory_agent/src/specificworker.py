@@ -27,10 +27,18 @@ import igraph as ig
 import interfaces as ifaces
 import matplotlib.pyplot as plt
 import time
+import setproctitle
+
 import cv2
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
+
+try:
+    setproctitle.setproctitle(os.path.basename(os.getcwd()))
+    print("Process title set to", os.path.basename(os.getcwd()))
+except:
+    pass
 
 from pydsr import *
 
@@ -45,7 +53,7 @@ class SpecificWorker(GenericWorker):
 
         try:
             #signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             #signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             #signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
@@ -60,13 +68,16 @@ class SpecificWorker(GenericWorker):
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
             self.room_initialized = False
+            self.robot_name = "Shadow"
+            self.robot_id = self.g.get_node(self.robot_name).id
+
 
             # self.states = ["idle", "crossing", "crossed", "initializing_room", "new_room", "initializing_doors", "removing"]
             self.state = "idle"
             print("IDLE")
             # self.state = "removing"
             self.affordance_node_active_id = None
-            self.room_exit_door_id = None
+            self.room_exit_door_id = -1
             # self.room_exit_door_id = 183581510069125123
             self.exit_room_node_id = None
             self.enter_room_node_id = None
@@ -160,6 +171,7 @@ class SpecificWorker(GenericWorker):
             current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.destination).type == "room" and self.g.get_node(edge.origin).type == "room"]
             if len(current_edges) == 1:
                 self.room_exit_door_id = current_edges[0].origin
+                print("Room exit door id", self.room_exit_door_id)
                 # self.generate_room_picture(self.room_exit_door_id)
                 self.affordance_node_active_id = aff_cross_nodes[0].id
                 self.state = "crossing"
@@ -191,7 +203,6 @@ class SpecificWorker(GenericWorker):
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
-
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
@@ -222,7 +233,7 @@ class SpecificWorker(GenericWorker):
             # Check if edge of type "same" exists between door_entry and enter_room_node
             same_edges = self.g.get_edges_by_type("match")
             if len(same_edges) == 0:
-                print("No same edges found")
+                # print("No same edges found")
                 return
             else:
                 # Get the other side door id TODO: the edge comes from door_entry to nominal door (set in door_detector)
@@ -332,7 +343,7 @@ class SpecificWorker(GenericWorker):
                         other_side_door_node = self.graph.vs.find(name=node.attrs[attr].value)
                         try:
                             self.graph.add_edge(origin_node, other_side_door_node)
-                            print("Matched other_side_door_name", node.attrs[attr].value, other_side_door_node.id)
+                            print("Matched other_side_door_name", node.attrs[attr].value, other_side_door_node)
                         except Exception as e:
                             print("No other_side_door_name node found", node.attrs[attr].value)
                             print(e)
@@ -484,18 +495,20 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
-        # Insert current edge to the room
-        # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
-        if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
-            print("Room node exists but no current edge. Setting as current")
-            self.insert_current_edge(id)
+        console.print(f"UPDATE NODE: {id} {type}", style='green')
 
     def delete_node(self, id: int):
         console.print(f"DELETE NODE:: {id} ", style='green')
 
     def update_edge(self, fr: int, to: int, type: str):
-        pass
-        # console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        # Insert current edge to the room
+        # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
+
+        if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
+            print(self.room_exit_door_id)
+            # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
+            self.insert_current_edge(fr)
+            print("Room node exists but no current edge. Setting as current")
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
