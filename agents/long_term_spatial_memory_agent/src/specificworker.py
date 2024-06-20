@@ -33,33 +33,17 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         """
-        Sets up an instance of a worker class, initializing various components
-        such as a graph, a timer, and signal connections to handle updates,
-        deletions, and other events within the graph.
+        Initializes an instance of `SpecificWorker`, creating a graph and setting
+        up signals for node and edge updates. It also sets the unique ID of the
+        agent and performs some startup checks before starting a timer with a
+        period of 100ms to trigger the `compute` method.
 
         Args:
-            proxy_map (int): mapping of original agent IDs to proxy IDs used in
-                the agent's deployment.
-            startup_check (`object`): initialization check that runs when the
-                object is created to verify if all the required components are
-                available and functional, and performs any necessary actions before
-                moving on to the main logic of the function.
-                
-                	1/ `startup_check`: A boolean variable indicating whether the
-                startup check is appropriate or not.
-                	2/ `rt_api`: An instance of `rt_api`, which represents the RT API
-                for the agent.
-                	3/ `inner_api`: An instance of `inner_api`, which represents the
-                inner API for the agent.
-                	4/ `room_initialized`: A boolean variable indicating whether the
-                room has been initialized or not.
-                	5/ `states`: A list of strings, representing the possible states
-                of the agent.
-                	6/ `affordance_node_active_id`: The ID of the affordance node
-                that is currently active.
-                	7/ `room_exit_door_id`: The ID of the room exit door.
-                	8/ `enter_room_node_id`: The ID of the enter room node.
-                	9/ `exit_door_id`: The ID of the exit door.
+            proxy_map (dict): 2D or 3D spatial memory graph for the agent, which
+                is used to store and update information about the environment.
+            startup_check (bool): initial state check of the room node in the
+                graph, where it checks if there is a current room node in the graph
+                and performs actions accordingly.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -91,6 +75,7 @@ class SpecificWorker(GenericWorker):
             self.state = "idle"
             self.affordance_node_active_id = None
             self.room_exit_door_id = None
+            self.exit_room_node_id = None
             self.enter_room_node_id = None
             self.exit_door_id = None
 
@@ -111,43 +96,28 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         """
-        Updates the parameters of a robot based on the environment it is navigating.
-        It removes a "current" self-edge from a room, stores the ID of an exit
-        door, waits for a new room to stabilize, and updates attributes in nodes
-        related to doors.
+        Checks for nodes with affinity type `aff_cross`, verifies their valid
+        attributes, and performs actions based on those checks: removing "current"
+        self-edges from rooms, identifying exit doors, waiting for new rooms to
+        stabilize, and updating other-side door attributes.
 
         Args:
-            params (ndarray (a Python NumPy array).): 3D model's data, which is
-                used to determine whether a node is an aff_cross and if it has its
-                valid attribute set to true, as well as other relevant information
-                for making decisions about the node.
+            params (ndarray.): 4-element list containing the IDs of the room, node,
+                and robot used to perform the operation.
                 
-                	* `params`: A dictionary-like object containing various attributes
-                and values, including:
-                		+ `aff_cross`: A node with a valid attribute set to `True`.
-                		+ `room`: The current room where the function is called.
-                		+ `status`: An integer value representing the completion state
-                of the aff_cross node (0 = not completed, 1 = completed).
-                		+ `robotPose`: A tuple containing the robot's position outside
-                the room.
-                		+ `otherSideDoor`: The ID of an exit door in the new room.
-                
-                	The function then provides explanations for each step of its execution:
-                
-                	* Remove `current` self-edge from the room.
-                	* Store the ID of the exit door in a variable.
-                	* Wait until a new room is stabilized.
-                	* When a new room is stabilized, check for the door used to get
-                inside.
-                	* Store in both doors the other side door name attribute.
-                	* Read exit door node and add an attribute other side door with
-                the name of the entrance door in the new room.
-                	* Read entrance door node and add an attribute other side door
-                with the name of the exit door in the new room.
+                	* `type`: The type of parameter, which can be either 'aff_cross'
+                or 'other'.
+                	* `status`: A boolean indicating whether the parameter is valid
+                (True) or not (False).
+                	* `attribute`: The name of the attribute associated with the parameter.
+                	* `value`: The value of the parameter, which can be a number,
+                string, or list.
+                	* `polygon`: The polygon defining the area outside of which the
+                robot's pose is considered valid.
 
         Returns:
-            undefined: a boolean value indicating whether the nodes were updated
-            successfully.
+            undefined: a boolean value indicating whether the node was successfully
+            updated.
 
         """
         return True
@@ -165,10 +135,26 @@ class SpecificWorker(GenericWorker):
         # - Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
     @QtCore.Slot()
     def compute(self):
+        # rt_edges = self.g.get_edges_by_type("RT")
+        # if len(rt_edges) > 0:
+        #     print("RT edges")
+        #     for edge in rt_edges:
+        #         # get node of edge.origin and edge.destination
+        #         origin_node = self.g.get_node(edge.origin)
+        #         destination_node = self.g.get_node(edge.destination)
+        #         #check if the origin node is a room and the destination node is not none
+        #         if origin_node is not None and destination_node is not None:
+        #             print(self.g.get_node(edge.origin).name, self.g.get_node(edge.destination).name)
+        #             #get level of the origin node and the destination node
+        #             origin_level = origin_node.attrs["level"].value
+        #             destination_level = origin_node.attrs["level"].value
+        #             #check if the origin level is not none and the destination level is not none
+        #             if origin_level is not None and destination_level is not None:
+        #                 print(origin_level, destination_level)
+
         """
-        Is a state machine that handles various scenarios related to the movement
-        and layout of doors. It transitions between states based on the current
-        state and receives additional input for further action.
+        Manages the various states of a maze generation algorithm, performing
+        actions according to the current state.
 
         """
         match self.state:
@@ -189,10 +175,10 @@ class SpecificWorker(GenericWorker):
 
     def idle(self):
         """
-        Checks if there are any nodes of type "affordance" with valid attribute
-        "active" set to true, and if not, it prints an error message and returns.
-        If there is only one such node, it sets the `room_exit_door_id`,
-        `affordance_node_active_id`, and `state` variables accordingly and returns.
+        1) checks if there are any nodes of type "affordance" with valid attribute
+        "active" set to true and 2) if not, it prints an error message and returns.
+        If a single node is found, the function sets the variables `room_exit_door_id`,
+        `affordance_node_active_id`, and `state` and prints "CROSSING".
 
         """
         print("IDLE")
@@ -208,106 +194,197 @@ class SpecificWorker(GenericWorker):
                 self.room_exit_door_id = current_edges[0].origin
                 self.affordance_node_active_id = aff_cross_nodes[0].id
                 self.state = "crossing"
+                print("CROSSING")
             else:
                 print("No current room")
                 return
 
     def crossing(self):
-        """
-        Updates the state of a grid node based on its current state and affinity
-        edges. When an edge with the `completed` status is found and the affinity
-        node is not active, the function changes the node's state to "crossed".
 
-        """
-        print("CROSSING")
         # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
         #     print("Removing current edge from room")
         #     print(self.room_exit_door_id)
         #     self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
         # Check if affordance_node has status attribute completed and is not active
+        """
+        Checks if an affordance node is completed and inactive, then updates the
+        state to "crossed" and removes a self-edge from the room.
+
+        """
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
             print("Affordance node is completed and not active. Go to crossed state")
             # Remove "current" self-edge from the room
             self.state = "crossed"
+            print("CROSSED")
 
     def crossed(self):
+
+        # Get parent node of affordance node
         """
-        Gets the parent node of an affordance node, and if it has no parent, it
-        returns a message. Otherwise, it sets the exit door ID to the value of the
-        parent node attribute and deletes the "current" self-edge from the room graph.
+        Retrieves the node representing an affordance in a graph, determines if
+        it has a parent node, and if so, sets the `exit_door_id` variable to the
+        value of that parent node.
 
         """
-        print("CROSSED")
-        # Get parent node of affordance node
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if not affordance_node.attrs["parent"].value:
-            print("Affordance node has no parent")
+            # print("Affordance node has no parent")
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             self.state = "initializing_room"
+            print("INITIALIZING ROOM")
 
     def initializing_room(self):
+
+        # Get room nodes
         """
-        Obtains room nodes, identifies the node to enter, and updates state to
-        initialize doors.
+        Filters and extracts room nodes from the graph, then selects and sets the
+        enter room node ID, and updates the state to "initializing doors".
 
         """
-        print("INITIALIZING ROOM")
-        # Get room nodes
         room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
         if len(room_nodes) == 0:
-            print("No room nodes different from the exit one found")
+            # print("No room nodes different from the exit one found")
             return
         else:
             # Get the enter room node id
             self.enter_room_node_id = room_nodes[0].id
             self.insert_current_edge(self.enter_room_node_id)
             self.state = "initializing_doors"
+            print("INITIALIZING DOORS")
     #
     # def new_room(self):
     #     pass
 
     def initializing_doors(self):
+
+        # Check if node called "room_entry" of type room exists
         """
-        Updates an autonomous agent's graph, by setting an edge's attribute
-        'other_side_door' based on a named edge connecting a door node with a
-        nominal room, and setting the agent's state to "removing".
+        1) identifies the edges leading to the exit node, and then 2) reads the
+        exit door node and creates an attribute "other_side_door_name" with the
+        name of the entrance door in the new room, and also creates another attribute
+        "connected_room_name" with the name of the room connected to the new room
+        through the exit door.
 
         """
-        print("INITIALIZING DOORS")
-        # Check if node called "room_entry" of type room exists
-        door_entry_node = self.g.get_node("door_entry")
-        if door_entry_node and door_entry_node.type == "door":
+        exit_edges = [edge for edge in self.g.get_edges_by_type("exit") if edge.destination == self.exit_door_id]
+        if len(exit_edges) > 0:
             # Check if edge of type "same" exists between door_entry and enter_room_node
-            same_edges = self.g.get_edges_by_type("same")
+            same_edges = self.g.get_edges_by_type("match")
             if len(same_edges) == 0:
                 print("No same edges found")
                 return
             else:
                 # Get the other side door id TODO: the edge comes from door_entry to nominal door (set in door_detector)
-                other_side_door_id = same_edges[0].to
+                other_side_door_id = same_edges[0].origin
+                other_side_door_node = self.g.get_node(other_side_door_id)
+                exit_door_id = same_edges[0].destination
+                exit_door_node = self.g.get_node(exit_door_id)
+
+                print(other_side_door_node.name, exit_door_node.name)
+
                 # Read exit door node and add an attribute other_side_door with the name of the entrance door in the new room
-                exit_door_node = self.g.get_node(self.exit_door_id)
-                exit_door_node.attrs["other_side_door"] = other_side_door_id
+
+                exit_door_node.attrs["other_side_door_name"] = Attribute(other_side_door_node.name, self.agent_id)
+                # Insert the last number in the name of the room to the connected_room_id attribute
+                exit_door_node.attrs["connected_room_name"] = Attribute(self.g.get_node(self.g.get_node(other_side_door_node.attrs["parent"].value).attrs["parent"].value).name, self.agent_id)
+
                 # Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
-                enter_door_node = self.g.get_node(self.enter_room_node_id)
-                enter_door_node.attrs["other_side_door"] = self.exit_door_id
+
+                other_side_door_node.attrs["other_side_door_name"] = Attribute(exit_door_node.name, self.agent_id)
+                other_side_door_node.attrs["connected_room_name"] = Attribute(self.g.get_node(self.room_exit_door_id).name, self.agent_id)
                 self.g.update_node(exit_door_node)
-                self.g.update_node(enter_door_node)
+                self.g.update_node(other_side_door_node)
                 self.state = "removing"
+                print("REMOVING")
+
+
+
+    # def initializing_doors(self):
+    #     print("INITIALIZING DOORS")
+    #     # Check if node called "room_entry" of type room exists
+    #     door_entry_node = self.g.get_node("door_entry")
+    #     if door_entry_node and door_entry_node.type == "door":
+    #         # Check if edge of type "same" exists between door_entry and enter_room_node
+    #         same_edges = self.g.get_edges_by_type("same")
+    #         if len(same_edges) == 0:
+    #             print("No same edges found")
+    #             return
+    #         else:
+    #             # Get the other side door id TODO: the edge comes from door_entry to nominal door (set in door_detector)
+    #             other_side_door_id = same_edges[0].to
+    #             # Read exit door node and add an attribute other_side_door with the name of the entrance door in the new room
+    #             exit_door_node = self.g.get_node(self.exit_door_id)
+    #             exit_door_node.attrs["other_side_door"] = other_side_door_id
+    #             # Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
+    #             enter_door_node = self.g.get_node(self.enter_room_node_id)
+    #             enter_door_node.attrs["other_side_door"] = self.exit_door_id
+    #             self.g.update_node(exit_door_node)
+    #             self.g.update_node(enter_door_node)
+    #             self.state = "removing"
 
     def removing(self):
+
+        # Get last number in the name of the room
         """
-        Checks if there is an active goto edge connecting the robot and a door.
-        If so, it removes the "current" self-edge and waits for a new room to be
-        created.
+        Performs several tasks: removes nodes and edges that are no longer relevant
+        after a robot's motion, stores room names in a dictionary, and checks for
+        active goto edges connecting the robot to a door.
 
         """
-        pass
+        room_number = self.g.get_node(self.room_exit_door_id).name.split("_")[-1]
+        has_edges = self.g.get_edges_by_type("has")
+        old_room_has_edges = [edge for edge in has_edges if self.g.get_node(edge.origin).name.split("_")[-1] == room_number]
+        for edge in old_room_has_edges:
+            self.g.delete_node(self.g.get_node(edge.destination).id)
+
+        # Get all RT edges
+        rt_edges = self.g.get_edges_by_type("RT")
+        # Get all RT edges which last number in name is the same as the room number and generate a dictionary with the origin node as key and the origin node level as value
+        old_room_rt_edges = [edge for edge in rt_edges if self.g.get_node(edge.destination).name.split("_")[-1] == room_number]
+        old_room_dict = {edge: int(self.g.get_node(edge.destination).attrs["level"].value) for edge in old_room_rt_edges}
+        # Order dictionary by level value in descending order
+        old_room_dict = dict(sorted(old_room_dict.items(), key=lambda item: item[1], reverse=True))
+        # iterate over the dictionary in descending order
+        for item in old_room_dict:
+            # self.g.delete_node(self.g.get_node(item.origin).id)
+            self.g.delete_node(self.g.get_node(item.destination).id)
+            # self.g.delete_edge(item.origin, item.destination, "RT")
+
+        self.state = "idle"
+
+
+
+
+        # # Store considering that level value is the level of the origin node, store names in a dictionary considering jerarchy
+        # old_room_names = {}
+        # for item in old_room_dict:
+        #     print(old_room_names)
+        #     # Print item level
+        #     print(old_room_dict[item])
+        #     match old_room_dict[item]:
+        #         case 1:
+        #             # If origin.name is in the dictionary, add a dictionary with the key as the origin name and the value as a list with the destination name
+        #             if self.g.get_node(item.origin).name in old_room_names:
+        #                 old_room_names[self.g.get_node(item.origin).name].append({self.g.get_node(item.destination).name})
+        #             else:
+        #                 old_room_names[self.g.get_node(item.origin).name] = [{self.g.get_node(item.destination).name}]
+        #         case 2:
+        #             # Search in every key of the dictionary and inside the list of values, if the destination name is in the list, add a dictionary with the key as the origin name and the value as a list with the destination name
+        #             for key in old_room_names:
+        #                 for value in old_room_names[key]:
+        #                     if self.g.get_node(item.origin).name in value:
+        #                         old_room_names[value].append({self.g.get_node(item.destination).name})
+        #                     else:
+        #                         old_room_names[value] = [{self.g.get_node(item.destination).name}]
+        #                     break
+
+
+
 
 
 
@@ -360,11 +437,12 @@ class SpecificWorker(GenericWorker):
         # Insert current edge to the room
         # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
         """
-        Updates a node's "current" edge based on a set of given conditions.
+        Updates the `current_edge` attribute of a room node based on its presence
+        in the graph and the type of edge currently assigned to it.
 
         Args:
-            id (int): 1D lattice node for which the current edge is to be set.
-            type (str): type of edge to be checked for existence.
+            id (int): ID of a room node in the graph.
+            type (str): type of edge to be identified as current.
 
         """
         if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:

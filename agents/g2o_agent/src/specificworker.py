@@ -44,22 +44,21 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         """
-        Initializes an instance of the `SpecificWorker` class, setting properties
-        and connecting signals for graph navigation and room initialization.
+        Initializes an instance of `SpecificWorker`, setting various properties
+        and connecting signals to handle updates and events in the G2O graph.
 
         Args:
-            proxy_map (`object`.): 2D or 3D graph to which the `SpecificWorker`
-                class will be applied, allowing it to perform its intended
-                functionality on the graph.
+            proxy_map (`object`.): 2D graph for the RT environment, which is used
+                to initialize the `DSRGraph` instance and store node attributes
+                in the corresponding ROS bag files.
                 
-                	* `proxy_map`: A Python dictionary representing a graph, where
-                each key is an integer node ID and each value is a dictionary
-                containing properties of the node, such as its position, type,
-                etc. The graph may contain nodes with invalid or missing data,
-                which should be handled appropriately.
-            startup_check (int): execution of a check on startup, which may contain
-                additional functionality, such as the setup or initialization, and
-                is executed if its value is `True`.
+                	* `proxy_map`: This is the map that contains the proxy nodes and
+                edges. It is a dict-like object with keys as proxy node IDs and
+                values as dicts containing the attributes of each proxy node.
+                	* `self. Period`: This is the time interval between iterations
+                in milliseconds. It is set to 50 by default.
+            startup_check (bool): initial check to perform on startup, which is
+                executed only when `startup_check` is set to `True`.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -125,10 +124,9 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         """
-        Updates the robot's position and orientation using information from
-        neighboring nodes and their corresponding edge attributes, and then inserts
-        the updated pose into the graph as a new edge attribute. It also stores
-        the last odometry for future reference.
+        Computes and updates the RT edges for the given agent id based on the
+        current sensor readings and stores the updated graph. It also initializes
+        the G2O graph if necessary and adds landmarks to it.
 
         """
         if time.time() - self.elapsed > 1:
@@ -219,8 +217,8 @@ class SpecificWorker(GenericWorker):
                 # print("Time elapsed compute:", timfe.time() - init_time)
 
         elif self.init_graph and self.translation_to_set is not None and self.rotation_to_set is not None:
-            # if self.last_room_id is not None:
-            #     self.g.delete_edge(self.g.get_node("room_"+self.last_room_id).id, self.g.get_node("Shadow").id, "RT")
+            if self.last_room_id is not None:
+                self.g.delete_edge(self.g.get_node("room_"+self.last_room_id).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
             self.room_initialized = True
             self.init_graph = False
@@ -233,12 +231,13 @@ class SpecificWorker(GenericWorker):
 
     def initialize_g2o_graph(self):
         """
-        Initializes a Graphine (G2O) graph for a robot and room pair, adding fixed
-        pose, corners, and nominal corners to the graph.
+        Generates high-quality documentation for code given to it, starting by
+        initializing a g2o graph using Room node and robot pose, and adding fixed
+        pose and nominal corners to the g2o graph.
 
         Returns:
-            undefined: a boolean indicating whether the graph was successfully
-            initialized with a fixed pose and nominal corners.
+            undefined: a boolean indicating whether the G2O graph was successfully
+            initialized with a nominal pose for the robot and room corner landmarks.
 
         """
         print("Initializing g2o graph")
@@ -246,7 +245,7 @@ class SpecificWorker(GenericWorker):
         if len(room_nodes) > 0:
             self.g2o.clear_graph()
             room_node = room_nodes[0]
-            if self.actual_room_id is not None:
+            if self.actual_room_id is not None and self.actual_room_id != room_node.name.split("_")[-1]:
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = room_node.name.split("_")[-1]
             print("###########################################################")
@@ -315,36 +314,19 @@ class SpecificWorker(GenericWorker):
 
     def get_displacement(self, odometry):
         """
-        Processes an odometry queue to estimate the robot's displacement in x, y,
-        and z axes, based on the lineal velocity between successive timestamps.
+        Calculates the displacement of a vehicle based on its odometry data. It
+        first finds the index of the current odometry data point in the queue,
+        then calculates the displacement along the x, y, and z axes using the
+        velocity data points in the queue.
 
         Args:
-            odometry (3D vector.): 3D position and velocity of the robot at different
-                time steps, which are used to calculate the linear and angular
-                displacement between each time step.
-                
-                	* `indice`: The zero-based index of the current odometry reading
-                in the queue.
-                	* `len(self.odometry_queue)`: The total number of odometry readings
-                in the queue.
-                	* `last_odometry[3]`: The timestamp of the last valid odometry
-                reading in the `last_odometry` variable.
-                	* `odometry_queue`: A list of (`x`, `y`, `θ`) tuples representing
-                the robot's current position and orientation.
-                	* `self.odometry_queue[i + 1][3]`: The timestamp of the next
-                odometry reading in the queue.
-                	* `self.odometry_queue[i][3]`: The timestamp of the previous valid
-                odometry reading.
-                	* `self.odometry_queue[i + 1][0]`, `self.odometry_queue[i + 1][1]`,
-                and `self.odometry_queue[i + 1][2]`: The `x`, `y`, and `θ` components
-                of the next odometry reading, respectively.
-                	* `desplazamiento_lateral`, `desplazamiento_avance`, and
-                `desplacamiento_angular`: Variables used to compute the robot's
-                displacement in the x, y, and angular directions, respectively.
+            odometry (list): 3D movement data of the robot obtained through the
+                Odometry queue, which is processed and converted into displacement
+                values for lateral motion, advancement, and angular velocity.
 
         Returns:
-            undefined: the lateral displacement, forward displacement, and angular
-            displacement of a robot based on its odometry data.
+            undefined: the current displacement of the agent in three dimensions
+            (lateral, advancing, and angular) based on its odometry data.
 
         """
         desplazamiento_avance = 0
@@ -367,57 +349,25 @@ class SpecificWorker(GenericWorker):
 
     def get_covariance_matrix(self, vertex):
         """
-        Takes a set of vertices and their corresponding Hessian indices as input,
-        and computes and returns the covariance matrix of these vertices using the
-        G2O optimization algorithm.
+        Takes in a set of vertices with associated Hessians and returns the
+        covariance matrix between them after computing it using the provided optimizer.
 
         Args:
-            vertex (`HessianIndex` or `index`.): 2D coordinates of a vertex in the
-                mesh, which are used to compute the Hessian matrix and the covariance
-                matrix.
+            vertex (2D array of shape (n_vertices, n_ features).): 2D coordinates
+                of a specific point in the graph, which are used to compute the
+                covariance matrix for that point.
                 
-                	* `hessian_index()`: This attribute returns the Hessian index of
-                the vertex.
+                	* `hessian_index`: A tuple containing the index of the vertex in
+                the Hessian matrix.
                 
-                	The following code snippets illustrate how to destructure `vertex`
-                and provide explanations for its properties:
-                
-                	vertex = (0, 0)
-                	print(f"Vertix Coordinates: {vertex}")
-                	print(f"Hessian Index: {vertex.hessian_index()}")
-                
-                	In this example, the `vertex` attribute is a tuple containing the
-                x-coordinate (0) and y-coordinate (0). The `hessian_index()`
-                attribute returns the Hessian index of the vertex, which is also
-                0 in this case.
-                
-                	Now, let's analyze the input arguments to the `compute_marginals`
-                function:
-                
-                	* `cov_vertices`: This list contains tuples of (Hessian index,
-                Hessian index) for each vertex in the graph.
-                	* `covariances`: This is a dictionary that maps each vertex to
-                its corresponding covariance value.
-                	* `covariances_result`: This variable stores the result of computing
-                the marginals for each vertex. It can be either a dictionary or a
-                scalar value, depending on whether the computation was successful
-                or not.
-                
-                	Finally, let's focus on the output of the `compute_marginals` function:
-                
-                	* `matrix`: This is a NumPy array containing the covariance matrix.
-                Specifically, it is a block matrix with dimensions (vertex degree,
-                vertex degree) where each block is a triangular matrix with diagonal
-                elements equal to 1 and off-diagonal elements equal to the covariances
-                computed for each pair of vertices.
-                	* `upper_triangle`: This is another NumPy array containing the
-                upper triangle of the covariance matrix. It can be used to exclude
-                the diagonal elements and focus on the off-diagonal covariances
-                between pairs of vertices.
+                	Note that `vertex` may also have other attributes or properties
+                depending on its specific implementation or usage in the code.
+                However, for this function, only the `hessian_index` property is
+                relevant.
 
         Returns:
-            undefined: a tuple containing the computed covariance matrix and a
-            boolean value indicating whether the computation was successful.
+            undefined: a tuple containing the result of computing the covariance
+            matrix and the resulting matrix.
 
         """
         cov_vertices = [(vertex.hessian_index(), vertex.hessian_index())]
@@ -434,14 +384,28 @@ class SpecificWorker(GenericWorker):
 
     def visualize_g2o_realtime(self, optimizer):
         """
-        Visualizes a Gaussian Process Regression (GPR) model in real-time as it
-        is being optimized using the `g2o` algorithm. It plots the positions and
-        edges of the vertices in 3D and updates the plot each time a new set of
-        vertices is received from the optimizer.
+        Visualizes a 3D graph created with the G2O optimization algorithm in
+        real-time, updating the positions and edges of the graph as the algorithm
+        runs.
 
         Args:
-            optimizer (int): 3D mesh optimizer object, which is used to load and
-                manipulate the 3D mesh data.
+            optimizer (`G2OOptimizer` object, which is a class from the `g2o`
+                library used for non-linear least squares optimization.): 3D
+                reconstruction optimization algorithm, which is used to estimate
+                the positions of the vertices and edges in the mesh based on the
+                measurement data.
+                
+                	* `vertices`: A list of G2O vertices represented as 3D points in
+                space.
+                	* `edges`: A list of G2O edges represented as pairs of vertex indices.
+                	* `measurements`: A list of G2O measurements associated with the
+                edges, representing the distance or angle between corresponding vertices.
+                	* `n_vertices`: The total number of vertices in the G2O problem.
+                	* `n_edges`: The total number of edges in the G2O problem.
+                	* `vertices_ids`: An integer array containing the IDs of each
+                vertex in the G2O problem.
+                	* `edges_ids`: An integer array containing the IDs of each edge
+                in the G2O problem.
 
         """
         plt.ion()
@@ -484,17 +448,17 @@ class SpecificWorker(GenericWorker):
         # pass
         # check if room node is created
         """
-        Updates the attributes of a node in a graph based on an ID and checks if
-        the node is a valid odometry node. If it is, it appends an odometry value
-        to a queue.
+        Updates node attributes based on node ID and attribute names provided. It
+        appends the current odometry data to an odometry queue when the ID matches
+        the shadow node ID, or simply appends the values of the specified attributes
+        when the ID does not match.
 
         Args:
-            id (int): 3D map node ID of the current room, which is compared to the
-                ID of the `room_node` retrieved from the graph to determine whether
-                the function should execute.
-            attribute_names ([str]): list of names of attributes in the room node
-                that can be accessed and checked for existence, allowing the code
-                to filter which checks are performed based on the node's attributes.
+            id (int): 3D object's identifier and is used to determine whether it
+                is the target object or the robot's shadow node.
+            attribute_names ([str]): list of attribute names to search for in the
+                node's attributes, used to check if the id of the node is the
+                desired "room" or "Shadow" node.
 
         """
         room_node = self.g.get_node("room")
@@ -524,12 +488,11 @@ class SpecificWorker(GenericWorker):
 
     def delete_node(self, id: int):
         """
-        Checks if the input type is "room". If it is, it sets `self.room_initialized`
-        to `False` and prints a message in green console font indicating that the
-        node has been deleted.
+        Is given the task of resetting a graph and waiting for a new room to appear
+        before indicating that the node has been deleted.
 
         Args:
-            id (int): 3D graph node that needs to be reset and removed from the graph.
+            id (int): node to be deleted in the graph.
 
         """
         if type == "room":
@@ -541,24 +504,22 @@ class SpecificWorker(GenericWorker):
 
     def update_edge(self, fr: int, to: int, type: str):
         """
-        Updates the ROS node's position and orientation based on the given edge.
-        It initializes a new graph, sets the room ID, and updates the translation
-        and rotation sets based on the edge attributes.
+        Updates an edge's `rt_translation` and `rt_rotation_euler_xyz` attributes
+        based on the room name, Shadow node, and agent ID. It also sets
+        `room_initialized` to `False` when the Shadow node is encountered.
 
         Args:
-            fr (int): 3D node frame of reference that contains the current room
-                or RT edge, which is used to determine the room ID and update the
-                graph initialization state.
-            to (int): 3D object that is the target of the robot's movement, and
-                it is used to determine the relevant RT edge information in the
-                `if` block.
-            type (str): type of action being taken on the graph, either "current"
-                or "RT".
+            fr (int): current room node in the graph.
+            to (int): 4-node of the RT edge being processed, whose type must be
+                "room" and whose name is equal to "Shadow".
+            type (str): type of change in the graph, either "current" or "RT", and
+                determines the specific logic to be executed within the function
+                based on its value.
 
         """
         if type == "current" and self.g.get_node(fr).type == "room":
             # Get number after last "_" in room name
-            if self.actual_room_id is not None:
+            if self.actual_room_id is not None and self.actual_room_id != self.g.get_node(fr).name.split("_")[-1]:
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = self.g.get_node(fr).name.split("_")[-1]
             print("###########################################################")
