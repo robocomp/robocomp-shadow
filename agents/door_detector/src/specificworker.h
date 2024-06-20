@@ -166,7 +166,7 @@ private:
     Eigen::Vector3d exit_door_room_pose;
     void affordance_thread(uint64_t aff_id);
 
-    int actual_room_id = -1;
+    uint64_t actual_room_id = -1;
 
 };
 

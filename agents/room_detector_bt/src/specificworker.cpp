@@ -148,6 +148,14 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     qInfo() << __FUNCTION__ << " Compute";
+    auto ldata  = buffer_lidar_data.get_idemp();
+    //std::cout << __FUNCTION__ << " Pre-room lines" << std::endl;
+
+    auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
+    //std::cout << __FUNCTION__ << " Pre-room detector" << std::endl;
+
+    auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);
+
     if(this->update_room_valid)
     {
         update_room();
@@ -157,6 +165,7 @@ void SpecificWorker::compute()
     {
 
     }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -529,6 +538,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     G->add_or_modify_attrib_local<pos_y_att>(room_node, pos_y);
     G->add_or_modify_attrib_local<obj_checked_att>(room_node, false);
     G->add_or_modify_attrib_local<level_att>(room_node, root_level + 1);
+    G->add_or_modify_attrib_local<room_id_att>(room_node, room_id);
     G->insert_node(room_node);
 
     auto room_level_ = G->get_node_level(room_node);
@@ -1274,6 +1284,7 @@ void SpecificWorker::create_wall(int id, const std::vector<float> &p, float angl
     G->add_or_modify_attrib_local<obj_id_att>(new_wall, id);
     G->add_or_modify_attrib_local<timestamp_creation_att>(new_wall, get_actual_time());
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_wall, get_actual_time());
+    G->add_or_modify_attrib_local<room_id_att>(new_wall, room_id);
     G->add_or_modify_attrib_local<level_att>(new_wall, parent_level + 1);
     G->insert_node(new_wall);
 
@@ -1326,6 +1337,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     G->add_or_modify_attrib_local<corner_id_att>(new_corner, id);
     G->add_or_modify_attrib_local<timestamp_creation_att>(new_corner, get_actual_time());
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(new_corner, get_actual_time());
+    G->add_or_modify_attrib_local<room_id_att>(new_corner, room_id);
     G->add_or_modify_attrib_local<level_att>(new_corner, parent_level + 1);
     G->insert_node(new_corner);
 

@@ -193,8 +193,8 @@ class SpecificWorker(GenericWorker):
                 # print("Time elapsed compute:", timfe.time() - init_time)
 
         elif self.init_graph and self.translation_to_set is not None and self.rotation_to_set is not None:
-            # if self.last_room_id is not None:
-            #     self.g.delete_edge(self.g.get_node("room_"+self.last_room_id).id, self.g.get_node("Shadow").id, "RT")
+            if self.last_room_id is not None:
+                self.g.delete_edge(self.g.get_node("room_"+self.last_room_id).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
             self.room_initialized = True
             self.init_graph = False
@@ -211,7 +211,7 @@ class SpecificWorker(GenericWorker):
         if len(room_nodes) > 0:
             self.g2o.clear_graph()
             room_node = room_nodes[0]
-            if self.actual_room_id is not None:
+            if self.actual_room_id is not None and self.actual_room_id != room_node.name.split("_")[-1]:
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = room_node.name.split("_")[-1]
             print("###########################################################")
@@ -386,7 +386,7 @@ class SpecificWorker(GenericWorker):
     def update_edge(self, fr: int, to: int, type: str):
         if type == "current" and self.g.get_node(fr).type == "room":
             # Get number after last "_" in room name
-            if self.actual_room_id is not None:
+            if self.actual_room_id is not None and self.actual_room_id != self.g.get_node(fr).name.split("_")[-1]:
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = self.g.get_node(fr).name.split("_")[-1]
             print("###########################################################")
