@@ -530,9 +530,11 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     G->add_or_modify_attrib_local<width_att>(room_node, room_width);
     G->add_or_modify_attrib_local<depth_att>(room_node, room_depth);
 
-    // create pos_x, pos_y value as function of room id
+// create pos_x, pos_y value as function of room id
     float pos_x = 350.0;
-    float pos_y = 250.0 * (room_id - 1);
+    float pos_y = 250.0 * (room_id % 3 - 1);
+    if(abs(pos_y)>700)
+        pos_y = 250.0 * (rand() % 3 - 1);
 
     G->add_or_modify_attrib_local<pos_x_att>(room_node, pos_x);
     G->add_or_modify_attrib_local<pos_y_att>(room_node, pos_y);
@@ -789,13 +791,15 @@ SpecificWorker::get_transformed_corners_v2()
     { qWarning() << __FUNCTION__ << " No room level in graph"; return {}; }
     auto room_node = room_node_.value();
 
-    //get number from room_node.name
-    std::string room_id_str = room_node.name();
-    std::string room_id = room_id_str.substr(room_id_str.find("_") + 1);
+    // Get room_id from room_node
+    auto room_id = G->get_attrib_by_name<room_id_att>(room_node);
+    if(not room_id.has_value())
+    { qWarning() << __FUNCTION__ << " No room id in graph"; return {}; }
+    auto room_id_value = room_id.value();
 
     for (int i = 0; i < 4; i++)
     {
-        auto corner_aux_ = G->get_node("corner_" + std::to_string(i) + "_" + room_id);
+        auto corner_aux_ = G->get_node("corner_" + std::to_string(i) + "_" + std::to_string(room_id_value));
         if (not corner_aux_.has_value())
         {
             qWarning() << __FUNCTION__ << " No nominal corner " << i << " in graph";
@@ -803,7 +807,7 @@ SpecificWorker::get_transformed_corners_v2()
         }
         auto corner_aux = corner_aux_.value();
 
-        auto wall_aux_ = G->get_node("wall_" + std::to_string(i) + "_" + room_id);
+        auto wall_aux_ = G->get_node("wall_" + std::to_string(i) + "_" + std::to_string(room_id_value));
         if (not wall_aux_.has_value()) {
             qWarning() << __FUNCTION__ << " No wall " << i << " in graph";
             return {};

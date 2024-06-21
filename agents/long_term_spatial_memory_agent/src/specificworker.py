@@ -400,7 +400,7 @@ class SpecificWorker(GenericWorker):
             return room_id
         except:
             print("No room_id attribute found")
-            return None
+            return -1
 
     def check_element_level(self, node_id):
         node = self.g.get_node(node_id)
