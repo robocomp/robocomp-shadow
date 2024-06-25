@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "version": "1",
+    "updated_at": "2024-06-25T08:25:03.407Z",
+    "created_at": "2024-06-25T08:25:03.930Z",
+    "pipelines": [
+      "8aeca481-38f3-445d-9314-e382a3fc7823"
+    ]
+  },
+  "lookup": [
+    [
+      "agents/g2o_agent/src/specificworker.py",
+      "agents/long_term_spatial_memory_agent/src/specificworker.py"
+    ]
+  ]
+}

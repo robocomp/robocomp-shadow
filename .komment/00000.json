@@ -1,0 +1,1128 @@
+[
+  {
+    "name": "specificworker.py",
+    "path": "agents/g2o_agent/src/specificworker.py",
+    "content": {
+      "structured": {
+        "description": "A class called `G2O` that implements an algorithm for visualizing and tracking objects in real-time using the G2O library. The class provides several methods for updating the graph, computing marginals, and visualizing the results. The `startup_check()` method is used to initialize the graph and set up the visualization, while the `update_node()`, `update_edge()`, `delete_node()`, and `delete_edge()` methods are used to update the graph and remove nodes and edges as needed. The `update_edge_att()` method is used to update edge attributes, and the `visualize_g2o_realtime()` method is used to visualize the results in real-time.",
+        "items": [
+          {
+            "id": "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67",
+            "ancestors": [],
+            "description": "1. Initializes a graph and G2O optimizer for pose estimation using a ROS bag file as input.\n2. Handles incoming odometry messages, updates the graph, and computes the covariance matrix of the vertices.\n3. Visualizes the G2O graph in real-time using the `matplotlib` library.\n4. Updates node and edge attributes based on the incoming odometry messages.\n5. Deletes nodes and edges from the graph when necessary.",
+            "attributes": [
+              {
+                "name": "Period",
+                "type_name": "float",
+                "description": "Used to specify the time interval between successive executions of the worker's method, which in this case is the `update_node`, `update_edge`, `delete_node`, or `delete_edge` methods. It determines how often the worker will check for new nodes or edges to process and how long it will wait before checking again."
+              },
+              {
+                "name": "agent_id",
+                "type_name": "int",
+                "description": "Used to store the unique identifier of the agent that the worker represents."
+              },
+              {
+                "name": "g",
+                "type_name": "SparseGraph",
+                "description": "Used to store the graph of corners and edges in a room. It allows the worker to perform tasks such as tracking the position of objects in the room, computing the covariance matrix between pairs of vertices, and visualizing the graph in real-time."
+              },
+              {
+                "name": "startup_check",
+                "type_name": "QTimersingleShot",
+                "description": "Used to check if the worker's function should be run repeatedly until the user quits the application."
+              },
+              {
+                "name": "rt_api",
+                "type_name": "str",
+                "description": "A reference to a ROS node that implements the RT API, allowing the worker to interact with the robot's real-time state."
+              },
+              {
+                "name": "inner_api",
+                "type_name": "instance",
+                "description": "Used to store a reference to the inner API of the worker, which is used to interact with the \nworker's internal state and perform actions such as transforming rooms or updating node attributes."
+              },
+              {
+                "name": "odometry_node_id",
+                "type_name": "int",
+                "description": "Used to identify the node in the graph that corresponds to the odometry data, allowing the worker to access and process the relevant information from the robot's sensors."
+              },
+              {
+                "name": "odometry_queue",
+                "type_name": "3D",
+                "description": "Used to store the odometry data of the robot in a queue. It is used by the worker's method `get_displacement` to compute the displacement of the robot."
+              },
+              {
+                "name": "last_odometry",
+                "type_name": "3D",
+                "description": "Used to store the previous odometry information of the robot, which is used for computing the displacement and covariance matrix."
+              },
+              {
+                "name": "g2o",
+                "type_name": "3D",
+                "description": "A graph representing the robot's pose and orientation in real-time, created using the G2O algorithm for SLAM. It is used to store the nominal corners of the room and their corresponding measurements from the sensor data."
+              },
+              {
+                "name": "visualizer",
+                "type_name": "instance",
+                "description": "A reference to an object of type `Visualizer`. It is used to visualize the graph constructed by the worker during its execution."
+              },
+              {
+                "name": "odometry_noise_std_dev",
+                "type_name": "float",
+                "description": "Used to store the standard deviation of the noise in the odometry measurements. It is used in the `get_displacement` method to compute the displacement between consecutive measurements and to determine if the odometry is reliable or not."
+              },
+              {
+                "name": "odometry_noise_angle_std_dev",
+                "type_name": "float",
+                "description": "0.1 by default, which represents the standard deviation of angle noise in the g2o graph. It helps to control the noise level in the optimization process."
+              },
+              {
+                "name": "measurement_noise_std_dev",
+                "type_name": "float",
+                "description": "Used to specify the standard deviation of the noise added to the robot's measurements during optimization. It represents the level of uncertainty in the measurements, which can affect the accuracy of the pose estimate."
+              },
+              {
+                "name": "last_room_id",
+                "type_name": "int",
+                "description": "Used to store the last room ID seen by the worker before it changed rooms. It is updated when the worker changes rooms, indicating that a new room has been entered."
+              },
+              {
+                "name": "actual_room_id",
+                "type_name": "int",
+                "description": "Used to store the current room ID of the worker's graph. It keeps track of the room that the worker is currently exploring or working in, which can change as the worker moves around the space."
+              },
+              {
+                "name": "elapsed",
+                "type_name": "float",
+                "description": "0 by default. It represents the time elapsed since the worker was created, and it is updated every time a new task is assigned to the worker."
+              },
+              {
+                "name": "room_initialized",
+                "type_name": "bool",
+                "description": "Set to False by default, indicating that the worker has not yet initialized the room graph. Once the worker initializes the room graph, this attribute becomes True."
+              },
+              {
+                "name": "iterations",
+                "type_name": "int",
+                "description": "Used to keep track of the number of iterations performed by the worker. It is incremented each time a new iteration is started, and can be used to control the termination condition of the worker."
+              },
+              {
+                "name": "hide",
+                "type_name": "instance",
+                "description": "Used to indicate whether the worker should be hidden or not. It is set to `True` by default, but can be modified by the user to hide the worker if desired."
+              },
+              {
+                "name": "timer",
+                "type_name": "QTimer",
+                "description": "Used to schedule a function call every 200 milliseconds to check if the user wants to quit the application."
+              },
+              {
+                "name": "compute",
+                "type_name": "instance",
+                "description": "Used to perform a specific computation on the robot's state, such as computing the covariance matrix of the robot's position and orientation. It returns a tuple containing the computed value and a boolean indicating whether the computation was successful."
+              },
+              {
+                "name": "init_graph",
+                "type_name": "bool",
+                "description": "Used to indicate whether the graph has been initialized or not. It's set to true when the graph is first created and false otherwise, allowing the worker to skip unnecessary computations if the graph has already been initialized."
+              },
+              {
+                "name": "translation_to_set",
+                "type_name": "3D",
+                "description": "Used to store the translation from the robot's current position to a predefined set position."
+              },
+              {
+                "name": "rotation_to_set",
+                "type_name": "3D",
+                "description": "Set to the Euler angles representing the rotation from the base frame to the set frame of reference, used for visualizing the transformation between frames in a robotic system."
+              },
+              {
+                "name": "room_polygon",
+                "type_name": "numpyndarray",
+                "description": "Used to store a list of QPointF objects representing the corners of a room as detected by the worker."
+              },
+              {
+                "name": "initialize_g2o_graph",
+                "type_name": "method",
+                "description": "Used to initialize a Graph-based 6 DOF (G2O) graph for a specific robot task, such as room detection and navigation. It takes in various parameters such as the room node ID, edge list, and corner list, and initializes the G2O graph with the corresponding nominal corners and edges."
+              },
+              {
+                "name": "update_node_att",
+                "type_name": "void",
+                "description": "Used to update the attributes of a specific node in the graph, based on the current odometry data. It is called every time new odometry data is received and updates the node's attributes accordingly."
+              },
+              {
+                "name": "update_edge",
+                "type_name": "void",
+                "description": "Used to update the edge attributes when a new edge is added to the graph. It takes three arguments: the first node of the edge (fr), the second node of the edge (to), and the type of the edge (type)."
+              },
+              {
+                "name": "update_edge_att",
+                "type_name": "edge",
+                "description": "Used to update the attributes of an edge in a graph. It takes three arguments: `fr`, `to`, and `type`, which are the index of the edge, the destination node, and the edge type, respectively. The attribute updates the attributes of the edge based on the specified type and attribute names."
+              }
+            ],
+            "name": "SpecificWorker",
+            "location": {
+              "start": 50,
+              "insert": 51,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "class",
+            "length": 299,
+            "docLength": null
+          },
+          {
+            "id": "2a8dfe0e-af83-cd8d-8547-2b219697287f",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Initializes a SpecificWorker object, setting up various components such as graphs, timers, and signal connections. It also performs startup checks and hides the object.",
+            "params": [
+              {
+                "name": "proxy_map",
+                "type_name": "dict",
+                "description": "Used to store the map of proxies for the agent."
+              },
+              {
+                "name": "startup_check",
+                "type_name": "bool",
+                "description": "Used to perform a check during initialization if the graph has been modified after being created, and if so, whether to restart the worker or continue with the current state."
+              }
+            ],
+            "returns": null,
+            "name": "__init__",
+            "location": {
+              "start": 51,
+              "insert": 52,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 45,
+            "docLength": null
+          },
+          {
+            "id": "074e3a57-0307-6b94-2744-f31c8787fe61",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "In the `SpecificWorker` class processes robot odometry data and updates the graph using the G2O optimization algorithm. It also adds landmarks to the graph based on the robot's position and orientation.",
+            "params": [],
+            "returns": null,
+            "name": "compute",
+            "location": {
+              "start": 112,
+              "insert": 114,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 77,
+            "docLength": null
+          },
+          {
+            "id": "2ac37906-5a3f-c4a9-9347-068059e33ba8",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Initializes an G2O graph for a specific robot and room, adds fixed pose, and adds nominal corners based on RT information.",
+            "params": [],
+            "returns": {
+              "type_name": "bool",
+              "description": "1 if the g2o graph was successfully initialized and 0 otherwise."
+            },
+            "name": "initialize_g2o_graph",
+            "location": {
+              "start": 216,
+              "insert": 217,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 62,
+            "docLength": null
+          },
+          {
+            "id": "b0d845aa-543c-b3b1-0048-545c35b6b0a4",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Calculates the displacement of an agent based on its odometry data, taking into account advancement, lateral movement, and angular movement.",
+            "params": [
+              {
+                "name": "odometry",
+                "type_name": "3D",
+                "description": "An instance of an odometry sequence containing timestamped measurements of vehicle displacement, velocity, and acceleration."
+              }
+            ],
+            "returns": {
+              "type_name": "3tuple",
+              "description": "The displacement in the lateral direction, displacement in the forward \ndirection and angular displacement"
+            },
+            "name": "get_displacement",
+            "location": {
+              "start": 287,
+              "insert": 288,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 14,
+            "docLength": null
+          },
+          {
+            "id": "36f50680-855a-579d-ca42-74cc61a2f731",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Computes and returns the covariance matrix of a set of vertices in a graph, using an optimization algorithm to compute the marginals and then constructing the covariance matrix from the resulting upper triangle.",
+            "params": [
+              {
+                "name": "vertex",
+                "type_name": "g2overtex",
+                "description": "Used to represent a vertex in a graph."
+              }
+            ],
+            "returns": {
+              "type_name": "2tuple",
+              "description": "A tuple containing two elements: a boolean value and a covariance matrix."
+            },
+            "name": "get_covariance_matrix",
+            "location": {
+              "start": 306,
+              "insert": 307,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 11,
+            "docLength": null
+          },
+          {
+            "id": "896b2c4c-671c-56b7-2146-3bb41cbdf488",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Within the SpecificWorker class loads an G2O file, visualizes the vertices and edges, and updates the visualization in real-time as new data is available.",
+            "params": [
+              {
+                "name": "optimizer",
+                "type_name": "object",
+                "description": "Used to load an G2O file into the optimizer for visualization purposes."
+              }
+            ],
+            "returns": null,
+            "name": "visualize_g2o_realtime",
+            "location": {
+              "start": 319,
+              "insert": 320,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 29,
+            "docLength": null
+          },
+          {
+            "id": "ffcb62e9-bfd0-3ba9-2445-2891d359b7e4",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Updates the attributes of a node in a graph based on the `id` and `attribute_names` parameters. It appends a new value to an odometry queue for the specified node.",
+            "params": [
+              {
+                "name": "id",
+                "type_name": "int",
+                "description": "Representing an identifier for a specific node in the graph."
+              },
+              {
+                "name": "attribute_names",
+                "type_name": "[str]",
+                "description": "A list of strings representing the names of attributes to be updated on the node."
+              }
+            ],
+            "returns": null,
+            "name": "update_node_att",
+            "location": {
+              "start": 356,
+              "insert": 365,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 7,
+            "docLength": null
+          },
+          {
+            "id": "7059f551-5aee-69a2-384c-fbcf4bbacbb5",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Updates a node with ID `id` based on its type, performing different actions depending on the type.",
+            "params": [
+              {
+                "name": "id",
+                "type_name": "int",
+                "description": "Passed as an argument to update a node's attributes."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to identify the node type, specifically \"corner\"."
+              }
+            ],
+            "returns": null,
+            "name": "update_node",
+            "location": {
+              "start": 372,
+              "insert": 382,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 6,
+            "docLength": null
+          },
+          {
+            "id": "c310bdad-8d5c-79bf-5c49-07613fe4780c",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Deletes a node from a collection based on its ID, setting a flag to indicate if the delete was successful for a specific type of node.",
+            "params": [
+              {
+                "name": "id",
+                "type_name": "int",
+                "description": "Passed as an input to delete a node from the graph represented by the object."
+              }
+            ],
+            "returns": null,
+            "name": "delete_node",
+            "location": {
+              "start": 384,
+              "insert": 385,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 6,
+            "docLength": null
+          },
+          {
+            "id": "60670be1-c219-76b4-a044-73344240afa6",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Updates the room ID and initializes graph variables when a 'current' or 'RT' edge is encountered, and sets translation and rotation values when an 'RT' edge is encountered with a 'Shadow' node on the other side.",
+            "params": [
+              {
+                "name": "fr",
+                "type_name": "int",
+                "description": "Representative of the first node's position in the graph."
+              },
+              {
+                "name": "to",
+                "type_name": "int",
+                "description": "Used to represent the id of the node that follows the edge being updated."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to specify the type of update being performed on the edge, either \"current\" or \"RT\"."
+              }
+            ],
+            "returns": null,
+            "name": "update_edge",
+            "location": {
+              "start": 392,
+              "insert": 393,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 19,
+            "docLength": null
+          },
+          {
+            "id": "dbee83f0-4462-498a-a142-94445d3dae43",
+            "ancestors": [
+              "4b0c2e7c-917e-fe8f-c94d-12b6f456ba67"
+            ],
+            "description": "Deletes an edge from a graph represented by the `SpecificWorker` class, specified by the `fr` and `to` integers and Edge type.",
+            "params": [
+              {
+                "name": "fr",
+                "type_name": "int",
+                "description": "Valued at 0 in the given code snippet."
+              },
+              {
+                "name": "to",
+                "type_name": "int",
+                "description": "Used to specify the destination node ID for edge deletion."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to specify the edge type to be deleted."
+              }
+            ],
+            "returns": null,
+            "name": "delete_edge",
+            "location": {
+              "start": 417,
+              "insert": 418,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 3,
+            "docLength": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "specificworker.py",
+    "path": "agents/long_term_spatial_memory_agent/src/specificworker.py",
+    "content": {
+      "structured": {
+        "description": "An Agent class that simulates a robot interacting with a environment represented as a graph. The agent moves around the graph based on its internal state and performs actions such as moving to new rooms, recognizing new rooms, and creating new edges in the graph. The code also includes functions for updating node and edge attributes, inserting current edges, and deleting nodes and edges. Additionally, it includes checks for when the robot enters a new room and when an active goto edge connects the robot and a door.",
+        "items": [
+          {
+            "id": "2b141280-ee77-c286-624c-2bfef7babe6f",
+            "ancestors": [],
+            "description": "Is a Python class that acts as an agent for a specific robot in a graph, navigating it through a environment and updating its state based on node and edge attributes. It also handles inserting new edges and deleting existing ones.",
+            "attributes": [
+              {
+                "name": "Period",
+                "type_name": "str",
+                "description": "Used to specify the period of time between the worker's actions, such as moving or turning."
+              },
+              {
+                "name": "agent_id",
+                "type_name": "int",
+                "description": "Used to identify the agent's internal graph. It is used as a key for accessing the graph's nodes, edges, and attributes related to the specific agent."
+              },
+              {
+                "name": "g",
+                "type_name": "Graph",
+                "description": "Used to represent the graph of the environment, which stores nodes and edges as objects, and provides methods for adding, removing, and querying nodes and edges."
+              },
+              {
+                "name": "update_node",
+                "type_name": "int",
+                "description": "Used to update the state of a node based on its ID. It takes one argument, `type`, which can be either \"crossed\" or \"completed\". When `type` is \"crossed\", the state of the node is updated to \"crossed\", indicating that the node has been crossed. When `type` is \"completed\", the state of the node is updated to \"completed\", indicating that the node has been completed."
+              },
+              {
+                "name": "update_edge",
+                "type_name": "edge",
+                "description": "Used to update an edge's attributes based on the current node state."
+              },
+              {
+                "name": "startup_check",
+                "type_name": "QTimersingleShot",
+                "description": "Used to call QApplication.instance().quit after a delay of 200 milliseconds after the worker's construction, indicating that the worker has finished its startup tasks."
+              },
+              {
+                "name": "rt_api",
+                "type_name": "str",
+                "description": "Used to store the RT API that is used for navigation."
+              },
+              {
+                "name": "inner_api",
+                "type_name": "Python",
+                "description": "Used to access the internal API of the agent's environment, allowing the worker to interact with the agent and its environment in a more direct way."
+              },
+              {
+                "name": "room_initialized",
+                "type_name": "int",
+                "description": "0 by default, indicating that the room has not been initialized yet. When a new room is created or an existing room's state changes to \"crossed\", this attribute value is updated to 1, indicating that the room has been initialized."
+              },
+              {
+                "name": "robot_name",
+                "type_name": "str",
+                "description": "Used to store the name of the robot for which the worker is designed to navigate."
+              },
+              {
+                "name": "robot_id",
+                "type_name": "int",
+                "description": "Used to represent the ID of the robot in the agent's internal graph. It is used to identify the robot in the graph and to determine the appropriate actions for the robot to take based on its current location and goals."
+              },
+              {
+                "name": "state",
+                "type_name": "str",
+                "description": "Used to keep track of the current state of the worker, such as \"idle\", \"running\", or \"completed\"."
+              },
+              {
+                "name": "affordance_node_active_id",
+                "type_name": "int",
+                "description": "Used to store the ID of the node representing the affordance of the robot's current action, which is actived when the robot performs the action."
+              },
+              {
+                "name": "room_exit_door_id",
+                "type_name": "int",
+                "description": "17 by default. It represents the ID of the door through which the robot exits a room, used for connecting doors in the internal graph of the agent."
+              },
+              {
+                "name": "exit_room_node_id",
+                "type_name": "int",
+                "description": "Used to store the ID of the room node that the robot exits when it leaves a room. It is used in conjunction with the `insert_current_edge` method to set the current edge when no other edges are present in the graph."
+              },
+              {
+                "name": "enter_room_node_id",
+                "type_name": "int",
+                "description": "Used to store the ID of the room node that the worker enters when it moves from one room to another."
+              },
+              {
+                "name": "exit_door_id",
+                "type_name": "int",
+                "description": "Used to store the index of the door that leads out of a room. It is used for insertion of edges in the graph during navigation."
+              },
+              {
+                "name": "graph",
+                "type_name": "nxGraph",
+                "description": "Used to represent the graph of nodes and edges that represent the environment for the specific worker. It provides access to methods for adding, removing, and querying nodes and edges in the graph."
+              },
+              {
+                "name": "vertex_size",
+                "type_name": "int",
+                "description": "0 by default, indicating that the worker has no vertex. It is used to keep track of the number of vertices added to the graph during the course of the algorithm."
+              },
+              {
+                "name": "not_required_attrs",
+                "type_name": "list",
+                "description": "Used to store a list of attributes that are not required for the worker's functionality. It serves as a way to prioritize the processing of attributes based on their importance."
+              },
+              {
+                "name": "fig",
+                "type_name": "instance",
+                "description": "Used to store the figure object for visualizing the graph during the worker's execution."
+              },
+              {
+                "name": "ax",
+                "type_name": "Matplotlib",
+                "description": "Used to interact with the graphical user interface (GUI) to visualize the graph, draw edges, and display room images."
+              },
+              {
+                "name": "insert_current_edge",
+                "type_name": "Edge",
+                "description": "Used to insert a new edge into the graph with a specific type (current) and source and destination nodes, which are the room node and the robot node."
+              },
+              {
+                "name": "timer",
+                "type_name": "QTimer",
+                "description": "Used to schedule a call to the `QApplication.instance().quit()` function after 200 milliseconds, effectively shutting down the application."
+              },
+              {
+                "name": "compute",
+                "type_name": "instance",
+                "description": "Used to hold the computation result of the worker. The `compute` method computes the result \nof a worker by calling its `work` method and returns the result as an instance of the \n`Result` class."
+              }
+            ],
+            "name": "SpecificWorker",
+            "location": {
+              "start": 45,
+              "insert": 46,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "class",
+            "length": 348,
+            "docLength": null
+          },
+          {
+            "id": "24854ce9-750d-9cac-f040-d4682609b49c",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Initializes an instance of the SpecificWorker class, defining its graph, node ID, and other properties. It also sets up event listeners for updates and deletes on the graph's nodes and edges, and defines a timer to call the `compute` method at regular intervals.",
+            "params": [
+              {
+                "name": "proxy_map",
+                "type_name": "igraphGraph",
+                "description": "Used to store the graph representing the environment."
+              },
+              {
+                "name": "startup_check",
+                "type_name": "bool",
+                "description": "Optional. It is used to run a check during initialization, which can be useful for setting up \nspecific worker parameters or initializing other parts of the program."
+              }
+            ],
+            "returns": null,
+            "name": "__init__",
+            "location": {
+              "start": 46,
+              "insert": 47,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 51,
+            "docLength": null
+          },
+          {
+            "id": "cca22df6-1427-cb9a-9949-2aa42cb56088",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Sets the parameters for a specific worker, removes self-edges from a room, stores ID of exit door, names other side doors, and reads entrance door node to set attributes.",
+            "params": [
+              {
+                "name": "params",
+                "type_name": "object",
+                "description": "Used to set parameters for the function's execution."
+              }
+            ],
+            "returns": {
+              "type_name": "Boolean",
+              "description": "True."
+            },
+            "name": "setParams",
+            "location": {
+              "start": 108,
+              "insert": 109,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 7,
+            "docLength": null
+          },
+          {
+            "id": "2153d344-5747-85b5-fb48-fedae092da52",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Determines the state of a worker based on the current state and edges in its graph. It updates the worker's state and performs actions accordingly.",
+            "params": [],
+            "returns": null,
+            "name": "compute",
+            "location": {
+              "start": 122,
+              "insert": 141,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 26,
+            "docLength": null
+          },
+          {
+            "id": "c0dc7b27-1b5b-0da9-bd41-bddab9e41dfd",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Determines if the worker can cross a room based on its affordance and current room information. If there is only one current room, it sets the `room_exit_door_id` and `affordance_node_active_id` attributes to their respective values and sets the `state` attribute to \"crossing\". Otherwise, it prints \"No current room\".",
+            "params": [],
+            "returns": null,
+            "name": "idle",
+            "location": {
+              "start": 162,
+              "insert": 165,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 16,
+            "docLength": null
+          },
+          {
+            "id": "228204b3-e69e-b68b-c549-28608643c6a2",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Performs actions related to crossing a room, including printing messages and changing the state of the `SpecificWorker` object to \"crossed\".",
+            "params": [],
+            "returns": null,
+            "name": "crossing",
+            "location": {
+              "start": 183,
+              "insert": 184,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 8,
+            "docLength": null
+          },
+          {
+            "id": "ef759018-0a1d-789c-2e4d-2ebc9cd9b76b",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Determines if a door can be crossed based on its parent node's value, deleting an edge and updating the state to \"initializing room\" if possible.",
+            "params": [],
+            "returns": null,
+            "name": "crossed",
+            "location": {
+              "start": 197,
+              "insert": 199,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 9,
+            "docLength": null
+          },
+          {
+            "id": "ef02c092-0f11-94be-fe47-3f1a2e291780",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Determines and sets the worker's current room ID, adds an edge to the graph representing entry into that room, and changes the worker's state to \"initializing doors\".",
+            "params": [],
+            "returns": null,
+            "name": "initializing_room",
+            "location": {
+              "start": 210,
+              "insert": 213,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 10,
+            "docLength": null
+          },
+          {
+            "id": "fd2fb18b-93a7-cba5-5248-81b08d650939",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Identifies the doors connected to the agent's room and updates their attributes with information about the other side door.",
+            "params": [],
+            "returns": null,
+            "name": "initializing_doors",
+            "location": {
+              "start": 227,
+              "insert": 230,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 24,
+            "docLength": null
+          },
+          {
+            "id": "dad7459d-3fa7-cd98-8246-7447274e19ea",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Removes edges from a graph based on room numbers, deleting nodes corresponding to the removed edges and updating the graph's state.",
+            "params": [],
+            "returns": null,
+            "name": "removing",
+            "location": {
+              "start": 286,
+              "insert": 287,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 22,
+            "docLength": null
+          },
+          {
+            "id": "063e59fc-5685-feb9-9543-910ca84a1412",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Traverses the graph, starting from a specified node, and inserts vertices and edges according to a specific rule defined by the class `SpecificWorker`.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "str",
+                "description": "Used to identify a specific node in the graph."
+              }
+            ],
+            "returns": null,
+            "name": "traverse_graph",
+            "location": {
+              "start": 319,
+              "insert": 321,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 7,
+            "docLength": null
+          },
+          {
+            "id": "26bd3aae-f5db-fb95-9749-ef80e3dc6e37",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Adds a new vertex to a graph and associates it with node attributes. If the vertex has an \"other_side_door_name\" attribute, it tries to find a matching vertex in the graph with the same name and adds an edge between them.",
+            "params": [
+              {
+                "name": "node",
+                "type_name": "Node",
+                "description": "Passed as an instance of the Node class, representing a vertex to be inserted into the graph."
+              }
+            ],
+            "returns": null,
+            "name": "insert_vertex",
+            "location": {
+              "start": 329,
+              "insert": 330,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 29,
+            "docLength": null
+          },
+          {
+            "id": "22575dc0-422b-b299-0545-bc94de6e6b0e",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Adds an edge to a graph with a specific translation attribute set to the value provided in the `attrs` dictionary of the edge object.",
+            "params": [
+              {
+                "name": "edge",
+                "type_name": "Edge",
+                "description": "Passed as an instance of the Edge class, containing information about an edge in the graph, including its origin and destination nodes and any relevant attribute values."
+              }
+            ],
+            "returns": null,
+            "name": "insert_edge_rt",
+            "location": {
+              "start": 364,
+              "insert": 366,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 5,
+            "docLength": null
+          },
+          {
+            "id": "a75df502-baf8-a6a7-ae48-33934d1866cf",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Clears the axis, layouts the graph using the \"kamada_kawai\" layout algorithm, and plots the vertices and edges using different colors and annotations.",
+            "params": [],
+            "returns": null,
+            "name": "draw_graph",
+            "location": {
+              "start": 372,
+              "insert": 373,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 15,
+            "docLength": null
+          },
+          {
+            "id": "4fabd3ef-0447-78bf-7841-a5300c42e4a3",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Within the SpecificWorker class takes a node ID as input and retrieves the room ID associated with that node using the `attrs` attribute. If the attribute is not found, it prints an error message and returns -1.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "str",
+                "description": "Passed to the function for checking the room number of an element in the graph."
+              }
+            ],
+            "returns": {
+              "type_name": "int",
+              "description": "The room id of the element with the given node ID, or -1 if no such attribute is found."
+            },
+            "name": "check_element_room_number",
+            "location": {
+              "start": 395,
+              "insert": 396,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 8,
+            "docLength": null
+          },
+          {
+            "id": "44d1d921-0a65-1ebc-4b4f-02861668691f",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Within the SpecificWorker class, determines the element level of a node and returns its value if found, or -1 if not. It also checks the robot position and adjusts door connections based on similarities with other rooms' internal graphs.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "str",
+                "description": "Used as the identifier of the node to check the element level."
+              }
+            ],
+            "returns": {
+              "type_name": "integerints",
+              "description": "Level of an element in a graph represented as a node with attributes `level`."
+            },
+            "name": "check_element_level",
+            "location": {
+              "start": 404,
+              "insert": 405,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 25,
+            "docLength": null
+          },
+          {
+            "id": "33577053-e691-84a7-4045-74940b12f01f",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Retrieves the node attributes and edges of a room, and then draws the room polygon and doors using OpenCV. It also saves an image of the room as \"room_image.jpg\".",
+            "params": [
+              {
+                "name": "room_node_id",
+                "type_name": "str",
+                "description": "The ID of the room node for which a picture should be generated."
+              }
+            ],
+            "returns": null,
+            "name": "generate_room_picture",
+            "location": {
+              "start": 447,
+              "insert": 449,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 24,
+            "docLength": null
+          },
+          {
+            "id": "f0f97a09-07e0-ebb1-684d-ccc00db19010",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Adds an edge to the graph representing the current location of the agent, with the specified room ID as the tail and head vertices, and the `self.agent_id` as the label.",
+            "params": [
+              {
+                "name": "room_id",
+                "type_name": "str",
+                "description": "Passed as an argument to the function, representing the identifier of the current room being navigated through."
+              }
+            ],
+            "returns": null,
+            "name": "insert_current_edge",
+            "location": {
+              "start": 482,
+              "insert": 484,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 3,
+            "docLength": null
+          },
+          {
+            "id": "04c40dc9-8cf0-4e8e-c44d-a3bfc2ddd3e3",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Updates an affordance node's state based on its ID and type, printing various values related to the node's state.",
+            "params": [
+              {
+                "name": "id",
+                "type_name": "int",
+                "description": "Used to identify the node for which affordance state is being checked."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to represent the type of node being updated."
+              }
+            ],
+            "returns": null,
+            "name": "update_node",
+            "location": {
+              "start": 496,
+              "insert": 497,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 9,
+            "docLength": null
+          },
+          {
+            "id": "7f5e420a-5903-5c8a-5440-aa0a51c4f16d",
+            "ancestors": [
+              "2b141280-ee77-c286-624c-2bfef7babe6f"
+            ],
+            "description": "Updates the current edge of a room node based on certain conditions, including the room ID, the from and to nodes, and the edge type.",
+            "params": [
+              {
+                "name": "fr",
+                "type_name": "int",
+                "description": "Referred to as the \"from\" index of an edge."
+              },
+              {
+                "name": "to",
+                "type_name": "int",
+                "description": "Representing an integer value of a node ID in the graph."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Set to \"RT\". This indicates that the update is related to room transitions."
+              }
+            ],
+            "returns": null,
+            "name": "update_edge",
+            "location": {
+              "start": 511,
+              "insert": 515,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 5,
+            "docLength": null
+          }
+        ]
+      }
+    }
+  }
+]
