@@ -27,6 +27,16 @@
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
+#define RESET   "\033[0m"
+#define RED     "\033[31m"      /* Red */
+#define GREEN   "\033[32m"      /* Green */
+#define YELLOW  "\033[33m"      /* Yellow */
+#define BLUE    "\033[34m"      /* Blue */
+#define MAGENTA "\033[35m"      /* Magenta */
+#define CYAN    "\033[36m"      /* Cyan */
+#define WHITE   "\033[37m"      /* White */
+
+
 #include "params.h"
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
@@ -37,39 +47,39 @@ class SpecificWorker : public GenericWorker
 {
 Q_OBJECT
 public:
-	SpecificWorker(TuplePrx tprx, bool startup_check);
-	~SpecificWorker();
-	bool setParams(RoboCompCommonBehavior::ParameterList params);
+    SpecificWorker(TuplePrx tprx, bool startup_check);
+    ~SpecificWorker();
+    bool setParams(RoboCompCommonBehavior::ParameterList params);
 
 
 
 public slots:
-	void compute();
-	int startup_check();
-	void initialize(int period);
-	void modify_node_slot(std::uint64_t, const std::string &type){};
-	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
-	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
-	void del_node_slot(std::uint64_t from){};     
+    void compute();
+    int startup_check();
+    void initialize(int period);
+    void modify_node_slot(std::uint64_t, const std::string &type){};
+    void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
+    void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+    void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
+    void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
+    void del_node_slot(std::uint64_t from){};
 private:
-	// DSR graph
-	std::shared_ptr<DSR::DSRGraph> G;
+    // DSR graph
+    std::shared_ptr<DSR::DSRGraph> G;
 
-	//DSR params
-	std::string agent_name;
-	int agent_id;
+    //DSR params
+    std::string agent_name;
+    int agent_id;
 
-	bool tree_view;
-	bool graph_view;
-	bool qscene_2d_view;
-	bool osg_3d_view;
+    bool tree_view;
+    bool graph_view;
+    bool qscene_2d_view;
+    bool osg_3d_view;
 
-	// DSR graph viewer
-	std::unique_ptr<DSR::DSRViewer> graph_viewer;
-	QHBoxLayout mainLayout;
-	bool startup_check_flag;
+    // DSR graph viewer
+    std::unique_ptr<DSR::DSRViewer> graph_viewer;
+    QHBoxLayout mainLayout;
+    bool startup_check_flag;
 
     // Params
     rc::Params params;

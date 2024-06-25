@@ -18,16 +18,17 @@
  */
 #include "specificworker.h"
 
+
 /**
 * \brief Default constructor
 */
 SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
 {
-	this->startup_check_flag = startup_check;
-	// Uncomment if there's too many debug messages
-	// but it removes the possibility to see the messages
-	// shown in the console with qDebug()
-	QLoggingCategory::setFilterRules("*.debug=false\n");
+    this->startup_check_flag = startup_check;
+    // Uncomment if there's too many debug messages
+    // but it removes the possibility to see the messages
+    // shown in the console with qDebug()
+    QLoggingCategory::setFilterRules("*.debug=false\n");
 }
 
 /**
@@ -35,14 +36,14 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 */
 SpecificWorker::~SpecificWorker()
 {
-	std::cout << "Destroying SpecificWorker" << std::endl;
-	//G->write_to_json_file("./"+agent_name+".json");
-	auto grid_nodes = G->get_nodes_by_type("grid");
-	for (auto grid : grid_nodes)
-	{
-		G->delete_node(grid);
-	}
-	G.reset();
+    std::cout << "Destroying SpecificWorker" << std::endl;
+    //G->write_to_json_file("./"+agent_name+".json");
+    auto grid_nodes = G->get_nodes_by_type("grid");
+    for (auto grid : grid_nodes)
+    {
+        G->delete_node(grid);
+    }
+    G.reset();
 }
 
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
@@ -61,204 +62,334 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 
 
 
-	try
-	{
-		agent_name = params.at("agent_name").value;
-		agent_id = stoi(params.at("agent_id").value);
-		tree_view = params.at("tree_view").value == "true";
-		graph_view = params.at("graph_view").value == "true";
-		qscene_2d_view = params.at("2d_view").value == "true";
-		osg_3d_view = params.at("3d_view").value == "true";
-	}
-	catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
+    try
+    {
+        agent_name = params.at("agent_name").value;
+        agent_id = stoi(params.at("agent_id").value);
+        tree_view = params.at("tree_view").value == "true";
+        graph_view = params.at("graph_view").value == "true";
+        qscene_2d_view = params.at("2d_view").value == "true";
+        osg_3d_view = params.at("3d_view").value == "true";
+    }
+    catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
 
-	return true;
+    return true;
 }
 
 void SpecificWorker::initialize(int period)
 {
-	std::cout << "Initialize worker" << std::endl;
-	this->Period = period;
+    std::cout << "Initialize worker" << std::endl;
+    this->Period = 500;
 
-	if(this->startup_check_flag)
-	{
-		this->startup_check();
-	}
-	else
-	{
-		// create graph
-		G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
-		std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
+    if(this->startup_check_flag)
+    {
+        this->startup_check();
+    }
+    else
+    {
+        // create graph
+        G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
+        std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;
 
-		//dsr update signals
-		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+        //dsr update signals
+        //connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+        //connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
+        //connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
+        connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
-		// Graph viewer
-		using opts = DSR::DSRViewer::view;
+        // Graph viewer
+        using opts = DSR::DSRViewer::view;
         qInfo() << "asdg";
-		int current_opts = 0;
+        int current_opts = 0;
         qInfo() << "asdg";
-		opts main = opts::none;
-		if(tree_view)
-		{
-		    current_opts = current_opts | opts::tree;
-		}
-		if(graph_view)
-		{
-		    current_opts = current_opts | opts::graph;
-		    main = opts::graph;
-		}
-		if(qscene_2d_view)
-		{
-		    current_opts = current_opts | opts::scene;
-		}
-		if(osg_3d_view)
-		{
-		    current_opts = current_opts | opts::osg;
-		}
+        opts main = opts::none;
+        if(tree_view)
+        {
+            current_opts = current_opts | opts::tree;
+        }
+        if(graph_view)
+        {
+            current_opts = current_opts | opts::graph;
+            main = opts::graph;
+        }
+        if(qscene_2d_view)
+        {
+            current_opts = current_opts | opts::scene;
+        }
+        if(osg_3d_view)
+        {
+            current_opts = current_opts | opts::osg;
+        }
         qInfo() << "asdg";
-		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+        graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
         qInfo() << "asdg";
-		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+        setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
-		/***
-		Custom Widget
-		In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
-		The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
-		either with a QtDesigner or directly from scratch in a class of its own.
-		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
-		***/
-		//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
-		timer.start(Period);
-	}
+        /***
+        Custom Widget
+        In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
+        The add_custom_widget_to_dock method is used. This widget can be defined like any other Qt widget,
+        either with a QtDesigner or directly from scratch in a class of its own.
+        The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
+        ***/
+        //graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
+        timer.start(Period);
+    }
 
 }
 
 void SpecificWorker::compute()
 {
 
-    qInfo() << "************************************Compute*************************************************";
-    auto has_intention_edges = G->get_edges_by_type("has_intention");
 
-    //print this->intention_active
-    qInfo() << "Intention active: " << this->intention_active;
-
-    //get_edges of type exit
-    auto exit_edges = G->get_edges_by_type("exit");
-
-    //This code is for the case when affordances must not be activated because someone is doing important things
-    if (not exit_edges.empty() and not affordance_activated)
+    //FIND IF EXIST ONE AFFORDANCE ACTIVATED, TO UPDATE MISSION STATUS
+    //Get all nodes of type affordance
+    auto affordance_nodes = G->get_nodes_by_type("affordance");
+    // If not empty, find the affordance node with the active attribute set to true
+    for(auto affordance : affordance_nodes)
     {
-        affordance_activated = true;
-    }
-
-    if(!this->intention_active)
-    {
-        if (!has_intention_edges.empty())
+        if(auto affordance_active = G->get_attrib_by_name<active_att>(affordance); affordance_active.has_value())
         {
-            qInfo()<< "Has intention edges found";
-            for (auto edge : has_intention_edges)
+            if(affordance_active.value())
             {
-                if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
-                {
-                    if (edge_state.value() == "waiting")
-                    {
-                        qInfo() << "Intention edge found and waiting";
-                        this->active_node_id = set_intention_active(edge, true);
-                        this->intention_active = true;
-
-                        qInfo() << "Intention_active = true";
-                        break;
-                    }
-                }
-            }
-        }
-        else
-        {
-            if(!affordance_activated)
-            {
-                //get nodes of type affordance
-                auto affordance_nodes = G->get_nodes_by_type("affordance");
-                // change the active attribute of an affordance node to true
-                for(auto affordance : affordance_nodes)
-                {
-                    //get affordance bt_state attribute
-                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
-                    {
-                        if (affordance_state.value() == "waiting")
-                        {
-                            qInfo() << "Affordance node found and waiting";
-                            G->add_or_modify_attrib_local<active_att>(affordance, true);
-                            //set affordance bt_state attribute to in_progress
-                            G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
-                            affordance_activated_id = affordance.id();
-                            G->update_node(affordance);
-                            affordance_activated = true;
-                            return;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                std::cout << "Affordance activated" << std::endl;
-
                 //Check if affordance node is completed
-                if(auto affordance_node = G->get_node(affordance_activated_id); affordance_node.has_value())
+                if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
                 {
-                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance_node.value()); affordance_state.has_value())
+                    std::cout << CYAN << "Affordance name: " << affordance.name() << RESET << std::endl;
+                    std::cout << CYAN << "Affordance state: " << affordance_state.value() << RESET << std::endl;
+                    if(affordance_state.value() == "completed")
                     {
-                        std::cout << "Affordance bt_state:" << affordance_state.value() << std::endl;
-
-                        if(affordance_state.value() == "completed")
-                        {
-                            std::cout << "Affordance node completed" << std::endl;
-                            G->add_or_modify_attrib_local<active_att>(affordance_node.value(), false);
-                            G->update_node(affordance_node.value());
-                            affordance_activated = false;
-                            affordance_activated_id = -1;
-                            this->intention_active = false;
-//                            std::terminate();
-                        }
+                        G->add_or_modify_attrib_local<active_att>(affordance, false);
+                        G->update_node(affordance);
+                        //Print AFFORDANCE NODE COMPLETED
+                        std::cout << CYAN << "AFFORDANCE NODE COMPLETED, setting active to false" << RESET << std::endl;
+                        //Print the affordance name, state and value
+                        return;
+                    }
+                    else if(affordance_state.value () == "in_progress" or affordance_state.value () == "waiting")
+                    {
+                        std::cout << BLUE << "AFFORDANCE NODE IN PROGRESS: " << affordance.name() << RESET << std::endl;
+                        return;
                     }
                 }
             }
         }
     }
-    else //Intention ACTIVE
-    {
-        qInfo() << "Intention active";
-        if (auto active_node_ = G->get_node(this->active_node_id); active_node_.has_value())
-        {
-            std::cout << "Node name" << active_node_.value().name() << std::endl;
 
-            if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
+    //FIND IF EXIST ONE HAS_INTENTION ACTIVATED, TO UPDATE MISSION STATUS
+    //Get all edges of type has_intention
+    auto has_intention_edges = G->get_edges_by_type("has_intention");
+    // If not empty, find the edge with the active attribute set to true
+    for(auto edge : has_intention_edges)
+    {
+        if(auto edge_active = G->get_attrib_by_name<active_att>(edge); edge_active.has_value())
+        {
+            if(edge_active.value())
             {
-                if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
+                //Check if edge is completed
+                if(auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
                 {
-                    std::cout << "Edge state: " << edge_state.value() << std::endl;
+                    //Print the edge from and to names
+                    qInfo() << "Edge from: " << QString::fromStdString(G->get_node(edge.from()).value().name()) << "Edge to: " << QString::fromStdString(G->get_node(edge.to()).value().name());
+                    //Print the edge state and value
+                    qInfo() << "Edge state: " << QString::fromStdString(edge_state.value());
 
                     if(edge_state.value() == "completed")
                     {
-                        qInfo() << "HAS INTENTION EDGE COMPLETED";
-                        this->active_node_id = set_intention_active(edge.value(), false);
+                        G->add_or_modify_attrib_local<active_att>(edge, false);
+                        G->insert_or_assign_edge(edge);
+                        std::cout << RED << "HAS INTENTION EDGE COMPLETED, setting active to false" << RESET << std::endl;
+                        return;
+                    }
+                    else if (edge_state.value() == "in_progress" or edge_state.value() == "waiting")
+                    {
+                        std::cout << GREEN << "HAS INTENTION EDGE IN PROGRESS" << RESET << std::endl;
+                        return;
                     }
                 }
             }
         }
     }
+
+    //NO CURRENT MISSION ACTIVATED, TIME TO SELECT ONE
+
+    std::cout << YELLOW << "************************************** SEPE ***************************************" << RESET << std::endl;
+
+    //IN ORDER TO ACCOMPLISH ROOM TRANSITION, FIRST ACTIVATE HAS INTENTION EDGES TO STABILIZE ROOM ELEMENTS
+    //Get first has_intention edge with state waiting
+    for(auto edge : has_intention_edges)
+    {
+        if(auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+        {
+            if(edge_state.value() == "waiting")
+            {
+                //cout << "NEW INTENTION EDGE FOUND"  in color GREEN using printf
+                //Print NEW INTENTION ACTIVE in GREEN color
+                std::cout << GREEN << "----------------- NEW INTENTION ACTIVE ----------------------------" << RESET << std::endl;
+                //Print the edge from and to names
+                qInfo() << "Edge from: " << QString::fromStdString(G->get_node(edge.from()).value().name()) << "Edge to: " << QString::fromStdString(G->get_node(edge.to()).value().name());
+                //Print the edge state and value
+                qInfo() << "Edge state: " << QString::fromStdString(edge_state.value());
+                //Set the intention att active of the edge to true
+                G->add_or_modify_attrib_local<active_att>(edge, true);
+                G->insert_or_assign_edge(edge);
+
+                return;
+            }
+        }
+    }
+
+    auto exit_edges = G->get_edges_by_type("exit");
+
+    //This code is for the case when affordances must not be activated because someone is doing important things
+    if (not exit_edges.empty())
+    {
+        std::cout << "EXIT EDGE FOUND" << std::endl;
+        return;
+    }
+
+    //Get first affordance node with state waiting
+    for(auto affordance : affordance_nodes)
+    {
+        if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
+        {
+            if(affordance_state.value() == "waiting")
+            {
+                //Print NEW AFFORDANCE ACTIVE in GREEN color
+                std::cout << BLUE << "----------------- NEW AFFORDANCE ACTIVE ----------------------------" << RESET << std::endl;
+                //Print the affordance name and state
+                qInfo() << "Affordance name: " << QString::fromStdString(affordance.name());
+                qInfo() << "Affordance state: " << QString::fromStdString(affordance_state.value());
+                //Set the affordance active to true
+                G->add_or_modify_attrib_local<active_att>(affordance, true);
+                //Set the affordance state to in_progress
+                G->update_node(affordance);
+                return;
+            }
+        }
+    }
+
+
+
+
+//    auto has_intention_edges = G->get_edges_by_type("has_intention");
+//
+//    //print this->intention_active
+//    qInfo() << "Intention active: " << this->intention_active;
+//
+//    //get_edges of type exit
+//    auto exit_edges = G->get_edges_by_type("exit");
+//
+//    //This code is for the case when affordances must not be activated because someone is doing important things
+//    if (not exit_edges.empty() and not affordance_activated)
+//    {
+//        affordance_activated = true;
+//    }
+//
+//    if(!this->intention_active)
+//    {
+//        if (!has_intention_edges.empty())
+//        {
+//            qInfo()<< "Has intention edges found";
+//            for (auto edge : has_intention_edges)
+//            {
+//                if (auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+//                {
+//                    if (edge_state.value() == "waiting")
+//                    {
+//                        qInfo() << "Intention edge found and waiting";
+//                        this->active_node_id = set_intention_active(edge, true);
+//                        this->intention_active = true;
+//
+//                        qInfo() << "Intention_active = true";
+//                        break;
+//                    }
+//                }
+//            }
+//        }
+//        else
+//        {
+//            if(!affordance_activated)
+//            {
+//                //get nodes of type affordance
+//                auto affordance_nodes = G->get_nodes_by_type("affordance");
+//                // change the active attribute of an affordance node to true
+//                for(auto affordance : affordance_nodes)
+//                {
+//                    //get affordance bt_state attribute
+//                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
+//                    {
+//                        if (affordance_state.value() == "waiting")
+//                        {
+//                            qInfo() << "Affordance node found and waiting";
+//                            G->add_or_modify_attrib_local<active_att>(affordance, true);
+//                            //set affordance bt_state attribute to in_progress
+//                            G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("in_progress"));
+//                            affordance_activated_id = affordance.id();
+//                            G->update_node(affordance);
+//                            affordance_activated = true;
+//                            return;
+//                        }
+//                    }
+//                }
+//            }
+//            else
+//            {
+//                std::cout << "Affordance activated" << std::endl;
+//
+//                //Check if affordance node is completed
+//                if(auto affordance_node = G->get_node(affordance_activated_id); affordance_node.has_value())
+//                {
+//                    if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance_node.value()); affordance_state.has_value())
+//                    {
+//                        std::cout << "Affordance bt_state:" << affordance_state.value() << std::endl;
+//
+//                        if(affordance_state.value() == "completed")
+//                        {
+//                            std::cout << "Affordance node completed" << std::endl;
+//                            G->add_or_modify_attrib_local<active_att>(affordance_node.value(), false);
+//                            G->update_node(affordance_node.value());
+//                            affordance_activated = false;
+//                            affordance_activated_id = -1;
+//                            this->intention_active = false;
+////                            std::terminate();
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
+//    else //Intention ACTIVE
+//    {
+//        qInfo() << "Intention active";
+//        if (auto active_node_ = G->get_node(this->active_node_id); active_node_.has_value())
+//        {
+//            std::cout << "Node name" << active_node_.value().name() << std::endl;
+//
+//            if(auto edge = G->get_edge(params.ROBOT_ID, this->active_node_id, "has_intention"); edge.has_value())
+//            {
+//                if(auto edge_state = G->get_attrib_by_name<state_att>(edge.value()); edge_state.has_value())
+//                {
+//                    std::cout << "Edge state: " << edge_state.value() << std::endl;
+//
+//                    if(edge_state.value() == "completed")
+//                    {
+//                        qInfo() << "HAS INTENTION EDGE COMPLETED";
+//                        this->active_node_id = set_intention_active(edge.value(), false);
+//                    }
+//                }
+//            }
+//        }
+//    }
 }
 
 int SpecificWorker::startup_check()
 {
-	std::cout << "Startup check" << std::endl;
-	QTimer::singleShot(200, qApp, SLOT(quit()));
-	return 0;
+    std::cout << "Startup check" << std::endl;
+    QTimer::singleShot(200, qApp, SLOT(quit()));
+    return 0;
 }
 
 u_int64_t SpecificWorker::set_intention_active(DSR::Edge &edge, bool active)

@@ -94,7 +94,7 @@ class SpecificWorker(GenericWorker):
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
@@ -118,6 +118,7 @@ class SpecificWorker(GenericWorker):
         self.iterations += 1
 
         if self.room_initialized:
+            print("Room initialized")
             # Get robot odometry
             if self.odometry_queue:
                 init_time = time.time()
@@ -168,7 +169,7 @@ class SpecificWorker(GenericWorker):
                                     # print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
                 else:
                     # Get last room node
-                    room_node = self.g.get_node("room_" + self.actual_room_id)
+                    room_node = self.g.get_node("room_" + str(self.actual_room_id))
                 chi_value = self.g2o.optimize(iterations=100, verbose=False)
 
                 last_vertex = self.g2o.optimizer.vertices()[self.g2o.vertex_count - 1]
@@ -199,8 +200,9 @@ class SpecificWorker(GenericWorker):
                 # print("Time elapsed compute:", timfe.time() - init_time)
 
         elif self.init_graph and self.translation_to_set is not None and self.rotation_to_set is not None:
+            print("Initializing g2o graph")
             if self.last_room_id is not None:
-                self.g.delete_edge(self.g.get_node("room_"+self.last_room_id).id, self.g.get_node("Shadow").id, "RT")
+                self.g.delete_edge(self.g.get_node("room_"+str(self.last_room_id)).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
             self.room_initialized = True
             self.init_graph = False
@@ -217,9 +219,9 @@ class SpecificWorker(GenericWorker):
         if len(room_nodes) > 0:
             self.g2o.clear_graph()
             room_node = room_nodes[0]
-            if self.actual_room_id is not None and self.actual_room_id != room_node.name.split("_")[-1]:
+            if self.actual_room_id is not None and self.actual_room_id != room_node.attrs['room_id'].value:
                 self.last_room_id = self.actual_room_id
-            self.actual_room_id = room_node.name.split("_")[-1]
+            self.actual_room_id = room_node.attrs['room_id'].value
             print("###########################################################")
             print("INITIALIZ>INDºG G2O GRAPH")
             print("Room changed to", self.actual_room_id)
@@ -253,7 +255,7 @@ class SpecificWorker(GenericWorker):
             corner_list = []
             corner_list_measured = []
             for i in range(4):
-                corner_list.append(self.g.get_node("corner_"+str(i)+"_"+self.actual_room_id))
+                corner_list.append(self.g.get_node("corner_"+str(i)+"_"+str(self.actual_room_id)))
                 corner_list_measured.append(self.g.get_node("corner_"+str(i)+"_measured"))
 
             # Generate QPolygonF with corner values
@@ -354,11 +356,11 @@ class SpecificWorker(GenericWorker):
     def update_node_att(self, id: int, attribute_names: [str]):
         # pass
         # check if room node is created
-        room_node = self.g.get_node("room")
-        if room_node is not None and not self.init_graph:
-            if id == room_node.id and "valid" in attribute_names:
-                # self.init_graph = True
-                print("INIT GRAPH")
+        # room_node = self.g.get_node("room")
+        # if room_node is not None and not self.init_graph:
+        #     if id == room_node.id and "valid" in attribute_names:
+        #         # self.init_graph = True
+        #         print("INIT GRAPH")
 
         if id == self.odometry_node_id:
             odom_node = self.g.get_node("Shadow")
@@ -390,13 +392,12 @@ class SpecificWorker(GenericWorker):
     def update_edge(self, fr: int, to: int, type: str):
         if type == "current" and self.g.get_node(fr).type == "room":
             # Get number after last "_" in room name
-            if self.actual_room_id is not None and self.actual_room_id != self.g.get_node(fr).name.split("_")[-1]:
+            if self.actual_room_id is not None and self.actual_room_id != self.g.get_node(fr).attrs['room_id'].value:
                 self.last_room_id = self.actual_room_id
-            self.actual_room_id = self.g.get_node(fr).name.split("_")[-1]
+            self.actual_room_id = self.g.get_node(fr).attrs['room_id'].value
             print("###########################################################")
             print("Room changed to", self.actual_room_id)
             print("###########################################################")
-
             self.init_graph = True
 
         if type == "RT" and self.g.get_node(fr).type == "room" and self.g.get_node(to).name == "Shadow":

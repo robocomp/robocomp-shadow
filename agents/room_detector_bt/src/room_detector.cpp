@@ -27,6 +27,14 @@ namespace rc
         // Start with more complex features and go downwards
         if (not all_corners.empty())    // if there are room candidates, take the first room // TODO:: order by votes
         {
+            // Iterate over all corners
+//            for(const auto &[c1, c2, c3, c4] : all_corners)
+//            {
+//                // PRint corners
+//                qInfo() << "Room";
+//                qInfo() << "Corners" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
+//            }
+
             const auto &[c1, c2, c3, c4] = all_corners.front();
             std::vector<cv::Point2f> poly{cv::Point2f(c1.x(), c1.y()), cv::Point2f(c2.x(), c2.y()),
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
@@ -34,8 +42,7 @@ namespace rc
             /// TODO: Bug sometimes when executing Noe's algorithm
             // qInfo() << __FUNCTION__ << "Suspect start";
             /// Print poly pòints
-            //for(const auto &p: poly)
-                //qInfo() << "Point" << p.x << p.y;
+
             current_room.rect = cv::minAreaRect(poly);
             //qInfo() << __FUNCTION__ << "Suspect end";
             current_room.is_initialized = true;
@@ -76,7 +83,6 @@ namespace rc
 
         // compute corners
         Corners corners = get_corners(elines);
-
         // compute room candidates by finding triplets of corners in opposite directions and separation within room_size estimations
         All_Corners all_corners = get_rooms(estimated_size.head(2), corners);
 
@@ -240,7 +246,12 @@ namespace rc
                 if (pos == 0){ auto l = QLineF(p3, (p1 + p2) / 2).unitVector(); l.setLength(euc_distance_between_points(p1, p2)); p4 = l.pointAt(1);};
                 if (pos == 1){ auto l = QLineF(p2, (p1 + p3) / 2).unitVector(); l.setLength(euc_distance_between_points(p1, p3)); p4 = l.pointAt(1);};
                 if (pos == 2){ auto l = QLineF(p1, (p2 + p3) / 2).unitVector(); l.setLength(euc_distance_between_points(p2, p3)); p4 = l.pointAt(1);};
-                all_corners.emplace_back(p1, p2, p3, p4);
+                /// Create polygon with the 4 points
+                QPolygonF poly;
+                poly << p1 << p2 << p3 << p4;
+                // Check if poly contains (0,0)
+                if(poly.containsPoint(QPointF(0, 0), Qt::OddEvenFill))
+                    all_corners.emplace_back(p1, p2, p3, p4);
             }
         }
         return all_corners;

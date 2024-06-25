@@ -59,8 +59,9 @@ namespace Nodes
                             //change affordance node attribute called bt_state to completed
 //                            G->add_or_modify_attrib_local<bt_state_att>(aff_node, std::string("completed"));
 //                            G->update_node(aff_node);
+                            G->delete_edge(params.ROBOT_ID, parent.value(), "has_intention");
                             qInfo() << "Mission completed but not deactivated by scheduler";
-                            return BT::NodeStatus::RUNNING;
+                            return BT::NodeStatus::SUCCESS;
                         }
                         else if (state.value() == "aborted" || state.value() == "failed" || aff_state == "aborted" || aff_state == "failed")
                         {
@@ -75,14 +76,6 @@ namespace Nodes
                             std::cout << "Intention edge found but not completed, STATE = IN PROGRESS" << std::endl;
                             std::cout << state.value() << aff_state.value() << std::endl;
                             return BT::NodeStatus::RUNNING;
-                        }
-                        else if (state.value() == "completed" && not active.value()) //Mission completed
-                        {
-                            //delete intention edge
-                            G->delete_edge(params.ROBOT_ID, parent.value(), "has_intention");
-                            std::cout << "Intention edge found and completed" << std::endl;
-                            std::cout << state.value() << aff_state.value() << std::endl;
-                            return BT::NodeStatus::SUCCESS;
                         }
                         else
                         {
@@ -137,8 +130,8 @@ namespace Nodes
         G->update_node(aff_node);
 
         DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(params.ROBOT_ID, door_id);
-        G->add_or_modify_attrib_local<active_att>(intention_edge, false);
-        G->add_or_modify_attrib_local<state_att>(intention_edge, std::string("waiting"));
+        G->add_or_modify_attrib_local<active_att>(intention_edge, true);
+        G->add_or_modify_attrib_local<state_att>(intention_edge, std::string("in_progress"));
 
         std::vector<float> offset_target = {0.f, 0.f + (float) target_vector, 0.f};
         G->add_or_modify_attrib_local<offset_xyz_att>(intention_edge, offset_target);

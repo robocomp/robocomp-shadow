@@ -149,8 +149,6 @@ void SpecificWorker::compute()
 
     draw_robot_in_room(&room_widget->viewer->scene, ldata);
 
-
-
     // check if there is a room with a current self pointing edge
     //draw_room_frame(ldata, &room_widget->viewer->scene);  // draws lidar and robot in room frame
 
@@ -167,6 +165,9 @@ void SpecificWorker::compute()
         return;
     }
     else intention_edge = intention_edge_.value();
+
+    // Print from and to nodes of the intention edge
+    std::cout << "Intention edge from: " << intention_edge.from() << intention_edge.to() << std::endl;
 
     auto intention_status_ = G->get_attrib_by_name<state_att>(intention_edge);
     if(not intention_status_.has_value())
