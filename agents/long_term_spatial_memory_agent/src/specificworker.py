@@ -53,7 +53,7 @@ class SpecificWorker(GenericWorker):
 
         try:
             #signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             #signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             #signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
@@ -181,21 +181,20 @@ class SpecificWorker(GenericWorker):
                 return
 
     def crossing(self):
-
+        pass
         # if self.g.get_edge(self.room_exit_door_id, self.room_exit_door_id, "current") is not None:
         #     print("Removing current edge from room")
         #     print(self.room_exit_door_id)
         #     self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
         # Check if affordance_node has status attribute completed and is not active
-        affordance_node = self.g.get_node(self.affordance_node_active_id)
-        if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
-            print("Affordance node is completed and not active. Go to crossed state")
-            # Remove "current" self-edge from the room
-            self.state = "crossed"
-            print("CROSSED")
+        # affordance_node = self.g.get_node(self.affordance_node_active_id)
+        # if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs["active"].value == False:
+        #     print("Affordance node is completed and not active. Go to crossed state")
+        #     # Remove "current" self-edge from the room
+        #     self.state = "crossed"
+        #     print("CROSSED")
 
     def crossed(self):
-
         # Get parent node of affordance node
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if not affordance_node.attrs["parent"].value:
@@ -495,7 +494,16 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
-        console.print(f"UPDATE NODE: {id} {type}", style='green')
+        if id == self.affordance_node_active_id:
+            print("Affordance node is active")
+            affordance_node = self.g.get_node(id)
+            print(affordance_node.attrs["bt_state"].value, affordance_node.attrs["active"].value)
+            if affordance_node.attrs["bt_state"].value == "completed" and affordance_node.attrs[
+                "active"].value == False:
+                print("Affordance node is completed and not active. Go to crossed state")
+                # Remove "current" self-edge from the room
+                self.state = "crossed"
+
 
     def delete_node(self, id: int):
         console.print(f"DELETE NODE:: {id} ", style='green')

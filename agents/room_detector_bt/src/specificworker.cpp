@@ -147,7 +147,7 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
-    qInfo() << __FUNCTION__ << " Compute";
+//    qInfo() << __FUNCTION__ << " Compute";
     auto ldata  = buffer_lidar_data.get_idemp();
     //std::cout << __FUNCTION__ << " Pre-room lines" << std::endl;
 
@@ -278,7 +278,7 @@ void SpecificWorker::room_stabilitation()
         }
 
         //print room size histogram size
-        std::cout << __FUNCTION__ << " Room size histogram size: " << BTdata.room_size_histogram.size() << std::endl;
+//        std::cout << __FUNCTION__ << " Room size histogram size: " << BTdata.room_size_histogram.size() << std::endl;
         //std::cout << __FUNCTION__ << " Room sizes size: " << BTdata.room_sizes.size() << std::endl;
 
         // Get robot odometry
@@ -291,10 +291,19 @@ void SpecificWorker::room_stabilitation()
     else
     {
         std::cout << __FUNCTION__ << " Room not initialized. Can't store data." << std::endl;
-        return;
+//        return; // TODO: return makes robot not move to room center. Consider using estimated center to move robot to center
     }
 
     auto room_center = current_room.get_center();
+
+    // If room center is (0,0), use estimated center
+    if(room_center.norm() < 0.1)
+        room_center = current_room.estimated_center;
+
+    // Print room center and estimated center
+    std::cout << __FUNCTION__ << " Room center: " << current_room.get_center()[0] << " " << current_room.get_center()[1] << std::endl;
+    std::cout << __FUNCTION__ << " Estimated center: " << current_room.estimated_center[0] << " " << current_room.estimated_center[1] << std::endl;
+
     if(auto room_measured = G->get_node("room_measured"); room_measured.has_value())
     {
         if(std::optional<DSR::Edge> edge = G->get_edge(200, room_measured.value().id(),
@@ -333,22 +342,30 @@ void SpecificWorker::check_corner_matching()
 void SpecificWorker::create_room()
 {
     auto ldata  = buffer_lidar_data.get_idemp();
-
+    qInfo() << 1;
     auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, false);
     auto most_common_room_size = std::max_element(BTdata.room_size_histogram.begin(), BTdata.room_size_histogram.end(),
                                                    [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
+
+    // Print if most common room is empty // TODO: check a way to handle this case. Maybe room stabilization should be reset
+    if(most_common_room_size == BTdata.room_size_histogram.end())
+    {
+        qWarning() << __FUNCTION__ << " Most common room size not found";
+        return;
+    }
+    qInfo() << 1;
     // Get the most common room size
     auto room_size = most_common_room_size->first;
     //print room size
     //std::cout << __FUNCTION__ << " Room size: " << room_size[0] << " " << room_size[1] << std::endl;
     BTdata.corner_matching_threshold = std::min(room_size[0]/3, room_size[1]/3);
     BTdata.corner_matching_threshold_setted = true;
-
+    qInfo() << 1;
     /// Get the first room center obtained with a room size similar to the most common one
     int first_valid_center_id = 0;
     Eigen::Vector2f first_valid_room_center;
-
+    qInfo() << 1;
     /// Get first valid center
     for(const auto &[i, center] : iter::enumerate(BTdata.room_centers))
         if(std::abs(BTdata.room_sizes[i][0] - room_size[0]) < 50 and std::abs(BTdata.room_sizes[i][1] - room_size[1]) < 50)
@@ -359,11 +376,11 @@ void SpecificWorker::create_room()
             first_valid_room_center = center;
             break;
         }
-
+    qInfo() << 1;
     //print first valid center
-    //std::cout << __FUNCTION__ << " First valid center: " << first_valid_room_center[0] << " " << first_valid_room_center[1] << std::endl;
-    //qInfo() << __FUNCTION__ << " Vector sizes: " << BTdata.corner_data.size() << " " << BTdata.odometry_data.size()
-    //        << " " << BTdata.room_centers.size() << " " << BTdata.room_sizes.size();
+    std::cout << __FUNCTION__ << " First valid center: " << first_valid_room_center[0] << " " << first_valid_room_center[1] << std::endl;
+    qInfo() << __FUNCTION__ << " Vector sizes: " << BTdata.corner_data.size() << " " << BTdata.odometry_data.size()
+            << " " << BTdata.room_centers.size() << " " << BTdata.room_sizes.size();
 
     /// Remove values in vectors behind first valid center
     BTdata.corner_data.erase(BTdata.corner_data.begin(), BTdata.corner_data.begin() + first_valid_center_id);
@@ -371,9 +388,9 @@ void SpecificWorker::create_room()
     BTdata.room_sizes.erase(BTdata.room_sizes.begin(), BTdata.room_sizes.begin() + first_valid_center_id);
 
     //print corner_data[0], room size [0], room size [1]
-    //std::cout << __FUNCTION__ << " Corner data[0]: " << BTdata.corner_data[0][0][0] << " " << BTdata.corner_data[0][0][1] << std::endl;
-    //std::cout << __FUNCTION__ << " Room size[0]: " << BTdata.room_sizes[0][0] << std::endl;
-    //std::cout << __FUNCTION__ << " Room size[1]: " << BTdata.room_sizes[0][1] << std::endl;
+    std::cout << __FUNCTION__ << " Corner data[0]: " << BTdata.corner_data[0][0][0] << " " << BTdata.corner_data[0][0][1] << std::endl;
+    std::cout << __FUNCTION__ << " Room size[0]: " << BTdata.room_sizes[0][0] << std::endl;
+    std::cout << __FUNCTION__ << " Room size[1]: " << BTdata.room_sizes[0][1] << std::endl;
 
     // Get robot initial pose in room and nominal corners
     auto robot_initial_pose = get_robot_initial_pose(first_valid_room_center, BTdata.corner_data[0], room_size[0], room_size[1]);
@@ -403,8 +420,8 @@ void SpecificWorker::create_room()
     BTdata.room_centers.clear();
     BTdata.room_sizes.clear();
     BTdata.room_size_histogram.clear();
-
 }
+
 void SpecificWorker::update_room()
 {
     auto ldata  = buffer_lidar_data.get_idemp();
@@ -568,6 +585,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
             std::cout << __FUNCTION__ << " Edge between robot and room deleted" << room.name() << std::endl;
         }
     }
+    qInfo() << "###################################################### Inserting room data in graph ######################################################";
     rt->insert_or_assign_edge_RT(room_node, robot_node.id(), {robot_pose_float.x(), robot_pose_float.y(), 0.f}, { 0.f, 0.f, robot_pose_float.z() });
 
     // insert walls and corners in graph
@@ -577,24 +595,24 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     float wall_angle = 0.0;
     for (const auto &[i, corner] : iter::enumerate(room_corners))
     {
-        std::cout << __FUNCTION__ << " Corner " << i << ": " << corner.x() << " " << corner.y() << std::endl;
+//        std::cout << __FUNCTION__ << " Corner " << i << ": " << corner.x() << " " << corner.y() << std::endl;
         // Check if i is the last corner
         if(i == room_corners.size() - 1)
         {
             wall_center_point = (room_corners[0] + corner)/2;
-            std::cout << __FUNCTION__ << " Next corner " << 0 << ": " << room_corners[0].x() << " " << room_corners[0].y() << std::endl;
+//            std::cout << __FUNCTION__ << " Next corner " << 0 << ": " << room_corners[0].x() << " " << room_corners[0].y() << std::endl;
         }
         else
         {
             wall_center_point = (corner + room_corners[i+1])/2;
-            std::cout << __FUNCTION__ << " Next corner " << i+1 << ": " << room_corners[i+1].x() << " " << room_corners[i+1].y() << std::endl;
+//            std::cout << __FUNCTION__ << " Next corner " << i+1 << ": " << room_corners[i+1].x() << " " << room_corners[i+1].y() << std::endl;
         }
         // Obtain wall pose considering the corner and the next corner
 
         auto wall_center_point_float = wall_center_point.cast<float>();
         wall_pos = {wall_center_point_float.x(), wall_center_point_float.y(), 0.f};
         // Print wall center point
-        std::cout << __FUNCTION__ << " Wall center point: " << wall_center_point_float.x() << " " << wall_center_point_float.y() << std::endl;
+//        std::cout << __FUNCTION__ << " Wall center point: " << wall_center_point_float.x() << " " << wall_center_point_float.y() << std::endl;
         wall_angle = std::atan2(wall_center_point.y(), wall_center_point.x()) - M_PI_2;
         std::cout << __FUNCTION__ << " Wall angle: " << wall_angle << std::endl;
         // Obtain corner pose with respect to the wall
@@ -604,7 +622,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
             corner_pos = {-abs(corner_float.x()), 0.0, 0.0};
         else
             corner_pos = {-abs(corner_float.y()), 0.0, 0.0};
-        std::cout << __FUNCTION__ << " Corner position: " << corner_pos[0] << " " << corner_pos[1] << std::endl;
+//        std::cout << __FUNCTION__ << " Corner position: " << corner_pos[0] << " " << corner_pos[1] << std::endl;
         // insert nominal values
         create_wall(i, wall_pos, wall_angle, room_node);
         if(auto wall_node_ = G->get_node("wall_" + std::to_string(i) + "_" + std::to_string(room_id)); wall_node_.has_value())
@@ -617,7 +635,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     //    auto transformed_corners = get_transformed_corners(&widget_2d->scene);
     auto [transformed_corners, _] = get_transformed_corners_v2();
     //print transformed corners size
-    std::cout << __FUNCTION__ << " Transformed corners size: " << transformed_corners.size() << std::endl;
+//    std::cout << __FUNCTION__ << " Transformed corners size: " << transformed_corners.size() << std::endl;
 
     // Compare optimized corners with measured corners
     // Get room corners
@@ -628,16 +646,16 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     std::transform(target_points_.begin(), target_points_.end(), std::back_inserter(target_points),
                    [](const auto &p){ return Eigen::Vector2d(p.x(), p.y()); });
     // Print target_points_
-    for(const auto &corner : target_points)
-    {
-        std::cout << __FUNCTION__ << " Corner measured" << ": "
-                  << corner.x() << " " << corner.y()
-                  << std::endl;
-    }
+//    for(const auto &corner : target_points)
+//    {
+//        std::cout << __FUNCTION__ << " Corner measured" << ": "
+//                  << corner.x() << " " << corner.y()
+//                  << std::endl;
+//    }
 
     // Calculate correspondences between optimized and measured corners
     auto correspondences = calculate_rooms_correspondences_id(transformed_corners, target_points);
-    std::cout << __FUNCTION__ << "Pre measurec corners insertion" << std::endl;
+//    std::cout << __FUNCTION__ << "Pre measurec corners insertion" << std::endl;
     // Insert measured corners in graph
     for (const auto &[id, p, p2, valid] : correspondences)
     {
@@ -718,8 +736,8 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                                     rt_robot_edge.value()); rt_rotation_robot.has_value())
                         {
                             auto rt_rotation_robot_value = rt_rotation_robot.value().get();
-                            qInfo() << " Robot pose: " << rt_translation_robot_value[0] << " "
-                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
+//                            qInfo() << " Robot pose: " << rt_translation_robot_value[0] << " "
+//                                    << rt_translation_robot_value[1] << " " << rt_rotation_robot_value[2];
                             // Transform nominal corner position to robot frame
                             Eigen::Vector3f corner_robot_pos_point(rt_translation_value[0],
                                                                    rt_translation_value[1], 0.f);
@@ -729,8 +747,8 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                                                                                  wall_aux.name()); corner_transformed.has_value())
                             {
                                 auto corner_transformed_value = corner_transformed.value();
-                                std::cout << __FUNCTION__ << " Push back to rt_corner_values" << corner_transformed_value.x() << corner_transformed_value.y() << std::endl;
-                                std::cout << __FUNCTION__ << " Nominal corners in robot frame head(2)" << corner_transformed.value().head(2) << std::endl;
+//                                std::cout << __FUNCTION__ << " Push back to rt_corner_values" << corner_transformed_value.x() << corner_transformed_value.y() << std::endl;
+//                                std::cout << __FUNCTION__ << " Nominal corners in robot frame head(2)" << corner_transformed.value().head(2) << std::endl;
                                 rt_corner_values.push_back({corner_transformed_value.x(), corner_transformed_value.y()});
                             }
                             if (auto nominal_corner = inner_eigen->transform(room_node.name(),
@@ -740,7 +758,7 @@ std::vector<Eigen::Vector2d> SpecificWorker::get_transformed_corners(QGraphicsSc
                                 auto corner_transformed_value = nominal_corner.value();
                                 drawn_corners[i] = corner_transformed_value;
                                 // Print corner transformed value
-                                qInfo() << __FUNCTION__ <<" Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+//                                qInfo() << __FUNCTION__ <<" Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                                 // Draw corner
                                 auto item = scene->addEllipse(-100, -100, 200, 200, QPen(QColor("green"), 100), QBrush(QColor("green")));
                                 item->setPos(corner_transformed_value.x(), corner_transformed_value.y());
@@ -839,8 +857,8 @@ SpecificWorker::get_transformed_corners_v2()
                                                                      corner_robot_pos_point_double,
                                                                      wall_aux.name()); corner_transformed.has_value())
                 {
-                    std::cout << __FUNCTION__ << " Nominal corners in robot frame x y: " << corner_transformed.value().x() << " " << corner_transformed.value().y() << std::endl;
-                    std::cout << __FUNCTION__ << " Nominal corners in robot frame head(2): " << corner_transformed.value().head(2) << std::endl;
+//                    std::cout << __FUNCTION__ << " Nominal corners in robot frame x y: " << corner_transformed.value().x() << " " << corner_transformed.value().y() << std::endl;
+//                    std::cout << __FUNCTION__ << " Nominal corners in robot frame head(2): " << corner_transformed.value().head(2) << std::endl;
                     nominal_corners_in_robot_frame.push_back(corner_transformed.value().head(2));
                 }
                 if (auto nominal_corner = inner_eigen->transform(room_node.name(),
@@ -1006,12 +1024,12 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
         auto [rt_corner_values, _] = get_transformed_corners_v2();
 
         //print rt_corner_values
-        for(const auto &corner : rt_corner_values)
-        {
-            std::cout << __FUNCTION__ << " RT Corner values" << ": "
-                      << corner.x() << " " << corner.y()
-                      << std::endl;
-        }
+//        for(const auto &corner : rt_corner_values)
+//        {
+//            std::cout << __FUNCTION__ << " RT Corner values" << ": "
+//                      << corner.x() << " " << corner.y()
+//                      << std::endl;
+//        }
         // Calculate correspondences between transformed nominal and measured corners
         auto rt_corners_correspondences = calculate_rooms_correspondences_id(rt_corner_values, target_points);
         std::vector<Eigen::Vector3d> drawn_corners{4};
@@ -1022,8 +1040,8 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
 //                continue;
 //            qInfo() << "############################################################################";
 //
-            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
-            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
+//            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
+//            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
             std::string corner_name = "corner_" + std::to_string(i) + "_measured";
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
@@ -1057,7 +1075,7 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
                                 auto corner_transformed_value = corner_transformed.value();
                                 drawn_corners[i] = corner_transformed_value;
                                 // Print corner transformed value
-                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+//                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                                 // Draw corner
                                 if(std::get<3>(rt_corners_correspondences[i]))
                                 {
@@ -1197,7 +1215,7 @@ std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWor
         for (unsigned int x = 0; x < assignment.size(); x++)
         {
             /// Check if assignment is valid and the distance is less than the threshold
-            qInfo() << __FUNCTION__  << "Row " << x << " min distance: " << distances_matrix[x][assignment[x]] << " at column " << assignment[x];
+//            qInfo() << __FUNCTION__  << "Row " << x << " min distance: " << distances_matrix[x][assignment[x]] << " at column " << assignment[x];
             if (distances_matrix[x][assignment[x]] < BTdata.corner_matching_threshold)
                 correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], target_points_[assignment[x]], true));
             else
@@ -1346,6 +1364,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     G->insert_node(new_corner);
 
     rt->insert_or_assign_edge_RT(parent_node, new_corner.id(), p, {0.0, 0.0, 0.0});
+    qInfo() << __FUNCTION__ << " Inserting corner " << QString::fromStdString(corner_name) << " in graph";
 }
 uint64_t SpecificWorker::get_actual_time()
 {

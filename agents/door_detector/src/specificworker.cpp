@@ -363,13 +363,20 @@ void SpecificWorker::affordance()
                 }
                 else
                 {
-                    //create a thread for this affordance node
-                    threads[aff.id()] = std::thread(&SpecificWorker::affordance_thread, this, aff.id());
+                    if (auto bt_state = G->get_attrib_by_name<bt_state_att>(aff.id()); bt_state.has_value())
+                    {
+                        if (bt_state.value() == "waiting")
+                        {
+                            //create a thread for this affordance node
+                            threads[aff.id()] = std::thread(&SpecificWorker::affordance_thread, this, aff.id());
+                        }
+                    }
                 }
             }
         }
     }
 }
+
 void SpecificWorker::match_exit_door()
 {
     //get room with current edge
@@ -788,24 +795,16 @@ std::optional<std::tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector
             auto corner_transformed_value = corner_transformed.value();
             auto corner_transformed_value_float = corner_transformed_value.cast<float>();
             corners.push_back({corner_transformed_value_float.x(), corner_transformed_value_float.y()});
-            qInfo() << 1;
             if(i > 0)
             {
-                qInfo() << 1;
                 Eigen::Vector2f center;
-                qInfo() << 1;
                 center = (corners[i] + corners[i-1]) / 2;
-                qInfo() << 1;
                 wall_centers.push_back(center);
-                qInfo() << 1;
                 if(i == corner_nodes.size() - 1)
                 {
-                    qInfo() << 1;
                     center = (corners[i] + corners[0]) / 2;
                     /// Insert in front of the vector
-                    qInfo() << 1;
                     wall_centers.insert(wall_centers.begin(), center);
-                    qInfo() << 1;
                 }
             }
         }
