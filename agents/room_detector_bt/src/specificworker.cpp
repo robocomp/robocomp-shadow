@@ -75,7 +75,7 @@ void SpecificWorker::initialize(int period)
 
 		//dsr update signals
 		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
 		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
@@ -147,7 +147,7 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
-//    qInfo() << __FUNCTION__ << " Compute";
+    qInfo() << __FUNCTION__ << " Compute";
     auto ldata  = buffer_lidar_data.get_idemp();
     //std::cout << __FUNCTION__ << " Pre-room lines" << std::endl;
 
@@ -161,11 +161,6 @@ void SpecificWorker::compute()
         update_room();
         draw_nominal_corners_in_room_frame(&widget_2d->scene);
     }
-    else
-    {
-
-    }
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -185,14 +180,13 @@ void SpecificWorker::BTFunction()
     }
     std::cout << __FUNCTION__ << " BT function end" << std::endl;
 }
-void SpecificWorker::generate_target_edge(DSR::Node node)
+
+void SpecificWorker::get_room_image()
 {
-    DSR::Edge intention_edge = DSR::Edge::create<has_intention_edge_type>(node.id(), node.id());
-     if (G->insert_or_assign_edge(intention_edge))
-         std::cout << __FUNCTION__ << " Intention edge successfully inserted: " << std::endl;
-     else
-         std::cout << __FUNCTION__  << " Fatal error inserting intention edge: " << std::endl;
+    //using opencv capture image
+
 }
+
 SpecificWorker::Lines SpecificWorker::extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points,
                                                                     const std::vector<std::pair<float, float>> &ranges)
 {
@@ -815,6 +809,8 @@ SpecificWorker::get_transformed_corners_v2()
     { qWarning() << __FUNCTION__ << " No room id in graph"; return {}; }
     auto room_id_value = room_id.value();
 
+    std::cout << __FUNCTION__ << " Room id: " << room_id_value << std::endl;
+
     for (int i = 0; i < 4; i++)
     {
         auto corner_aux_ = G->get_node("corner_" + std::to_string(i) + "_" + std::to_string(room_id_value));
@@ -837,7 +833,6 @@ SpecificWorker::get_transformed_corners_v2()
                         rt_corner_edge.value()); rt_translation.has_value())
             {
                 auto rt_translation_value = rt_translation.value().get();
-
                 // Get robot pose
 //                if (auto rt_robot_edge = rt->get_edge_RT(room_node, robot_node.id()); rt_robot_edge.has_value())
 //                    if (auto rt_translation_robot = G->get_attrib_by_name<rt_translation_att>(
@@ -865,6 +860,9 @@ SpecificWorker::get_transformed_corners_v2()
                                                                  corner_robot_pos_point_double,
                                                                  wall_aux.name()); nominal_corner.has_value())
                 {
+                    // Get corner transformed value
+                    auto corner_transformed_value = nominal_corner.value();
+                    qInfo() << __FUNCTION__ << "Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                     nominal_corners_in_room_frame.push_back(nominal_corner.value().head(2));
 
 //                                auto corner_transformed_value = nominal_corner.value();
@@ -981,7 +979,6 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
     { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
     auto robot_node = robot_node_.value();
 
-
     auto current_edges = G->get_edges_by_type("current");
     if(current_edges.empty())
     {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
@@ -990,6 +987,8 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
     if(not room_node_.has_value())
     { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
     auto room_node = room_node_.value();
+
+    std::cout << "ACTUAL room node: " << room_node.name() << std::endl;
 
     // Get room corners
     auto target_points_ = corners;
@@ -1040,8 +1039,8 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
 //                continue;
 //            qInfo() << "############################################################################";
 //
-//            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
-//            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
+            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
+            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
             std::string corner_name = "corner_" + std::to_string(i) + "_measured";
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
@@ -1075,7 +1074,7 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
                                 auto corner_transformed_value = corner_transformed.value();
                                 drawn_corners[i] = corner_transformed_value;
                                 // Print corner transformed value
-//                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                                 // Draw corner
                                 if(std::get<3>(rt_corners_correspondences[i]))
                                 {
@@ -1469,6 +1468,14 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
     if(edge_tag == "current")
     {
         update_room_valid = false;
+        // get exit edge to node
+        if(door_exit)
+        {
+            std::cout << "DOOR EXIT SO INA A KNOWN ROOM" << std::endl;
+            door_exit = false;
+            update_room_valid = true;
+            return;
+        }
         //Print "current" edge deleted
         std::cout << __FUNCTION__ << "Current Edge " << edge_tag << " deleted" << std::endl;
 
@@ -1479,6 +1486,26 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
             BT_th.join();
             BT_th = std::thread(&SpecificWorker::BTFunction, this);
         }
+    }
+}
+
+// create function of update edge slot
+void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if (edge_tag == "exit")
+    {
+        std:cout << "EXIT EDGE" << std::endl;
+         if (auto exit_node_door_ = G->get_node(to); exit_node_door_.has_value())
+            {
+                auto exit_node = exit_node_door_.value();
+                //get attrib by name connected_room from exit node
+                if(auto connected_room = G->get_attrib_by_name<connected_room_name_att>(exit_node); connected_room.has_value())
+                {
+                    door_exit = true;
+                    std::cout << "Going to a known room!" << connected_room.value().get() << std::endl;
+                    return;
+                }
+            }
     }
 }
 /**************************************/

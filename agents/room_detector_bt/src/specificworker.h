@@ -64,7 +64,7 @@ class SpecificWorker : public GenericWorker
         void initialize(int period);
         void modify_node_slot(std::uint64_t, const std::string &type){};
         void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
         void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
         void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
         void del_node_slot(std::uint64_t from){};
@@ -137,6 +137,7 @@ class SpecificWorker : public GenericWorker
         std::pair<Eigen::Affine2d, std::vector<Eigen::Vector2d>> get_robot_initial_pose(Eigen::Vector2f &first_room_center, std::vector<Eigen::Matrix<float, 2, 1>> first_corners, int width, int depth);
         std::vector<Eigen::Vector2d> aux_corners;
         uint64_t room_id = 1;
+        int actual_room_id = -1;
 
         std::vector<Eigen::Vector2d> last_corner_values{4};
         std::vector<float> last_robot_pose{0.f, 0.f, 0.f};
@@ -163,6 +164,7 @@ class SpecificWorker : public GenericWorker
                                const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,
                                const vector<Eigen::Vector2d> nominal_corners, const std::vector<Eigen::Vector2f> &room_sizes, std::vector<int> room_size);
 
+        void get_room_image();
         void test();
         void room_stabilitation();
         int distance_to_center();
@@ -175,6 +177,7 @@ class SpecificWorker : public GenericWorker
     BT::Tree tree;
     std::thread BT_th;
     bool update_room_valid = false;
+    bool door_exit = false;
 
     struct Data
     {

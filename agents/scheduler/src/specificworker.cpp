@@ -250,29 +250,81 @@ void SpecificWorker::compute()
         return;
     }
 
+    std::string best_aff = "";
+    //get current edge with types
+    auto current_edges = G->get_edges_by_type("current");
+
+    if(current_edges.empty())
+    { std::cout << "No current edges found" << std::endl; return; }
+
+    //get to node from current edges [0]
+    auto room_node = G->get_node(current_edges[0].to());
+    //check to_node value
+    if(!room_node.has_value())
+    { std::cout << "No to node found" << std::endl; return; }
+
+    //get room id from room_node.value() with get attrib by name room_id_att
+    auto room_id = G->get_attrib_by_name<room_id_att>(room_node.value());
+    //check room_id value
+    if(!room_id.has_value())
+    { std::cout << "No room id found" << std::endl; return; }
+
     //Get first affordance node with state waiting
     for(auto affordance : affordance_nodes)
     {
-        if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value())
+        //get affordance room_id attribute
+        if(auto affordance_room_id = G->get_attrib_by_name<room_id_att>(affordance); affordance_room_id.has_value())
         {
-            if(affordance_state.value() == "waiting")
+            if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value() and affordance_room_id.value() == room_id.value())
             {
-                //Print NEW AFFORDANCE ACTIVE in GREEN color
-                std::cout << BLUE << "----------------- NEW AFFORDANCE ACTIVE ----------------------------" << RESET << std::endl;
-                //Print the affordance name and state
-                qInfo() << "Affordance name: " << QString::fromStdString(affordance.name());
-                qInfo() << "Affordance state: " << QString::fromStdString(affordance_state.value());
-                //Set the affordance active to true
-                G->add_or_modify_attrib_local<active_att>(affordance, true);
-                //Set the affordance state to in_progress
-                G->update_node(affordance);
-                return;
+//            if(affordance_state.value() == "waiting" and executed_affordances.end() == std::find(executed_affordances.begin(), executed_affordances.end(), affordance.name()))
+                if(affordance_state.value() == "waiting")
+                {
+                    //check if affordance name is in the map
+                    if(affordance_map.find(affordance.name()) == affordance_map.end())
+                    {
+                        affordance_map[affordance.name()] = 0;
+                        best_aff = affordance.name();
+                        break;
+                    }
+                    else
+                    {
+                        //check if best affordance int in map is less than the current affordance
+                        if(best_aff.empty() or affordance_map[affordance.name()] < affordance_map[best_aff])
+                        {
+                            best_aff = affordance.name();
+                        }
+                    }
+                }
             }
         }
     }
 
+    //get node from best_aff
+    if (auto affordance_ = G->get_node(best_aff); affordance_.has_value())
+    {
+        auto affordance = affordance_.value();
+        //Print NEW AFFORDANCE ACTIVE in GREEN color
+        std::cout << BLUE << "----------------- NEW AFFORDANCE ACTIVE ----------------------------" << RESET << std::endl;
+        //Print the affordance name and state
+        qInfo() << "Affordance name: " << QString::fromStdString(affordance.name());
+        // add to affordancce
 
-
+        //Set the affordance active to true
+        G->add_or_modify_attrib_local<active_att>(affordance, true);
+        //Set the affordance state to in_progress
+        G->update_node(affordance);
+        //print affordance map
+        for(auto [key, value] : affordance_map)
+        {
+            std::cout << "Affordance: " << key << " Value: " << value << std::endl;
+        }
+        affordance_map[affordance.name()]++;
+    }
+    else
+    {
+        std::cout << "No affordance found with besft aff string" << std::endl;
+    }
 
 //    auto has_intention_edges = G->get_edges_by_type("has_intention");
 //

@@ -140,6 +140,7 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
+
     /// read LiDAR
     auto ldata = buffer_lidar_data.get_idemp();
 
