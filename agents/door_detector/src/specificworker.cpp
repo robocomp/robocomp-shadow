@@ -221,7 +221,7 @@ void SpecificWorker::compute()
     auto door_nodes = get_measured_and_nominal_doors(room_node, robot_node);
     qInfo() << 1;
     //Draw nominal doors in green and measured doors in red
-//    draw_door_robot_frame(std::get<1>(door_nodes), std::get<0>(door_nodes), QColor("blue"), QColor("red"), &widget_2d->scene);
+    draw_door_robot_frame(std::get<1>(door_nodes), std::get<0>(door_nodes), QColor("blue"), QColor("red"), &widget_2d->scene);
     qInfo() << 2;
 //4. get measured doors from lidar in robot's frame
     auto doors = get_doors(ldata, &widget_2d->scene, robot_node, room_node);
@@ -401,6 +401,8 @@ void SpecificWorker::match_exit_door()
     if (std::ranges::count_if(nominal_doors, [](DSR::Node n) { return n.name().find("_pre") != std::string::npos; }) != 0)
     {qWarning() << __FUNCTION__ << " There are doors with _pre in the name"; return;}
 
+    std::pair<std::string, float> door_map = {"", std::numeric_limits<float>::max()};
+
     for (const auto &nominal_door : nominal_doors)
     {
         // Get room_id from nominal door node
@@ -423,30 +425,40 @@ void SpecificWorker::match_exit_door()
                 //print exit_door_center
                 std::cout << "Exit door center: " << exit_door_room_pose.x() << " " << exit_door_room_pose.y() << std::endl;
 
-                //Check if norminal_door_robot_pose is close to exit_door_pose
-                if (nominal_door_robot_pose.isApprox(exit_door_room_pose, 1.))
+                if ((nominal_door_robot_pose - exit_door_room_pose).norm() < door_map.second)
                 {
-                    //get exit edges in graph
-                    auto exit_edges = G->get_edges_by_type("exit");
+                    door_map = {nominal_door.name(), (nominal_door_robot_pose - exit_door_room_pose).norm()};
+                }
 
-                    //get to from exit_edges[0]
-                    auto exited_door = G->get_node(exit_edges[0].to());
-                    //get exited_door node has value
-                    if (exited_door.has_value())
-                    {
-                        //create a edge called match from nominal_door to exit_door
-                        DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.id(), exited_door.value().id());
-                        G->insert_or_assign_edge(match);
-                        exit_door_exists = false;
-                    }
-//                    std::terminate();
-                }
-                else
-                {
-                    std::cout << "Nominal door not matching exit door" << std::endl;
-                }
             }
         }
+    }
+
+    //Check if norminal_door_robot_pose is close to exit_door_pose
+    if (door_map.second < 1000)
+    {
+        //get exit edges in graph
+        auto exit_edges = G->get_edges_by_type("exit");
+
+        //get to from exit_edges[0]
+        auto exited_door = G->get_node(exit_edges[0].to());
+        //get exited_door node has value
+        if (exited_door.has_value())
+        {
+            //get nominal_door node
+            auto nominal_door = G->get_node(door_map.first);
+            if (!nominal_door.has_value())
+            {qWarning() << __FUNCTION__ << " No nominal door in graph";return;}
+
+            //create a edge called match from nominal_door to exit_door
+            DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.value().id(), exited_door.value().id());
+            G->insert_or_assign_edge(match);
+            exit_door_exists = false;
+        }
+    }
+    else
+    {
+        std::cout << "Nominal door not matching exit door" << std::endl;
     }
 }
 void SpecificWorker::affordance_thread(uint64_t aff_id)
@@ -543,38 +555,28 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
         auto door_id = std::stoi(n.name().substr(7, 1));
         if(auto door_width = G->get_attrib_by_name<width_att>(n); door_width.has_value())
         {
-            qInfo() << "INSIDE DOOR WIDTH";
-
             auto p_0_ = Eigen::Vector3d {-(double)door_width.value() / 2, 0, 0};
-            qInfo() << "POST P_0_";
-
             auto p_1_ = Eigen::Vector3d {(double)door_width.value() / 2, 0, 0};
-            qInfo() << "POST P_1_";
 
             if (auto p_0_transformed = inner_eigen->transform(room_node.name(),
                                                               p_0_,
                                                               n.name()); p_0_transformed.has_value())
             {
-                qInfo() << "P0_transformed";
                 auto p_0 = p_0_transformed.value();
                 if (auto p_1_transformed = inner_eigen->transform(room_node.name(),
                                                                   p_1_,
                                                                   n.name()); p_1_transformed.has_value())
                 {
-
-                    qInfo() << "P1_transformed";
                     auto p_1 = p_1_transformed.value();
                     if (auto p_0_transformed_robot = inner_eigen->transform(robot_node.name(),
                                                                             p_0_,
                                                                             n.name()); p_0_transformed_robot.has_value())
                     {
-                        qInfo() << "P0_robot_transformed";
                         auto p_0_robot = p_0_transformed_robot.value();
                         if (auto p_1_transformed_robot = inner_eigen->transform(robot_node.name(),
                                                                                 p_1_,
                                                                                 n.name()); p_1_transformed_robot.has_value())
                         {
-                            qInfo() << "P1_robot_transformed";
                             auto p_1_robot = p_1_transformed_robot.value();
                             DoorDetector::Door door(Eigen::Vector2f{p_0.x(), p_0.y()},
                                                     Eigen::Vector2f{p_1.x(), p_1.y()},
@@ -582,8 +584,8 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
                                                     Eigen::Vector2f{p_1_robot.x(), p_1_robot.y()});
                             door.id = door_id;
                             door.wall_id = wall_id;
-                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
-                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
+//                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
+//                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
                             if (n.name().find("_pre") != std::string::npos)
                                 measured_doors.push_back(door);
 
@@ -1046,6 +1048,8 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
         auto pose_transformed = pose_transformed_.value().cast<float>();
 //        qInfo() << "Pose to update transformed" << pose_transformed.x() << pose_transformed.y();
         // Add edge between door and robot
+        //print door_node.name()
+        std::cout << "INSERT OR ASSIGN EDGE" << door_node.name() << std::endl;
         rt->insert_or_assign_edge_RT(parent_node, door_node.id(), {pose_transformed.x(), 0.f, 0.f}, {0.f, 0.f, 0.f});
     }
 }
@@ -1056,7 +1060,6 @@ void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> door
     /// Iterate over doors using enumerate
     for(const auto &[i, door] : doors | iter::enumerate)
     {
-
         //Locate the wall where the door is
         auto wall_id = door.wall_id;
         //find the highest door id in the wall
@@ -1170,6 +1173,7 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
         G->insert_node(door_node);
 
         // Add edge between door and robot
+        std::cout << "INSERT OR ASSIGN EDGE" << door_node.name() << std::endl;
         rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),0.0, 0.0},
                                      {0.0, 0.0, 0.0});
     }
@@ -1368,7 +1372,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
             }
             else if(intention_state_value == "completed")
             {
-                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
+//                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
                 continue;
             }
         }

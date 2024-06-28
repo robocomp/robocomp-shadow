@@ -28,6 +28,7 @@ import interfaces as ifaces
 import matplotlib.pyplot as plt
 import time
 import setproctitle
+import math
 
 import cv2
 
@@ -85,7 +86,7 @@ class SpecificWorker(GenericWorker):
 
             self.graph = ig.Graph()
             self.vertex_size = 0
-            self.not_required_attrs = ["parent", "timestamp_alivetime", "timestamp_creation"]
+            self.not_required_attrs = ["parent", "timestamp_alivetime", "timestamp_creation", "rt", "valid", "obj_checked", "name", "id"]
             self.fig, self.ax = plt.subplots()
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
@@ -147,17 +148,14 @@ class SpecificWorker(GenericWorker):
                 self.crossed()
             case "initializing_room":
                 self.initializing_room()
-            case "new_room":
-                self.new_room()
+            case "known_room":
+                self.known_room()
             case "initializing_doors":
                 self.initializing_doors()
+            case "store_graph":
+                self.store_graph()
             case "removing":
                 self.removing()
-            case "draw_graph":
-
-
-                self.state = "idle"
-
 
     def idle(self):
 
@@ -202,10 +200,29 @@ class SpecificWorker(GenericWorker):
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
+            exit_door_id_node = self.g.get_node(self.exit_door_id)
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
-            self.state = "initializing_room"
-            print("INITIALIZING ROOM")
+
+            # # Check if ""exit_door has an attribute value called "other_side_door_name"
+            # print(self.g.get_node(self.exit_door_id).attrs["other_side_door_name"])
+            # if not self.g.get_node(self.exit_door_id).attrs["other_side_door_name"].value:
+            #     self.state = "initializing_room"
+            #     print("INITIALIZING ROOM")
+            # else:
+            #     self.state = "known_room"
+            #     print("INSERTING KNOWN ROOM")
+            # Print attributes
+            print(exit_door_id_node.attrs)
+            if exit_door_id_node:
+                try:
+                    if exit_door_id_node.attrs["other_side_door_name"].value:
+                        self.state = "known_room"
+                        print("INSERTING KNOWN ROOM")
+
+                except:
+                    self.state = "initializing_room"
+                    print("INITIALIZING ROOM")
 
     def initializing_room(self):
 
@@ -221,8 +238,89 @@ class SpecificWorker(GenericWorker):
             self.state = "initializing_doors"
             print("INITIALIZING DOORS")
     #
-    # def new_room(self):
-    #     pass
+    def known_room(self):
+        # Get other side door name attribute
+        other_side_door_node = self.g.get_node(self.exit_door_id)
+        other_side_door_name = other_side_door_node.attrs["other_side_door_name"].value # TODO: Get directly the connected_room_name
+
+        # Search in self.graph for the node with the name of the other side door
+        try:
+            new_door_node = self.graph.vs.find(name=other_side_door_name)
+            # Get room_id attribute of the other side door node
+            new_door_room_id = new_door_node["room_id"]
+            print("new_door_room_id", new_door_room_id)
+            try:
+                # Search in self.graph for the node with the room_id of the other side door
+                other_side_door_room_node = self.graph.vs.find(name="room_"+str(new_door_room_id))
+                other_side_door_room_node_index = other_side_door_room_node.index
+                print("other_side_room_graph_name", other_side_door_room_node["name"])
+
+                # Insert the room node in the DSR graph
+                self.insert_dsr_vertex("root", other_side_door_room_node)
+                self.insert_dsr_edge(None, other_side_door_room_node)
+
+                self.traverse_igraph(other_side_door_room_node)
+
+                # Delete RT edge from room node t oShadow
+                self.g.delete_edge(self.room_exit_door_id, self.robot_id, "RT")
+                new_room_id = self.g.get_node(other_side_door_room_node["name"]).id
+                new_edge = Edge(self.robot_id, new_room_id, "RT", self.agent_id)
+
+                rt_robot = self.inner_api.transform(other_side_door_room_node["name"], np.array([0. , -1000., 0.], dtype=np.float64), new_door_node["name"])
+                print("sale por la puta puerta", new_door_node["name"])
+                door_node = self.g.get_node(new_door_node["name"])
+                door_parent_id = door_node.attrs["parent"].value
+                door_parent_node = self.g.get_node(door_parent_id)
+                print("Door parent name ", door_parent_node.name)
+                # get door parent node
+                # get rt from room node to door parent node
+                rt_room_wall = self.rt_api.get_edge_RT(self.g.get_node(other_side_door_room_node["name"]), door_parent_id)
+                # get rt_rotation_euler_xyz from rt_room_wall
+                door_rotation = rt_room_wall.attrs["rt_rotation_euler_xyz"].value
+                print("WALL ROTATION", door_rotation)
+                new_edge.attrs["rt_translation"] = Attribute(np.array(rt_robot, dtype=np.float32), self.agent_id)
+                # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
+                new_z_value = (door_rotation[2] - math.pi)
+                if new_z_value > math.pi:
+                    new_z_value = new_z_value - 2 * math.pi
+                elif new_z_value < -math.pi:
+                    new_z_value = new_z_value + 2 * math.pi
+
+
+
+                new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(np.array([door_rotation[0], door_rotation[1], new_z_value], dtype=np.float32),
+                                                                    self.agent_id)
+                print("FIRST ROBOT RT", rt_robot, [door_rotation[0], door_rotation[1], new_z_value])
+                self.g.insert_or_assign_edge(new_edge)
+                robot_node = self.g.get_node(self.robot_name)
+                # Modify parent attribute of robot node
+                robot_node.attrs["parent"] = Attribute(new_room_id, self.agent_id)
+                self.g.update_node(robot_node)
+
+                # Insert current edge
+                self.insert_current_edge(new_room_id)
+                # vertex_successors = self.graph.neighbors(other_side_door_room_node_index, mode="out")
+                # for i in vertex_successors:
+                #     sucessor = self.graph.vs[i]
+                #     print("SUCESSOR:", sucessor["name"], sucessor["id"], sucessor["type"])
+                #     self.insert_dsr_vertex(sucessor)
+                #
+                #     # Check if node with id i room_id attribute is the same as the room_id attribute of the room node
+                #     if sucessor["room_id"] == other_side_door_room_node["room_id"]:
+                #         self.insert_dsr_edge(other_side_door_room_node, sucessor)
+                #         self.traverse_igraph(sucessor)
+                #     else:
+                #         continue
+
+            except Exception as e:
+                print("No other side door room node found")
+                print(e)
+                return
+        except Exception as e:
+            print("No other side door node found")
+            print(e)
+            return
+        self.state = "store_graph"
 
     def initializing_doors(self):
 
@@ -255,9 +353,7 @@ class SpecificWorker(GenericWorker):
                 other_side_door_node.attrs["connected_room_name"] = Attribute(self.g.get_node(self.room_exit_door_id).name, self.agent_id)
                 self.g.update_node(exit_door_node)
                 self.g.update_node(other_side_door_node)
-                self.state = "removing"
-                print("REMOVING")
-
+                self.state = "store_graph"
 
 
     # def initializing_doors(self):
@@ -283,18 +379,21 @@ class SpecificWorker(GenericWorker):
     #             self.g.update_node(enter_door_node)
     #             self.state = "removing"
 
-    def removing(self):
-        print("ENTER")
-        self.traverse_graph(self.room_exit_door_id)
-        print("EXIT")
-        print(self.graph)
+    def store_graph(self):
+        actual_room_node = self.g.get_node(self.room_exit_door_id)
+        # Check if node in igraph with the same name exists
+        try:
+            room_node = self.graph.vs.find(name=actual_room_node.name)
+            print("Room node found in igraph")
+        except Exception as e:
+            print("No room node found in igraph. Inserting room")
+            self.traverse_graph(self.room_exit_door_id)
         self.draw_graph()
-        # Draw graph
-        # layout = self.graph.layout("kk")
-        #
-        # ig.plot(self.graph, layout=layout)
-        # time.sleep(10)
-        self.state = "draw_graph"
+
+        self.state = "removing"
+        print("REMOVING")
+
+    def removing(self):
         # # Get last number in the name of the room
         room_number = self.g.get_node(self.room_exit_door_id).attrs["room_id"].value
         # # Get all RT edges
@@ -312,6 +411,10 @@ class SpecificWorker(GenericWorker):
         # iterate over the dictionary in descending order
         for item in old_room_dict:
             # self.g.delete_node(self.g.get_node(item.origin).id)
+            if item.origin == 200 or item.destination == 200:
+                print("SHADOW NODES")
+                continue
+
             self.g.delete_node(item.destination)
             # self.g.delete_edge(item.origin, item.destination, "RT")
         self.state = "idle"
@@ -320,15 +423,28 @@ class SpecificWorker(GenericWorker):
         # Mark the current node as visited and print it
         node = self.g.get_node(node_id)
         rt_children = [edge for edge in self.g.get_edges_by_type("RT") if edge.origin == node_id]
-        self.insert_vertex(node)
+        self.insert_igraph_vertex(node)
         # Recur for all the vertices adjacent to this vertex
         for i in rt_children:
             self.traverse_graph(i.destination)
-            self.insert_edge_rt(i)
+            self.insert_igraph_edge(i)
 
-    def insert_vertex(self, node):
-        self.graph.add_vertex(name=node.name, id=node.id)
-        print("Inserting vertex", node.name, node.id)
+    def traverse_igraph(self, node):
+        vertex_successors = self.graph.successors(node.index)
+        # Recur for all the vertices adjacent to thisvertex
+        for i in vertex_successors:
+            sucessor = self.graph.vs[i]
+            if sucessor["room_id"] == node["room_id"] and sucessor["level"] > node["level"]:
+                self.insert_dsr_vertex(node["name"], sucessor)
+                # Check if node with id i room_id attribute is the same as the room_id attribute of the room node
+                self.insert_dsr_edge(node, sucessor)
+                self.traverse_igraph(sucessor)
+            else:
+                continue
+
+    def insert_igraph_vertex(self, node):
+        self.graph.add_vertex(name=node.name, id=node.id, type=node.type)
+        # print("Inserting vertex", node.name, node.id)
         for attr in node.attrs:
             if attr in self.not_required_attrs:
                 continue
@@ -354,20 +470,68 @@ class SpecificWorker(GenericWorker):
             # Check if current attribute is connected_room_name and, if it has value, check if the node with that name exists in the graph
             # if attr == "connected_room_name" and node.attrs[attr].value:
             #     try:
-            #         connected_room_node = self.graph.vs.find(name=node.attrs[attr].value)
+            #         connescted_room_node = self.graph.vs.find(name=node.attrs[attr].value)
             #         if connected_room_node:
             #             self.graph.add_edge(self.vertex_size, connected_room_node.id)
             #     except:
             #         print("No connected_room_name attribute found")
         self.vertex_size += 1
 
-    def insert_edge_rt(self, edge):
+    def insert_dsr_vertex(self, parent_name, node):
+        # print("Inserting vertex", node["name"], node["type"])
+        new_node = Node(agent_id=self.agent_id, type=node["type"], name=node["name"])
+        # Check if the node is a room node
+
+        parent_node = self.g.get_node(parent_name)
+        new_node.attrs['parent'] = Attribute(int(parent_node.id), self.agent_id)
+
+        # Iterate over the attributes of the node
+        for attr in node.attributes():
+            if node[attr] is not None and attr not in self.not_required_attrs:
+                # Add the attribute to the node
+                new_node.attrs[attr] = Attribute(node[attr], self.agent_id)
+        id_result = self.g.insert_node(new_node)
+    def insert_igraph_edge(self, edge):
+
         # Search for the origin and destination nodes in the graph
         origin_node = self.graph.vs.find(id=edge.origin)
         destination_node = self.graph.vs.find(id=edge.destination)
         # Add the edge to the graph
-        self.graph.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value)
+        self.graph.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+        print("Inserting igraph edge", origin_node["name"], destination_node["name"])
+        print("RT", edge.attrs["rt_translation"].value)
+        print("Rotation", edge.attrs["rt_rotation_euler_xyz"].value)
         # Print origin and destination nodes
+
+    def insert_dsr_edge(self, org, dest):
+        # print("ORG::", org)
+        # self.insert_dsr_vertex(dest)
+        if org is None:
+            root_node = self.g.get_node("root")
+            org_id = root_node.id
+            rt_value = [0, 0, 0]
+            orientation = [0, 0, 0]
+        else:
+            print("Inserting DSR edge", org["name"], dest["name"])
+            edge_id = self.graph.get_eid(org.index, dest.index)
+            edge = self.graph.es[edge_id]
+            rt_value = edge["rt"]
+            orientation = edge["rotation"]
+            org_name = org["name"]
+            org_id = self.g.get_node(org_name).id
+
+
+        # print("RT_VALUE", rt_value)
+        # print(dest["name"], org["name"], "RT")
+        dest_id = self.g.get_node(dest["name"]).id
+        new_edge = Edge(dest_id, org_id, "RT", self.agent_id)
+        new_edge.attrs["rt_translation"] = Attribute(np.array(rt_value, dtype=np.float32), self.agent_id)
+        new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(np.array(orientation, dtype=np.float32), self.agent_id)
+
+
+        print("RT", rt_value)
+        print("Rotation", orientation)
+        self.g.insert_or_assign_edge(new_edge)
 
     def draw_graph(self):
         self.ax.clear()
@@ -383,6 +547,9 @@ class SpecificWorker(GenericWorker):
             # edge_data = self.graph.es[self.graph.get_eid(edge[0], edge[1])]
             # print(edge_data["rt"])
             self.ax.plot([x[edge[0]], x[edge[1]]], [y[edge[0]], y[edge[1]]], color="grey")
+            # add arrow to the edge
+            self.ax.annotate("", xy=(x[edge[1]], y[edge[1]]), xytext=(x[edge[0]], y[edge[0]]), arrowprops=dict(arrowstyle="->", lw=2))
+
         for i, txt in enumerate([f"Node {i}" for i in range(self.graph.vcount())]):
             # Get name attribute
             name = self.graph.vs[i]["name"]
@@ -398,7 +565,7 @@ class SpecificWorker(GenericWorker):
             room_id = node.attrs["room_id"].value
             return room_id
         except:
-            print("No room_id attribute found")
+            # print("No room_id attribute found")
             return -1
 
     def check_element_level(self, node_id):

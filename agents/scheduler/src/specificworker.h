@@ -84,6 +84,10 @@ private:
     // Params
     rc::Params params;
 
+    std::vector<std::string> executed_affordances;
+    // create an std map of string and int
+    std::map<std::string, int> affordance_map;
+
     bool intention_active = false;
     u_int64_t active_node_id = -1;
     u_int64_t set_intention_active(DSR::Edge &edge, bool active);

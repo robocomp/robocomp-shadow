@@ -85,6 +85,9 @@ class SpecificWorker(GenericWorker):
             self.timer.start(self.Period)
             self.init_graph = False
 
+            self.current_edge_set = False
+            self.first_rt_set = False
+
             self.translation_to_set = None
             self.rotation_to_set = None
 
@@ -166,7 +169,7 @@ class SpecificWorker(GenericWorker):
                                     # self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                                     self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
                                     # self.g2o.add_landmark(self.add_noise(corner_edge_mat[0], self.measurement_noise_std_dev), self.add_noise(corner_edge_mat[1], self.measurement_noise_std_dev), landmark_information, pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
-                                    # print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
+                                    print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
                 else:
                     # Get last room node
                     room_node = self.g.get_node("room_" + str(self.actual_room_id))
@@ -199,13 +202,14 @@ class SpecificWorker(GenericWorker):
                 self.last_odometry = robot_odometry   # Save last odometry
                 # print("Time elapsed compute:", timfe.time() - init_time)
 
-        elif self.init_graph and self.translation_to_set is not None and self.rotation_to_set is not None:
+        elif self.first_rt_set and self.current_edge_set and self.translation_to_set is not None and self.rotation_to_set is not None:
             print("Initializing g2o graph")
             if self.last_room_id is not None:
                 self.g.delete_edge(self.g.get_node("room_"+str(self.last_room_id)).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
             self.room_initialized = True
-            self.init_graph = False
+            self.first_rt_set = False
+            self.current_edge_set = False
             self.translation_to_set = None
             self.rotation_to_set = None
 
@@ -382,15 +386,17 @@ class SpecificWorker(GenericWorker):
         pass
 
     def delete_node(self, id: int):
-        if type == "room":
-        #         TODO: reset graph and wait until new room appears
-            self.room_initialized = False
+        pass
+        # if type == "room":
+        # #         TODO: reset graph and wait until new room appears
+        #     self.room_initialized = False
 
 
         # console.print(f"DELETE NODE:: {id} ", style='green')
 
     def update_edge(self, fr: int, to: int, type: str):
         if type == "current" and self.g.get_node(fr).type == "room":
+            self.room_initialized = False
             # Get number after last "_" in room name
             if self.actual_room_id is not None and self.actual_room_id != self.g.get_node(fr).attrs['room_id'].value:
                 self.last_room_id = self.actual_room_id
@@ -398,15 +404,16 @@ class SpecificWorker(GenericWorker):
             print("###########################################################")
             print("Room changed to", self.actual_room_id)
             print("###########################################################")
-            self.init_graph = True
+            self.current_edge_set = True
+            return
 
         if type == "RT" and self.g.get_node(fr).type == "room" and self.g.get_node(to).name == "Shadow":
             rt_edge = self.g.get_edge(fr, to, type)
-            print(rt_edge.attrs['rt_translation'].agent_id, self.agent_id)
             if rt_edge.attrs['rt_translation'].agent_id != self.agent_id:
+                self.room_initialized = False
                 self.translation_to_set = rt_edge.attrs['rt_translation'].value
                 self.rotation_to_set = rt_edge.attrs['rt_rotation_euler_xyz'].value
-                self.room_initialized = False
+                self.first_rt_set = True
                 print("Translation to set", self.translation_to_set)
                 print("Rotation to set", self.rotation_to_set)
 
