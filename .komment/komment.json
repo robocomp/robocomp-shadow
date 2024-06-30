@@ -1,17 +1,20 @@
 {
   "meta": {
     "version": "1",
-    "updated_at": "2024-06-28T08:33:42.374Z",
+    "updated_at": "2024-06-30T17:41:54.778Z",
     "created_at": "2024-06-25T08:25:03.930Z",
     "pipelines": [
       "8aeca481-38f3-445d-9314-e382a3fc7823",
-      "6421de6c-3f7d-4005-88a8-c2aa48eefad8"
+      "6421de6c-3f7d-4005-88a8-c2aa48eefad8",
+      "73c233bc-a95e-4720-b07a-785784f2d250"
     ]
   },
   "lookup": [
     [
       "agents/g2o_agent/src/specificworker.py",
-      "agents/long_term_spatial_memory_agent/src/specificworker.py"
+      "agents/long_term_spatial_memory_agent/src/specificworker.py",
+      "agents/long_term_spatial_memory_agent/scripts/long_term_graph.py",
+      "agents/long_term_spatial_memory_agent/scripts/main.py"
     ]
   ]
 }

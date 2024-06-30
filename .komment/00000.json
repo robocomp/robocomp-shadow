@@ -1262,5 +1262,248 @@
         ]
       }
     }
+  },
+  {
+    "name": "long_term_graph.py",
+    "path": "agents/long_term_spatial_memory_agent/scripts/long_term_graph.py",
+    "content": {
+      "structured": {
+        "description": "a class called Environment that provides a set of methods for working with a graphical representation of a building. The main features of the code include:\n\n* Computing the metric map of a building, which involves computing the rooms and doors in the building using a graph structure.\n* Providing functions to draw the rooms and doors on an axis object.\n* Calculating the coordinates of the corners of a room in the room frame, as well as the coordinates of objects within the room.\n\nThe code uses various packages including `networkx` for working with graphs, `matplotlib` for drawing visualizations, and `scipy` for performing rotations and other mathematical operations.",
+        "items": [
+          {
+            "id": "c4e6714a-ada9-308f-774c-0394793a49e1",
+            "ancestors": [],
+            "description": "Provides methods for computing and visualizing a metric map of a long-term graph, including computing the shortest path between two rooms, transforming a room to another location, and drawing the metric map.",
+            "attributes": [
+              {
+                "name": "g",
+                "type_name": "Graph",
+                "description": "Used to represent the graph structure of a building's floor plan, with nodes representing rooms and edges representing doorways between them."
+              },
+              {
+                "name": "read_graph",
+                "type_name": "instance",
+                "description": "Used to read a graph from a file specified by the user."
+              },
+              {
+                "name": "fig",
+                "type_name": "matplotlibFigure",
+                "description": "Used to store the figure object that represents the graph."
+              },
+              {
+                "name": "ax",
+                "type_name": "Axes",
+                "description": "Used to create the figure for visualizing the metric map."
+              }
+            ],
+            "name": "LongTermGraph",
+            "location": {
+              "start": 15,
+              "insert": 16,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "class",
+            "length": 148,
+            "docLength": null
+          },
+          {
+            "id": "f32bdcfc-bcf0-698c-2049-03de8c3244f5",
+            "ancestors": [
+              "c4e6714a-ada9-308f-774c-0394793a49e1"
+            ],
+            "description": "Of the `LongTermGraph` class reads a graph from a file, creates a visualization of it using Python's Matplotlib library, and displays the graph's summary information.",
+            "params": [
+              {
+                "name": "file_name",
+                "type_name": "str",
+                "description": "Used to specify the file name for reading the graph data from."
+              }
+            ],
+            "returns": null,
+            "name": "__init__",
+            "location": {
+              "start": 16,
+              "insert": 17,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 8,
+            "docLength": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "main.py",
+    "path": "agents/long_term_spatial_memory_agent/scripts/main.py",
+    "content": {
+      "structured": {
+        "description": "Three functions: `draw_graph`, `find_edge_with_attribute`, and `traverse_graph`. The `draw_graph` function takes a graph object as input and uses various libraries (Matplotlib, PySide2) to draw the graph, compute its layout, and display it. The `find_edge_with_attribute` function searches for an edge in a given graph based on a specific attribute, and returns the found edge. Finally, the `traverse_graph` function traverses a graph from a starting room by recursively calling itself for each connected door node, and adding the visited rooms to a list.",
+        "items": [
+          {
+            "id": "176a65d9-3a89-9bb4-a941-c3ee701a553a",
+            "ancestors": [],
+            "description": "Creates a graph using Matplotlib and displays it on a plot. It takes a graph object as input and performs the following operations:\n\n1. Creates a figure and axis object using Matplotlib's `subplots()` function.\n2. Sets the title of the axis object.\n3. Uses the `draw()` method to draw the graph on the canvas.\n4. Uses the `flush_events()` method to update the display.\n5. Clears the axis object.",
+            "params": [
+              {
+                "name": "graph",
+                "type_name": "LTSMGraph",
+                "description": "Used to store the graph structure and layout information."
+              }
+            ],
+            "returns": null,
+            "name": "draw_graph",
+            "location": {
+              "start": 9,
+              "insert": 10,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "function",
+            "length": 24,
+            "docLength": null
+          },
+          {
+            "id": "4b7258ac-df62-868c-fc45-d991ea036a46",
+            "ancestors": [],
+            "description": "Searches for an edge in a graph that has a specific attribute equal to a given value. If such an edge is found, it returns it; otherwise, it returns `None`.",
+            "params": [
+              {
+                "name": "graph",
+                "type_name": "Graph",
+                "description": "Used to represent a directed or undirected graph consisting of edges and vertices, where each edge has an attribute associated with it."
+              },
+              {
+                "name": "attribute",
+                "type_name": "str",
+                "description": "Used to identify the attribute of the edge to search for in the graph."
+              },
+              {
+                "name": "value",
+                "type_name": "object",
+                "description": "Used to search for an edge in a graph based on a specific attribute."
+              }
+            ],
+            "returns": {
+              "type_name": "Edge",
+              "description": "An edge from the graph that has the specified attribute equal to the specified value, or `None` if no such edge exists."
+            },
+            "name": "find_edge_with_attribute",
+            "location": {
+              "start": 44,
+              "insert": 45,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "function",
+            "length": 5,
+            "docLength": null
+          },
+          {
+            "id": "d4b423c9-62f5-31a5-9443-83fe6776af73",
+            "ancestors": [],
+            "description": "In Java code extracts edges from a graph that have a \"door\" label in either the source or target node, and appends them to a list.",
+            "params": [
+              {
+                "name": "graph",
+                "type_name": "igraphGraph",
+                "description": "Used to represent a weighted graph."
+              }
+            ],
+            "returns": {
+              "type_name": "list",
+              "description": "A collection of edges from a given graph, where each edge connects two nodes representing a room and a door between them."
+            },
+            "name": "get_room_edges",
+            "location": {
+              "start": 50,
+              "insert": 51,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "function",
+            "length": 10,
+            "docLength": null
+          },
+          {
+            "id": "4f4720c3-f184-c78d-894f-99ee7d8094fb",
+            "ancestors": [],
+            "description": "In Java returns a list of nodes in a graph that are connected to a given node and have \"door\" in their name. It recursively traverses the graph to find connected door nodes by considering the successors of the given node and recursively calling itself on each successor node until no more connected door nodes are found.",
+            "params": [
+              {
+                "name": "graph",
+                "type_name": "graph",
+                "description": "Used to represent a directed graph with nodes and edges, where each edge has an associated value or weight."
+              },
+              {
+                "name": "node",
+                "type_name": "GraphNode",
+                "description": "Passed as a reference to the method, representing the current node being analyzed for connected door nodes."
+              }
+            ],
+            "returns": {
+              "type_name": "list",
+              "description": "A collection of nodes that have at least one connected door node to the given node."
+            },
+            "name": "get_connected_door_nodes",
+            "location": {
+              "start": 61,
+              "insert": 63,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "function",
+            "length": 10,
+            "docLength": null
+          },
+          {
+            "id": "51debe0d-e0c1-18bc-7f46-7dd5ace25f0b",
+            "ancestors": [],
+            "description": "Traverses a graph by starting from a designated room and printing its name, then finding and printing the names of connected rooms through doors, and recursively traversing those rooms until no more rooms are found.",
+            "params": [
+              {
+                "name": "graph",
+                "type_name": "Graph",
+                "description": "Used to represent a graph structure with nodes and edges, where each node represents a room and each edge represents a door connecting two rooms."
+              },
+              {
+                "name": "current_room",
+                "type_name": "dict",
+                "description": "Representing the current room being traversed in the graph."
+              },
+              {
+                "name": "visited",
+                "type_name": "list",
+                "description": "Used to store the rooms that have been visited during the traversal, allowing the function to avoid visiting the same room twice."
+              }
+            ],
+            "returns": {
+              "type_name": "list",
+              "description": "A list of room names that have been visited during the traversal process."
+            },
+            "name": "traverse_graph",
+            "location": {
+              "start": 77,
+              "insert": 78,
+              "offset": " ",
+              "indent": 4,
+              "comment": null
+            },
+            "item_type": "function",
+            "length": 17,
+            "docLength": null
+          }
+        ]
+      }
+    }
   }
 ]
