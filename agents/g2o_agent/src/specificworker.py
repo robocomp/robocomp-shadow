@@ -67,7 +67,7 @@ class SpecificWorker(GenericWorker):
             self.last_odometry = None
             # Initialize g2o graph with visualizer
             self.g2o = G2OGraph(verbose=False)
-            self.visualizer = G2OVisualizer("G2O Graph")
+            # self.visualizer = G2OVisualizer("G2O Graph")
 
             self.odometry_noise_std_dev = 1  # Standard deviation for odometry noise
             self.odometry_noise_angle_std_dev = 1  # Standard deviation for odometry noise
@@ -81,8 +81,7 @@ class SpecificWorker(GenericWorker):
             self.room_initialized = False
             self.iterations = 0
             self.hide()
-            self.timer.timeout.connect(self.compute)
-            self.timer.start(self.Period)
+
             self.init_graph = False
 
             self.current_edge_set = False
@@ -94,6 +93,12 @@ class SpecificWorker(GenericWorker):
             self.room_polygon = None
 
             self.room_initialized = True if self.initialize_g2o_graph() else False
+
+            self.rt_set_last_time = time.time()
+            self.rt_time_min = 1
+
+            self.timer.timeout.connect(self.compute)
+            self.timer.start(self.Period)
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -121,6 +126,7 @@ class SpecificWorker(GenericWorker):
         self.iterations += 1
 
         if self.room_initialized:
+            self.first_rt_set = False
             print("Room initialized")
             # Get robot odometry
             if self.odometry_queue:
@@ -137,21 +143,13 @@ class SpecificWorker(GenericWorker):
                 # Generate information matrix considering the noise
                 odom_information = np.array([[1, 0.0, 0.0],
                                             [0.0, 1, 0.0],
-                                            [0.0, 0.0, 0.1]])
+                                            [0.0, 0.0, 0.001]])
 
                 self.g2o.add_odometry(adv_displacement,
                                             side_displacement,
                                             ang_displacement, odom_information)
 
-
-                landmark_information = np.array([[1/self.measurement_noise_std_dev, 0.0],
-                                                [0.0, 1/self.measurement_noise_std_dev]])
-
                 # Check if robot pose is inside room polygon
-
-
-
-
                 if len(room_nodes) > 0:
                     room_node = room_nodes[0]
                     if self.room_polygon is not None:
@@ -165,15 +163,12 @@ class SpecificWorker(GenericWorker):
                                 if is_corner_valid:
                                     corner_edge = self.rt_api.get_edge_RT(robot_node, corner_node.id)
                                     corner_edge_mat = self.rt_api.get_edge_RT_as_rtmat(corner_edge, robot_odometry[3])[0:3, 3]
-                                    # print("Vertex count ", self.g2o.vertex_count)
-                                    # self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 1 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                                     self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
-                                    # self.g2o.add_landmark(self.add_noise(corner_edge_mat[0], self.measurement_noise_std_dev), self.add_noise(corner_edge_mat[1], self.measurement_noise_std_dev), landmark_information, pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7]))
                                     print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
                 else:
                     # Get last room node
                     room_node = self.g.get_node("room_" + str(self.actual_room_id))
-                chi_value = self.g2o.optimize(iterations=100, verbose=False)
+                chi_value = self.g2o.optimize(iterations=50, verbose=False)
 
                 last_vertex = self.g2o.optimizer.vertices()[self.g2o.vertex_count - 1]
                 opt_translation = last_vertex.estimate().translation()
@@ -187,7 +182,7 @@ class SpecificWorker(GenericWorker):
                 # print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
                 # cov_matrix = self.get_covariance_matrix(last_vertex)
                 # print("Covariance matrix:", cov_matrix)
-                self.visualizer.update_graph(self.g2o)
+                # self.visualizer.update_graph(self.g2o)
                     # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
                     # rt_robot_edge.attrs['rt_translation'] = [opt_translation[0], opt_translation[1], .0]
                     # rt_robot_edge.attrs['rt_rotation_euler_xyz'] = [.0, .0, opt_orientation]
@@ -204,11 +199,10 @@ class SpecificWorker(GenericWorker):
 
         elif self.first_rt_set and self.current_edge_set and self.translation_to_set is not None and self.rotation_to_set is not None:
             print("Initializing g2o graph")
-            if self.last_room_id is not None:
-                self.g.delete_edge(self.g.get_node("room_"+str(self.last_room_id)).id, self.g.get_node("Shadow").id, "RT")
+            # if self.last_room_id is not None:
+            #     self.g.delete_edge(self.g.get_node("room_"+str(self.last_room_id)).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
             self.room_initialized = True
-            self.first_rt_set = False
             self.current_edge_set = False
             self.translation_to_set = None
             self.rotation_to_set = None
@@ -409,13 +403,14 @@ class SpecificWorker(GenericWorker):
 
         if type == "RT" and self.g.get_node(fr).type == "room" and self.g.get_node(to).name == "Shadow":
             rt_edge = self.g.get_edge(fr, to, type)
-            if rt_edge.attrs['rt_translation'].agent_id != self.agent_id:
+            if rt_edge.attrs['rt_translation'].agent_id != self.agent_id and time.time()-self.rt_set_last_time > self.rt_time_min:
                 self.room_initialized = False
                 self.translation_to_set = rt_edge.attrs['rt_translation'].value
                 self.rotation_to_set = rt_edge.attrs['rt_rotation_euler_xyz'].value
                 self.first_rt_set = True
                 print("Translation to set", self.translation_to_set)
                 print("Rotation to set", self.rotation_to_set)
+                self.rt_set_last_time = time.time()
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         pass

@@ -135,6 +135,7 @@ void SpecificWorker::initialize(int period)
         The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
         ***/
         //graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
+        hide();
         timer.start(Period);
     }
 
@@ -143,6 +144,14 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
 
+    if(wait)
+    {
+        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - wait_start_time).count() > waiting_time)
+        {
+            wait = false;
+        }
+        return;
+    }
 
     //FIND IF EXIST ONE AFFORDANCE ACTIVATED, TO UPDATE MISSION STATUS
     //Get all nodes of type affordance
@@ -165,6 +174,8 @@ void SpecificWorker::compute()
                         G->update_node(affordance);
                         //Print AFFORDANCE NODE COMPLETED
                         std::cout << CYAN << "AFFORDANCE NODE COMPLETED, setting active to false" << RESET << std::endl;
+                        wait_start_time = std::chrono::system_clock::now();
+                        wait = true;
                         //Print the affordance name, state and value
                         return;
                     }

@@ -1,10 +1,7 @@
 import matplotlib.pyplot as plt
-import spatialmath as sm
-import itertools
-import numpy as np
 from long_term_graph import LongTermGraph
 from PySide2.QtCore import QPoint
-from PySide2.QtCore import Qt
+
 
 def draw_graph(graph):
     fig1, ax1 = plt.subplots()
@@ -99,6 +96,11 @@ def traverse_graph(graph, current_room, visited=None):
 
 ########################
 graph = LongTermGraph("graph.pkl")
+
+doors = graph.get_room_objects_transform_matrices_with_name("room_1", "door")
+for i in doors:
+    print(i[1].t)
+
 
 g_map = graph.compute_metric_map("room_1")
 graph.draw_metric_map(g_map)
