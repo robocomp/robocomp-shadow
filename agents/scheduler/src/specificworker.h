@@ -88,6 +88,11 @@ private:
     // create an std map of string and int
     std::map<std::string, int> affordance_map;
 
+    int waiting_time = 5000;
+    bool wait = false;
+    // Variable to store using std::chrono the time when the affordance was activated
+    std::chrono::time_point<std::chrono::system_clock> wait_start_time;
+
     bool intention_active = false;
     u_int64_t active_node_id = -1;
     u_int64_t set_intention_active(DSR::Edge &edge, bool active);

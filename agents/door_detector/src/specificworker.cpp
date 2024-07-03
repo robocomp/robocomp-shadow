@@ -145,7 +145,10 @@ void SpecificWorker::compute()
 
 // requirements:
 // 1. read lidar data
-    auto res_ = buffer_lidar_data.try_get();
+//    auto res_ = buffer_lidar_data.try_get();
+//    if (not res_.has_value()) { return; }
+//    auto ldata = res_.value();
+    auto [res_] = buffer_lidar_data.read_last();
     if (not res_.has_value()) { return; }
     auto ldata = res_.value();
 
@@ -219,21 +222,34 @@ void SpecificWorker::compute()
 
 //3. get nominal and measured doors from graph from room in robot's frame
     auto door_nodes = get_measured_and_nominal_doors(room_node, robot_node);
-    qInfo() << 1;
     //Draw nominal doors in green and measured doors in red
-    draw_door_robot_frame(std::get<1>(door_nodes), std::get<0>(door_nodes), QColor("blue"), QColor("red"), &widget_2d->scene);
-    qInfo() << 2;
+    if(widget_2d != nullptr)
+    {
+        draw_lidar(ldata, &widget_2d->scene);
+        draw_door_robot_frame(std::get<1>(door_nodes), std::get<0>(door_nodes), QColor("blue"), QColor("red"), &widget_2d->scene);
+    }
 //4. get measured doors from lidar in robot's frame
     auto doors = get_doors(ldata, &widget_2d->scene, robot_node, room_node);
-    qInfo() << 3;
+    qInfo() << 1;
 //5. matching function between DSR doors_nominals data and measured doors in last lidar. return matching and "other" doors.
 // update measured_door corresponding to these match with new measure
     auto nominal_matches = door_matching(doors, std::get<1>(door_nodes));
-    qInfo() << 4;
 //   6. remove from doors detected the doors matched with DSR data and make new association with the measure_door_nodes,
 //   return matched doors and update measured_door nodes.
+    qInfo() << 1;
     auto to_measured_doors = update_and_remove_doors(nominal_matches, doors, std::get<1>(door_nodes), true, room_node);
-
+    qInfo() << 1;
+//    // Get affordance nodes
+//    auto affordance_nodes = G->get_nodes_by_type("affordance");
+//    // Check if any affordance node is active using a lambda function
+//    auto affordance_active = std::ranges::find_if(affordance_nodes, [this](DSR::Node n) { return G->get_attrib_by_name<active_att>(n.id()).value(); });
+//    if(affordance_active != affordance_nodes.end())
+//    {
+//        // Print affordance node active
+//        std::cout << "Affordance node active" << std::endl;
+//        affordance();
+//        return;
+//    }
     //Print to_measured_doors size
     std::cout << "TO MEASURED DOORS SIZE" << to_measured_doors.size() << std::endl;
 
@@ -257,8 +273,8 @@ void SpecificWorker::compute()
     //Print
     set_doors_to_stabilize(to_prefilter_doors, room_node);
     qInfo() << 6;
-    affordance();
 
+    affordance();
     auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty() and exit_door_exists)
     {    match_exit_door(); }
 //  10 create new_measured door to stabilize.
@@ -279,10 +295,7 @@ void SpecificWorker::compute()
 
 //          6. finish thread
 //     the thread has to respond when compute asks if a given measured door is being stabilized by it.
-    if(widget_2d != nullptr)
-    {
-        draw_lidar(ldata, &widget_2d->scene);
-    }
+
 }
 
 void SpecificWorker::affordance()
@@ -428,8 +441,8 @@ void SpecificWorker::match_exit_door()
                 if ((nominal_door_robot_pose - exit_door_room_pose).norm() < door_map.second)
                 {
                     door_map = {nominal_door.name(), (nominal_door_robot_pose - exit_door_room_pose).norm()};
+                    qInfo() << "Door name: " << QString::fromStdString(nominal_door.name()) << " distance: " << door_map.second;
                 }
-
             }
         }
     }
@@ -454,12 +467,14 @@ void SpecificWorker::match_exit_door()
             DSR::Edge match = DSR::Edge::create<match_edge_type>(nominal_door.value().id(), exited_door.value().id());
             G->insert_or_assign_edge(match);
             exit_door_exists = false;
+
         }
     }
     else
     {
         std::cout << "Nominal door not matching exit door" << std::endl;
     }
+
 }
 void SpecificWorker::affordance_thread(uint64_t aff_id)
 {
@@ -501,9 +516,13 @@ void SpecificWorker::affordance_thread(uint64_t aff_id)
         //Check if node with door_parent id exists in G
         if (auto door_parent_node = G->get_node(door_parent.value()); door_parent_node.has_value())
         {
-            //create a edge called exist from robot node to door node
-            DSR::Edge exit = DSR::Edge::create<exit_edge_type>(params.ROBOT_ID, door_parent_node.value().id());
-            G->insert_or_assign_edge(exit);
+            auto parent_node = door_parent_node.value();
+//            if(auto other_side_door = G->get_attrib_by_name<other_side_door_name_att>(parent_node); not other_side_door.has_value())
+//            {
+                //create a edge called exist from robot node to door node
+                DSR::Edge exit = DSR::Edge::create<exit_edge_type>(params.ROBOT_ID, door_parent_node.value().id());
+                G->insert_or_assign_edge(exit);
+//            }
         }
 
         if (auto aff = G->get_node(aff_id); aff.has_value())
@@ -861,7 +880,7 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
 {
     // A static vector of tuples to store the last detected doors and a counter to store the number of times a door has been detected
     static vector<tuple<DoorDetector::Door, int>> last_detected_doors;
-    int N = 60; // The number of consecutive frames a door must be detected in to be considered valid
+    int N = 120; // The number of consecutive frames a door must be detected in to be considered valid
 
     for(const auto &[i, d] : last_detected_doors | iter::enumerate)
     {
@@ -956,26 +975,28 @@ std::vector<std::pair<int, int>> SpecificWorker::door_matching(const std::vector
         return matching;
     }
 
+    std::cout << "Measured doors: " << measured_doors.size() << std::endl;
+    std::cout << "Nominal doors: " << nominal_doors.size() << std::endl;
 
     vector<vector<double>> distances_matrix(measured_doors.size(), vector<double>(nominal_doors.size()));
     for(size_t i = 0; i < measured_doors.size(); i++)
         for(size_t j = 0; j < nominal_doors.size(); j++)
         {
             distances_matrix[i][j] = (measured_doors[i].middle - nominal_doors[j].middle).norm(); //TODO: incorporate rotation or door width to distance_matrix
-//            qInfo() << "Distance: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[j].wall_id << nominal_doors[j].id << distances_matrix[i][j];
+            qInfo() << "Distance: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[j].wall_id << nominal_doors[j].id << distances_matrix[i][j];
         }
 
     vector<int> assignment;
     double cost = HungAlgo.Solve(distances_matrix, assignment);
     for(size_t i = 0; i < assignment.size(); i++)
     {
-//        qInfo() << "Assignment: " << i << " --- " << assignment[i];
+        qInfo() << "Assignment: " << i << " --- " << assignment[i];
         if(assignment[i] != -1)
         {
-//            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << nominal_doors[assignment[i]].width() * 0.75;
+            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << nominal_doors[assignment[i]].width() * 0.75;
             if(distances_matrix[i][assignment[i]] < nominal_doors[assignment[i]].width() * 0.75)
             {
-//                qInfo() << "Matching: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[assignment[i]].wall_id << nominal_doors[assignment[i]].id;
+                qInfo() << "Matching: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[assignment[i]].wall_id << nominal_doors[assignment[i]].id;
                 matching.push_back({i, assignment[i]});
             }
             else
@@ -1239,7 +1260,9 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
         auto current_edges = G->get_edges_by_type("current");
         if(current_edges.empty())
-        {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+        {qWarning() << __FUNCTION__ << " No current edges in graph";
+//            remove_to_stabilize_door_in_graph(door_node.id());
+            return;}
 
         auto room_node_ = G->get_node(current_edges[0].to());
         if(not room_node_.has_value())
@@ -1255,126 +1278,128 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
         /// If "is active" attribute is true, the schedules assigns priority to stabilizing the door
         if(is_active.value() or time_collecting_data > 0)
         {
-            /// If intention state is "in_progress", start getting data from the door and the room to stabilize the door
+
+                /// If intention state is "in_progress", start getting data from the door and the room to stabilize the door
             if(intention_state_value == "in_progress" or time_collecting_data > 0)
-            {
-                static auto start = std::chrono::high_resolution_clock::now();
-                //print time_collecting data
-                qInfo() << "Time_collecting_data" << time_collecting_data;
-
-                /// Get measured corners from graph
-                auto corner_nodes = G->get_nodes_by_type("corner");
-                if(corner_nodes.empty())
-                { qWarning() << __FUNCTION__ << " No corner nodes in graph"; return; }
-
-                /// Generate corner_nodes_measured vector with corner nodes that contains "measured" in name using a lambda function and order them
-                std::vector<DSR::Node> corner_nodes_measured;
-                std::copy_if(corner_nodes.begin(), corner_nodes.end(), std::back_inserter(corner_nodes_measured), [](auto &n){ return n.name().find("measured") != std::string::npos; });
-                std::sort(corner_nodes_measured.begin(), corner_nodes_measured.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
-
-                /// In case is the first time, get robot pose and nominal corners for g2o optimization
-                if(first_time)
                 {
-                    /// Get robot pose
-                    auto rt_room_robot = rt->get_edge_RT(room_node, robot_node.id());
-                    if(not rt_room_robot.has_value())
-                    { qWarning() << __FUNCTION__ << " No room -> robot RT edge"; return; }
+                    static auto start = std::chrono::high_resolution_clock::now();
+                    //print time_collecting data
+                    qInfo() << "Time_collecting_data" << time_collecting_data;
 
-                    auto rt_room_robot_edge = rt_room_robot.value();
-                    if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_room_robot_edge); rt_translation.has_value())
+                    /// Get measured corners from graph
+                    auto corner_nodes = G->get_nodes_by_type("corner");
+                    if(corner_nodes.empty())
+                    { qWarning() << __FUNCTION__ << " No corner nodes in graph"; return; }
+
+                    /// Generate corner_nodes_measured vector with corner nodes that contains "measured" in name using a lambda function and order them
+                    std::vector<DSR::Node> corner_nodes_measured;
+                    std::copy_if(corner_nodes.begin(), corner_nodes.end(), std::back_inserter(corner_nodes_measured), [](auto &n){ return n.name().find("measured") != std::string::npos; });
+                    std::sort(corner_nodes_measured.begin(), corner_nodes_measured.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
+
+                    /// In case is the first time, get robot pose and nominal corners for g2o optimization
+                    if(first_time)
                     {
-                        if(auto rt_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(rt_room_robot_edge); rt_rotation.has_value())
+                        /// Get robot pose
+                        auto rt_room_robot = rt->get_edge_RT(room_node, robot_node.id());
+                        if(not rt_room_robot.has_value())
+                        { qWarning() << __FUNCTION__ << " No room -> robot RT edge"; return; }
+
+                        auto rt_room_robot_edge = rt_room_robot.value();
+                        if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_room_robot_edge); rt_translation.has_value())
+                        {
+                            if(auto rt_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(rt_room_robot_edge); rt_rotation.has_value())
+                            {
+                                auto rt_translation_value = rt_translation.value().get();
+                                auto rt_rotation_value = rt_rotation.value().get();
+
+                                // Set rotation and traslation data
+                                first_robot_pose.setIdentity();
+                                first_robot_pose.rotate(rt_rotation_value[2]).pretranslate(Eigen::Vector2d {rt_translation_value[0], rt_translation_value[1]});
+                            }
+                        }
+
+                        /// Generate corner_nodes_nominal vector with corner nodes that not contains "measured" in name and which last number in name is the same that actual room id using a lambda function and order them
+                        std::vector<DSR::Node> corner_nodes_nominal;
+                        std::copy_if(corner_nodes.begin(), corner_nodes.end(), std::back_inserter(corner_nodes_nominal), [this](auto &n)
+                        {
+                            auto measured_found = n.name().find("measured") == std::string::npos;
+                            bool room_id_found = false;
+                            if(auto room_id = G->get_attrib_by_name<room_id_att>(n); room_id.has_value())
+                            {
+                                room_id_found = room_id.value() == actual_room_id;
+                            }
+                            return measured_found and room_id_found;
+                        });
+                        std::sort(corner_nodes_nominal.begin(), corner_nodes_nominal.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
+
+                        /// Iterate over nominal corners
+                        for (const auto &[i, n]: corner_nodes_nominal | iter::enumerate)
+                            /// Transform corner pose to room frame
+                            if (auto corner_transformed = inner_eigen->transform(room_node.name(),
+                                                                                 n.name()); corner_transformed.has_value())
+                            {
+                                auto corner_transformed_value = corner_transformed.value();
+                                nominal_corner_points.push_back(Eigen::Vector2f{corner_transformed_value.x(), corner_transformed_value.y()});
+                            }
+                        first_time = false;
+                    }
+
+                    /// Get door width and insert in histogram
+                    if(auto door_width = G->get_attrib_by_name<width_att>(door_node); door_width.has_value())
+                        width_histogram[door_width.value()]++;
+
+                    /// Get door pose transformed to robot reference frame using inner_eigen transform
+                    if(auto wall_door_rt = rt->get_edge_RT(wall_node, door_node.id()); wall_door_rt.has_value())
+                        if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(wall_door_rt.value()); rt_translation.has_value())
                         {
                             auto rt_translation_value = rt_translation.value().get();
-                            auto rt_rotation_value = rt_rotation.value().get();
-
-                            // Set rotation and traslation data
-                            first_robot_pose.setIdentity();
-                            first_robot_pose.rotate(rt_rotation_value[2]).pretranslate(Eigen::Vector2d {rt_translation_value[0], rt_translation_value[1]});
+                            /// Insert distance to wall center in histogram considering distance is x value
+                            pose_histogram[static_cast<int>(rt_translation_value[0])]++;
                         }
+
+                    /// Get door center coordinates in robot reference frame
+                    if(auto door_translation_ = G->get_attrib_by_name<rt_translation_att>(door_node); door_translation_.has_value())
+                    {
+                        auto door_translation = door_translation_.value().get();
+                        measured_door_points.push_back(Eigen::Vector2f{door_translation[0], door_translation[1]});
                     }
 
-                    /// Generate corner_nodes_nominal vector with corner nodes that not contains "measured" in name and which last number in name is the same that actual room id using a lambda function and order them
-                    std::vector<DSR::Node> corner_nodes_nominal;
-                    std::copy_if(corner_nodes.begin(), corner_nodes.end(), std::back_inserter(corner_nodes_nominal), [this](auto &n)
-                    {
-                        auto measured_found = n.name().find("measured") == std::string::npos;
-                        bool room_id_found = false;
-                        if(auto room_id = G->get_attrib_by_name<room_id_att>(n); room_id.has_value())
-                        {
-                            room_id_found = room_id.value() == actual_room_id;
-                        }
-                        return measured_found and room_id_found;
-                    });
-                    std::sort(corner_nodes_nominal.begin(), corner_nodes_nominal.end(), [](auto &n1, auto &n2){ return n1.name() < n2.name(); });
+                    /// Iterate over measured corners in graph
+                    std::vector<Eigen::Matrix<float, 2, 1>> actual_measured_corner_points;
+                    for(const auto &[i, n] : corner_nodes_measured | iter::enumerate)
+                        if(auto rt_robot_corner = rt->get_edge_RT(robot_node, n.id()); rt_robot_corner.has_value())
+                            if (auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_robot_corner.value()); rt_translation.has_value())
+                            {
+                                auto rt_corner_value = rt_translation.value().get();
+                                Eigen::Vector2f corner_robot_pos_point(rt_corner_value[0], rt_corner_value[1]);
+                                actual_measured_corner_points.push_back(corner_robot_pos_point);
+                            }
+                    measured_corner_points.push_back(actual_measured_corner_points);
 
-                    /// Iterate over nominal corners
-                    for (const auto &[i, n]: corner_nodes_nominal | iter::enumerate)
-                        /// Transform corner pose to room frame
-                        if (auto corner_transformed = inner_eigen->transform(room_node.name(),
-                                                                             n.name()); corner_transformed.has_value())
-                        {
-                            auto corner_transformed_value = corner_transformed.value();
-                            nominal_corner_points.push_back(Eigen::Vector2f{corner_transformed_value.x(), corner_transformed_value.y()});
-                        }
-                    first_time = false;
+                    /// Get robot odometry data
+                    odometry_data.push_back(get_graph_odometry());
+
+                    auto end = std::chrono::high_resolution_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+                    time_collecting_data -= elapsed;
+                    start = end;
                 }
-
-                /// Get door width and insert in histogram
-                if(auto door_width = G->get_attrib_by_name<width_att>(door_node); door_width.has_value())
-                    width_histogram[door_width.value()]++;
-
-                /// Get door pose transformed to robot reference frame using inner_eigen transform
-                if(auto wall_door_rt = rt->get_edge_RT(wall_node, door_node.id()); wall_door_rt.has_value())
-                    if(auto rt_translation = G->get_attrib_by_name<rt_translation_att>(wall_door_rt.value()); rt_translation.has_value())
-                    {
-                        auto rt_translation_value = rt_translation.value().get();
-                        /// Insert distance to wall center in histogram considering distance is x value
-                        pose_histogram[static_cast<int>(rt_translation_value[0])]++;
-                    }
-
-                /// Get door center coordinates in robot reference frame
-                if(auto door_translation_ = G->get_attrib_by_name<rt_translation_att>(door_node); door_translation_.has_value())
+                else if(intention_state_value == "waiting")
                 {
-                    auto door_translation = door_translation_.value().get();
-                    measured_door_points.push_back(Eigen::Vector2f{door_translation[0], door_translation[1]});
+                    qInfo() << "Waiting to base controller...";
+                    continue;
+                }
+                else if(intention_state_value == "aborted" or intention_state_value == "failed")
+                {
+                    qInfo() << "Problem found stabilizing door. Door is aborted or failed. Waiting scheduler to remove data";
+                    continue;
+                }
+                else if(intention_state_value == "completed")
+                {
+//                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
+                    continue;
                 }
 
-                /// Iterate over measured corners in graph
-                std::vector<Eigen::Matrix<float, 2, 1>> actual_measured_corner_points;
-                for(const auto &[i, n] : corner_nodes_measured | iter::enumerate)
-                    if(auto rt_robot_corner = rt->get_edge_RT(robot_node, n.id()); rt_robot_corner.has_value())
-                        if (auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_robot_corner.value()); rt_translation.has_value())
-                        {
-                            auto rt_corner_value = rt_translation.value().get();
-                            Eigen::Vector2f corner_robot_pos_point(rt_corner_value[0], rt_corner_value[1]);
-                            actual_measured_corner_points.push_back(corner_robot_pos_point);
-                        }
-                measured_corner_points.push_back(actual_measured_corner_points);
-
-                /// Get robot odometry data
-                odometry_data.push_back(get_graph_odometry());
-
-                auto end = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-                time_collecting_data -= elapsed;
-                start = end;
-            }
-            else if(intention_state_value == "waiting")
-            {
-                qInfo() << "Waiting to base controller...";
-                continue;
-            }
-            else if(intention_state_value == "aborted" or intention_state_value == "failed")
-            {
-                qInfo() << "Problem found stabilizing door. Door is aborted or failed. Waiting scheduler to remove data";
-                continue;
-            }
-            else if(intention_state_value == "completed")
-            {
-//                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
-                continue;
-            }
         }
         else // IS_ACTIVE == FALSE
         {
@@ -1410,6 +1435,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if(measured_door_points.empty())
                 {
                     qInfo() << "No measured points. removing door";
+                    qInfo() << "POINT 1";
                     //Delete edge between wall and door in all cases
                     if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                         std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
@@ -1422,12 +1448,13 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                         std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
 
                     //delete door node
-                    G->delete_node(door_node.id());
+                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
+                        G->delete_node(door_node.id());
                     is_stabilized = true;
                     return;
                 }
                 //print width_histogram size
-                qInfo() << "Width histogram size: " << width_histogram.size();
+//                qInfo() << "Width histogram size: " << width_histogram.size();
                 // Generate room size histogram considering room_size_histogram vector and obtain the most common room size
                 auto most_common_door_width = std::max_element(width_histogram.begin(), width_histogram.end(),
                                                                [](const auto &p1, const auto &p2){ return p1.second < p2.second; });
@@ -1479,7 +1506,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 }
                 qInfo() << "Action Completed, delete intention_edge and close thread. ";
-
+                qInfo() << "POINT 1";
                 //Delete edge between wall and door in all cases
                 if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                     std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
@@ -1492,7 +1519,8 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
 
                 //delete door node
-                G->delete_node(door_node.id());
+                if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
+                    G->delete_node(door_node.id());
                 is_stabilized = true;
                 return;
             }
@@ -1514,6 +1542,32 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     /// Kill thread
     qInfo() << "Thread finished";
 
+}
+void SpecificWorker::remove_to_stabilize_door_in_graph(uint64_t door_id)
+{
+    //Delete edge between wall and door in all cases
+    if (G->delete_edge(200, door_id, "has_intention"))
+        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+    else
+        std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+    // Get door node parent
+    auto door_node_ = G->get_node(door_id);
+    if(not door_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No door node in graph"; return; }
+    auto door_node = door_node_.value();
+    auto parent_node_ = G->get_parent_node(door_node);
+    if(not parent_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
+    auto parent_node = parent_node_.value();
+
+    if (G->delete_edge(parent_node.id(), door_id, "rt"))
+        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+    else
+        std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+    std::cout << "DELETE NODE " << door_node.name() << std::endl;
+    //delete door node
+    G->delete_node(door_id);
 }
 std::vector<float> SpecificWorker::get_graph_odometry()
 {
@@ -1563,10 +1617,11 @@ void SpecificWorker::read_lidar()
         try
         {
             auto data = lidar3d_proxy->getLidarData(consts.lidar_name, -90, 360, 3);
-            buffer_lidar_data.put(std::move(data));
+            buffer_lidar_data.put<0>(std::move(data), static_cast<size_t>(data.timestamp));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));}
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 }
 
 ///////////////////// Draw  /////////////////////////////////////////////////////////////

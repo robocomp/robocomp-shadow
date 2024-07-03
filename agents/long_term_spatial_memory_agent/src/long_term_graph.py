@@ -14,13 +14,27 @@ import matplotlib.patches as patches
 
 class LongTermGraph:
     def __init__(self, file_name):
-        self.g = self.read_graph(file_name, directed=True)
-        print("Graph read from", file_name, self.g.summary())
+        try:
+            self.g = self.read_graph(file_name, directed=True)
+            print("Graph read from", file_name, self.g.summary())
+        except FileNotFoundError:
+            print("File not found")
+            self.g = None
 
+        plt.ion()
         self.fig, self.ax = plt.subplots()
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
         self.ax.set_title('Metric reconstruction')
         self.ax.set_xlabel('X-axis')
         self.ax.set_ylabel('Y-axis')
+
+        self.fig_2, self.ax_2 = plt.subplots()
+        self.fig_2.canvas.draw()
+        self.fig_2.canvas.flush_events()
+        self.ax_2.set_title('LTSM graph')
+        self.ax_2.set_xlabel('X-axis')
+        self.ax_2.set_ylabel('Y-axis')
 
     def read_graph(self, file_name, directed=True):
         """ Reads a graph from a file and returns it as an iGraph object"""
@@ -124,6 +138,15 @@ class LongTermGraph:
             lines.append(line)
         return lines
 
+    def compute_element_pose(self, robot_pose, target_room_name, origin_room_name):
+        """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
+
+        transform = self.transform_room(target_room_name, origin_room_name)
+        # transform robot pose to target room frame
+        robot_pose_transformed = transform.A @ robot_pose
+        # return QPoint object
+        return QPoint(robot_pose_transformed[0], robot_pose_transformed[1])
+
     def transform_room(self, target_room_name, origin_room_name) -> sm.SE3:
         """ Computes the transformation matrix to express the origin room in the target room frame"""
 
@@ -189,73 +212,86 @@ class LongTermGraph:
         return None
 
     def draw_graph(self, only_rooms=True):
-        fig1, ax1 = plt.subplots()
-        ax1.set_title('LTSM graph')
-        fig1.canvas.draw()
-        fig1.canvas.flush_events()
-        ax1.clear()
+        self.ax_2.clear()
+        self.ax_2.set_title('LTSM graph')
+        self.ax_2.set_xlabel('X-axis')
+        self.ax_2.set_ylabel('Y-axis')
+        if self.g != None:
+            if only_rooms:
+                admitted = ("room", "door", "wall")
+                subgraph = self.g.subgraph(self.g.vs.select(lambda v: v["type"] in admitted))
+                subgraph = subgraph.subgraph(subgraph.vs.select(
+                lambda v: True if v["type"] != "wall" or
+                          (v["type"] == "wall" and any(subgraph.vs[nei]["type"] == "door" for nei in subgraph.neighbors(v))) else False))
+                layout = subgraph.layout("rt_circular")  # Utiliza el layout Kamada-Kawais
+            else:
+                layout = self.g.layout("kk")  # Utiliza el layout Kamada-Kawais
+                subgraph = self.g
 
-        if only_rooms:
-            admitted = ("room", "door", "wall")
-            subgraph = self.g.subgraph(self.g.vs.select(lambda v: v["type"] in admitted))
-            subgraph = subgraph.subgraph(subgraph.vs.select(
-            lambda v: True if v["type"] != "wall" or
-                      (v["type"] == "wall" and any(subgraph.vs[nei]["type"] == "door" for nei in subgraph.neighbors(v))) else False))
-            layout = subgraph.layout("rt_circular")  # Utiliza el layout Kamada-Kawais
-        else:
-            layout = self.g.layout("kk")  # Utiliza el layout Kamada-Kawais
-            subgraph = self.g
+            # Create a list of colors
+            colors = ["red" if node["type"] == "room" else "blue" if node["type"]
+                      == "door" else "green" for node in subgraph.vs]
 
-        # Create a list of colors
-        colors = ["red" if node["type"] == "room" else "blue" if node["type"]
-                  == "door" else "green" for node in subgraph.vs]
+            # draw nodes
+            x, y = zip(*layout)
+            self.ax_2.scatter(x, y, s=100, color=colors)  # Ajustar el tamaño de los vértices con el parámetro 's'
 
-        # draw nodes
-        x, y = zip(*layout)
-        ax1.scatter(x, y, s=100, color=colors)  # Ajustar el tamaño de los vértices con el parámetro 's'
+            # draw edges
+            for edge in subgraph.get_edgelist():
+                edge_data = subgraph.get_eid(edge[0], edge[1])
+                self.ax_2.plot([x[edge[0]], x[edge[1]]], [y[edge[0]], y[edge[1]]], color="grey")
+                self.ax_2.annotate(edge_data, xy=((x[edge[1]] + x[edge[0]]) / 2, (y[edge[1]] + y[edge[0]]) / 2),
+                             textcoords="offset points",
+                             xytext=(x[edge[0]], y[edge[0]]), ha='center', color='green')
 
-        # draw edges
-        for edge in subgraph.get_edgelist():
-            edge_data = subgraph.get_eid(edge[0], edge[1])
-            ax1.plot([x[edge[0]], x[edge[1]]], [y[edge[0]], y[edge[1]]], color="grey")
-            ax1.annotate(edge_data, xy=((x[edge[1]] + x[edge[0]]) / 2, (y[edge[1]] + y[edge[0]]) / 2),
-                         textcoords="offset points",
-                         xytext=(x[edge[0]], y[edge[0]]), ha='center', color='green')
+            # draw names
+            for i, txt in enumerate([f"Node {i}" for i in range(subgraph.vcount())]):
+                # Get name attribute
+                name = subgraph.vs[i]["name"]
+                # name = str(i)
+                self.ax_2.annotate(name, (x[i], y[i]), textcoords="offset points", xytext=(0, 10), ha='center')
 
-        # draw names
-        for i, txt in enumerate([f"Node {i}" for i in range(subgraph.vcount())]):
-            # Get name attribute
-            name = subgraph.vs[i]["name"]
-            # name = str(i)
-            ax1.annotate(name, (x[i], y[i]), textcoords="offset points", xytext=(0, 10), ha='center')
+            # Adapt ax to the graph
+            self.ax_2.set_xlim([min(x) - 2, max(x) + 2])
+            self.ax_2.set_ylim([min(y) - 2, max(y) + 2])
 
-        # Adapt ax to the graph
-        ax1.set_xlim([min(x) - 2, max(x) + 2])
-        ax1.set_ylim([min(y) - 2, max(y) + 2])
-
-    def draw_metric_map(self, rooms_map: dict):
+    def draw_metric_map(self, rooms_map: dict, current_room_name=None):
         """ Draws the metric map including rooms and doors"""
-
+        # Clear the previous plot
+        self.ax.clear()
+        self.ax.set_title('Metric reconstruction')
+        self.ax.set_xlabel('X-axis')
+        self.ax.set_ylabel('Y-axis')
         for room, val in rooms_map["rooms"].items():
-            self.draw_room(room, val["poly"])
+            if current_room_name == room:
+                self.draw_room(room, val["poly"], current=True)
+            else:
+                self.draw_room(room, val["poly"])
             self.draw_doors(val["doors"])
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
     def draw_point(self, point: QPoint):
         """ Draws a point in the map """
 
         circle = patches.Circle((float(point.x()), float(point.y())), 100, edgecolor='g', facecolor='none')
         self.ax.add_patch(circle)
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
-    def draw_room(self, room_name, room_polygon):
+    def draw_room(self, room_name, room_polygon, current=False):
         """ Draws the room polygon """
 
         # Get corner points from the polygon
         x_coords = [point.x() for point in room_polygon]
         y_coords = [point.y() for point in room_polygon]
 
+        # Set line color depending on if it's the current room
+        color = 'r-' if current else 'g-'
+
         # Plot the rectangle as a polyline
-        self.ax.plot(x_coords, y_coords, 'r-', linewidth=2)
-        self.ax.plot([x_coords[-1], x_coords[0]], [y_coords[-1], y_coords[0]], 'r-', linewidth=2)
+        self.ax.plot(x_coords, y_coords, color, linewidth=2)
+        self.ax.plot([x_coords[-1], x_coords[0]], [y_coords[-1], y_coords[0]], color, linewidth=2)
 
         # Calculate the center point of the rectangle
         center_x = sum(x_coords) / len(x_coords)

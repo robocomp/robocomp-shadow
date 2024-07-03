@@ -105,6 +105,7 @@ void SpecificWorker::initialize(int period)
 		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
+
         widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
         //widget_2d->setSceneRect(-5000, -5000,  10000, 10000);
 
@@ -147,7 +148,6 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
-    qInfo() << __FUNCTION__ << " Compute";
     auto ldata  = buffer_lidar_data.get_idemp();
     //std::cout << __FUNCTION__ << " Pre-room lines" << std::endl;
 
@@ -155,8 +155,9 @@ void SpecificWorker::compute()
     //std::cout << __FUNCTION__ << " Pre-room detector" << std::endl;
 
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);
-
-    if(this->update_room_valid)
+    // Check if any "current" edge exists
+    auto current_edges = G->get_edges_by_type("current");
+    if(this->update_room_valid and not current_edges.empty())
     {
         update_room();
         draw_nominal_corners_in_room_frame(&widget_2d->scene);
@@ -862,7 +863,7 @@ SpecificWorker::get_transformed_corners_v2()
                 {
                     // Get corner transformed value
                     auto corner_transformed_value = nominal_corner.value();
-                    qInfo() << __FUNCTION__ << "Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+//                    qInfo() << __FUNCTION__ << "Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                     nominal_corners_in_room_frame.push_back(nominal_corner.value().head(2));
 
 //                                auto corner_transformed_value = nominal_corner.value();
@@ -1039,8 +1040,8 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
 //                continue;
 //            qInfo() << "############################################################################";
 //
-            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
-            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
+//            qInfo() << __FUNCTION__ << " Corner " << i << " measured: " << std::get<2>(rt_corners_correspondences[i]).x() << " " << std::get<2>(rt_corners_correspondences[i]).y();
+//            qInfo() << __FUNCTION__ << " Corner " << i << " nominal: " << std::get<1>(rt_corners_correspondences[i]).x() << " " << std::get<1>(rt_corners_correspondences[i]).y();
             std::string corner_name = "corner_" + std::to_string(i) + "_measured";
             if (std::optional<DSR::Node> updated_corner = G->get_node(corner_name); updated_corner.has_value())
             {
@@ -1074,7 +1075,7 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
                                 auto corner_transformed_value = corner_transformed.value();
                                 drawn_corners[i] = corner_transformed_value;
                                 // Print corner transformed value
-                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
+//                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                                 // Draw corner
                                 if(std::get<3>(rt_corners_correspondences[i]))
                                 {

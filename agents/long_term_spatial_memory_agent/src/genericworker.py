@@ -48,9 +48,9 @@ class GenericWorker(QtWidgets.QWidget):
         super(GenericWorker, self).__init__()
 
 
-        self.ui = Ui_guiDlg()
+        self.ui = Ui_guiDlg()ss
         self.ui.setupUi(self)
-        self.show()
+        # self.show()
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 500

@@ -30,7 +30,8 @@
 #include <genericworker.h>
 #include "dsr/api/dsr_api.h"
 #include "dsr/gui/dsr_gui.h"
-#include <doublebuffer/DoubleBuffer.h>
+//#include <doublebuffer/DoubleBuffer.h>
+#include <doublebuffer_sync/doublebuffer_sync.h>
 #include <cppitertools/sliding_window.hpp>
 #include <cppitertools/enumerate.hpp>
 #include "door_detector.h"
@@ -112,7 +113,8 @@ private:
     HungarianAlgorithm HungAlgo;
 
     // DoubleBuffer variable
-    DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+//    DoubleBuffer<RoboCompLidar3D::TData, RoboCompLidar3D::TData> buffer_lidar_data;
+    BufferSync<InOut<RoboCompLidar3D::TData, RoboCompLidar3D::TData>> buffer_lidar_data;
 
     //DOOR METHODS
     std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> get_measured_and_nominal_doors(DSR::Node room_node, DSR::Node robot_node);
@@ -137,6 +139,7 @@ private:
     float odometry_time_factor = 1;
     void door_prefilter(vector<DoorDetector::Door> &detected_door);
 
+    void remove_to_stabilize_door_in_graph(uint64_t door_id);
 
     int g2o_nominal_door_id = 4;
 
