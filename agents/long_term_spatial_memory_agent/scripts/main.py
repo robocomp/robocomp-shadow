@@ -4,6 +4,15 @@ from PySide2.QtCore import QPoint
 
 
 def draw_graph(graph):
+    """
+    Generates a graph based on a provided adjacency matrix using Kamada-Kawai
+    layout algorithm, and adds node names and edges with arrowheads.
+
+    Args:
+        graph (AbstractGraph): Used to represent a graph object that contains
+            vertices and edges.
+
+    """
     fig1, ax1 = plt.subplots()
     ax1.set_title('LTSM graph')
     fig1.canvas.draw()
@@ -39,12 +48,43 @@ def draw_graph(graph):
     ax1.set_ylim([min(y) - 2, max(y) + 2])
 
 def find_edge_with_attribute(graph, attribute, value):
+    """
+    Searches through a graph's edges for an edge with a specific attribute equal
+    to a given value. If such an edge is found, it returns it; otherwise, it returns
+    `None`.
+
+    Args:
+        graph (Graph): Represented as an object that contains a collection of
+            edges, where each edge represents a connection between two nodes in
+            the graph.
+        attribute (attribute): Used to specify the attribute of interest for finding
+            an edge in a graph.
+        value (object): Used to search for an edge in a graph based on a specific
+            attribute.
+
+    Returns:
+        edge: An untyped reference to a graph edge that has the specified attribute
+        equal to the provided value.
+
+    """
     for edge in graph.es:
         if edge[attribute] == value:
             return edge
     return None
 
 def get_room_edges(graph):
+    """
+    Iterates over the edges in a graph and adds to an output list any edge connecting
+    nodes with "door" in their names.
+
+    Args:
+        graph (Graph): Represented as g, which contains a collection of nodes and
+            edges that define a graph structure.
+
+    Returns:
+        list: A collection of edges from the given graph.
+
+    """
     edges = []
     for edge in g.es:
         source_node = g.vs[edge.source]
@@ -57,6 +97,19 @@ def get_room_edges(graph):
 
 def get_connected_door_nodes(graph, node):
     # Base case: if the node is a door node, return it
+    """
+    In Java code recursively queries the graph for all nodes connected to a given
+    node via doors, returning a list of such nodes.
+
+    Args:
+        graph (Graph): Used to represent a graph structure.
+        node (GraphNode): Referred to as a node in the graph.
+
+    Returns:
+        list: A collection of nodes that are connected to a specific node through
+        doors.
+
+    """
     if "door" in node["name"] and node["connected_room_name"] is not None:
         return [node]
 
@@ -72,6 +125,21 @@ def get_connected_door_nodes(graph, node):
     return door_nodes
 
 def traverse_graph(graph, current_room, visited=None):
+    """
+    Navigates through a graph by starting from a given room and visiting all other
+    rooms reachable through doors. It keeps track of visited rooms using a list
+    and prints information about each room it visits.
+
+    Args:
+        graph (Graph): Used to represent a graph with nodes and edges.
+        current_room (dict): Represents the current room to be traversed in the graph.
+        visited (list): Used to keep track of the rooms that have been visited
+            during the traversal process, initialized to an empty list if None.
+
+    Returns:
+        list: A collection of strings representing the rooms that have been visited.
+
+    """
     if visited is None:
         visited = list()
 

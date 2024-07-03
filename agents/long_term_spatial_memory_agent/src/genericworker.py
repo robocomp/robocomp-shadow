@@ -42,9 +42,34 @@ except:
 
 class GenericWorker(QtWidgets.QWidget):
 
+    """
+    Provides a mechanism for killing itself and setting a period for a timer. It
+    has a signal `kill` that is emitted when the object is killed, and a method
+    `setPeriod` to set the timer period.
+
+    Attributes:
+        kill (QtCoreSignal): Used to signal the object's termination.
+        ui (Ui_guiDlg): Used to store the user interface of a GUI dialog box.
+        mutex (QMutex): Used to protect the internal state of the worker object.
+        Period (int): 500 milliseconds by default, used to set the time interval
+            for the timer event emitted by the `setPeriod()` method.
+        timer (QtCoreQTimer): Used to start a timer that calls the `setPeriod`
+            slot when it expires.
+
+    """
     kill = QtCore.Signal()
 
     def __init__(self, mprx):
+        """
+        Initializes an instance of the `GenericWorker` class by setting up the UI,
+        creating a mutex for thread-safe access to the `Period` variable, and
+        starting a timer with a 500ms delay.
+
+        Args:
+            mprx (Ui_guiDlg): Used to set up the user interface for the GenericWorker
+                class.
+
+        """
         super(GenericWorker, self).__init__()
 
 
@@ -59,6 +84,10 @@ class GenericWorker(QtWidgets.QWidget):
 
     @QtCore.Slot()
     def killYourSelf(self):
+        """
+        Emits the `kill` signal, indicating that the object should be terminated.
+
+        """
         rDebug("Killing myself")
         self.kill.emit()
 
@@ -66,6 +95,13 @@ class GenericWorker(QtWidgets.QWidget):
     # @param per Period in ms
     @QtCore.Slot(int)
     def setPeriod(self, p):
+        """
+        Sets the period of a timer and prints a message to the console when it changes.
+
+        Args:
+            p (int): Used to set the new period value for the application's timer.
+
+        """
         print("Period changed", p)
         self.Period = p
         self.timer.start(self.Period)

@@ -13,7 +13,38 @@ import matplotlib.patches as patches
 
 
 class LongTermGraph:
+    """
+    Performs a series of actions: it reads and computes a graph from a text file,
+    draws the graph using Matplotlib, and provides methods for navigating and
+    querying the graph.
+
+    Attributes:
+        g (undetected): Used to store the graph data structure for computing the
+            metric reconstruction.
+        read_graph (method): Responsible for reading a graph from a file in Graphviz
+            format. It takes no arguments and returns a Graph object.
+        fig (matplotlibfigureFigure): Used to represent the figure object for
+            visualizing the graph.
+        ax (PyQt5QtWidgetsQGraphicsScene): Used to represent the graphical display
+            area where the graph will be drawn.
+        fig_2 (matplotlibfigureFigure): Used to store the figure object for the
+            graph display.
+        ax_2 (matplotlibFigure): Used to store a second axis object for plotting
+            the graph.
+
+    """
     def __init__(self, file_name):
+        """
+        Reads a graph from a file, creates two subplots in an matplotlib figure
+        for visualizing the graph and its metric reconstruction, and sets up labels
+        for the x- and y-axes. If the file is not found, it sets `self.g` to `None`.
+
+        Args:
+            file_name (str): Used to specify the path of a graph file that contains
+                a directed multigraph, which will be read by the function and
+                processed for metric reconstruction.
+
+        """
         try:
             self.g = self.read_graph(file_name, directed=True)
             print("Graph read from", file_name, self.g.summary())
@@ -212,6 +243,16 @@ class LongTermGraph:
         return None
 
     def draw_graph(self, only_rooms=True):
+        """
+        Generates a graphical representation of a subgraph of a larger graph, based
+        on node and edge attributes. It creates a scatter plot of room and door
+        nodes, and plots edges as grey lines with node names annotated.
+
+        Args:
+            only_rooms (bool): Used to filter out nodes that are not rooms, doors,
+                or walls.
+
+        """
         self.ax_2.clear()
         self.ax_2.set_title('LTSM graph')
         self.ax_2.set_xlabel('X-axis')
