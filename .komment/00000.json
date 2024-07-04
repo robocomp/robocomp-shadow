@@ -1022,37 +1022,37 @@
     "path": "agents/long_term_spatial_memory_agent/src/genericworker.py",
     "content": {
       "structured": {
-        "description": "A worker class that inherits from QtWidgets.QWidget and implements a timer for killing itself after a specified period. The code also includes Ice loadSlice command to load an Ice slice file, imports RoboCompCommonBehavior module, and sets up a GUI using PySide2.",
+        "description": "A worker class that inherits from QtWidgets.QWidget and implements a timer-based mechanism for killing itself after a specified period. It also provides a signal kill to allow for handling of the termination from outside the worker. The code uses PySide2, Ice, and the RoboCompCommonBehavior module.",
         "items": [
           {
-            "id": "19efd488-1ac0-7f99-eb42-0c5514f4d762",
+            "id": "8a50128c-009f-a1ac-2c45-674f0e62438e",
             "ancestors": [],
-            "description": "Provides a mechanism for killing itself and setting a period for a timer. It has a signal `kill` that is emitted when the object is killed, and a method `setPeriod` to set the timer period.",
+            "description": "Manages a timer and a signal to stop its own execution. It has methods to change the timer period and to emit the signal to stop itself.",
             "attributes": [
               {
                 "name": "kill",
-                "type_name": "QtCoreSignal",
-                "description": "Used to signal the object's termination."
+                "type_name": "QtCoreQObjectSlot",
+                "description": "Used to emit a signal that can be caught by any connected slots to stop the worker's execution."
               },
               {
                 "name": "ui",
                 "type_name": "Ui_guiDlg",
-                "description": "Used to store the user interface of a GUI dialog box."
+                "description": "Used to setup the user interface of the class."
               },
               {
                 "name": "mutex",
                 "type_name": "QMutex",
-                "description": "Used to protect the internal state of the worker object."
+                "description": "Used to protect the worker's state from concurrent access."
               },
               {
                 "name": "Period",
                 "type_name": "int",
-                "description": "500 milliseconds by default, used to set the time interval for the timer event emitted by the `setPeriod()` method."
+                "description": "Used to set the time interval for the timer signal emitted by the `setPeriod()` method, which changes its value on each call."
               },
               {
                 "name": "timer",
                 "type_name": "QtCoreQTimer",
-                "description": "Used to start a timer that calls the `setPeriod` slot when it expires."
+                "description": "Used to start a timer that emits the `kill` signal after a specified period."
               }
             ],
             "name": "GenericWorker",
@@ -1068,16 +1068,16 @@
             "docLength": null
           },
           {
-            "id": "47585d96-d782-50be-9d43-a6041210bddd",
+            "id": "dc756aa5-ebc6-5490-d649-854bb2ac26a4",
             "ancestors": [
-              "19efd488-1ac0-7f99-eb42-0c5514f4d762"
+              "8a50128c-009f-a1ac-2c45-674f0e62438e"
             ],
-            "description": "Initializes an instance of the `GenericWorker` class by setting up the UI, creating a mutex for thread-safe access to the `Period` variable, and starting a timer with a 500ms delay.",
+            "description": "Initializes an object of the `GenericWorker` class, setting up a UI widget, creating a mutex for synchronization, and defining a timer with a period of 500 milliseconds.",
             "params": [
               {
                 "name": "mprx",
                 "type_name": "Ui_guiDlg",
-                "description": "Used to set up the user interface for the GenericWorker class."
+                "description": "Used as the parent widget for the GenericWorker object's UI."
               }
             ],
             "returns": null,
@@ -1094,9 +1094,9 @@
             "docLength": null
           },
           {
-            "id": "ad8b787d-cd38-c9a5-2048-7db5d71e901b",
+            "id": "17fccd3d-bcc7-a9a3-5f45-73125f7d1f78",
             "ancestors": [
-              "19efd488-1ac0-7f99-eb42-0c5514f4d762"
+              "8a50128c-009f-a1ac-2c45-674f0e62438e"
             ],
             "description": "Emits the `kill` signal, indicating that the object should be terminated.",
             "params": [],
@@ -1114,16 +1114,16 @@
             "docLength": null
           },
           {
-            "id": "f5aaf03a-bb47-4a92-7f4d-501fec240a0e",
+            "id": "a2ebb705-7932-fb9b-3e45-f965c61ebf4d",
             "ancestors": [
-              "19efd488-1ac0-7f99-eb42-0c5514f4d762"
+              "8a50128c-009f-a1ac-2c45-674f0e62438e"
             ],
-            "description": "Sets the period of a timer and prints a message to the console when it changes.",
+            "description": "Sets the period of a timer and updates the internal variable `Period`.",
             "params": [
               {
                 "name": "p",
                 "type_name": "int",
-                "description": "Used to set the new period value for the application's timer."
+                "description": "Used to set the new period for the timer."
               }
             ],
             "returns": null,

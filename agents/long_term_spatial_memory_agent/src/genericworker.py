@@ -43,37 +43,37 @@ except:
 class GenericWorker(QtWidgets.QWidget):
 
     """
-    Provides a mechanism for killing itself and setting a period for a timer. It
-    has a signal `kill` that is emitted when the object is killed, and a method
-    `setPeriod` to set the timer period.
+    Manages a timer and a signal to stop its own execution. It has methods to
+    change the timer period and to emit the signal to stop itself.
 
     Attributes:
-        kill (QtCoreSignal): Used to signal the object's termination.
-        ui (Ui_guiDlg): Used to store the user interface of a GUI dialog box.
-        mutex (QMutex): Used to protect the internal state of the worker object.
-        Period (int): 500 milliseconds by default, used to set the time interval
-            for the timer event emitted by the `setPeriod()` method.
-        timer (QtCoreQTimer): Used to start a timer that calls the `setPeriod`
-            slot when it expires.
+        kill (QtCoreQObjectSlot): Used to emit a signal that can be caught by any
+            connected slots to stop the worker's execution.
+        ui (Ui_guiDlg): Used to setup the user interface of the class.
+        mutex (QMutex): Used to protect the worker's state from concurrent access.
+        Period (int): Used to set the time interval for the timer signal emitted
+            by the `setPeriod()` method, which changes its value on each call.
+        timer (QtCoreQTimer): Used to start a timer that emits the `kill` signal
+            after a specified period.
 
     """
     kill = QtCore.Signal()
 
     def __init__(self, mprx):
         """
-        Initializes an instance of the `GenericWorker` class by setting up the UI,
-        creating a mutex for thread-safe access to the `Period` variable, and
-        starting a timer with a 500ms delay.
+        Initializes an object of the `GenericWorker` class, setting up a UI widget,
+        creating a mutex for synchronization, and defining a timer with a period
+        of 500 milliseconds.
 
         Args:
-            mprx (Ui_guiDlg): Used to set up the user interface for the GenericWorker
-                class.
+            mprx (Ui_guiDlg): Used as the parent widget for the GenericWorker
+                object's UI.
 
         """
         super(GenericWorker, self).__init__()
 
 
-        self.ui = Ui_guiDlg()ss
+        self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
         # self.show()
 
@@ -96,10 +96,10 @@ class GenericWorker(QtWidgets.QWidget):
     @QtCore.Slot(int)
     def setPeriod(self, p):
         """
-        Sets the period of a timer and prints a message to the console when it changes.
+        Sets the period of a timer and updates the internal variable `Period`.
 
         Args:
-            p (int): Used to set the new period value for the application's timer.
+            p (int): Used to set the new period for the timer.
 
         """
         print("Period changed", p)
