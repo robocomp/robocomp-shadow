@@ -13,7 +13,32 @@ import matplotlib.patches as patches
 
 
 class LongTermGraph:
+    """
+    Draws a graph of long-term spatial mobility data using PyQt and Matplotlib.
+    It provides methods to visualize rooms, doors, walls, and edges in the graph.
+
+    Attributes:
+        g (Graph): Used to represent the graph object that contains the rooms,
+            doors, and walls to be visualized.
+        read_graph (instance): Used to read a graph from a file specified by the
+            user. It takes a string path as input and reads the graph data from it.
+        fig (instance): A reference to the figure object that will be used to draw
+            the graph.
+        ax (MatplotlibFigure): Used to represent the axis object for the graph.
+            It provides methods for adding patches, lines, and other visual elements
+            to the graph.
+
+    """
     def __init__(self, file_name):
+        """
+        Initializes an object of `LongTermGraph` class, loading a graph from a
+        file using the `read_graph` method and displaying its summary.
+
+        Args:
+            file_name (str): Used to specify the name of a file containing a graph
+                represented as an adjacency matrix.
+
+        """
         self.g = self.read_graph(file_name, directed=True)
         print("Graph read from", file_name, self.g.summary())
 
@@ -189,6 +214,17 @@ class LongTermGraph:
         return None
 
     def draw_graph(self, only_rooms=True):
+        """
+        Generates a graphical representation of a subgraph within a larger graph,
+        based on node and edge properties. It creates a figure and axis object,
+        sets the title, and draws the nodes and edges using different colors for
+        each type of node or edge.
+
+        Args:
+            only_rooms (bool): Used to filter the nodes in the graph based on their
+                types, only showing rooms and doors.
+
+        """
         fig1, ax1 = plt.subplots()
         ax1.set_title('LTSM graph')
         fig1.canvas.draw()
