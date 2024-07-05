@@ -786,9 +786,19 @@ void SpecificWorker::insert_robot_speed_dsr()
         //std::cout <<  "X speed " << rt_rotation_matrix_inv(0) << "; Y speed " << rt_rotation_matrix_inv(1) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 //        std::cout <<  "X speed " << rt_rotation_matrix_inv(0,2) << "; Y speed " << rt_rotation_matrix_inv(1,2) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 
-        G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node, (float)  -rt_rotation_matrix_inv(0));
-        G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node, (float) -rt_rotation_matrix_inv(1));
-        G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node, (float) shadow_velocity[5]);
+        // Velocidades puras en mm/s y rad/s
+        double velocidad_x = 0.05; // Ejemplo: 100 mm/s
+        double velocidad_y = 0.05; // Ejemplo: 150 mm/s
+        double alpha = 0.075; // Ejemplo: 0.05 rad/s
+
+        // Desviación estándar del ruido (ejemplo: 5% del valor de las velocidades)
+        double ruido_stddev_x = 0.05 * velocidad_x;
+        double ruido_stddev_y = 0.05 * velocidad_y;
+        double ruido_stddev_alpha = 0.05 * alpha;
+
+        G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node, (float)  (-rt_rotation_matrix_inv(0) + generarRuido(ruido_stddev_x)));
+        G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node, (float) (-rt_rotation_matrix_inv(1) + generarRuido(ruido_stddev_y)));
+        G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node, (float) (shadow_velocity[5] + generarRuido(ruido_stddev_alpha)));
         auto now_aux = std::chrono::system_clock::now();
         auto epoch_aux = now_aux.time_since_epoch();
         auto milliseconds_aux = std::chrono::duration_cast<std::chrono::milliseconds>(epoch_aux).count();
@@ -796,7 +806,14 @@ void SpecificWorker::insert_robot_speed_dsr()
         G->update_node(robot_node);
     }
 }
-
+// Función para generar ruido normal (media = 0, desviación estándar = stddev)
+double SpecificWorker::generarRuido(double stddev)
+{
+    std::random_device rd; // Obtiene una semilla aleatoria del hardware
+    std::mt19937 gen(rd()); // Generador de números aleatorios basado en Mersenne Twister
+    std::normal_distribution<> d(0, stddev); // Distribución normal con media 0 y desviación estándar stddev
+    return d(gen);
+}
 #pragma endregion DSR
 
 void SpecificWorker::parseHumanObjects(bool firstTime) 

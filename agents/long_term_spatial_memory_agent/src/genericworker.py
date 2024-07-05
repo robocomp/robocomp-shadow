@@ -48,7 +48,7 @@ class GenericWorker(QtWidgets.QWidget):
         super(GenericWorker, self).__init__()
 
 
-        self.ui = Ui_guiDlg()ss
+        self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
         # self.show()
 

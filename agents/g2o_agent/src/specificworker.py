@@ -91,6 +91,7 @@ class SpecificWorker(GenericWorker):
             self.rotation_to_set = None
 
             self.room_polygon = None
+            self.security_polygon = None
 
             self.room_initialized = True if self.initialize_g2o_graph() else False
 
@@ -127,47 +128,70 @@ class SpecificWorker(GenericWorker):
 
         if self.room_initialized:
             self.first_rt_set = False
-            print("Room initialized")
+            # print("Room initialized")
             # Get robot odometry
             if self.odometry_queue:
-                init_time = time.time()
                 robot_node = self.g.get_node("Shadow")
                 room_nodes = [node for node in self.g.get_nodes_by_type("room") if self.g.get_edge(node.id, node.id, "current")]
+                if len(room_nodes) > 0:
+                    room_node = room_nodes[0]
+                else:
+                    # Get last room node
+                    room_node = self.g.get_node("room_" + str(self.actual_room_id))
+
+                robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
+                robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
+                robot_point = QPointF(robot_tx, robot_ty)
+
                 robot_odometry = self.odometry_queue[-1]
                 # print("Robot odometry:", robot_odometry)
                 time_1 = time.time()
                 adv_displacement, side_displacement, ang_displacement = self.get_displacement(robot_odometry)
-                # print("Time elapsed get_displacement:", time.time() - time_1)
+
                 if len(self.g2o.pose_vertex_ids) == self.g2o.queue_max_len:
-                    self.g2o.remove_first_vertex()
+                    if self.security_polygon.containsPoint(robot_point, Qt.OddEvenFill):
+                        print("Robot inside security polygon")
+                        self.g2o.clear_graph()
+                        self.initialize_g2o_graph()
+                    else:
+                        print("Robot outside security polygon")
+                        self.g2o.remove_first_vertex()
+
                 # Generate information matrix considering the noise
                 odom_information = np.array([[1, 0.0, 0.0],
                                             [0.0, 1, 0.0],
                                             [0.0, 0.0, 0.001]])
-
                 self.g2o.add_odometry(adv_displacement,
                                             side_displacement,
                                             ang_displacement, odom_information)
 
                 # Check if robot pose is inside room polygon
-                if len(room_nodes) > 0:
-                    room_node = room_nodes[0]
-                    if self.room_polygon is not None:
-                        robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
-                        robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
-                        robot_point = QPointF(robot_tx, robot_ty)
-                        if self.room_polygon.containsPoint(robot_point, Qt.OddEvenFill):
-                            for i in range(4):
-                                corner_node = self.g.get_node("corner_"+str(i)+"_measured")
+
+                if self.room_polygon is not None:
+                    if self.room_polygon.containsPoint(robot_point, Qt.OddEvenFill):
+                        for i in range(4):
+                            corner_node = self.g.get_node("corner_"+str(i)+"_measured")
+                            if corner_node is not None:
                                 is_corner_valid = corner_node.attrs["valid"].value
                                 if is_corner_valid:
                                     corner_edge = self.rt_api.get_edge_RT(robot_node, corner_node.id)
                                     corner_edge_mat = self.rt_api.get_edge_RT_as_rtmat(corner_edge, robot_odometry[3])[0:3, 3]
                                     self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
-                                    print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
-                else:
-                    # Get last room node
-                    room_node = self.g.get_node("room_" + str(self.actual_room_id))
+                                    # print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
+
+                        door_nodes = [node for node in self.g.get_nodes_by_type("door") if not "pre" in node.name and
+                                      node.name in self.g2o.objects]
+                        # Iterate over door nodes
+                        if self.security_polygon.containsPoint(robot_point, Qt.OddEvenFill):
+                            for door_node in door_nodes:
+                                is_door_valid = door_node.attrs["valid"].value
+                                if is_door_valid:
+                                    door_measured_rt = door_node.attrs["rt_translation"].value
+                                    if door_measured_rt[0] != 0.0 or door_measured_rt[1] != 0.0:
+                                        self.g2o.add_landmark(door_measured_rt[0], door_measured_rt[1], 0.05 * np.eye(2),
+                                                              pose_id=self.g2o.vertex_count - 1,
+                                                              landmark_id=self.g2o.objects[door_node.name])
+
                 chi_value = self.g2o.optimize(iterations=50, verbose=False)
 
                 last_vertex = self.g2o.optimizer.vertices()[self.g2o.vertex_count - 1]
@@ -198,7 +222,7 @@ class SpecificWorker(GenericWorker):
                 # print("Time elapsed compute:", timfe.time() - init_time)
 
         elif self.first_rt_set and self.current_edge_set and self.translation_to_set is not None and self.rotation_to_set is not None:
-            print("Initializing g2o graph")
+            # print("Initializing g2o graph")
             # if self.last_room_id is not None:
             #     self.g.delete_edge(self.g.get_node("room_"+str(self.last_room_id)).id, self.g.get_node("Shadow").id, "RT")
             self.initialize_g2o_graph()
@@ -212,21 +236,21 @@ class SpecificWorker(GenericWorker):
         return value + np.random.normal(0, std_dev)
 
     def initialize_g2o_graph(self):
-        print("Initializing g2o graph")
+        # print("Initializing g2o graph")
+        # get robot pose in room
+        self.g2o.clear_graph()
+        robot_node = self.g.get_node("Shadow")
         room_nodes = [node for node in self.g.get_nodes_by_type("room") if self.g.get_edge(node.id, node.id, "current")]
         if len(room_nodes) > 0:
-            self.g2o.clear_graph()
             room_node = room_nodes[0]
-            if self.actual_room_id is not None and self.actual_room_id != room_node.attrs['room_id'].value:
+            room_node_id = room_node.attrs['room_id'].value
+            if self.actual_room_id is not None and self.actual_room_id != room_node_id:
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = room_node.attrs['room_id'].value
-            print("###########################################################")
-            print("INITIALIZ>INDºG G2O GRAPH")
-            print("Room changed to", self.actual_room_id)
-            print("###########################################################")
-
-            # get robot pose in room
-            robot_node = self.g.get_node("Shadow")
+            # print("###########################################################")
+            # print("INITIALIZ>INDºG G2O GRAPH")
+            # print("Room changed to", self.actual_room_id)
+            # print("###########################################################")
             self.odometry_node_id = robot_node.id
             # Check if room and robot nodes exist
             if room_node is None or robot_node is None:
@@ -246,41 +270,169 @@ class SpecificWorker(GenericWorker):
             self.last_odometry = (.0, .0, .0, int(time.time()*1000))
             print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
 
-            # Get corner values from room node
-            # corner_nodes = self.g.get_nodes_by_type("corner")
-            # Order corner nodes by id
-
             corner_list = []
-            corner_list_measured = []
-            for i in range(4):
-                corner_list.append(self.g.get_node("corner_"+str(i)+"_"+str(self.actual_room_id)))
-                corner_list_measured.append(self.g.get_node("corner_"+str(i)+"_measured"))
 
             # Generate QPolygonF with corner values
             self.room_polygon = QPolygonF()
-
+            room_center = QPointF(0, 0)
             for i in range(4):
-                corner_edge_measured_rt = self.rt_api.get_edge_RT(robot_node, corner_list_measured[i].id)
-                corner_measured_tx, corner_measured_ty, _ = corner_edge_measured_rt.attrs['rt_translation'].value
-                corner_edge_rt = self.inner_api.transform(room_node.name, corner_list[i].name)
+                corner_node = self.g.get_node("corner_"+str(i)+"_"+str(self.actual_room_id))
+                corner_edge_rt = self.inner_api.transform(room_node.name, corner_node.name)
                 corner_tx, corner_ty, _ = corner_edge_rt
-                print("Nominal corners", corner_tx, corner_ty)
-                print("Measured corners", corner_measured_tx, corner_measured_ty)
+                corner_list.append(corner_edge_rt)
+                self.room_polygon.append(QPointF(corner_tx, corner_ty))
+                room_center += self.room_polygon.at(i)
+                # Insert in security polygon the same point but with and offset towards the room center (0, 0)
+
+            # Calculate room center
+            room_center /= 4
+
+            # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
+            room_poly_bounding = self.room_polygon.boundingRect()
+            d = 1000
+            self.security_polygon = QPolygonF()
+            if self.room_polygon is not None:
                 landmark_information = np.array([[0.05, 0.0],
                                                  [0.0, 0.05]])
-                print("Eye matrix", 0.1 * np.eye(2))
-                print("Landmark information:", landmark_information)
-                if corner_tx != 0.0 or corner_ty != 0.0:
-                    # self.g2o.add_landmark(corner_tx, corner_ty, 0.1 * np.eye(2), pose_id=0)
-                    self.g2o.add_nominal_corner(corner_edge_rt,
-                                              corner_edge_measured_rt.attrs['rt_translation'].value,
-                                              landmark_information, pose_id=0)
-                    # Add corner to polygon
-                    self.room_polygon.append(QPointF(corner_tx, corner_ty))
-            return True
+                robot_point = QPointF(robot_tx, robot_ty)
+                if self.room_polygon.containsPoint(robot_point, Qt.OddEvenFill):
+                    for i in range(4):
+
+                        # Variables for security polygon
+                        dir_vector = self.room_polygon.at(i) - room_center
+                        dir_vector /= np.linalg.norm(np.array([dir_vector.x(), dir_vector.y()]))
+                        corner_in = self.room_polygon.at(i) - d * dir_vector
+                        self.security_polygon.append(corner_in)
+                        # print("Corner in:", corner_in, "corresponding to corner", corner_list[i])
+                        corner_measured_node = self.g.get_node("corner_"+str(i)+"_measured")
+                        if corner_measured_node is not None:
+                            is_corner_valid = corner_measured_node.attrs["valid"].value
+                            if is_corner_valid:
+                                corner_edge_measured_rt = self.rt_api.get_edge_RT(robot_node, corner_measured_node.id)
+                                # print("Eye matrix", 0.1 * np.eye(2))
+                                # print("Landmark information:", landmark_information)
+                                if corner_tx != 0.0 or corner_ty != 0.0:
+                                    # self.g2o.add_landmark(corner_tx, corner_ty, 0.1 * np.eye(2), pose_id=0)
+                                    self.g2o.add_nominal_corner(corner_list[i],
+                                                              corner_edge_measured_rt.attrs['rt_translation'].value,
+                                                              landmark_information, pose_id=0)
+                            else:
+                                print("Corner is not valid")
+                                self.g2o.add_nominal_corner(corner_list[i],
+                                                            None,
+                                                            landmark_information, pose_id=0)
+
+                    door_nodes = [node for node in self.g.get_nodes_by_type("door") if not "pre" in node.name and
+                                  node.attrs["room_id"].value == self.actual_room_id]
+                    # Iterate over door nodes
+                    for door_node in door_nodes:
+                        door_room_rt = self.inner_api.transform(room_node.name, door_node.name)
+                        door_tx, door_ty, _ = door_room_rt
+                        # Check if door is valid
+                        is_door_valid = door_node.attrs["valid"].value
+                        if is_door_valid:
+                            if door_tx != 0.0 or door_ty != 0.0:
+                                door_measured_rt = door_node.attrs["rt_translation"].value
+                                self.g2o.add_nominal_corner(door_room_rt,
+                                                            door_measured_rt,
+                                                            landmark_information, pose_id=0)
+                        else:
+                            print("Door is not valid")
+                            self.g2o.add_nominal_corner(door_room_rt,
+                                                        None,
+                                                        landmark_information, pose_id=0)
+                        self.g2o.objects[door_node.name] = self.g2o.vertex_count - 1
+
+                    return True
+        elif robot_node.attrs["parent"].value != 100:
+            robot_parent = robot_node.attrs["parent"].value
+            room_node = self.g.get_node(robot_parent)
+            if self.translation_to_set is None and self.rotation_to_set is None:
+                robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
+                robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
+                _, _, robot_rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
+            else:
+                robot_tx, robot_ty, _ = self.translation_to_set
+                _, _, robot_rz = self.rotation_to_set
+
+            # Add fixed pose to g2o
+            self.g2o.add_fixed_pose(g2o.SE2(robot_tx, robot_ty, robot_rz))
+            self.last_odometry = (.0, .0, .0, int(time.time()*1000))
+            print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
         else:
             print("Room node does not exist. g2o graph cannot be initialized")
             return False
+
+    # def initialize_g2o_graph(self):
+    #     print("Initializing g2o graph")
+    #     room_nodes = [node for node in self.g.get_nodes_by_type("room") if self.g.get_edge(node.id, node.id, "current")]
+    #     if len(room_nodes) > 0:
+    #         self.g2o.clear_graph()
+    #         room_node = room_nodes[0]
+    #         if self.actual_room_id is not None and self.actual_room_id != room_node.attrs['room_id'].value:
+    #             self.last_room_id = self.actual_room_id
+    #         self.actual_room_id = room_node.attrs['room_id'].value
+    #         # print("###########################################################")
+    #         # print("INITIALIZ>INDºG G2O GRAPH")
+    #         # print("Room changed to", self.actual_room_id)
+    #         # print("###########################################################")
+    #
+    #         # get robot pose in room
+    #         robot_node = self.g.get_node("Shadow")
+    #         self.odometry_node_id = robot_node.id
+    #         # Check if room and robot nodes exist
+    #         if room_node is None or robot_node is None:
+    #             print("Room or robot node does not exist. g2o graph cannot be initialized")
+    #             return False
+    #
+    #         if self.translation_to_set is None and self.rotation_to_set is None:
+    #             robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
+    #             robot_tx, robot_ty, _ = robot_edge_rt.attrs['rt_translation'].value
+    #             _, _, robot_rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
+    #         else:
+    #             robot_tx, robot_ty, _ = self.translation_to_set
+    #             _, _, robot_rz = self.rotation_to_set
+    #
+    #         # Add fixed pose to g2o
+    #         self.g2o.add_fixed_pose(g2o.SE2(robot_tx, robot_ty, robot_rz))
+    #         self.last_odometry = (.0, .0, .0, int(time.time()*1000))
+    #         print("Fixed pose added to g2o graph", robot_tx, robot_ty, robot_rz)
+    #
+    #         # Get corner values from room node
+    #         # corner_nodes = self.g.get_nodes_by_type("corner")
+    #         # Order corner nodes by id
+    #
+    #         corner_list = []
+    #         corner_list_measured = []
+    #         for i in range(4):
+    #             corner_list.append(self.g.get_node("corner_"+str(i)+"_"+str(self.actual_room_id)))
+    #             corner_list_measured.append(self.g.get_node("corner_"+str(i)+"_measured"))
+    #
+    #         # Generate QPolygonF with corner values
+    #         self.room_polygon = QPolygonF()
+    #
+    #         for i in range(4):
+    #             corner_edge_measured_rt = self.rt_api.get_edge_RT(robot_node, corner_list_measured[i].id)
+    #             corner_measured_tx, corner_measured_ty, _ = corner_edge_measured_rt.attrs['rt_translation'].value
+    #             corner_edge_rt = self.inner_api.transform(room_node.name, corner_list[i].name)
+    #             corner_tx, corner_ty, _ = corner_edge_rt
+    #             print("Nominal corners", corner_tx, corner_ty)
+    #             print("Measured corners", corner_measured_tx, corner_measured_ty)
+    #             landmark_information = np.array([[0.05, 0.0],
+    #                                              [0.0, 0.05]])
+    #             print("Eye matrix", 0.1 * np.eye(2))
+    #             print("Landmark information:", landmark_information)
+    #             if corner_tx != 0.0 or corner_ty != 0.0:
+    #                 # self.g2o.add_landmark(corner_tx, corner_ty, 0.1 * np.eye(2), pose_id=0)
+    #                 self.g2o.add_nominal_corner(corner_edge_rt,
+    #                                           corner_edge_measured_rt.attrs['rt_translation'].value,
+    #                                           landmark_information, pose_id=0)
+    #                 # Add corner to polygon
+    #                 self.room_polygon.append(QPointF(corner_tx, corner_ty))
+    #         return True
+    #     else:
+    #         print("Room node does not exist. g2o graph cannot be initialized")
+    #         return False
 
     def get_displacement(self, odometry):
         desplazamiento_avance = 0

@@ -141,11 +141,17 @@ class LongTermGraph:
     def compute_element_pose(self, robot_pose, target_room_name, origin_room_name):
         """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
 
+        """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
+        pose = sm.SE3(robot_pose[0], robot_pose[1], 0) * sm.SE3.Rz(robot_pose[2], unit='rad')
         transform = self.transform_room(target_room_name, origin_room_name)
-        # transform robot pose to target room frame
-        robot_pose_transformed = transform.A @ robot_pose
+        element_pose_transformed = transform * pose
+        rpy = element_pose_transformed.rpy()
+        xyz = element_pose_transformed.A[:, -1]
+
+        print("Element pose transformed", xyz, rpy)
+
         # return QPoint object
-        return QPoint(robot_pose_transformed[0], robot_pose_transformed[1])
+        return np.array([xyz[0], xyz[1], rpy[2]])
 
     def transform_room(self, target_room_name, origin_room_name) -> sm.SE3:
         """ Computes the transformation matrix to express the origin room in the target room frame"""
@@ -278,6 +284,7 @@ class LongTermGraph:
         self.ax.add_patch(circle)
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+
 
     def draw_room(self, room_name, room_polygon, current=False):
         """ Draws the room polygon """
