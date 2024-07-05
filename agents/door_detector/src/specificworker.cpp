@@ -983,24 +983,24 @@ std::vector<std::pair<int, int>> SpecificWorker::door_matching(const std::vector
         for(size_t j = 0; j < nominal_doors.size(); j++)
         {
             distances_matrix[i][j] = (measured_doors[i].middle - nominal_doors[j].middle).norm(); //TODO: incorporate rotation or door width to distance_matrix
-            qInfo() << "Distance: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[j].wall_id << nominal_doors[j].id << distances_matrix[i][j];
+//            qInfo() << "Distance: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[j].wall_id << nominal_doors[j].id << distances_matrix[i][j];
         }
 
     vector<int> assignment;
     double cost = HungAlgo.Solve(distances_matrix, assignment);
     for(size_t i = 0; i < assignment.size(); i++)
     {
-        qInfo() << "Assignment: " << i << " --- " << assignment[i];
+//        qInfo() << "Assignment: " << i << " --- " << assignment[i];
         if(assignment[i] != -1)
         {
-            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << nominal_doors[assignment[i]].width() * 0.75;
+//            qInfo() << "Match condition: " << distances_matrix[i][assignment[i]] << " < " << nominal_doors[assignment[i]].width() * 0.75;
             if(distances_matrix[i][assignment[i]] < nominal_doors[assignment[i]].width() * 0.75)
             {
-                qInfo() << "Matching: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[assignment[i]].wall_id << nominal_doors[assignment[i]].id;
+//                qInfo() << "Matching: " << measured_doors[i].wall_id << measured_doors[i].id << " --- " << nominal_doors[assignment[i]].wall_id << nominal_doors[assignment[i]].id;
                 matching.push_back({i, assignment[i]});
             }
             else
-             matching.push_back({i, -1});
+                matching.push_back({i, -1});
         }
     }
     return matching;
@@ -1009,29 +1009,61 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
 {
     /// vector for indexes to remove at the end of the function
     std::vector<int> indexes_to_remove;
+    std::vector<int> indexes_to_set_no_valid;
     std::vector<DoorDetector::Door> not_associated_doors;
     /// Iterate over matches using enumerate
     for(const auto &[i, match] : matches | iter::enumerate)
-        if(match.second != -1 and match.first != -1)
+    {
+        qInfo() << "Match: " << match.first << match.second;
+        std::string door_name;
+        if(match.second != -1)
         {
-            auto door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_" + std::to_string(actual_room_id) + "_pre";
             if(nominal)
+                door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_" + std::to_string(actual_room_id);
+            else
+                door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_" + std::to_string(actual_room_id) + "_pre";
+            if(match.first != -1)
             {
-//                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
-//                measured_doors.erase(measured_doors.begin() + i);
-                indexes_to_remove.push_back(match.first);
-                continue;
-            }
+//            if(nominal)
+//            {
+////                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
+////                measured_doors.erase(measured_doors.begin() + i);
+//                indexes_to_remove.push_back(match.first);
+//                continue;
+//            }
 //            qInfo() << "Updating door data in graph";
-            /// Get graph door name
+                /// Get graph door name
 
-//            qInfo() << "Door name first: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.first].middle.x() << measured_doors[match.first].middle.y() ;
-//            qInfo() << "Door name second: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.second].middle.x() << measured_doors[match.second].middle.y() ;
-            /// Update measured door with the matched door
-            update_door_in_graph(measured_doors[match.first], door_name, room_node);
-            /// Insert in indexes_to_remove vector the index of the door to remove
-            indexes_to_remove.push_back(match.first);
+            qInfo() << "Door name first: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.first].middle.x() << measured_doors[match.first].middle.y() ;
+            qInfo() << "Door name second: " << QString::fromStdString(door_name) << "Mid point: " << measured_doors[match.second].middle.x() << measured_doors[match.second].middle.y() ;
+                /// Update measured door with the matched door
+                update_door_in_graph(measured_doors[match.first], door_name, room_node);
+                /// Insert in indexes_to_remove vector the index of the door to remove
+                indexes_to_remove.push_back(match.first);
+            }
         }
+    }
+
+    // Set not matched graph doors as not valid
+    for(const auto &[i, door] : graph_doors | iter::enumerate)
+    {
+        if(std::find_if(matches.begin(), matches.end(), [i](const auto &m){ return m.second == i; }) == matches.end())
+        {
+            std::string door_name;
+            if(nominal)
+                door_name = "door_" + std::to_string(door.wall_id) + "_" + std::to_string(door.id) + "_" + std::to_string(actual_room_id);
+            else
+                door_name = "door_" + std::to_string(door.wall_id) + "_" + std::to_string(door.id) + "_" + std::to_string(actual_room_id) + "_pre";
+            auto door_node_ = G->get_node(door_name);
+            if(not door_node_.has_value())
+            { qWarning() << __FUNCTION__ << " No door node in graph"; continue; }
+            auto door_node = door_node_.value();
+
+            G->add_or_modify_attrib_local<valid_att>(door_node, false);
+            G->update_node(door_node);
+        }
+    }
+
     /// Insert in not_associated_doors vector the doors that are not associated using indexes_to_remove
     for(const auto &[i, door] : measured_doors | iter::enumerate)
         if(std::find(indexes_to_remove.begin(), indexes_to_remove.end(), i) == indexes_to_remove.end())
@@ -1061,6 +1093,7 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
     std::vector<float> measured_orientation = {0.f, 0.f, 0.f};
     G->add_or_modify_attrib_local<rt_translation_att>(door_node, measured_pose);
     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att >(door_node, measured_orientation);
+    G->add_or_modify_attrib_local<valid_att>(door_node, true);
     G->update_node(door_node);
 
     /// Transform pose to parent node reference frame
@@ -1070,7 +1103,6 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
 //        qInfo() << "Pose to update transformed" << pose_transformed.x() << pose_transformed.y();
         // Add edge between door and robot
         //print door_node.name()
-        std::cout << "INSERT OR ASSIGN EDGE" << door_node.name() << std::endl;
         rt->insert_or_assign_edge_RT(parent_node, door_node.id(), {pose_transformed.x(), 0.f, 0.f}, {0.f, 0.f, 0.f});
     }
 }
@@ -1436,20 +1468,20 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 {
                     qInfo() << "No measured points. removing door";
                     qInfo() << "POINT 1";
-                    //Delete edge between wall and door in all cases
-                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-                    else
-                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
-
-                    if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
-                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-                    else
-                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
-
-                    //delete door node
-                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
-                        G->delete_node(door_node.id());
+//                    //Delete edge between wall and door in all cases
+//                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+//                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+//                    else
+//                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+//
+//                    if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+//                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+//                    else
+//                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+//
+//                    //delete door node
+//                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
+//                        G->delete_node(door_node.id());
                     is_stabilized = true;
                     return;
                 }

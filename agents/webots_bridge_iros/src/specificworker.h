@@ -242,6 +242,8 @@ private:
 
     bool reset = false;
     void reset_sim();
+
+    double generarRuido(double stddev);
 };
 
 #endif

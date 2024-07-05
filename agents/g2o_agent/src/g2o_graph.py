@@ -14,9 +14,10 @@ class G2OGraph:
         self.solver = g2o.BlockSolverX(g2o.LinearSolverEigenX())
         self.algorithm = g2o.OptimizationAlgorithmLevenberg(self.solver)
         self.optimizer.set_algorithm(self.algorithm)
-        self.queue_max_len = 5
+        self.queue_max_len = 15
         self.pose_vertex_ids = deque(maxlen=self.queue_max_len)
 
+        self.objects = {}
         self.vertex_count = 0
         self.edge_count = 0
         self.verbose = verbose
@@ -74,16 +75,16 @@ class G2OGraph:
             print("Adding landmark vertex", landmark_id)
         self.optimizer.add_vertex(v_pointxy)
         self.vertex_count += 1
-        # add edge
-        e_pointxy = g2o.EdgeSE2PointXY()
-        e_pointxy.set_vertex(0, self.vertex(pose_id))
-        e_pointxy.set_vertex(1, self.vertex(landmark_id))
-        # e_pointxy.set_robust_kernel(g2o.RobustKernelCauchy())
-        self.edge_count += 1
         if measured_corner is not None:
+            # add edge
+            e_pointxy = g2o.EdgeSE2PointXY()
+            e_pointxy.set_vertex(0, self.vertex(pose_id))
+            e_pointxy.set_vertex(1, self.vertex(landmark_id))
+            # e_pointxy.set_robust_kernel(g2o.RobustKernelCauchy())
+            self.edge_count += 1
             e_pointxy.set_measurement(np.array([measured_corner[0], measured_corner[1]]))
-        e_pointxy.set_information(information)
-        self.optimizer.add_edge(e_pointxy)
+            e_pointxy.set_information(information)
+            self.optimizer.add_edge(e_pointxy)
         if self.verbose:
             print("Adding landmark edge between", pose_id, landmark_id)
 
@@ -203,3 +204,4 @@ class G2OGraph:
         self.vertex_count = 0
         self.edge_count = 0
         self.pose_vertex_ids.clear()
+        self.objects = {}
