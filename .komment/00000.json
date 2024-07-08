@@ -4,42 +4,42 @@
     "path": "agents/long_term_spatial_memory_agent/src/long_term_graph.py",
     "content": {
       "structured": {
-        "description": "A class `RoomFrame` that represents a 3D room frame and its corresponding objects (walls, floors, ceilings, doors, and windows) in a graph structure. The code provides methods for drawing the room frame and its objects on an axis-aligned bounding box (AABB) in 2D or 3D space using Matplotlib. The `get_room_corners` method recursively traverses the graph to compute the projective coordinates of the corners of a room, while the `get_room_objects_coordinates` method computes the coordinates of objects of a specific type within a room. Both methods return lists of 4D vectors representing the position and orientation of each object or corner in the room frame's coordinate system.",
+        "description": "A 2D environment with obstacles and a player, and uses a probabilistic algorithm to compute the shortest path between two points in the environment while avoiding obstacles. It also provides functions to draw the environment and its objects on a figure using Matplotlib, and to compute the projective coordinates of the corners of a room in the environment frame. Additionally, it defines functions to get the list of objects in a room by type and their projective coordinates in the room frame. The code uses the Geometry package for computing shortest paths and the Matplotlib library for drawing visualizations.",
         "items": [
           {
-            "id": "8aa24592-d2b2-699c-8b4a-818d3e97115b",
+            "id": "7453d1a9-2093-7088-9941-e01ea3c40300",
             "ancestors": [],
-            "description": "Performs a series of actions: it reads and computes a graph from a text file, draws the graph using Matplotlib, and provides methods for navigating and querying the graph.",
+            "description": "Computes and draws a graph representation of a long-term memory space, allowing for door-based navigation and metric reconstruction. It takes in a set of rooms and their connections as well as a base room name and computes the metric map between them.",
             "attributes": [
               {
                 "name": "g",
-                "type_name": "undetected",
-                "description": "Used to store the graph data structure for computing the metric reconstruction."
+                "type_name": "Graph",
+                "description": "Used to store a graph representation of a long-term spatial memory task. It contains nodes, edges, and types (rooms, doors, walls) that are used to compute the metric map."
               },
               {
                 "name": "read_graph",
-                "type_name": "method",
-                "description": "Responsible for reading a graph from a file in Graphviz format. It takes no arguments and returns a Graph object."
+                "type_name": "instance",
+                "description": "Used to read a graph from a pickled file. It returns a `Subgraph` object representing the graph."
               },
               {
                 "name": "fig",
                 "type_name": "matplotlibfigureFigure",
-                "description": "Used to represent the figure object for visualizing the graph."
+                "description": "Used to store the figure object that will be drawn with the graph."
               },
               {
                 "name": "ax",
-                "type_name": "PyQt5QtWidgetsQGraphicsScene",
-                "description": "Used to represent the graphical display area where the graph will be drawn."
+                "type_name": "Axes",
+                "description": "Used to store the axis object for plotting the graph."
               },
               {
                 "name": "fig_2",
-                "type_name": "matplotlibfigureFigure",
-                "description": "Used to store the figure object for the graph display."
+                "type_name": "MatplotlibFigure",
+                "description": "Used to store a figure object used for drawing the graph."
               },
               {
                 "name": "ax_2",
-                "type_name": "matplotlibFigure",
-                "description": "Used to store a second axis object for plotting the graph."
+                "type_name": "Axis",
+                "description": "Used to represent the graph's second axis, which is used for the metric reconstruction \nplot. It provides functions to set the title, labels, and limits for this axis."
               }
             ],
             "name": "LongTermGraph",
@@ -51,20 +51,20 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 230,
+            "length": 244,
             "docLength": null
           },
           {
-            "id": "82d776a5-ee96-48ae-9e44-d4548fd1800e",
+            "id": "89c82564-d052-e2bf-6549-98b7754116ea",
             "ancestors": [
-              "8aa24592-d2b2-699c-8b4a-818d3e97115b"
+              "7453d1a9-2093-7088-9941-e01ea3c40300"
             ],
-            "description": "Reads a graph from a file, creates two subplots in an matplotlib figure for visualizing the graph and its metric reconstruction, and sets up labels for the x- and y-axes. If the file is not found, it sets `self.g` to `None`.",
+            "description": "In the LongTermGraph class reads a graph from a file, creates subplots for metric reconstruction and LTSM display, and initializes the graph object.",
             "params": [
               {
                 "name": "file_name",
                 "type_name": "str",
-                "description": "Used to specify the path of a graph file that contains a directed multigraph, which will be read by the function and processed for metric reconstruction."
+                "description": "Used to specify the name of the graph file to read."
               }
             ],
             "returns": null,
@@ -81,23 +81,23 @@
             "docLength": null
           },
           {
-            "id": "61ef881c-4d99-fb93-ec44-afbc9d8a0b4d",
+            "id": "97a1ea39-6c18-2888-1d49-0d9df0c43f81",
             "ancestors": [
-              "8aa24592-d2b2-699c-8b4a-818d3e97115b"
+              "7453d1a9-2093-7088-9941-e01ea3c40300"
             ],
-            "description": "Generates a graphical representation of a subgraph of a larger graph, based on node and edge attributes. It creates a scatter plot of room and door nodes, and plots edges as grey lines with node names annotated.",
+            "description": "Generates a graph visualization of a subgraph of a larger graph, based on node and edge types. It uses the `layout` parameter to specify the layout algorithm and colors nodes and edges based on their type.",
             "params": [
               {
                 "name": "only_rooms",
                 "type_name": "bool",
-                "description": "Used to filter out nodes that are not rooms, doors, or walls."
+                "description": "Used to filter the nodes and edges displayed on the graph based on their types, with \"room\" being the default value for only rooms are shown."
               }
             ],
             "returns": null,
             "name": "draw_graph",
             "location": {
-              "start": 214,
-              "insert": 215,
+              "start": 220,
+              "insert": 221,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -241,177 +241,187 @@
     "path": "agents/g2o_agent/src/specificworker.py",
     "content": {
       "structured": {
-        "description": "A class named \"G2ORealtime\" that implements the G2O real-time algorithm for robot localization and mapping in a graphical representation. The code includes several methods for updating the graph, adding edges, and tracking the position of vertices over time. It also includes functions for updating node attributes and deleting nodes or edges. Overall, the code provides a robust framework for implementing the G2O real-time algorithm in a graphical environment.",
+        "description": "A class named `G2O` that handles various graph related tasks such as adding and deleting nodes and edges, updating edge attributes, and setting RT translation and rotation values. It also defines several functions for updating node attributes, updating edges, and deleting nodes or edges. The code uses the `networkx` library to handle graphs and their operations.\n\nIn summary, the code is a class that manages graph-related tasks for an RT (Real-Time) system, including adding and removing nodes and edges, updating edge attributes, and setting RT translation and rotation values.",
         "items": [
           {
-            "id": "84c303b7-592e-bca1-e44c-174991e2df71",
+            "id": "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb",
             "ancestors": [],
-            "description": "Performs real-time visual odometry estimation for a robot using a G2O graph and RT communication. It initializes a graph, adds nominal corners, and updates edges with measured data from an RT communication agent.",
+            "description": "Is responsible for processing robot poses and creating a graph representation of the environment for a specific worker in a multi-robot system, including handling edges, vertices, odometry, and room changes.",
             "attributes": [
               {
                 "name": "Period",
-                "type_name": "float",
-                "description": "Used to control the interval at which the worker performs its tasks, with a default value of 1 second. It can be used to adjust the worker's execution speed."
+                "type_name": "instance",
+                "description": "Used to specify the time interval between updates of the worker's state, allowing for more efficient processing of large datasets."
               },
               {
                 "name": "agent_id",
                 "type_name": "int",
-                "description": "A unique identifier assigned to each agent in the system."
+                "description": "Used as a identifier for the agent that owns the specific worker."
               },
               {
                 "name": "g",
                 "type_name": "Graph",
-                "description": "Used for representing the graph of a robot's motion, where each node represents a pose of the robot and each edge represents a motion of the robot between two poses. The graph is used to compute the marginal probability distribution of the robot's motion given its initial position and velocity."
+                "description": "Used to store the graph representation of the environment, which is updated based on the worker's observations and actions."
               },
               {
                 "name": "startup_check",
                 "type_name": "QTimersingleShot",
-                "description": "Used to start a quit timer after 200 milliseconds of inactivity, which allows the worker to exit gracefully when no further work is available."
+                "description": "Used to check if the application should quit after a certain time has elapsed since startup. It's used to implement the main loop of the worker, where the worker periodically checks if it should quit based on the current time."
               },
               {
                 "name": "rt_api",
-                "type_name": "str",
-                "description": "8 characters long. It stores a string value that represents the ROS launch file path for the RT node."
+                "type_name": "instance",
+                "description": "Used to store the RT API object, which is used for real-time data processing and transmission."
               },
               {
                 "name": "inner_api",
                 "type_name": "instance",
-                "description": "Used as a reference to the inner API object, which is responsible for handling the actual work of the worker."
+                "description": "Used to store the inner API object of the worker, which allows for communication between the worker and the main thread."
               },
               {
                 "name": "odometry_node_id",
                 "type_name": "int",
-                "description": "0-based index of the node representing the robot's odometry information in the graph. It is used to identify the node in the graph that represents the robot's current position and velocity."
+                "description": "3 in this example, indicating that the node with ID 3 represents the odometry information."
               },
               {
                 "name": "odometry_queue",
                 "type_name": "3D",
-                "description": "A queue that stores the odometry data of the robot, which is used to update the graph and calculate the robot's pose."
+                "description": "A list of tuples containing the current pose of the robot, which is updated at each step by the worker. The queue stores the last `N` poses for each node in the graph, where `N` is a user-defined parameter."
               },
               {
                 "name": "last_odometry",
                 "type_name": "3D",
-                "description": "Used to store the last known odometry value of the robot, which is used for calculating the displacement and covariance matrix."
+                "description": "Used to store the last known odometry of the robot, which can be used for visualization and debugging purposes."
               },
               {
                 "name": "g2o",
                 "type_name": "3D",
-                "description": "A G2O graph, which is a data structure used to represent the robot's pose in a 3D environment. It stores the information of the robot's pose in a set of nodes and edges, where each node represents a location in space and each edge represents a connection between two locations. The `g2o` attribute is used to perform optimization tasks such as finding the robot's pose that minimizes a cost function."
+                "description": "Used to represent the pose (position, orientation, and scale) of a robot or other object in 3D space. It is used in conjunction with the `get_covariance_matrix` method to compute the covariance matrix of the robot's position and orientation."
+              },
+              {
+                "name": "visualizer",
+                "type_name": "instance",
+                "description": "A reference to an instance of the `Visualizer` class, which provides a user interface for visualizing the robot's pose and other relevant data in real-time."
               },
               {
                 "name": "odometry_noise_std_dev",
                 "type_name": "float",
-                "description": "Used to represent the standard deviation of odometry noise in the worker's graph. It is used in the `get_displacement` method to compute the displacement between two poses based on the odometry noise."
+                "description": "0.1 by default, which represents the standard deviation of the noise added to the odometry values during the simulation for more realistic results."
               },
               {
                 "name": "odometry_noise_angle_std_dev",
-                "type_name": "floatingpoint",
-                "description": "1.5 by default, which represents the standard deviation of angle noise in the odometry measurement of a robot. It affects the accuracy of the robot's positioning and movement tracking."
+                "type_name": "float",
+                "description": "0.8 by default, which represents the standard deviation of the angular noise in the odometry measurement. It affects the optimization process by controlling the spread of the angle values in the graph."
               },
               {
                 "name": "measurement_noise_std_dev",
                 "type_name": "float",
-                "description": "10% of the robot's minimum distance from its reference configuration to its target position, indicating the standard deviation of measurement noise in the robot's pose estimation."
+                "description": "Used to represent the standard deviation of noise in the robot's measurements. It is used in the worker's implementation to scale the measurement values to account for the noise in the data."
               },
               {
                 "name": "last_room_id",
                 "type_name": "int",
-                "description": "Used to store the previous room ID that was visited by the agent before the current room. It is updated when the agent moves to a new room, allowing the worker to detect changes in the environment."
+                "description": "Used to store the last room ID seen before the agent switched rooms, which is used to handle room changes during navigation tasks."
               },
               {
                 "name": "actual_room_id",
                 "type_name": "int",
-                "description": "Used to store the current room ID of the agent, which is updated when the robot moves from one room to another."
+                "description": "Used to keep track of the current room id that the worker is in, it's updated when the worker moves to a new room."
               },
               {
                 "name": "elapsed",
                 "type_name": "int",
-                "description": "Used to store the time elapsed since the last call to the `startup_check` function, which is called every 0.1 seconds. It is used to determine when to quit the application."
+                "description": "Used to track the elapsed time since the worker was created, which can be used to control the worker's execution time and prevent it from running for too long."
               },
               {
                 "name": "room_initialized",
                 "type_name": "bool",
-                "description": "Used to keep track of whether the current room has been initialized or not. It's set to False when a new room is entered, and True otherwise."
+                "description": "Used to track whether the robot's room has been initialized or not. It is set to False when the robot moves to a new room, and True otherwise."
               },
               {
                 "name": "iterations",
                 "type_name": "int",
-                "description": "Used to keep track of the number of iterations performed by the worker. It increases by one each time a new iteration is performed and can be accessed or modified from within the worker's methods."
+                "description": "Used to count the number of iterations performed by the worker during its execution. It is incremented each time the worker processes a new iteration of the graph optimization problem."
               },
               {
                 "name": "hide",
                 "type_name": "str",
-                "description": "Used to specify whether a worker should be hidden or not when multiple workers are running simultaneously."
+                "description": "Used to indicate whether the worker should be hidden or not, defaulting to False."
               },
               {
                 "name": "init_graph",
                 "type_name": "bool",
-                "description": "Used to indicate whether the graph has been initialized or not. It is set to True when the graph is initialized and False otherwise, allowing the worker to distinguish between initialized and uninitialized graphs."
+                "description": "Used to keep track of whether the graph has been initialized or not, during the processing of the ROS bag file. It's set to True when the graph is first constructed and False when the graph is reconstructed after a change in the environment."
               },
               {
                 "name": "current_edge_set",
                 "type_name": "bool",
-                "description": "Used to indicate whether the current edge set has been computed or not. It is set to true when the edge set is first computed and false otherwise, so that only new computations are performed."
+                "description": "Used to indicate whether the current edge set has been updated or not. It's used to track the updates of the edges in real-time."
               },
               {
                 "name": "first_rt_set",
                 "type_name": "bool",
-                "description": "Set to `True` when a new RT translation and rotation are detected, and `False` otherwise. It indicates whether the worker has received its first RT set or not."
+                "description": "Set to `True` when the worker receives its first RT (Real-time) edge from a \"room\" node, indicating that the worker should start tracking the RT translation and rotation for this room."
               },
               {
                 "name": "translation_to_set",
                 "type_name": "3D",
-                "description": "Used to store the translation from the robot's reference frame to the set frame."
+                "description": "Used to store the translation of a robot to a set point, calculated based on the RT messages it receives. It is updated in the `update_edge_att` method."
               },
               {
                 "name": "rotation_to_set",
                 "type_name": "3D",
-                "description": "Used to store the rotation of a robot's end effector relative to its base frame, which is necessary for setting the desired orientation of the robot's end effector."
+                "description": "Used to store the rotation of the robot's end effector with respect to a set reference frame. It is updated whenever the robot's pose changes, and is used in the computation of the robot's covariance matrix."
               },
               {
                 "name": "room_polygon",
-                "type_name": "numpyarray",
-                "description": "Used to store the coordinates of a room's boundary in a list of (x,y) tuples."
+                "type_name": "Polygon",
+                "description": "Used to store the polygon representation of a room in the environment. It is used for collision detection and other purposes related to navigation and mapping."
+              },
+              {
+                "name": "security_polygon",
+                "type_name": "3D",
+                "description": "Used to store the security polygon of the robot, which is a convex polytope used for collision detection and avoidance."
               },
               {
                 "name": "initialize_g2o_graph",
                 "type_name": "instance",
-                "description": "Used to initialize a Graph2ONode graph for a specific robotic arm. It creates nodes, edges, and defines the room node, and sets up the optimization algorithm and visualization tools."
+                "description": "Used to initialize the graph2onedges (G2O) graph during the initialization of the worker, allowing for faster computation of marginals in the optimize method."
               },
               {
                 "name": "rt_set_last_time",
-                "type_name": "float",
-                "description": "Used to store the last time when a RT set was set by the worker, which is used to filter out unnecessary RT sets."
+                "type_name": "int",
+                "description": "Used to store the time when the first RT set was observed by the worker, for updating the translation and rotation of the robot to the set."
               },
               {
                 "name": "rt_time_min",
                 "type_name": "float",
-                "description": "Set to the minimum time between two consecutive RT sets. It is used to determine when to reset the translation and rotation values for RT tracking purposes."
+                "description": "Defined as `self.rt_time_min = 10`. It represents the minimum time interval between two RT sets for the robot to be considered in the RT algorithm."
               },
               {
                 "name": "timer",
                 "type_name": "QTimer",
-                "description": "Used to schedule periodic updates of the graph with the current robot state. It is set to single shot every 200 milliseconds, allowing for real-time updates of the graph."
+                "description": "Used to create a timer that triggers the worker's method to update the graph every 200 milliseconds."
               },
               {
                 "name": "compute",
-                "type_name": "instance",
-                "description": "Used to compute the marginal probability distributions of the robot's state given its current observations. It takes an argument `vertex` which is a vertex in the graph representing the robot's state, and returns a tuple containing the marginal probabilities and the Hessian matrix of the robot's state."
+                "type_name": "lambda",
+                "description": "Called when a task is assigned to the worker. It takes the task as input, processes it using a provided function, and returns the result as output."
               },
               {
                 "name": "update_node_att",
-                "type_name": "update",
-                "description": "Called when a new node with the specified id is added to the graph, or an existing node's attributes are updated. It updates the odometry queue based on the new node's attributes and sets the room initialization flag accordingly."
+                "type_name": "Python",
+                "description": "Used to update the attributes of a node in the graph when its ID matches the specified ID."
               },
               {
                 "name": "update_edge",
-                "type_name": "edge",
-                "description": "Used to update the attributes of an edge in a graph when the edge's node types change or when a new edge is added to the graph. It sets the `rt_translation` and `rotation_euler_xyz` attributes of the edge based on the new node types."
+                "type_name": "update",
+                "description": "Called whenever an edge's attributes change. It checks if the edge is a \"room\" edge and updates the \n\"translation to set\", \"rotation to set\", or \"first RT set\" variables based on the edge's type and \nattributes."
               },
               {
                 "name": "update_edge_att",
-                "type_name": "attribute",
-                "description": "Used to update the attributes of an edge in a graph. It takes the edge ID, the new value for the attribute, and the name of the attribute as input parameters."
+                "type_name": "edge",
+                "description": "Used to update the attributes of an edge in a graph."
               }
             ],
             "name": "SpecificWorker",
@@ -423,25 +433,25 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 302,
+            "length": 404,
             "docLength": null
           },
           {
-            "id": "25b76ae0-c0dd-c6a7-fc4e-5e6acf507c0a",
+            "id": "7d7de271-5f36-6685-a041-992c749eeb89",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Initializes a SpecificWorker instance, defining its attributes and connections to graphs, timers, and signal handlers.",
+            "description": "Initializes member variables and sets up event handling for signals related to the graph, nodes, edges, and attributes.",
             "params": [
               {
                 "name": "proxy_map",
                 "type_name": "dict",
-                "description": "Used to store a mapping from agent IDs to graphs."
+                "description": "Used to map agent id's to their corresponding DSRGraph objects."
               },
               {
                 "name": "startup_check",
-                "type_name": "Optionalbool",
-                "description": "Used to check if the robot's graph has already been initialized before starting the main loop."
+                "type_name": "bool",
+                "description": "Used to determine whether to run the `startup_check` method or not when initializing the SpecificWorker object."
               }
             ],
             "returns": null,
@@ -454,73 +464,73 @@
               "comment": null
             },
             "item_type": "method",
-            "length": 51,
+            "length": 54,
             "docLength": null
           },
           {
-            "id": "1223cd80-b422-d1a2-544e-d32d51f481f3",
+            "id": "da0a9261-8bf8-ea87-794b-f1499a4f53d3",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Generates high-quality summaries of Java code that is given to it. It takes into account the robot's odometry, computes the translation and rotation of the robot relative to a reference frame, and adds the information to the graph. It also updates the landmark in the graph.",
+            "description": "Updates the robot's position, orientations, and security polygon based on the odometry data and the RT graph.",
             "params": [],
             "returns": null,
             "name": "compute",
             "location": {
-              "start": 120,
-              "insert": 122,
+              "start": 121,
+              "insert": 123,
               "offset": " ",
               "indent": 8,
               "comment": null
             },
             "item_type": "method",
-            "length": 71,
+            "length": 90,
             "docLength": null
           },
           {
-            "id": "3fbfed7d-c225-7ead-9a4a-90ba5ee3ffd1",
+            "id": "8a63dc4d-4b58-b681-ff4d-4e5147446630",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Initializes a Graph2O graph for a specific robot and room, adding nominal corners and measuring them to create a polygonal representation of the room. It also sets the robot's initial position and orientation in the graph.",
+            "description": "Initializes a Graph-based Object Recognition (G2O) graph for a specific room by:\n\n1. Finding the corners of the room using ROS topics.\n2. Adding nominal corners to the G2O graph.\n3. Adding fixed poses to the G2O graph for the robot and doors in the room.",
             "params": [],
             "returns": {
               "type_name": "bool",
-              "description": "1 if the g2o graph was successfully initialized with the given room id, and 0 otherwise."
+              "description": "1 if the initialization of the g2o graph was successful, and 0 otherwise."
             },
             "name": "initialize_g2o_graph",
             "location": {
-              "start": 214,
-              "insert": 215,
+              "start": 238,
+              "insert": 241,
               "offset": " ",
               "indent": 8,
               "comment": null
             },
             "item_type": "method",
-            "length": 62,
+            "length": 109,
             "docLength": null
           },
           {
-            "id": "253cc8ea-c52a-78a0-8844-da420c7a91fe",
+            "id": "bef4919b-9b49-2ea6-7e42-9773a84c6c4e",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Calculates the displacement of a robot based on its odometry data, updating the robot's position and orientation using the lateral, angular, and linear displacements.",
+            "description": "Calculates the displacement of an object based on its odometry data, computing the lateral displacement, forward displacement, and angular displacement using a moving window approach.",
             "params": [
               {
                 "name": "odometry",
-                "type_name": "stdvectordouble",
-                "description": "3D vector representing the robot's position, orientation, and velocity at a given time stamp."
+                "type_name": "3element",
+                "description": "Used to store the robot's motion information at each time step, including its linear displacement, lateral displacement, and angular displacement."
               }
             ],
             "returns": {
-              "type_name": "triplet",
-              "description": "3 elements long (desplazamiento lateral, displacement avance and angular displacement)."
+              "type_name": "3element",
+              "description": "Displacement in three directions (lateral, advance and angular) calculated using the odometry data from a queue."
             },
             "name": "get_displacement",
             "location": {
-              "start": 285,
-              "insert": 286,
+              "start": 437,
+              "insert": 438,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -530,26 +540,26 @@
             "docLength": null
           },
           {
-            "id": "35fb82ad-3303-53a5-4b40-b15c8f361fa3",
+            "id": "ae20cbb0-b446-7387-2246-a1505aa2b1c1",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Computes the covariance matrix of a set of vertices in a graph using the G2O optimization algorithm. It takes a vertex as input, returns the computed covariance matrix and a result flag indicating whether the computation was successful.",
+            "description": "Computes the covariance matrix for a given vertex in a graph, using an optimization algorithm to compute the marginals of the vertices and then constructing the covariance matrix.",
             "params": [
               {
                 "name": "vertex",
-                "type_name": "g2oVertex",
-                "description": "Passed to compute marginals for computing covariance matrix."
+                "type_name": "g2overtex",
+                "description": "Used to compute the covariance matrix of the vertices in the graph."
               }
             ],
             "returns": {
               "type_name": "tuple",
-              "description": "2-element, containing the result of computing covariance matrix and the marginals of the vertices."
+              "description": "2-element, where the first element is a boolean value indicating whether the covariance matrix was computed or not and the second element is the actual covariance matrix."
             },
             "name": "get_covariance_matrix",
             "location": {
-              "start": 304,
-              "insert": 305,
+              "start": 456,
+              "insert": 457,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -559,23 +569,23 @@
             "docLength": null
           },
           {
-            "id": "16329532-8cfc-7083-4b42-b215340de3c5",
+            "id": "67619954-9d16-ceb2-ee47-9e0c50ce26bd",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Visualizes a G2O optimization problem in real-time, loading the problem from an file and plotting the vertices and edges as 3D scatter plots while updating the display with small intervals of time.",
+            "description": "Within the `SpecificWorker` class loads an G2O file, visualizes its vertices and edges in 3D, and updates the visualization in real-time as the optimizer processes new measurements.",
             "params": [
               {
                 "name": "optimizer",
                 "type_name": "instance",
-                "description": "Used to load G2O files for visualization in real-time."
+                "description": "Used to load G2O files."
               }
             ],
             "returns": null,
             "name": "visualize_g2o_realtime",
             "location": {
-              "start": 317,
-              "insert": 318,
+              "start": 469,
+              "insert": 470,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -585,28 +595,28 @@
             "docLength": null
           },
           {
-            "id": "06023ea6-5dc9-1c87-3541-4399e058c863",
+            "id": "ef528e02-66ad-7da9-964d-91a42afb8717",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Updates the attributes of a node in a graph, specifically the `odometry_queue` attribute, when the node's ID matches the `odometry_node_id`.",
+            "description": "Updates the attributes of a node in a graph, specifically the odometry node, by appending values to an odometry queue.",
             "params": [
               {
                 "name": "id",
                 "type_name": "int",
-                "description": "Used to identify the node for which attribute values are being updated."
+                "description": "Used to represent the node ID of interest for updating attributes."
               },
               {
                 "name": "attribute_names",
                 "type_name": "[str]",
-                "description": "A list of attribute names to update in the node."
+                "description": "An array of strings representing the names of attributes to be updated on the node."
               }
             ],
             "returns": null,
             "name": "update_node_att",
             "location": {
-              "start": 354,
-              "insert": 363,
+              "start": 506,
+              "insert": 515,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -616,11 +626,11 @@
             "docLength": null
           },
           {
-            "id": "fcfa7684-299e-0cbf-024c-e68fe02c0453",
+            "id": "fa72d1a2-e9a6-1481-7d44-8a7f242085b0",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Updates the node with the specified ID, based on the type of node it represents.",
+            "description": "Updates an unknown node with the specified ID, performing different actions based on the type of node it represents.",
             "params": [
               {
                 "name": "id",
@@ -630,14 +640,14 @@
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to specify the node type."
+                "description": "Used to specify the node's type, with possible values being \"corner\"."
               }
             ],
             "returns": null,
             "name": "update_node",
             "location": {
-              "start": 370,
-              "insert": 380,
+              "start": 522,
+              "insert": 532,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -647,11 +657,11 @@
             "docLength": null
           },
           {
-            "id": "fced3417-1e29-05b8-ce46-5f86e6d4eff4",
+            "id": "3870a905-4bed-33bc-1444-26249501564e",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Deletes a node from the graph represented by the `SpecificWorker` class.",
+            "description": "Deletes a node from the graph represented by the `SpecificWorker` class, setting the `room_initialized` attribute to `False`.",
             "params": [
               {
                 "name": "id",
@@ -662,8 +672,8 @@
             "returns": null,
             "name": "delete_node",
             "location": {
-              "start": 382,
-              "insert": 383,
+              "start": 534,
+              "insert": 535,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -673,33 +683,33 @@
             "docLength": null
           },
           {
-            "id": "8392cc88-c41a-3d84-7741-474d984fa20d",
+            "id": "21b579b0-e2c1-b8af-0d49-f97a5f6121e1",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Updates the room ID and sets the current edge set based on the provided edge type and node types.",
+            "description": "Updates the room ID and sets the current edge set to true when the type is \"current\" or \"RT\" and the source node is a room and the target node is \"Shadow\". It also sets the translation and rotation to set variables when RT is set for the first time.",
             "params": [
               {
                 "name": "fr",
                 "type_name": "int",
-                "description": "Representative of the start node of an edge in a graph."
+                "description": "Used to represent the ID of the current node being processed in the graph."
               },
               {
                 "name": "to",
                 "type_name": "int",
-                "description": "Used to represent the target node of an edge in the graph."
+                "description": "The id of the next node in the graph that the edge is pointing to."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to specify the type of edge to update, either \"current\" or \"RT\"."
+                "description": "Used to determine which room the edge updates are for, either the current room or RT (room to Shadow)"
               }
             ],
             "returns": null,
             "name": "update_edge",
             "location": {
-              "start": 391,
-              "insert": 392,
+              "start": 543,
+              "insert": 544,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -709,33 +719,33 @@
             "docLength": null
           },
           {
-            "id": "644bd490-10bb-9e96-d442-ff5ba8edb07d",
+            "id": "5a1c2562-2abe-0a91-2f4d-cda682735284",
             "ancestors": [
-              "84c303b7-592e-bca1-e44c-174991e2df71"
+              "7f979d1a-dbf9-739d-c442-d7cd92ce4fcb"
             ],
-            "description": "Deletes an edge from a graph, specified by the vertex indices `fr` and `to`, and the edge type.",
+            "description": "Deletes an edge from a graph with specified source and target nodes, based on the type of edge.",
             "params": [
               {
                 "name": "fr",
                 "type_name": "int",
-                "description": "Used to represent the starting vertex index of an edge to be deleted."
+                "description": "Given a value of 13."
               },
               {
                 "name": "to",
                 "type_name": "int",
-                "description": "Used to indicate the destination node ID for edge deletion."
+                "description": "Specified as an index of an edge to be deleted."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to specify the edge type to be deleted, with possible values 'in' or 'out'."
+                "description": "Used to specify the edge type to be deleted."
               }
             ],
             "returns": null,
             "name": "delete_edge",
             "location": {
-              "start": 419,
-              "insert": 420,
+              "start": 571,
+              "insert": 572,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1148,132 +1158,137 @@
     "path": "agents/long_term_spatial_memory_agent/src/specificworker.py",
     "content": {
       "structured": {
-        "description": "An autonomous robot navigation agent using Graphical User Interface (GUI) for human interaction and a graph (G) to represent the environment. The code performs various tasks such as:\n\n* Reading from a json file containing the environment data and initializing the GUI window\n* Drawing a room image and displaying it on the GUI\n* Creating edges and nodes in the graph representing the environment, robot, and doors\n* Updating node attributes based on user input\n* Inserting current edge to the room\n* Starting the robot navigation process\n\nThe code uses various packages such as `numpy`, `cv2`, `QTimer`, and `QApplication` for data manipulation, image processing, and GUI functionality.",
+        "description": "An agent's internal graph and performs various operations on it, including:\n\n* Generating a room picture by iterating over the room nodes and their RT edges, and drawing a black image proportional to the room size with the room polygon and doors circled in white.\n* Inserting current edge to the room when there is no current edge and the agent's state is \"crossed\".\n* Updating node attributes and node type based on user input.\n* Deleting nodes and edges based on user input.",
         "items": [
           {
-            "id": "76fa4ef8-3f83-f299-c341-308421fee7c7",
+            "id": "0a067d35-4dda-36b4-5c41-7f6586689420",
             "ancestors": [],
-            "description": "Is responsible for processing specific types of nodes and edges in a graph, such as room nodes and their corresponding doors, as well as affordance nodes and their transitions. It also handles updating the graph's attributes and inserting new edges.",
+            "description": "Performs various tasks related to a specific worker in a multi-agent system, such as checking for room occupation, updating node attributes, and generating room images. It also handles insertion and deletion of edges and nodes, and updates the state of the agent based on certain conditions.",
             "attributes": [
               {
                 "name": "Period",
-                "type_name": "float32",
-                "description": "0 by default. It represents the period of time taken for a specific worker to complete its task, which can be used to determine the next task to assign to the worker based on its current state."
+                "type_name": "int",
+                "description": "200 milliseconds, which is the time interval between updates of the worker's state."
               },
               {
                 "name": "agent_id",
-                "type_name": "int",
-                "description": "0 by default, representing the agent's internal ID for distinguishing it from other agents."
+                "type_name": "integerint",
+                "description": "Used as a unique identifier for each agent in the swarm."
               },
               {
                 "name": "g",
                 "type_name": "Graph",
-                "description": "Used to store the graph data structure for the environment map navigation. It contains the nodes, edges, and other attributes needed for the worker's functionality."
+                "description": "Used to store the graph representation of the environment that the worker is working on. It contains nodes, edges, and other attributes that are relevant for the worker's task."
               },
               {
                 "name": "update_node",
-                "type_name": "attribute",
-                "description": "Called when a node's attributes change. It updates the state of the worker based on the new attributes."
+                "type_name": "UpdateNode",
+                "description": "Used to update the state of a node in the graph based on its ID, type, and affordance state."
               },
               {
                 "name": "update_edge",
-                "type_name": "Edge",
-                "description": "Used to update the edge attributes based on the robot's movement. It takes three parameters: `fr`, `to`, and `type`, which represent the from, to, and edge type respectively. The method updates the edge attributes accordingly and sets the current edge as \"current\" if there are no existing \"current\" edges."
+                "type_name": "str",
+                "description": "Used to set a new current edge in the graph when there is no existing current edge and the room node exists."
               },
               {
                 "name": "startup_check",
                 "type_name": "QTimersingleShot",
-                "description": "Used to schedule the worker's main loop to run after 200 milliseconds of starting the application."
+                "description": "Used to start the application's shutdown process after a certain period of time (200 milliseconds) since the worker was created."
               },
               {
                 "name": "rt_api",
-                "type_name": "Attribute",
-                "description": "Used to store the RT API of the worker, which is needed for communication between the worker and the main agent."
+                "type_name": "str",
+                "description": "Used for handling robot actions, specifically RT (Remote Transport) actions. It provides a way to interact with the robot's internal API to perform actions such as moving or manipulating objects."
               },
               {
                 "name": "inner_api",
-                "type_name": "internal",
-                "description": "Used by the worker to interact with its inner agent API, which handles the actual robot control and sensor data processing."
+                "type_name": "API",
+                "description": "Used to access the internal API of the agent, allowing the worker to interact with the agent's internal state and perform actions such as generating room pictures or updating node attributes."
               },
               {
                 "name": "robot_name",
                 "type_name": "str",
-                "description": "Used to store the name of the robot that the worker is controlling."
+                "description": "Used to store the name of the robot agent in the environment."
               },
               {
                 "name": "robot_id",
                 "type_name": "int",
-                "description": "Used to store the ID of the robot that the worker represents."
+                "description": "Used to store the ID of the robot node in the graph. It is used to identify the current room and for RT edges."
               },
               {
                 "name": "last_robot_pose",
-                "type_name": "Attribute",
-                "description": "Used to store the last known pose of the robot in the environment, which can be used for navigation and task completion purposes."
+                "type_name": "Pose",
+                "description": "Used to store the last known pose of the robot in the environment, which is used for motion planning and collision detection."
+              },
+              {
+                "name": "robot_exit_pose",
+                "type_name": "Pose",
+                "description": "Used to store the pose of the robot when it exits a room."
               },
               {
                 "name": "state",
                 "type_name": "str",
-                "description": "Used to keep track of the worker's current state, either \"idle\", \"running\", or \"crossed\"."
+                "description": "Used to store the current state of the worker, which can be either \"idle\", \"running\", or \"crossed\"."
               },
               {
                 "name": "affordance_node_active_id",
                 "type_name": "int",
-                "description": "Used to store the ID of the affordance node that is currently active, indicating which affordance the worker should perform."
+                "description": "Used to store the ID of the node representing the affordance that the robot is currently interacting with."
               },
               {
                 "name": "exit_door_id",
                 "type_name": "int",
-                "description": "0-based, representing the index of the door through which the robot exits a room when it moves from that room to another."
+                "description": "0 by default, indicating the door through which the robot exits a room when it moves to another room."
               },
               {
                 "name": "room_exit_door_id",
                 "type_name": "int",
-                "description": "14 by default. It represents the ID of the door through which the robot exits a room."
+                "description": "31 by default, representing the door ID of the room that the worker is exiting."
               },
               {
                 "name": "enter_room_node_id",
                 "type_name": "int",
-                "description": "Used to store the ID of the room node that the robot enters when it moves from the previous room to the current room."
+                "description": "Used to store the ID of the room node that the worker has entered. It is used to check if the worker has reached the goal state by comparing it with the ID of the goal room node."
               },
               {
                 "name": "graph",
                 "type_name": "Graph",
-                "description": "Used to store the graph representation of the environment, including nodes, edges, and their attributes."
+                "description": "Used to represent the graph of nodes and edges in the environment, which is updated based on the worker's actions and observations."
               },
               {
                 "name": "vertex_size",
                 "type_name": "int",
-                "description": "Used to represent the size of a vertex in a graph, indicating its importance or relevance in the graph structure."
+                "description": "16 by default, indicating the size of each vertex in the graph."
               },
               {
                 "name": "not_required_attrs",
                 "type_name": "list",
-                "description": "Used to store the names of attributes that are not required for the worker's functionality, i.e., they are optional or not used in the implementation."
+                "description": "Used to store a list of node attributes that are not required for the worker's functionality. It helps in avoiding unnecessary computation and improving performance by skipping the retrieval of these attributes during node traversal."
               },
               {
                 "name": "long_term_graph",
                 "type_name": "Graph",
-                "description": "Used to store the long-term graph of the agent, which is updated at each iteration of the worker. It keeps track of the agent's internal graph over time, allowing the worker to perform actions based on the historical information of the environment."
+                "description": "Used to store the long-term graph of the environment, which represents the entire state of the environment over time."
               },
               {
                 "name": "global_map",
-                "type_name": "ndarray",
-                "description": "2D, representing a map of the environment. It stores the occupancy probabilities of each cell in the grid, which are used to calculate the worker's attention and motion."
+                "type_name": "npndarray",
+                "description": "Used to store a map of the environment, which is used for navigation and other purposes."
               },
               {
                 "name": "insert_current_edge",
                 "type_name": "Edge",
-                "description": "Used to insert a new edge into the graph with a specified type (current) and source and destination nodes, signaling that the current room has been reached and the agent should move on to the next task."
+                "description": "Used to insert a new edge into the graph with the current room as the source node and the robot node as the destination node, indicating that the robot has entered the current room."
               },
               {
                 "name": "timer",
                 "type_name": "QTimer",
-                "description": "Used to schedule the worker's startup check after a delay of 200 milliseconds."
+                "description": "Used to schedule a call to the `startup_check()` function after 200 milliseconds of starting the application, which signals the agent to start its work."
               },
               {
                 "name": "compute",
                 "type_name": "instance",
-                "description": "Used to compute the next action for the agent based on the current state of the environment. It takes into account the agent's attributes, such as its position and orientation, and returns a dict with the next action as key and the corresponding value as value."
+                "description": "Used to compute the cost of the robot moving from its current state to a new state. It takes into account factors such as distance, obstacles, and door states."
               }
             ],
             "name": "SpecificWorker",
@@ -1285,25 +1300,25 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 508,
+            "length": 533,
             "docLength": null
           },
           {
-            "id": "30924e5c-a8d3-aabb-bf47-aa7f060f80a2",
+            "id": "8f7fe684-295f-f8b1-c94d-1c5ce453de90",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Sets up the internal structure and event connections for a SpecificWorker instance, including its graph, node ID, and timer for computing updates.",
+            "description": "Initializes an instance of the SpecificWorker class by setting up various graph structures, defining variables, and connecting signals for updating node and edge positions.",
             "params": [
               {
                 "name": "proxy_map",
                 "type_name": "igraphGraph",
-                "description": "Used to specify the graph for this specific worker instance."
+                "description": "Used to specify the graph that represents the environment for the worker agent."
               },
               {
                 "name": "startup_check",
                 "type_name": "bool",
-                "description": "Used to check if any of the required nodes are present in the graph before starting the agent's inner loop."
+                "description": "Used to check if the agent has already started. If set to `False`, it will call the `startup_check` method instead, which initializes the internal state of the agent."
               }
             ],
             "returns": null,
@@ -1316,20 +1331,20 @@
               "comment": null
             },
             "item_type": "method",
-            "length": 45,
+            "length": 46,
             "docLength": null
           },
           {
-            "id": "9d1d8a47-e09e-bba1-ea44-c61dcc5ed6f9",
+            "id": "b7663dc2-9b1f-eaaf-a64b-a95a80099f99",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Sets parameters and updates node attributes in a graph. It removes a self-edge from a room, stores an exit door ID, and assigns other_side_door attributes to both doors leading to the new room.",
+            "description": "Sets parameters and modifies the state of a Room object by removing a self-edge, storing an exit door ID, setting attribute values for doors, and reading an entrance door node to add an other_side_door attribute with the name of the exit door in the new room.",
             "params": [
               {
                 "name": "params",
                 "type_name": "object",
-                "description": "Passed to the function for configuration purposes."
+                "description": "Passed in from outside the function to be processed or modified."
               }
             ],
             "returns": {
@@ -1338,8 +1353,8 @@
             },
             "name": "setParams",
             "location": {
-              "start": 115,
-              "insert": 116,
+              "start": 116,
+              "insert": 117,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1349,17 +1364,17 @@
             "docLength": null
           },
           {
-            "id": "6d2c558e-51df-ebbf-9b45-c373d8e16ac8",
+            "id": "4b952eb9-acba-209b-de45-48fe3b8d2de5",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Performs various actions based on the current state of the worker, including idle, crossing, crossed, initializing room, known room, initializing doors, storing graph, and removing.",
+            "description": "Determines the state of a worker based on the current state of the graph and performs appropriate actions according to the state.",
             "params": [],
             "returns": null,
             "name": "compute",
             "location": {
-              "start": 129,
-              "insert": 148,
+              "start": 130,
+              "insert": 149,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1369,37 +1384,37 @@
             "docLength": null
           },
           {
-            "id": "00a4e420-1c1d-efa6-f340-28f5c78e4e52",
+            "id": "59d68e36-a969-1390-a64b-66a3c5f1207a",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Determines if the agent is entering or exiting a room based on the affordance graph and updates the agent's state and door associations accordingly.",
+            "description": "Generates high-quality summaries of Java code given to it, checks if any \"current\" edge exists, and if not, associates doors based on their proximity.",
             "params": [],
             "returns": null,
             "name": "idle",
             "location": {
-              "start": 167,
-              "insert": 169,
+              "start": 168,
+              "insert": 170,
               "offset": " ",
               "indent": 8,
               "comment": null
             },
             "item_type": "method",
-            "length": 64,
+            "length": 71,
             "docLength": null
           },
           {
-            "id": "bd4ee7e6-5efa-6487-9e4f-53d59567192c",
+            "id": "73ce6331-230e-b191-4445-a4e68e4cfb3a",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Determines if the agent has reached a door and, if so, updates its state based on the door's properties.",
+            "description": "Manages the node and edge properties for a worker class called `SpecificWorker`, which is an extension of `GenericWorker`. It retrieves the affordance node, checks if it has a parent, and updates the exit door ID node with the connected room name.",
             "params": [],
             "returns": null,
             "name": "crossed",
             "location": {
-              "start": 258,
-              "insert": 260,
+              "start": 264,
+              "insert": 266,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1409,17 +1424,17 @@
             "docLength": null
           },
           {
-            "id": "cc00d913-dfa4-edab-9447-2568f6c1e7d6",
+            "id": "b038074f-0d1d-37bb-7949-1863b4f1a32a",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Determines and stores the ID of the room node to enter when it is called, and updates the state of the worker to \"initializing doors\".",
+            "description": "Determines if there are any rooms other than the current room that the worker is in, and if so, sets the enter room node ID and inserts an edge to it. It then sets the state to \"initializing doors\" and prints a message.",
             "params": [],
             "returns": null,
             "name": "initializing_room",
             "location": {
-              "start": 278,
-              "insert": 281,
+              "start": 284,
+              "insert": 287,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1429,37 +1444,37 @@
             "docLength": null
           },
           {
-            "id": "53f4c0b8-56dd-07b3-0440-be3e6683e8df",
+            "id": "40ac65e2-76b8-2b98-194e-80c545d8fd7a",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Performs a series of actions to handle a robot's movement through a door, including:\n\n1. Finding the other side room node in the graph.\n2. Creating a new edge and vertex for the robot's new location.\n3. Deleting the original edge connecting the robot to the room.",
+            "description": "In the `SpecificWorker` class is responsible for handling the scenario where the robot needs to move to another room through a door, and there is no direct path from the current room to the desired room. It traverses the graph to find the shortest path to the desired room, updates the node's parent attribute, and inserts a new edge in the graph to connect the robot to the desired room.",
             "params": [],
             "returns": null,
             "name": "known_room",
             "location": {
-              "start": 292,
-              "insert": 294,
+              "start": 298,
+              "insert": 300,
               "offset": " ",
               "indent": 8,
               "comment": null
             },
             "item_type": "method",
-            "length": 56,
+            "length": 73,
             "docLength": null
           },
           {
-            "id": "2fab6259-032f-8abf-4744-db2e9c5a2fe7",
+            "id": "97fb42e6-e393-a18f-0d40-f962134e20f1",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "1) retrieves exit edges and matching same-side doors, 2) sets other side door name and connected room name attributes for each exit door node, and 3) associates doors between nodes using their names.",
+            "description": "Identifies the doors connected to the current room and updates their attributes with the names of the rooms they lead to, also associating them through a pair of tuples.",
             "params": [],
             "returns": null,
             "name": "initializing_doors",
             "location": {
-              "start": 362,
-              "insert": 364,
+              "start": 392,
+              "insert": 394,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1469,28 +1484,28 @@
             "docLength": null
           },
           {
-            "id": "50fd66d9-17e8-659a-6941-9c2265014ec1",
+            "id": "169b50a4-d8c6-22be-b548-e904c2d484da",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Takes two door nodes as input and connects them by adding an edge between them, while also updating the \"other side door name\" and \"connected room name\" attributes of each node to reflect the connection.",
+            "description": "Connects two doors in a graph by adding an edge between their nodes and updating the \"other side door name\" and \"connected room name\" attributes of each door node.",
             "params": [
               {
                 "name": "door_1",
-                "type_name": "str",
-                "description": "Represented as an tuple containing the name of the door and its room, such as (\"Door 1\", \"Room 1\")."
+                "type_name": "igraphNode",
+                "description": "A reference to one of the doors in the graph, which is used to establish a connection between two rooms."
               },
               {
                 "name": "door_2",
                 "type_name": "str",
-                "description": "Represented as a string containing the name of the second door to be associated with the graph."
+                "description": "2-dimensional list containing the name of the door and its room information."
               }
             ],
             "returns": null,
             "name": "associate_doors",
             "location": {
-              "start": 401,
-              "insert": 403,
+              "start": 431,
+              "insert": 433,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1500,17 +1515,17 @@
             "docLength": null
           },
           {
-            "id": "a63ad4a9-7162-9788-6f48-a0ea5ee1a361",
+            "id": "7dba6d19-0ac9-11a8-5f4d-7ab151351297",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Stores the graph represented by an instance of `GenericWorker` in a file named \"graph.pkl\".",
+            "description": "Stores the graph data in a file called \"graph.pkl\" when a room node is found in the igraph data structure.",
             "params": [],
             "returns": null,
             "name": "store_graph",
             "location": {
-              "start": 420,
-              "insert": 421,
+              "start": 450,
+              "insert": 451,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1520,17 +1535,17 @@
             "docLength": null
           },
           {
-            "id": "72e8cae2-7f84-98bc-4243-263cb1655204",
+            "id": "6003f927-ac68-b2ba-564e-ba42175519a0",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Removes edges from the graph that connect two nodes with the same room number, and also deletes nodes that have only one connection to another node with a room number of 200 (shadow nodes). The function then updates the long-term graph and sets the state to \"idle\".",
+            "description": "Removes edges and nodes from the graph based on certain room numbers, updates the long-term graph, and changes the state to \"idle\".",
             "params": [],
             "returns": null,
             "name": "removing",
             "location": {
-              "start": 434,
-              "insert": 436,
+              "start": 464,
+              "insert": 466,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1540,23 +1555,23 @@
             "docLength": null
           },
           {
-            "id": "64fe063f-2993-c6bc-aa4d-981c1f3a4e37",
+            "id": "1ab47154-ba0f-2487-4144-57a467c74f40",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Iterates through the robot's graph, identifying and traversing RT edges, and inserting vertices and edges into an IGraph object.",
+            "description": "Within the SpecificWorker class recursively traverses the graph by following RT edges from the starting node until reaching the robot's ID or a maximum depth limit is reached. It inserts vertices and edges into an igraph handle for each iteration.",
             "params": [
               {
                 "name": "node_id",
                 "type_name": "int",
-                "description": "A unique identifier for the node being traversed."
+                "description": "The unique identifier of the node to be traversed."
               }
             ],
             "returns": null,
             "name": "traverse_graph",
             "location": {
-              "start": 460,
-              "insert": 462,
+              "start": 490,
+              "insert": 492,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1566,23 +1581,23 @@
             "docLength": null
           },
           {
-            "id": "426f44c0-7eaf-b78f-2949-a354da7afe47",
+            "id": "9941450b-8dc1-aaac-2849-a5d941339841",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Iterates through the successors of a given vertex in a graph, and inserts vertices and edges into a data structure called `dsr` if the successor has a higher level than the current vertex and its name is not already present in `dsr`.",
+            "description": "Navigates through the graph by starting at a given vertex, identifying its successors, and inserting vertices and edges to preserve the DSR property of the graph. It then recursively traverses the successor vertices until no more updates are needed.",
             "params": [
               {
                 "name": "node",
                 "type_name": "igraphVertex",
-                "description": "Represented by an index."
+                "description": "Representing an existing vertex in the graph."
               }
             ],
             "returns": null,
             "name": "traverse_igraph",
             "location": {
-              "start": 470,
-              "insert": 471,
+              "start": 500,
+              "insert": 501,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1592,23 +1607,23 @@
             "docLength": null
           },
           {
-            "id": "6537e0aa-a290-a4aa-e34a-a6fcf04c5f78",
+            "id": "225fa64e-4fe1-6387-0640-047b650806c6",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Adds a new vertex to an igraph graph, updating its attributes and linking it with other vertices based on their names.",
+            "description": "Adds a new vertex to an igraph graph, handling various attributes and edges based on their types and values.",
             "params": [
               {
                 "name": "node",
                 "type_name": "igraphNode",
-                "description": "Passed the vertex to be added to the graph."
+                "description": "Passed to insert a new vertex into an existing graph."
               }
             ],
             "returns": null,
             "name": "insert_igraph_vertex",
             "location": {
-              "start": 483,
-              "insert": 484,
+              "start": 513,
+              "insert": 514,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1618,28 +1633,28 @@
             "docLength": null
           },
           {
-            "id": "bf521f4e-8469-df93-ed46-38f37fa5b135",
+            "id": "776dd3e6-e846-cd8c-9b46-91072201c62e",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Creates a new node in the graph and links it to its parent node by setting the `parent` attribute. It also sets other attributes based on the input node data and inserts the new node into the graph using the `insert_node` method.",
+            "description": "Inserts a new node into a graph, updating the node's attributes and parent relationship.",
             "params": [
               {
                 "name": "parent_name",
                 "type_name": "str",
-                "description": "Representative of the name of a node to which a new vertex will be added as its parent."
+                "description": "Required, which refers to the name of a vertex in the graph that will serve as the parent for the new node being inserted."
               },
               {
                 "name": "node",
                 "type_name": "Node",
-                "description": "Passed as an instance of the class representing a graph node, containing attributes such as agent ID and type."
+                "description": "Passed as an instance of the Node class representing a vertex to be inserted into the graph."
               }
             ],
             "returns": null,
             "name": "insert_dsr_vertex",
             "location": {
-              "start": 518,
-              "insert": 520,
+              "start": 548,
+              "insert": 550,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1649,23 +1664,23 @@
             "docLength": null
           },
           {
-            "id": "e2dcf73b-935c-9fb6-d447-fc3b778deaae",
+            "id": "cb8df5c5-bbfa-d99a-604f-44caea2e4e59",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Adds an edge to an igraph graph, specifying the origin and destination nodes, as well as the rotation and translation attributes of the edge.",
+            "description": "Adds an edge to an igraph object, specifying the origin and destination nodes, as well as the rotation and translation values.",
             "params": [
               {
                 "name": "edge",
                 "type_name": "igraphEdge",
-                "description": "Used to represent an edge in the graph. It has attributes such as `origin`, `destination`, `attrs`, and `value`."
+                "description": "Passed as a whole object, containing attributes such as origin, destination, rt translation, and rotation euler xyz."
               }
             ],
             "returns": null,
             "name": "insert_igraph_edge",
             "location": {
-              "start": 532,
-              "insert": 535,
+              "start": 562,
+              "insert": 565,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1675,28 +1690,28 @@
             "docLength": null
           },
           {
-            "id": "a24f000e-1b16-fe81-7549-3dd2b8700dc0",
+            "id": "c9505cbd-5885-1895-b749-53af73e7aa35",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Modifies an existing edge in a graph based on information from two nodes, adding new attributes for the RT translation and rotation of the edge.",
+            "description": "Modifies an existing edge in a graph by adding new attributes representing RT translation and rotation, and then inserts or assigns the updated edge to the graph.",
             "params": [
               {
                 "name": "org",
                 "type_name": "Agent",
-                "description": "Used to specify the origin node of the edge to be inserted."
+                "description": "Either None or an existing node object in the graph, representing the source node of the edge to be inserted."
               },
               {
                 "name": "dest",
                 "type_name": "Agent",
-                "description": "Used to represent the destination node or edge in the graph."
+                "description": "Used to specify the target node in the graph for the new edge."
               }
             ],
             "returns": null,
             "name": "insert_dsr_edge",
             "location": {
-              "start": 544,
-              "insert": 547,
+              "start": 574,
+              "insert": 577,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1706,17 +1721,17 @@
             "docLength": null
           },
           {
-            "id": "2e01c904-f5c2-73b3-6a47-71c9916a753a",
+            "id": "bd3d9b86-fbfb-58a0-f047-f251b71e65aa",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Clears the axis, layouts the graph using Kamada-Kawai layout algorithm, and then plots the vertices and edges with grey lines and arrowheads pointing towards the nodes. It also displays node names using text annotation.",
+            "description": "Clears the axis, layouts the graph using the Kamada-Kawai algorithm, and then plots the vertices and edges with labels and arrows. It also displays node names.",
             "params": [],
             "returns": null,
             "name": "draw_graph",
             "location": {
-              "start": 574,
-              "insert": 575,
+              "start": 604,
+              "insert": 605,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1726,26 +1741,26 @@
             "docLength": null
           },
           {
-            "id": "5f26e45d-f00c-1b98-1f4b-5af6c11f2db2",
+            "id": "1c5969a2-d7a8-9fb8-154b-05151508cdac",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Determines the room ID of an element with the given node ID, retrieving the attribute value from the node's attributes and returning it if successful, or -1 otherwise.",
+            "description": "Determines the room number associated with a given node ID and returns it if found, or -1 otherwise.",
             "params": [
               {
                 "name": "node_id",
-                "type_name": "int",
-                "description": "Passed as an argument to the function representing a unique identifier for an element in the graph."
+                "type_name": "str",
+                "description": "Passed as an argument to the function, representing the ID of a node in the graph."
               }
             ],
             "returns": {
               "type_name": "int",
-              "description": "The room ID corresponding to the given node ID when the node has the \"room_id\" attribute, or -1 otherwise."
+              "description": "The room ID of a given node or -1 if an error occurs when trying to retrieve the room ID."
             },
             "name": "check_element_room_number",
             "location": {
-              "start": 599,
-              "insert": 600,
+              "start": 629,
+              "insert": 630,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1755,26 +1770,26 @@
             "docLength": null
           },
           {
-            "id": "af524d88-6016-9cb4-f54b-329cbba2d34f",
+            "id": "8e705cf8-c7fa-4f9f-854a-5426294aa78f",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Within the SpecificWorker class checks the \"level\" attribute of a node and returns its value if found, or -1 otherwise. It also performs additional actions related to robot position and room connections in the internal graph.",
+            "description": "Within the SpecificWorker class determines an element's level based on an attribute value and returns that value if found, or -1 if not.",
             "params": [
               {
                 "name": "node_id",
                 "type_name": "str",
-                "description": "Used to represent the unique identifier of a node in the graph."
+                "description": "Used to identify the node whose element level will be checked."
               }
             ],
             "returns": {
               "type_name": "int",
-              "description": "The level of an element with the given node ID."
+              "description": "Element level of a node."
             },
             "name": "check_element_level",
             "location": {
-              "start": 608,
-              "insert": 609,
+              "start": 638,
+              "insert": 639,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1784,23 +1799,23 @@
             "docLength": null
           },
           {
-            "id": "5fe9df41-dec5-989d-6c49-d290d3b59d9c",
+            "id": "8f9ba2ca-0a1e-0386-d74e-d1179313cade",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Retrieves information about a room node in a graph, specifically its ID and the IDs of its adjacent nodes with a certain edge type, and then prints out these values and attempts to retrieve a translation attribute.",
+            "description": "Generates an image of a room based on its node ID, retrieves and prints the attributes of the room node, and draws the room polygon and doors.",
             "params": [
               {
                 "name": "room_node_id",
                 "type_name": "str",
-                "description": "Used to get a specific node from the graph."
+                "description": "Used to retrieve a Node object representing the room node for which a picture should be generated."
               }
             ],
             "returns": null,
             "name": "generate_room_picture",
             "location": {
-              "start": 651,
-              "insert": 653,
+              "start": 681,
+              "insert": 683,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1810,23 +1825,23 @@
             "docLength": null
           },
           {
-            "id": "8f2759df-b075-8896-614a-8578e1b2c573",
+            "id": "097b5487-3516-2698-aa47-fa49c84dc627",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Creates a new edge in the graph with the current room ID and assigns it to the `self.g` variable, inserting or assigning the edge if it does not already exist.",
+            "description": "Inserts or assigns an edge into the graph, with the `room_id` as the tail id and the `self.agent_id` as the head id.",
             "params": [
               {
                 "name": "room_id",
                 "type_name": "str",
-                "description": "Provided as an argument to the function by the caller, representing the room ID that the current edge is associated with."
+                "description": "A unique identifier for a particular room."
               }
             ],
             "returns": null,
             "name": "insert_current_edge",
             "location": {
-              "start": 686,
-              "insert": 688,
+              "start": 716,
+              "insert": 718,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1836,28 +1851,28 @@
             "docLength": null
           },
           {
-            "id": "68534604-01c8-c8b5-fe4b-df8ff1274feb",
+            "id": "07b3bda5-b24d-fa91-524d-c53e1ada98da",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Updates the state of an affordance node based on its ID and type. If the active affordance node's state is \"completed\" and its active status is false, it transitions to the \"crossed\" state.",
+            "description": "Updates an affordance node's state based on its active ID, printing various attributes and changing the node's state to \"crossed\" if it is completed and not active.",
             "params": [
               {
                 "name": "id",
                 "type_name": "int",
-                "description": "Representing the unique identifier for the node to be updated."
+                "description": "Used to identify the node for which the affordance state should be updated."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to indicate the type of the node being updated, which can be either \"active\" or \"completed\"."
+                "description": "Used to identify the node's type."
               }
             ],
             "returns": null,
             "name": "update_node",
             "location": {
-              "start": 700,
-              "insert": 701,
+              "start": 730,
+              "insert": 731,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1867,33 +1882,33 @@
             "docLength": null
           },
           {
-            "id": "6d818941-6870-1f92-724a-6a32635de3b4",
+            "id": "67cdf7cd-b880-0684-484f-a4a4089a786b",
             "ancestors": [
-              "76fa4ef8-3f83-f299-c341-308421fee7c7"
+              "0a067d35-4dda-36b4-5c41-7f6586689420"
             ],
-            "description": "Updates the information about the robot's edge when it moves to a new node and the type of the edge is RT(room transition).",
+            "description": "Updates an edge in the graph based on the type and values of its arguments. If there is no current edge with the specified type, it inserts a new edge and sets it as the current one.",
             "params": [
               {
                 "name": "fr",
                 "type_name": "int",
-                "description": "The ID of the room exit door."
+                "description": "Used to represent the ID of the current room door node that the function operates on."
               },
               {
                 "name": "to",
                 "type_name": "int",
-                "description": "Passed to identify the destination node for updating the edge."
+                "description": "The ID of the target node to which the edge is to be updated."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Representing the type of edge to be updated, which can be either \"RT\" or \"PT\"."
+                "description": "Used to specify the type of edge to be updated, which can be either \"RT\" or \"current\"."
               }
             ],
             "returns": null,
             "name": "update_edge",
             "location": {
-              "start": 715,
-              "insert": 719,
+              "start": 745,
+              "insert": 749,
               "offset": " ",
               "indent": 8,
               "comment": null

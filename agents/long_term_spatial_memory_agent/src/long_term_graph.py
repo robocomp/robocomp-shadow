@@ -14,35 +14,35 @@ import matplotlib.patches as patches
 
 class LongTermGraph:
     """
-    Performs a series of actions: it reads and computes a graph from a text file,
-    draws the graph using Matplotlib, and provides methods for navigating and
-    querying the graph.
+    Computes and draws a graph representation of a long-term memory space, allowing
+    for door-based navigation and metric reconstruction. It takes in a set of rooms
+    and their connections as well as a base room name and computes the metric map
+    between them.
 
     Attributes:
-        g (undetected): Used to store the graph data structure for computing the
-            metric reconstruction.
-        read_graph (method): Responsible for reading a graph from a file in Graphviz
-            format. It takes no arguments and returns a Graph object.
-        fig (matplotlibfigureFigure): Used to represent the figure object for
-            visualizing the graph.
-        ax (PyQt5QtWidgetsQGraphicsScene): Used to represent the graphical display
-            area where the graph will be drawn.
-        fig_2 (matplotlibfigureFigure): Used to store the figure object for the
-            graph display.
-        ax_2 (matplotlibFigure): Used to store a second axis object for plotting
+        g (Graph): Used to store a graph representation of a long-term spatial
+            memory task. It contains nodes, edges, and types (rooms, doors, walls)
+            that are used to compute the metric map.
+        read_graph (instance): Used to read a graph from a pickled file. It returns
+            a `Subgraph` object representing the graph.
+        fig (matplotlibfigureFigure): Used to store the figure object that will
+            be drawn with the graph.
+        ax (Axes): Used to store the axis object for plotting the graph.
+        fig_2 (MatplotlibFigure): Used to store a figure object used for drawing
             the graph.
+        ax_2 (Axis): Used to represent the graph's second axis, which is used for
+            the metric reconstruction
+            plot. It provides functions to set the title, labels, and limits for
+            this axis.
 
     """
     def __init__(self, file_name):
         """
-        Reads a graph from a file, creates two subplots in an matplotlib figure
-        for visualizing the graph and its metric reconstruction, and sets up labels
-        for the x- and y-axes. If the file is not found, it sets `self.g` to `None`.
+        In the LongTermGraph class reads a graph from a file, creates subplots for
+        metric reconstruction and LTSM display, and initializes the graph object.
 
         Args:
-            file_name (str): Used to specify the path of a graph file that contains
-                a directed multigraph, which will be read by the function and
-                processed for metric reconstruction.
+            file_name (str): Used to specify the name of the graph file to read.
 
         """
         try:
@@ -172,11 +172,17 @@ class LongTermGraph:
     def compute_element_pose(self, robot_pose, target_room_name, origin_room_name):
         """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
 
+        """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
+        pose = sm.SE3(robot_pose[0], robot_pose[1], 0) * sm.SE3.Rz(robot_pose[2], unit='rad')
         transform = self.transform_room(target_room_name, origin_room_name)
-        # transform robot pose to target room frame
-        robot_pose_transformed = transform.A @ robot_pose
+        element_pose_transformed = transform * pose
+        rpy = element_pose_transformed.rpy()
+        xyz = element_pose_transformed.A[:, -1]
+
+        print("Element pose transformed", xyz, rpy)
+
         # return QPoint object
-        return QPoint(robot_pose_transformed[0], robot_pose_transformed[1])
+        return np.array([xyz[0], xyz[1], rpy[2]])
 
     def transform_room(self, target_room_name, origin_room_name) -> sm.SE3:
         """ Computes the transformation matrix to express the origin room in the target room frame"""
@@ -244,13 +250,14 @@ class LongTermGraph:
 
     def draw_graph(self, only_rooms=True):
         """
-        Generates a graphical representation of a subgraph of a larger graph, based
-        on node and edge attributes. It creates a scatter plot of room and door
-        nodes, and plots edges as grey lines with node names annotated.
+        Generates a graph visualization of a subgraph of a larger graph, based on
+        node and edge types. It uses the `layout` parameter to specify the layout
+        algorithm and colors nodes and edges based on their type.
 
         Args:
-            only_rooms (bool): Used to filter out nodes that are not rooms, doors,
-                or walls.
+            only_rooms (bool): Used to filter the nodes and edges displayed on the
+                graph based on their types, with "room" being the default value
+                for only rooms are shown.
 
         """
         self.ax_2.clear()
@@ -312,13 +319,20 @@ class LongTermGraph:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
-    def draw_point(self, point: QPoint):
+    def draw_point(self, point: QPoint, point_in_direction: QPoint= None ):
         """ Draws a point in the map """
 
-        circle = patches.Circle((float(point.x()), float(point.y())), 100, edgecolor='g', facecolor='none')
+        circle = patches.Circle((float(point.x()), float(point.y())), 50, edgecolor='g', facecolor='none')
         self.ax.add_patch(circle)
+
+        if point_in_direction is not None:
+            print("Drawing arrow")
+            print(point.x(), point.y(), point_in_direction.x(), point_in_direction.y())
+            self.ax.arrow(point.x(), point.y(), point_in_direction.x() - point.x(), point_in_direction.y() - point.y(), head_width=20, head_length=15, fc='r', ec='r')
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+
 
     def draw_room(self, room_name, room_polygon, current=False):
         """ Draws the room polygon """
