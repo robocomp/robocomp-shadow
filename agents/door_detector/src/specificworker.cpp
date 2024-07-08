@@ -721,6 +721,11 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                     //TODO: transform to room reference frame.
                     Eigen::Vector3d p_0_ {p0_projected_eigen.x(), p0_projected_eigen.y(), 0};
                     Eigen::Vector3d p_1_ {p1_projected_eigen.x(), p1_projected_eigen.y(), 0};
+
+
+                    //Check if p_0_ and p_1_ is outside poly in and insdide poly_out
+                    if(not (not poly_room_in.containsPoint(QPointF(p_0_.x(), p_0_.y()), Qt::OddEvenFill) and poly_room_out.containsPoint(QPointF(p_0_.x(), p_0_.y()), Qt::OddEvenFill)))
+                        continue;
 //                    qInfo() << "ID" << wall_center_index;
 //                    qInfo() << "p_0: " << p_0_.x() << p_0_.y() << " p_1: " << p_1_.x() << p_1_.y();
                     /// Transform p_0 and p_1 to room reference frame
@@ -1543,12 +1548,21 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                     std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
                 else
+                {
                     std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+                    is_stabilized = true;
+                    return;
+                }
 
                 if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
                     std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                 else
+                {
                     std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+                    is_stabilized = true;
+                    return;
+                }
+
 
                 //delete door node
                 if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())

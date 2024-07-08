@@ -67,7 +67,7 @@ class SpecificWorker(GenericWorker):
             self.last_odometry = None
             # Initialize g2o graph with visualizer
             self.g2o = G2OGraph(verbose=False)
-            # self.visualizer = G2OVisualizer("G2O Graph")
+            self.visualizer = G2OVisualizer("G2O Graph")
 
             self.odometry_noise_std_dev = 1  # Standard deviation for odometry noise
             self.odometry_noise_angle_std_dev = 1  # Standard deviation for odometry noise
@@ -206,7 +206,7 @@ class SpecificWorker(GenericWorker):
                 # print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
                 # cov_matrix = self.get_covariance_matrix(last_vertex)
                 # print("Covariance matrix:", cov_matrix)
-                # self.visualizer.update_graph(self.g2o)
+                self.visualizer.update_graph(self.g2o)
                     # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
                     # rt_robot_edge.attrs['rt_translation'] = [opt_translation[0], opt_translation[1], .0]
                     # rt_robot_edge.attrs['rt_rotation_euler_xyz'] = [.0, .0, opt_orientation]
@@ -289,7 +289,7 @@ class SpecificWorker(GenericWorker):
 
             # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
             room_poly_bounding = self.room_polygon.boundingRect()
-            d = 1000
+            d = 300
             self.security_polygon = QPolygonF()
             if self.room_polygon is not None:
                 landmark_information = np.array([[0.05, 0.0],
