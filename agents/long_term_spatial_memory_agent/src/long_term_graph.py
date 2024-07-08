@@ -277,11 +277,17 @@ class LongTermGraph:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
-    def draw_point(self, point: QPoint):
+    def draw_point(self, point: QPoint, point_in_direction: QPoint= None ):
         """ Draws a point in the map """
 
-        circle = patches.Circle((float(point.x()), float(point.y())), 100, edgecolor='g', facecolor='none')
+        circle = patches.Circle((float(point.x()), float(point.y())), 50, edgecolor='g', facecolor='none')
         self.ax.add_patch(circle)
+
+        if point_in_direction is not None:
+            print("Drawing arrow")
+            print(point.x(), point.y(), point_in_direction.x(), point_in_direction.y())
+            self.ax.arrow(point.x(), point.y(), point_in_direction.x() - point.x(), point_in_direction.y() - point.y(), head_width=20, head_length=15, fc='r', ec='r')
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 

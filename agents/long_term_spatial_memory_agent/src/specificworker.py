@@ -76,6 +76,7 @@ class SpecificWorker(GenericWorker):
             self.robot_name = "Shadow"
             self.robot_id = self.g.get_node(self.robot_name).id
             self.last_robot_pose = [0, 0, 0]
+            self.robot_exit_pose = [0, 0, 0]
 
             # Variable for designing the state machine
             self.state = "idle"
@@ -202,9 +203,10 @@ class SpecificWorker(GenericWorker):
                     final_robot_affordance_pose = self.inner_api.transform(exit_room_node.name,
                                                         np.array([0., 1000., 0.], dtype=np.float64),
                                                         exit_door_node.name)
-                    robot_room_rt = self.rt_api.get_edge_RT(exit_room_node, self.robot_id)
-                    robot_room_rotation = robot_room_rt.attrs["rt_rotation_euler_xyz"].value
-                    robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], robot_room_rotation[2]]
+                    wall_room_rt = self.rt_api.get_edge_RT(exit_room_node, exit_door_node.attrs["parent"].value)
+                    wall_room_rotation = wall_room_rt.attrs["rt_rotation_euler_xyz"].value
+                    robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], wall_room_rotation[2]]
+                    self.robot_exit_pose = robot_pose
                     # Transform final affordance pose to global reference
                     print("Final affordance pose in room reference", robot_pose)
                     final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(robot_pose, "room_1",
@@ -216,10 +218,9 @@ class SpecificWorker(GenericWorker):
                     # Check if robot is in a room in the global map
                     other_side_room = self.long_term_graph.check_point_in_map(g_map, pose_point)
                     # Draw the transformed point in global map
-
-                    self.long_term_graph.draw_point(pose_point)
-                    second_point = QPoint(pose_point.x() + 100 * np.cos(final_robot_affordance_pose_in_room_reference[2]), pose_point.y() + 100 * np.sin(final_robot_affordance_pose_in_room_reference[2]))
-                    self.long_term_graph.draw_point(second_point)
+                    second_point = QPoint(pose_point.x() - (250 * np.sin(final_robot_affordance_pose_in_room_reference[2])), pose_point.y() + (250 * np.cos(final_robot_affordance_pose_in_room_reference[2])))
+                    print("Pose point", pose_point, "Second point", second_point)
+                    self.long_term_graph.draw_point(pose_point, second_point)
                     # In case the robot is going to cross to a known room...
                     if other_side_room != None:
                         # Get exit door center pose
@@ -312,10 +313,6 @@ class SpecificWorker(GenericWorker):
             self.traverse_igraph(other_side_door_room_node)
             print("TRAVERSED GRAPH")
             exit_room_node = self.g.get_node(self.room_exit_door_id)
-            rt_robot_room = self.rt_api.get_edge_RT(exit_room_node,
-                                                   200)
-            # get rt_rotation_euler_xyz from rt_room_wall
-            robot_rotation = rt_robot_room.attrs["rt_rotation_euler_xyz"].value
 
             # Delete RT edge from room node t oShadow
             self.g.delete_edge(self.room_exit_door_id, self.robot_id, "RT")
@@ -327,18 +324,20 @@ class SpecificWorker(GenericWorker):
                 print("No new door name found. Probably the associated door was not found in the global map. Take into account this as a future mission")
                 print("Setting as objetive the last affordance pose transformed to the global reference system")
 
-                final_robot_affordance_pose = self.inner_api.transform(exit_room_node.name,
-                                                                       np.array([0., 1000., 0.], dtype=np.float64),
-                                                                       other_side_door_node.name)
-
-                # Append a 1 to the last_robot_pose array to make it a 3D array
-                final_robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], robot_rotation[2]]
-                # Transform final affordance pose to global reference
-                final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(
-                    final_robot_pose, "room_1",
-                    exit_room_node.name)
-                rt_robot = np.array([final_robot_affordance_pose_in_room_reference[0], final_robot_affordance_pose_in_room_reference[1], 0.0], dtype=np.float64)
-                door_rotation = [0., 0., final_robot_affordance_pose_in_room_reference[2]]
+                # final_robot_affordance_pose = self.inner_api.transform(exit_room_node.name,
+                #                                                        np.array([0., 1000., 0.], dtype=np.float64),
+                #                                                        other_side_door_node.name)
+                # wall_room_rt = self.rt_api.get_edge_RT(exit_room_node, exit_door_node.attrs["parent"].value)
+                # wall_room_rotation = wall_room_rt.attrs["rt_rotation_euler_xyz"].value
+                # # Append a 1 to the last_robot_pose array to make it a 3D array
+                # final_robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], wall_room_rotation[2]]
+                # # Transform final affordance pose to global reference
+                # final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(
+                #     final_robot_pose, "room_1",
+                #     exit_room_node.name)
+                exit_robot_pose = self.robot_exit_pose
+                rt_robot = np.array([exit_robot_pose[0], exit_robot_pose[1], 0.0], dtype=np.float64)
+                door_rotation = [0., 0., exit_robot_pose[2]]
 
             else:
                 print("Going out door", new_door_name)
