@@ -206,11 +206,12 @@ class SpecificWorker(GenericWorker):
                     wall_room_rt = self.rt_api.get_edge_RT(exit_room_node, exit_door_node.attrs["parent"].value)
                     wall_room_rotation = wall_room_rt.attrs["rt_rotation_euler_xyz"].value
                     robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], wall_room_rotation[2]]
-                    self.robot_exit_pose = robot_pose
+
                     # Transform final affordance pose to global reference
                     print("Final affordance pose in room reference", robot_pose)
                     final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(robot_pose, "room_1",
                     exit_room_node.name)
+
                     print("Final affordance pose in global reference", final_robot_affordance_pose_in_room_reference)
                     pose_point = QPoint(final_robot_affordance_pose_in_room_reference[0],
                                          final_robot_affordance_pose_in_room_reference[1])
@@ -234,6 +235,9 @@ class SpecificWorker(GenericWorker):
                                                                                               other_side_room,
                                                                                               exit_room_node.name)
 
+                        self.robot_exit_pose = self.long_term_graph.compute_element_pose(robot_pose,
+                                                                                              other_side_room,
+                                                                                              exit_room_node.name)
                         # Get door nodes connected to room other_side_room
                         doors = self.long_term_graph.get_room_objects_transform_matrices_with_name(other_side_room, "door")
                         closer_pose = ("", np.finfo(np.float32).max) # Variable to set the closest door to the exit one

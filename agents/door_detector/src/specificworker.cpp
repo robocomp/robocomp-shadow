@@ -1548,20 +1548,12 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                     std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
                 else
-                {
                     std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
-                    is_stabilized = true;
-                    return;
-                }
 
                 if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
                     std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                 else
-                {
                     std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
-                    is_stabilized = true;
-                    return;
-                }
 
 
                 //delete door node
