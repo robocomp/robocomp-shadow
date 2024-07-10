@@ -90,7 +90,7 @@ private:
     struct Constants
     {
         std::string lidar_name = "helios";
-        std::vector<std::pair<float, float>> ranges_list = {{1000, 2500}};
+        std::vector<std::pair<float, float>> ranges_list = {{1700, 2500}};
         bool DISPLAY = false;
     };
     Constants consts;

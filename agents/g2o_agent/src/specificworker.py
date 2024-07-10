@@ -98,6 +98,8 @@ class SpecificWorker(GenericWorker):
             self.rt_set_last_time = time.time()
             self.rt_time_min = 1
 
+            self.last_update_with_corners = time.time()
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -167,6 +169,7 @@ class SpecificWorker(GenericWorker):
 
                 # Check if robot pose is inside room polygon
 
+                no_valid_corners_counter = 0
                 if self.room_polygon is not None:
                     if self.room_polygon.containsPoint(robot_point, Qt.OddEvenFill):
                         for i in range(4):
@@ -178,6 +181,8 @@ class SpecificWorker(GenericWorker):
                                     corner_edge_mat = self.rt_api.get_edge_RT_as_rtmat(corner_edge, robot_odometry[3])[0:3, 3]
                                     self.g2o.add_landmark(corner_edge_mat[0], corner_edge_mat[1], 0.05 * np.eye(2), pose_id=self.g2o.vertex_count-1, landmark_id=int(corner_node.name[7])+1)
                                     # print("Landmark added:", corner_edge_mat[0], corner_edge_mat[1], "Landmark id:", int(corner_node.name[7]), "Pose id:", self.g2o.vertex_count-1)
+                                else:
+                                    no_valid_corners_counter += 1
 
                         door_nodes = [node for node in self.g.get_nodes_by_type("door") if not "pre" in node.name and
                                       node.name in self.g2o.objects]
@@ -197,23 +202,27 @@ class SpecificWorker(GenericWorker):
                 last_vertex = self.g2o.optimizer.vertices()[self.g2o.vertex_count - 1]
                 opt_translation = last_vertex.estimate().translation()
                 opt_orientation = last_vertex.estimate().rotation().angle()
+
+                # print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
+                # cov_matrix = self.get_covariance_matrix(last_vertex)
+                # print("Covariance matrix:", cov_matrix)
+                self.visualizer.update_graph(self.g2o)
+
+                print("No valid corners counter:", no_valid_corners_counter, self.last_update_with_corners)
+                affordance_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value]
+                if no_valid_corners_counter == 4 and len(affordance_nodes) == 0:
+                    if self.rt_set_last_time - self.last_update_with_corners > 3:
+                        print("No affordance nodes active. Rotating robot")
+                        opt_orientation += np.pi/8
+                else:
+                    self.last_update_with_corners = time.time()
+
                 # Substract pi/2 to opt_orientation and keep the number between -pi and pi
                 if opt_orientation > np.pi:
                     opt_orientation -= np.pi
                 elif opt_orientation < -np.pi:
                     opt_orientation += np.pi
 
-                # print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
-                # cov_matrix = self.get_covariance_matrix(last_vertex)
-                # print("Covariance matrix:", cov_matrix)
-                self.visualizer.update_graph(self.g2o)
-                    # rt_robot_edge = Edge(room_node.id, robot_node.id, "RT", self.agent_id)
-                    # rt_robot_edge.attrs['rt_translation'] = [opt_translation[0], opt_translation[1], .0]
-                    # rt_robot_edge.attrs['rt_rotation_euler_xyz'] = [.0, .0, opt_orientation]
-                    # # rt_robot_edge.attrs['rt_se2_covariance'] = cov_matrix
-                    # self.g.insert_or_assign_edge(rt_robot_edge)
-
-                # self.rt_api.insert_or_assign_edge_RT(room_node, robot_node.id, [opt_translation[0], opt_translation[1], 0], [0, 0, opt_orientation])
                 rt_robot_edge = Edge(robot_node.id, room_node.id, "RT", self.agent_id)
                 rt_robot_edge.attrs['rt_translation'] = Attribute(np.array([opt_translation[0], opt_translation[1], .0],dtype=np.float32), self.agent_id)
                 rt_robot_edge.attrs['rt_rotation_euler_xyz'] = Attribute(np.array([.0, .0, opt_orientation],dtype=np.float32), self.agent_id)
@@ -289,7 +298,7 @@ class SpecificWorker(GenericWorker):
 
             # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
             room_poly_bounding = self.room_polygon.boundingRect()
-            d = 300
+            d = 500
             self.security_polygon = QPolygonF()
             if self.room_polygon is not None:
                 landmark_information = np.array([[0.05, 0.0],
@@ -329,20 +338,26 @@ class SpecificWorker(GenericWorker):
                         door_room_rt = self.inner_api.transform(room_node.name, door_node.name)
                         door_tx, door_ty, _ = door_room_rt
                         # Check if door is valid
-                        is_door_valid = door_node.attrs["valid"].value
-                        if is_door_valid:
-                            if door_tx != 0.0 or door_ty != 0.0:
-                                door_measured_rt = door_node.attrs["rt_translation"].value
+                        try:
+                            is_door_valid = door_node.attrs["valid"].value
+                            if is_door_valid:
+                                if door_tx != 0.0 or door_ty != 0.0:
+                                    door_measured_rt = door_node.attrs["rt_translation"].value
+                                    self.g2o.add_nominal_corner(door_room_rt,
+                                                                door_measured_rt,
+                                                                landmark_information, pose_id=0)
+                            else:
+                                print("Door is not valid")
                                 self.g2o.add_nominal_corner(door_room_rt,
-                                                            door_measured_rt,
+                                                            None,
                                                             landmark_information, pose_id=0)
-                        else:
-                            print("Door is not valid")
+
+                        except KeyError:
+                            print("Door node does not have valid attribute")
                             self.g2o.add_nominal_corner(door_room_rt,
                                                         None,
                                                         landmark_information, pose_id=0)
                         self.g2o.objects[door_node.name] = self.g2o.vertex_count - 1
-
                     return True
         elif robot_node.attrs["parent"].value != 100:
             robot_parent = robot_node.attrs["parent"].value
