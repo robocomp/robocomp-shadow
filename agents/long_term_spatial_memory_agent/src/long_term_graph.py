@@ -77,6 +77,7 @@ class LongTermGraph:
         rts = []
         for object in objects:
             path = self.g.get_shortest_path(room, object, weights=None, mode='out', output='epath', algorithm='auto')
+            path = self.check_path(path)
             rt = sm.SE3()
             for edge_id in path:
                 edge = self.g.es[edge_id]
@@ -94,6 +95,7 @@ class LongTermGraph:
         rts = []
         for object in objects:
             path = self.g.get_shortest_path(room, object, weights=None, mode='out', output='epath', algorithm='auto')
+            path = self.check_path(path)
             rt = sm.SE3()
             for edge_id in path:
                 edge = self.g.es[edge_id]
@@ -162,6 +164,7 @@ class LongTermGraph:
         # get the transformation chain from the current room to the connected room
         path = self.g.get_shortest_path(target_room, source_room, weights=None, mode='all', output='vpath',
                                         algorithm='auto')
+        path = self.check_path(path)
 
         # compute the transformation matrices from the edges contents
         inverse = False
@@ -170,6 +173,7 @@ class LongTermGraph:
         for a, b in zip(path, itertools.islice(path, 1, None)):  # first from path, second from path  (islice)
             edge_id = self.g.get_eid(a, b, directed=False)
             edge = self.g.es(edge_id)
+
             tr = edge["rt"][0]
             rot = edge["rotation"][0]
             if tr is not None:
@@ -190,6 +194,35 @@ class LongTermGraph:
                 inverse = True
                 door = True
         return final
+
+    # Create a function that, given a path, check if sequence of (door, wall, door) exists
+    def check_path(self, path):
+        """ Check if a path contains a sequence of (door, wall, door) """
+        # Copy path
+        n_insertions = 0
+        path_copy = path.copy()
+        if len(path) < 3:
+            return path
+
+        for i in range(len(path) - 2):
+            if self.g.vs[path[i]]["type"] == "door" and self.g.vs[path[i + 1]]["type"] == "wall" and self.g.vs[path[i + 2]]["type"] == "door":
+                # get wall_node parent id
+                wall_node = self.g.vs[path[i + 1]]
+                # Get room_id attr
+                room_id = wall_node["room_id"]
+                # Search for the room node
+                room_node = self.g.vs.find("room_"+str(room_id))
+                # Get the wall node id
+                room_id = room_node.index
+                # insert room_id in the copied path after the wall node
+                path_copy.insert(i + 2 + n_insertions, room_id)
+                # insert another wall_id after the room_id
+                path_copy.insert(i + 3 + n_insertions, path[i + 1])
+                n_insertions += 2
+                print("######################## JUMP DETECTED #########################")
+                print("Room node id", room_id, "name", room_node["name"], "inserted", "wall id", path[i + 1])
+        print("Path after check", path_copy)
+        return path_copy
 
     def compute_metric_map(self, base_room_name):
         """ Computes the metric map of the environment. Returns a dictionary with the rooms and doors.

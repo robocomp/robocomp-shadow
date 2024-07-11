@@ -814,7 +814,7 @@ std::optional<std::tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector
     // Iterate over corners
     for(const auto &[i, n] : corner_nodes | iter::enumerate)
     {
-        qInfo() << "Corner name: " << QString::fromStdString(n.name());
+//        qInfo() << "Corner name: " << QString::fromStdString(n.name());
         if (auto corner_transformed = inner_eigen->transform(robot_node.name(),
                                                              n.name()); corner_transformed.has_value())
         {
@@ -885,7 +885,7 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
 {
     // A static vector of tuples to store the last detected doors and a counter to store the number of times a door has been detected
     static vector<tuple<DoorDetector::Door, int>> last_detected_doors;
-    int N = 120; // The number of consecutive frames a door must be detected in to be considered valid
+    int N = 40; // The number of consecutive frames a door must be detected in to be considered valid
 
     for(const auto &[i, d] : last_detected_doors | iter::enumerate)
     {
@@ -1264,7 +1264,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
     while(not is_stabilized)
     {
-//        qInfo() << "Stabilizing door: " << QString::fromStdString(door_name);
+        qInfo() << "Stabilizing door: " << QString::fromStdString(door_name);
         auto start = std::chrono::high_resolution_clock::now();
 
         /// get has intention edge between robot and doo
@@ -1472,21 +1472,21 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if(measured_door_points.empty())
                 {
                     qInfo() << "No measured points. removing door";
-                    qInfo() << "POINT 1";
-//                    //Delete edge between wall and door in all cases
-//                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-//                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-//                    else
-//                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
-//
-//                    if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
-//                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-//                    else
-//                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
-//
-//                    //delete door node
-//                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
-//                        G->delete_node(door_node.id());
+                    qInfo() << "POINT 2";
+                    //Delete edge between wall and door in all cases
+                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+                    else
+                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+
+                    if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+                    else
+                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+
+                    //delete door node
+                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
+                        G->delete_node(door_node.id());
                     is_stabilized = true;
                     return;
                 }

@@ -283,17 +283,22 @@ void SpecificWorker::compute()
     //Get first affordance node with state waiting
     for(auto affordance : affordance_nodes)
     {
+        std::cout << "Affordance name: " << affordance.name() << std::endl;
         //get affordance room_id attribute
         if(auto affordance_room_id = G->get_attrib_by_name<room_id_att>(affordance); affordance_room_id.has_value())
         {
+            std::cout << "Affordance affordance_room_id: " << affordance_room_id.value() << std::endl;
             if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value() and affordance_room_id.value() == room_id.value())
             {
+                std::cout << "Affordance state: " << affordance_state.value() << std::endl;
+                //check if affordance state is waiting
 //            if(affordance_state.value() == "waiting" and executed_affordances.end() == std::find(executed_affordances.begin(), executed_affordances.end(), affordance.name()))
                 if(affordance_state.value() == "waiting")
                 {
                     //check if affordance name is in the map
                     if(affordance_map.find(affordance.name()) == affordance_map.end())
                     {
+                        std::cout << "Affordance not found in map" << std::endl;
                         affordance_map[affordance.name()] = 0;
                         best_aff = affordance.name();
                         break;
@@ -310,7 +315,12 @@ void SpecificWorker::compute()
             }
         }
     }
-
+    std::cout << "Best affordance: " << best_aff << std::endl;
+    // Print affordance_map
+    for(auto [key, value] : affordance_map)
+    {
+        std::cout << "Affordance: " << key << " Value: " << value << std::endl;
+    }
     //get node from best_aff
     if (auto affordance_ = G->get_node(best_aff); affordance_.has_value())
     {

@@ -175,7 +175,8 @@ class SpecificWorker(GenericWorker):
         else:
             # Check if any "current" edge exists
             current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.destination).type == "room" and self.g.get_node(edge.origin).type == "room"]
-            if len(current_edges) == 1:
+            to_stabilize_doors = [node for node in self.g.get_nodes_by_type("door") if "pre" in node.name]
+            if len(current_edges) == 1 and to_stabilize_doors == []:
                 # From current edge, get the origin of the edge to get room node id
                 self.room_exit_door_id = current_edges[0].origin
                 exit_room_node = self.g.get_node(self.room_exit_door_id)
@@ -184,7 +185,7 @@ class SpecificWorker(GenericWorker):
                 # Load graph from file
                 self.long_term_graph.g = self.long_term_graph.read_graph("graph.pkl")
                 # Draw graph from file
-                self.long_term_graph.draw_graph()
+                self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
                 g_map = self.long_term_graph.compute_metric_map("room_1")
                 self.long_term_graph.draw_metric_map(g_map, exit_room_node.name)
@@ -488,7 +489,7 @@ class SpecificWorker(GenericWorker):
                 continue
 
             self.g.delete_node(item.destination)
-        self.long_term_graph.draw_graph()
+        self.long_term_graph.draw_graph(False)
         self.state = "idle"
 
     def traverse_graph(self, node_id):
@@ -732,6 +733,42 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
+        if type == "door":
+            # Get door name
+            door_node = self.g.get_node(id)
+            if not "pre" in door_node.name:
+                # Check if door exists in igraph yet
+                try:
+                    door_igraph = self.graph.vs.find(name=door_node.name)
+                    # print("Door node found in igraph. Returning.")
+                    return
+                except:
+                    print("No door node found in igraph. Checking if room node exists")
+                    # Get room node
+                    room_id = door_node.attrs["room_id"].value
+                    try:
+                        room_node = self.graph.vs.find(name="room_" + str(room_id))
+                        print("Room node found in igraph. Inserting door")
+                        parent_id = door_node.attrs["parent"].value
+                        print("Parent id", parent_id)
+                        door_parent_node = self.g.get_node(parent_id)
+                        print("Door parent name", door_parent_node.name)
+                        # Insert door node in igraph
+                        self.insert_igraph_vertex(door_node)
+                        print("Door inserted in igraph")
+                        # Get RT from door_parent to door
+                        rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
+                        print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
+                        self.insert_igraph_edge(rt_door)
+                        with open("graph.pkl", "wb") as f:
+                            pickle.dump(self.graph, f)
+                        print("Door inserted in igraph")
+                        self.long_term_graph.draw_graph(False)
+                    except Exception as e:
+                        print("No room node found in igraph. Not possible to insert door")
+                        print(e)
+                        return
+
         if id == self.affordance_node_active_id:
             print("Affordance node is active")
             affordance_node = self.g.get_node(id)
