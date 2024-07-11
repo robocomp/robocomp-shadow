@@ -14,35 +14,34 @@ import matplotlib.patches as patches
 
 class LongTermGraph:
     """
-    Computes and draws a graph representation of a long-term memory space, allowing
-    for door-based navigation and metric reconstruction. It takes in a set of rooms
-    and their connections as well as a base room name and computes the metric map
-    between them.
+    Draws a long-term graph representation of a building's layout and room usage,
+    allowing for interactive exploration and analysis of the data. It provides
+    methods to draw the graph, add points, and display room names and door connections.
 
     Attributes:
-        g (Graph): Used to store a graph representation of a long-term spatial
-            memory task. It contains nodes, edges, and types (rooms, doors, walls)
-            that are used to compute the metric map.
-        read_graph (instance): Used to read a graph from a pickled file. It returns
-            a `Subgraph` object representing the graph.
-        fig (matplotlibfigureFigure): Used to store the figure object that will
-            be drawn with the graph.
-        ax (Axes): Used to store the axis object for plotting the graph.
-        fig_2 (MatplotlibFigure): Used to store a figure object used for drawing
+        g (instance): Used to specify the color scheme for the graph, where `'r'`
+            represents red, `'b'` represents blue, and `-` represents gray.
+        read_graph (instance): Used to read a graph from a file specified by the
+            user.
+        fig (matplotlibfigureFigure): Used to store the figure object that represents
             the graph.
-        ax_2 (Axis): Used to represent the graph's second axis, which is used for
-            the metric reconstruction
-            plot. It provides functions to set the title, labels, and limits for
-            this axis.
+        ax (matplotlibaxesAxes): Used to interact with a specific axis object in
+            a figure. It provides methods for adding plots, annotations, and other
+            visual elements to the axis.
+        fig_2 (matplotlibfigureFigure): Used to store the figure object for the
+            metric reconstruction plot.
+        ax_2 (matplotlibfigureFigure): Used to represent the second plot, which
+            shows the metric reconstruction.
 
     """
     def __init__(self, file_name):
         """
-        In the LongTermGraph class reads a graph from a file, creates subplots for
-        metric reconstruction and LTSM display, and initializes the graph object.
+        Reads a graph from a file, creates two subplots for visualization, and
+        sets up the x-axis and y-axis labels.
 
         Args:
-            file_name (str): Used to specify the name of the graph file to read.
+            file_name (str): Used to specify the path to a GraphML file from which
+                the graph structure is read.
 
         """
         try:
@@ -108,6 +107,7 @@ class LongTermGraph:
         rts = []
         for object in objects:
             path = self.g.get_shortest_path(room, object, weights=None, mode='out', output='epath', algorithm='auto')
+            path = self.check_path(path)
             rt = sm.SE3()
             for edge_id in path:
                 edge = self.g.es[edge_id]
@@ -125,6 +125,7 @@ class LongTermGraph:
         rts = []
         for object in objects:
             path = self.g.get_shortest_path(room, object, weights=None, mode='out', output='epath', algorithm='auto')
+            path = self.check_path(path)
             rt = sm.SE3()
             for edge_id in path:
                 edge = self.g.es[edge_id]
@@ -193,6 +194,7 @@ class LongTermGraph:
         # get the transformation chain from the current room to the connected room
         path = self.g.get_shortest_path(target_room, source_room, weights=None, mode='all', output='vpath',
                                         algorithm='auto')
+        path = self.check_path(path)
 
         # compute the transformation matrices from the edges contents
         inverse = False
@@ -201,6 +203,7 @@ class LongTermGraph:
         for a, b in zip(path, itertools.islice(path, 1, None)):  # first from path, second from path  (islice)
             edge_id = self.g.get_eid(a, b, directed=False)
             edge = self.g.es(edge_id)
+
             tr = edge["rt"][0]
             rot = edge["rotation"][0]
             if tr is not None:
@@ -221,6 +224,35 @@ class LongTermGraph:
                 inverse = True
                 door = True
         return final
+
+    # Create a function that, given a path, check if sequence of (door, wall, door) exists
+    def check_path(self, path):
+        """ Check if a path contains a sequence of (door, wall, door) """
+        # Copy path
+        n_insertions = 0
+        path_copy = path.copy()
+        if len(path) < 3:
+            return path
+
+        for i in range(len(path) - 2):
+            if self.g.vs[path[i]]["type"] == "door" and self.g.vs[path[i + 1]]["type"] == "wall" and self.g.vs[path[i + 2]]["type"] == "door":
+                # get wall_node parent id
+                wall_node = self.g.vs[path[i + 1]]
+                # Get room_id attr
+                room_id = wall_node["room_id"]
+                # Search for the room node
+                room_node = self.g.vs.find("room_"+str(room_id))
+                # Get the wall node id
+                room_id = room_node.index
+                # insert room_id in the copied path after the wall node
+                path_copy.insert(i + 2 + n_insertions, room_id)
+                # insert another wall_id after the room_id
+                path_copy.insert(i + 3 + n_insertions, path[i + 1])
+                n_insertions += 2
+                print("######################## JUMP DETECTED #########################")
+                print("Room node id", room_id, "name", room_node["name"], "inserted", "wall id", path[i + 1])
+        print("Path after check", path_copy)
+        return path_copy
 
     def compute_metric_map(self, base_room_name):
         """ Computes the metric map of the environment. Returns a dictionary with the rooms and doors.
@@ -250,14 +282,13 @@ class LongTermGraph:
 
     def draw_graph(self, only_rooms=True):
         """
-        Generates a graph visualization of a subgraph of a larger graph, based on
-        node and edge types. It uses the `layout` parameter to specify the layout
-        algorithm and colors nodes and edges based on their type.
+        Generates a graph representation of a long-term state machine (LTSM) based
+        on its adjacency matrix. It creates the graph layout, defines edge colors,
+        and adds node and edge labels.
 
         Args:
-            only_rooms (bool): Used to filter the nodes and edges displayed on the
-                graph based on their types, with "room" being the default value
-                for only rooms are shown.
+            only_rooms (bool): Used to filter nodes based on their type. It restricts
+                the subgraph to only include nodes labeled as "room".
 
         """
         self.ax_2.clear()
