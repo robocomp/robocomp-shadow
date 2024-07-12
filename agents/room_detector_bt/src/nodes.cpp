@@ -205,6 +205,7 @@ namespace Nodes
     BT::NodeStatus UpdateRoom::onStart()
     {
         std::cout << this->name() << "onStart" << std::endl;
+        std::cout << this->name() << "onStart" << std::endl;
         check_corner_matching();
         return BT::NodeStatus::SUCCESS;
     }

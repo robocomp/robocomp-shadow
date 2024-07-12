@@ -335,11 +335,6 @@ void SpecificWorker::compute()
         G->add_or_modify_attrib_local<active_att>(affordance, true);
         //Set the affordance state to in_progress
         G->update_node(affordance);
-        //print affordance map
-        for(auto [key, value] : affordance_map)
-        {
-            std::cout << "Affordance: " << key << " Value: " << value << std::endl;
-        }
         affordance_map[affordance.name()]++;
     }
     else

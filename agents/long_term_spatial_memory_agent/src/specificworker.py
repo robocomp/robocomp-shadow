@@ -565,10 +565,12 @@ class SpecificWorker(GenericWorker):
                 new_node.attrs[attr] = Attribute(node[attr], self.agent_id)
         id_result = self.g.insert_node(new_node)
     def insert_igraph_edge(self, edge):
+        origin_node = self.g.get_node(edge.origin)
+        destination_node = self.g.get_node(edge.destination)
 
         # Search for the origin and destination nodes in the graph
-        origin_node = self.graph.vs.find(id=edge.origin)
-        destination_node = self.graph.vs.find(id=edge.destination)
+        origin_node = self.graph.vs.find(name=origin_node.name)
+        destination_node = self.graph.vs.find(name=destination_node.name)
         # Add the edge to the graph
         self.graph.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
@@ -757,8 +759,12 @@ class SpecificWorker(GenericWorker):
                         self.insert_igraph_vertex(door_node)
                         print("Door inserted in igraph")
                         # Get RT from door_parent to door
-                        rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
+                        # rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
+
+                        rt_door = self.g.get_edge(door_parent_node.id, door_node.id, "RT")
                         print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
+                        print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
+                        print("IDS", door_parent_node.id, door_node.id)
                         self.insert_igraph_edge(rt_door)
                         with open("graph.pkl", "wb") as f:
                             pickle.dump(self.graph, f)
