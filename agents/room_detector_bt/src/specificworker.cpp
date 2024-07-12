@@ -276,18 +276,28 @@ void SpecificWorker::room_stabilitation()
 //        std::cout << __FUNCTION__ << " Room size histogram size: " << BTdata.room_size_histogram.size() << std::endl;
         //std::cout << __FUNCTION__ << " Room sizes size: " << BTdata.room_sizes.size() << std::endl;
 
-        // Get robot odometry
-        auto odometry = get_graph_odometry();
-        //push odometry data
-        BTdata.odometry_data.push_back(odometry);
-        //print odometry data size
-        //std::cout << __FUNCTION__ << " Odometry data size: " << BTdata.odometry_data.size() << std::endl;
+
     }
     else
     {
         std::cout << __FUNCTION__ << " Room not initialized. Can't store data." << std::endl;
+        BTdata.corner_data.push_back(std::vector<Eigen::Vector2f>{});
+        BTdata.room_centers.push_back(Eigen::Vector2f{0,0});
+        BTdata.room_sizes.push_back({0, 0});
+
 //        return; // TODO: return makes robot not move to room center. Consider using estimated center to move robot to center
     }
+
+    // Get robot odometry
+    auto odometry = get_graph_odometry();
+    // print odometry values
+    std::cout << __FUNCTION__ << " Odometry: " << odometry[0] << " " << odometry[1] << " " << odometry[2] << std::endl;
+
+    //push odometry data
+    BTdata.odometry_data.push_back(odometry);
+
+    //Print size of odometry data and corner data size
+    std::cout << __FUNCTION__ << " Odometry data size: " << BTdata.odometry_data.size() << " Corner data size: " << BTdata.corner_data.size() << std::endl;
 
     auto room_center = current_room.get_center();
 
@@ -337,7 +347,7 @@ void SpecificWorker::check_corner_matching()
 void SpecificWorker::create_room()
 {
     auto ldata  = buffer_lidar_data.get_idemp();
-    qInfo() << 1;
+//    qInfo() << 1;
     auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, false);
     auto most_common_room_size = std::max_element(BTdata.room_size_histogram.begin(), BTdata.room_size_histogram.end(),
@@ -356,11 +366,11 @@ void SpecificWorker::create_room()
     //std::cout << __FUNCTION__ << " Room size: " << room_size[0] << " " << room_size[1] << std::endl;
     BTdata.corner_matching_threshold = std::min(room_size[0]/3, room_size[1]/3);
     BTdata.corner_matching_threshold_setted = true;
-    qInfo() << 1;
+//    qInfo() << 1;
     /// Get the first room center obtained with a room size similar to the most common one
     int first_valid_center_id = 0;
     Eigen::Vector2f first_valid_room_center;
-    qInfo() << 1;
+//    qInfo() << 1;
     /// Get first valid center
     for(const auto &[i, center] : iter::enumerate(BTdata.room_centers))
         if(std::abs(BTdata.room_sizes[i][0] - room_size[0]) < 50 and std::abs(BTdata.room_sizes[i][1] - room_size[1]) < 50)
@@ -1140,7 +1150,10 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
         double x_displacement = odometry_data[i][0] * odometry_time_factor;
         double y_displacement = odometry_data[i][1] * odometry_time_factor;
         double angle_displacement = odometry_data[i][2] * odometry_time_factor;
-        
+//        print odometry data
+        std::cout << "////////////////////////////////////////////////////////////////////////////////////////////" << std::endl;
+        std::cout << "Odometry data: " << x_displacement << " " << y_displacement << " " << angle_displacement << std::endl;
+
         /// Transform odometry data to room frame
         Eigen::Affine2d odometryTransform = Eigen::Translation2d(y_displacement, x_displacement) * Eigen::Rotation2Dd(angle_displacement);
         updated_robot_pose = updated_robot_pose * odometryTransform;
@@ -1400,6 +1413,8 @@ std::vector<float> SpecificWorker::get_graph_odometry()
                 // Get difference time between last and current time
                 auto now = std::chrono::high_resolution_clock::now();
                 auto diff_time = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
+                //print diff_time
+                std::cout << "Diff time between odometry measurement: " << diff_time << std::endl;
                 last_time = now;
                 // Get robot new pose considering speeds and time
                 float adv_disp = adv_odom * diff_time;

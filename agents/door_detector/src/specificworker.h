@@ -120,6 +120,8 @@ private:
     std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> get_measured_and_nominal_doors(DSR::Node room_node, DSR::Node robot_node);
 
     std::vector<DoorDetector::Door> get_doors(const RoboCompLidar3D::TData &ldata, QGraphicsScene *scene, DSR::Node robot_node, DSR::Node room_node);
+    Eigen::Vector2f middle_point_of_closest_segment(const std::vector<Eigen::Vector2f> &polygon, const Eigen::Vector2f &point);
+
     optional<tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector2f>>> get_corners_and_wall_centers();
     Eigen::Vector2f project_point_on_polygon(const QPointF& p, const QPolygonF& polygon);
     QPointF project_point_on_line_segment(const QPointF& p, const QPointF& v, const QPointF& w);

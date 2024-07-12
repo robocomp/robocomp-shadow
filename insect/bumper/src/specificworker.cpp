@@ -368,9 +368,10 @@ void SpecificWorker::move_robot(const Target &target, const Target &reaction, bo
     }
 
     // check speed limits
-    float t_adv = std::clamp(target.y, -params.MAX_BACKWARDS_ADV_SPEED, params.MAX_ADV_SPEED);
+    float t_adv = std::clamp(target.y * cos(target.rot), -params.MAX_BACKWARDS_ADV_SPEED, params.MAX_ADV_SPEED);
     float t_side = std::clamp(target.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
     float t_rot = std::clamp(target.rot, -params.MAX_ROT_SPEED, params.MAX_ROT_SPEED);  // WATCH: now angle comes from gridplanner
+
     float r_adv = std::clamp(reaction.y, -params.MAX_ADV_SPEED, params.MAX_ADV_SPEED);
     float r_side = std::clamp(reaction.x, -params.MAX_SIDE_SPEED, params.MAX_SIDE_SPEED);
 
