@@ -189,13 +189,18 @@ class SpecificWorker(GenericWorker):
                         # Iterate over door nodes
                         if self.security_polygon.containsPoint(robot_point, Qt.OddEvenFill):
                             for door_node in door_nodes:
-                                is_door_valid = door_node.attrs["valid"].value
-                                if is_door_valid:
-                                    door_measured_rt = door_node.attrs["rt_translation"].value
-                                    if door_measured_rt[0] != 0.0 or door_measured_rt[1] != 0.0:
-                                        self.g2o.add_landmark(door_measured_rt[0], door_measured_rt[1], 0.05 * np.eye(2),
-                                                              pose_id=self.g2o.vertex_count - 1,
-                                                              landmark_id=self.g2o.objects[door_node.name])
+                                try:
+                                    is_door_valid = door_node.attrs["valid"].value
+                                    if is_door_valid:
+                                        door_measured_rt = door_node.attrs["rt_translation"].value
+                                        if door_measured_rt[0] != 0.0 or door_measured_rt[1] != 0.0:
+                                            self.g2o.add_landmark(door_measured_rt[0], door_measured_rt[1], 0.05 * np.eye(2),
+                                                                  pose_id=self.g2o.vertex_count - 1,
+                                                                  landmark_id=self.g2o.objects[door_node.name])
+                                    else:
+                                        print("Door is not valid")
+                                except KeyError:
+                                    print("Door node does not have valid attribute")
 
                 chi_value = self.g2o.optimize(iterations=50, verbose=False)
 

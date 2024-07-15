@@ -97,14 +97,14 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cd ~/robocomp/co
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "cmake . && make -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 3 "bin/Lidar3D etc/config_pearl_webots"
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cd ~/robocomp/components/robocomp-shadow/insect/gridder"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cmake . && make -j32"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "bin/gridder etc/config_wb"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cd ~/robocomp/components/robocomp-shadow/insect/gridder"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "cmake . && make -j32"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 4 "bin/gridder etc/config_wb"
 #MPC
 
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cd ~/robocomp/components/robocomp-shadow/insect/lidar_odometry"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cmake . && make -j32"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "bin/lidar_odometry etc/config_wb"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cd ~/robocomp/components/robocomp-shadow/insect/lidar_odometry"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "cmake . && make -j32"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 5 "bin/lidar_odometry etc/config_wb"
 
 #Bumper
 

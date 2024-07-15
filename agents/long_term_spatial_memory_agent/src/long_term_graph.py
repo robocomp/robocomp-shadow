@@ -19,7 +19,7 @@ class LongTermGraph:
             print("Graph read from", file_name, self.g.summary())
         except FileNotFoundError:
             print("File not found")
-            self.g = None
+            self.g = ig.Graph(directed=True)
 
         plt.ion()
         self.fig, self.ax = plt.subplots()
@@ -65,7 +65,8 @@ class LongTermGraph:
 
         objects = []
         for succ in self.g.successors(node):
-            objects += self.get_room_objects_by_type_recursive(self.g.vs[succ], object_type)
+            if self.g.vs[succ]["room_id"] == node["room_id"]:
+                objects += self.get_room_objects_by_type_recursive(self.g.vs[succ], object_type)
         return objects
 
     def get_room_objects_transform_matrices(self, room_name, object_type) -> list:
@@ -110,10 +111,10 @@ class LongTermGraph:
         transform = self.transform_room(target_room_name, origin_room_name)
         # corners = self.get_room_objects_coordinates(origin_room_name, "corner")
         corners_transf = self.get_room_objects_transform_matrices(origin_room_name, "corner")
-
+        print("Corners transformed", corners_transf)
         corners_in_room = [transform.A @ np.array(c_transf.A[:, -1]) for c_transf in corners_transf]
         # corners_in_room = [transform.A @ np.array(corner) for corner in corners]
-
+        print("Corners in room", corners_in_room)
         x_coords = [corner[0] for corner in corners_in_room]
         y_coords = [corner[1] for corner in corners_in_room]
         points = [QPoint(x, y) for x, y in zip(x_coords, y_coords)]

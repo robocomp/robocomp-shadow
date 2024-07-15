@@ -55,6 +55,17 @@ class SpecificWorker(GenericWorker):
         self.agent_id = 13
         self.g = DSRGraph(0, "LongTermSpatialMemory_agent", self.agent_id)
 
+        try:
+            #signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            #signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            #signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
+            #signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            console.print("signals connected")
+        except RuntimeError as e:
+            print(e)
+
         if startup_check:
             self.startup_check()
         else:
@@ -85,16 +96,16 @@ class SpecificWorker(GenericWorker):
 
             # Global map variables
             self.long_term_graph = LongTermGraph("graph.pkl")
-            # Check if self.long_term_graph.g is empty
-            if self.long_term_graph.g.vcount() != 0:
-                # Draw graph from file
+            if self.long_term_graph.g:
+                print("Graph exists")
+                self.graph = self.long_term_graph.g
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
                 g_map = self.long_term_graph.compute_metric_map("room_1")
                 self.long_term_graph.draw_metric_map(g_map)
-
-                
-
+            else:
+                print("Graph does not exist. Creating a new one")
+                self.graph = ig.Graph()
 
             # In case the room node exists but the current edge is not set, set it
             room_nodes = self.g.get_nodes_by_type("room")
@@ -106,17 +117,6 @@ class SpecificWorker(GenericWorker):
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
-
-            try:
-                # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-                signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
-                # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-                signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
-                # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-                # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-                console.print("signals connected")
-            except RuntimeError as e:
-                print(e)
 
     def __del__(self):
         """Destructor"""
@@ -137,7 +137,7 @@ class SpecificWorker(GenericWorker):
         # - Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
     @QtCore.Slot()
     def compute(self):
-        # # Check if graph exists
+        # Check if graph exists
         if self.long_term_graph.g:
             # Get room with "current" edge
             current_edges = [edge for edge in self.g.get_edges_by_type("current") if self.g.get_node(edge.destination).type == "room" and self.g.get_node(edge.origin).type == "room"]
@@ -147,40 +147,11 @@ class SpecificWorker(GenericWorker):
                 robot_rt = self.rt_api.get_edge_RT(actual_room_node, self.robot_id)
                 # Check if robot node exists in graph
                 try:
-                    robot_node = self.long_term_graph.g.vs.find(name=self.robot_name)
+                    robot_node = self.graph.vs.find(name=self.robot_name)
                     # Get robot antecessor
-                    robot_node_neighbors = self.long_term_graph.g.neighbors(robot_node)
-                    print("Robot node neighbors", robot_node_neighbors)
-                    # Get first value and get node
-                    actual_room_igraph = self.long_term_graph.g.vs.find(robot_node_neighbors[0])
+                    robot_node_successors = self.g.successors(robot_node)
 
-                    try:
-                        robot_rt_igraph = self.long_term_graph.g.es.find(_source=actual_room_igraph.index, _target=robot_node.index)
-                        # Print rt and rotation values
-                        print("RT edge from room to robot", actual_room_igraph["name"], robot_node["name"])
-                        print("Robot RT", robot_rt_igraph["traslation"], robot_rt_igraph["rotation"])
-                        if actual_room_igraph["name"] != actual_room_node.name:
-                            print("Robot node is not in the same room as the robot")
-                            # Get new room node
-                            try:
-                                new_room_node = self.long_term_graph.g.vs.find(name=actual_room_node.name)
-                                self.long_term_graph.g.delete_edges([robot_rt_igraph])
-                                self.insert_igraph_edge(robot_rt)
-                            except:
-                                print("No room node found in igraph. waiting")
-                            # Get igraph edge
-                        else:
-                            pass
-                        # Update rt data
-                        robot_rt_igraph["traslation"] = robot_rt.attrs["rt_translation"].value
-                        robot_rt_igraph["rotation"] = robot_rt.attrs["rt_rotation_euler_xyz"].value
-
-                    except Exception as e:
-                        print(e)
-                        print("1")
-
-                except Exception as e:
-                    print(e)
+                except:
                     print("No robot node found in igraph. Inserting")
                     robot_node_dsr = self.g.get_node(self.robot_name)
                     self.insert_igraph_vertex(robot_node_dsr)
@@ -225,6 +196,8 @@ class SpecificWorker(GenericWorker):
                 exit_room_node = self.g.get_node(self.room_exit_door_id)
                 # Store DSR graph in igraph
                 self.store_graph()
+                # Load graph from file
+                self.long_term_graph.g = self.long_term_graph.read_graph("graph.pkl")
                 # Draw graph from file
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
@@ -345,11 +318,11 @@ class SpecificWorker(GenericWorker):
         # Get other side door name attribute
         other_side_door_node = self.g.get_node(self.exit_door_id)
         other_side_room_name = other_side_door_node.attrs["connected_room_name"].value # TODO: Get directly the connected_room_name
-        # Search in self.long_term_graph.g for the node with the name of the other side door
+        # Search in self.graph for the node with the name of the other side door
         print("known room", other_side_room_name)
         try:
-            # Search in self.long_term_graph.g for the node with the room_id of the other side door
-            other_side_door_room_node = self.long_term_graph.g.vs.find(name=other_side_room_name)
+            # Search in self.graph for the node with the room_id of the other side door
+            other_side_door_room_node = self.graph.vs.find(name=other_side_room_name)
             print("other_side_room_graph_name", other_side_door_room_node["name"])
 
             # Insert the room node in the DSR graph
@@ -388,7 +361,7 @@ class SpecificWorker(GenericWorker):
             else:
                 print("Going out door", new_door_name)
                 try:
-                    new_door_node = self.long_term_graph.g.vs.find(name=new_door_name)
+                    new_door_node = self.graph.vs.find(name=new_door_name)
                     rt_robot = self.inner_api.transform(other_side_door_room_node["name"], np.array([0. , -1000., 0.], dtype=np.float64), new_door_node["name"])
                     door_node = self.g.get_node(new_door_node["name"])
                     door_parent_id = door_node.attrs["parent"].value
@@ -477,16 +450,16 @@ class SpecificWorker(GenericWorker):
     def associate_doors(self, door_1, door_2):
         # Find each door in igraph and update attributes
         try:
-            door_1_node = self.long_term_graph.g.vs.find(name=door_1[0])
+            door_1_node = self.graph.vs.find(name=door_1[0])
         except:
             print("No door node found in igraph", door_1[0])
             return
         try:
-            door_2_node = self.long_term_graph.g.vs.find(name=door_2[0])
+            door_2_node = self.graph.vs.find(name=door_2[0])
         except:
             print("No door node found in igraph", door_2[0])
             return
-        self.long_term_graph.g.add_edge(door_1_node, door_2_node)
+        self.graph.add_edge(door_1_node, door_2_node)
         door_1_node["other_side_door_name"] = door_2[0]
         door_1_node["connected_room_name"] = door_2[1]
         door_2_node["other_side_door_name"] = door_1[0]
@@ -497,7 +470,7 @@ class SpecificWorker(GenericWorker):
         actual_room_node = self.g.get_node(self.room_exit_door_id)
         # Check if node in igraph with the same name exists
         try:
-            room_node = self.long_term_graph.g.vs.find(name=actual_room_node.name)
+            room_node = self.graph.vs.find(name=actual_room_node.name)
             print("Room node found in igraph")
         except Exception as e:
             print("No room node found in igraph. Inserting room")
@@ -505,7 +478,7 @@ class SpecificWorker(GenericWorker):
 
         # Save graph to file
         with open("graph.pkl", "wb") as f:
-            pickle.dump(self.long_term_graph.g, f)
+            pickle.dump(self.graph, f)
 
     def removing(self):
         # # Get last number in the name of the room
@@ -544,10 +517,10 @@ class SpecificWorker(GenericWorker):
             self.insert_igraph_edge(i)
 
     def traverse_igraph(self, node):
-        vertex_successors = self.long_term_graph.g.successors(node.index)
+        vertex_successors = self.graph.successors(node.index)
         # Recur for all the vertices adjacent to thisvertex
         for i in vertex_successors:
-            sucessor = self.long_term_graph.g.vs[i]
+            sucessor = self.graph.vs[i]
             if sucessor["room_id"] == node["room_id"] and sucessor["level"] > node["level"]:
                 self.insert_dsr_vertex(node["name"], sucessor)
                 # Check if node with id i room_id attribute is the same as the room_id attribute of the room node
@@ -557,21 +530,21 @@ class SpecificWorker(GenericWorker):
                 continue
 
     def insert_igraph_vertex(self, node):
-        self.long_term_graph.g.add_vertex(name=node.name, id=node.id, type=node.type)
+        self.graph.add_vertex(name=node.name, id=node.id, type=node.type)
         # print("Inserting vertex", node.name, node.id)
         for attr in node.attrs:
             if attr in self.not_required_attrs:
                 continue
-            self.long_term_graph.g.vs[self.vertex_size][attr] = node.attrs[attr].value
+            self.graph.vs[self.vertex_size][attr] = node.attrs[attr].value
             # Check if current attribute is other_side_door_name and, if it has value, check if the node with that name exists in the graph
             if attr == "other_side_door_name" and node.attrs[attr].value:
                 try:
                     print("Matched other_side_door_name", node.attrs[attr].value)
-                    origin_node = self.long_term_graph.g.vs.find(id=node.id)
+                    origin_node = self.graph.vs.find(id=node.id)
                     try:
-                        other_side_door_node = self.long_term_graph.g.vs.find(name=node.attrs[attr].value)
+                        other_side_door_node = self.graph.vs.find(name=node.attrs[attr].value)
                         try:
-                            self.long_term_graph.g.add_edge(origin_node, other_side_door_node)
+                            self.graph.add_edge(origin_node, other_side_door_node)
                             print("Matched other_side_door_name", node.attrs[attr].value, other_side_door_node)
                         except Exception as e:
                             print("No other_side_door_name node found", node.attrs[attr].value)
@@ -584,9 +557,9 @@ class SpecificWorker(GenericWorker):
             # Check if current attribute is connected_room_name and, if it has value, check if the node with that name exists in the graph
             # if attr == "connected_room_name" and node.attrs[attr].value:
             #     try:
-            #         connescted_room_node = self.long_term_graph.g.vs.find(name=node.attrs[attr].value)
+            #         connescted_room_node = self.graph.vs.find(name=node.attrs[attr].value)
             #         if connected_room_node:
-            #             self.long_term_graph.g.add_edge(self.vertex_size, connected_room_node.id)
+            #             self.graph.add_edge(self.vertex_size, connected_room_node.id)
             #     except:
             #         print("No connected_room_name attribute found")
         self.vertex_size += 1
@@ -606,17 +579,14 @@ class SpecificWorker(GenericWorker):
                 new_node.attrs[attr] = Attribute(node[attr], self.agent_id)
         id_result = self.g.insert_node(new_node)
     def insert_igraph_edge(self, edge):
-        origin_node_dsr = self.g.get_node(edge.origin)
-        destination_node_dsr = self.g.get_node(edge.destination)
+        origin_node = self.g.get_node(edge.origin)
+        destination_node = self.g.get_node(edge.destination)
 
         # Search for the origin and destination nodes in the graph
-        origin_node = self.long_term_graph.g.vs.find(name=origin_node_dsr.name)
-        destination_node = self.long_term_graph.g.vs.find(name=destination_node_dsr.name)
+        origin_node = self.graph.vs.find(name=origin_node.name)
+        destination_node = self.graph.vs.find(name=destination_node.name)
         # Add the edge to the graph
-        if destination_node_dsr.name != self.robot_name:
-            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
-        else:
-            self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+        self.graph.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
         # print("RT", edge.attrs["rt_translation"].value)
         # print("Rotation", edge.attrs["rt_rotation_euler_xyz"].value)
@@ -632,8 +602,8 @@ class SpecificWorker(GenericWorker):
             orientation = [0, 0, 0]
         else:
             # print("Inserting DSR edge", org["name"], dest["name"])
-            edge_id = self.long_term_graph.g.get_eid(org.index, dest.index)
-            edge = self.long_term_graph.g.es[edge_id]
+            edge_id = self.graph.get_eid(org.index, dest.index)
+            edge = self.graph.es[edge_id]
             rt_value = edge["rt"]
             orientation = edge["rotation"]
             org_name = org["name"]
@@ -651,6 +621,31 @@ class SpecificWorker(GenericWorker):
         # print("RT", rt_value)
         # print("Rotation", orientation)
         self.g.insert_or_assign_edge(new_edge)
+
+    def draw_graph(self):
+        self.ax.clear()
+        # Obtener las coordenadas de los vértices
+        layout = self.graph.layout("kamada_kawai")  # Utiliza el layout Kamada-Kawai
+        # Dibujar los vértices
+        x, y = zip(*layout)
+        self.ax.scatter(x, y, s=100)  # Ajustar el tamaño de los vértices con el parámetro 's'
+        # Dibujar las aristas
+        for edge in self.graph.get_edgelist():
+            # Print rt_translation attribute
+            # Get edge data
+            # edge_data = self.graph.es[self.graph.get_eid(edge[0], edge[1])]
+            # print(edge_data["rt"])
+            self.ax.plot([x[edge[0]], x[edge[1]]], [y[edge[0]], y[edge[1]]], color="grey")
+            # add arrow to the edge
+            self.ax.annotate("", xy=(x[edge[1]], y[edge[1]]), xytext=(x[edge[0]], y[edge[0]]), arrowprops=dict(arrowstyle="->", lw=2))
+
+        for i, txt in enumerate([f"Node {i}" for i in range(self.graph.vcount())]):
+            # Get name attribute
+            name = self.graph.vs[i]["name"]
+            self.ax.annotate(name, (x[i], y[i]), textcoords="offset points", xytext=(0, 10), ha='center')
+        # Adapt ax to the graph
+        self.ax.set_xlim([min(x) - 2, max(x) + 2])
+        self.ax.set_ylim([min(y) - 2, max(y) + 2])
 
     def check_element_room_number(self, node_id):
         node = self.g.get_node(node_id)
@@ -760,7 +755,7 @@ class SpecificWorker(GenericWorker):
             if not "pre" in door_node.name:
                 # Check if door exists in igraph yet
                 try:
-                    door_igraph = self.long_term_graph.g.vs.find(name=door_node.name)
+                    door_igraph = self.graph.vs.find(name=door_node.name)
                     # print("Door node found in igraph. Returning.")
                     return
                 except:
@@ -768,7 +763,7 @@ class SpecificWorker(GenericWorker):
                     # Get room node
                     room_id = door_node.attrs["room_id"].value
                     try:
-                        room_node = self.long_term_graph.g.vs.find(name="room_" + str(room_id))
+                        room_node = self.graph.vs.find(name="room_" + str(room_id))
                         print("Room node found in igraph. Inserting door")
                         parent_id = door_node.attrs["parent"].value
                         print("Parent id", parent_id)
@@ -786,7 +781,7 @@ class SpecificWorker(GenericWorker):
                         print("IDS", door_parent_node.id, door_node.id)
                         self.insert_igraph_edge(rt_door)
                         with open("graph.pkl", "wb") as f:
-                            pickle.dump(self.long_term_graph.g, f)
+                            pickle.dump(self.graph, f)
                         print("Door inserted in igraph")
                         self.long_term_graph.draw_graph(False)
                     except Exception as e:
