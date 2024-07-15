@@ -14,34 +14,33 @@ import matplotlib.patches as patches
 
 class LongTermGraph:
     """
-    Draws a long-term graph representation of a building's layout and room usage,
-    allowing for interactive exploration and analysis of the data. It provides
-    methods to draw the graph, add points, and display room names and door connections.
+    Acts as a plotter for a graph representation of a metric reconstruction. It
+    provides methods to draw rooms and doors, and to customize the plot's appearance.
 
     Attributes:
-        g (instance): Used to specify the color scheme for the graph, where `'r'`
-            represents red, `'b'` represents blue, and `-` represents gray.
-        read_graph (instance): Used to read a graph from a file specified by the
-            user.
-        fig (matplotlibfigureFigure): Used to store the figure object that represents
-            the graph.
-        ax (matplotlibaxesAxes): Used to interact with a specific axis object in
-            a figure. It provides methods for adding plots, annotations, and other
-            visual elements to the axis.
-        fig_2 (matplotlibfigureFigure): Used to store the figure object for the
-            metric reconstruction plot.
-        ax_2 (matplotlibfigureFigure): Used to represent the second plot, which
-            shows the metric reconstruction.
+        g (str|int): Used to specify the color of the graph's edges, defaulting
+            to 'r-' for non-current rooms and 'g-' for current rooms.
+        read_graph (Callable[[Union[str,Path],int],Graph]): Used to read a graph
+            from a file specified by the file path or name.
+        fig (matplotlibfigureFigure): Used to represent the figure instance for
+            visualization of the graph.
+        ax (matplotlibpyplotAxes): Used to represent the axis of the graph. It
+            provides methods for setting various properties of the axes, such as
+            titles, labels, limits, and annotations.
+        fig_2 (matplotlibfigureFigure): Used to store the second figure object
+            that is created for visualizing the metric reconstruction.
+        ax_2 (matplotlibpyplotAxes): Used to access and manipulate the second axes
+            object created by the `subplot()` function in the parent plot.
 
     """
     def __init__(self, file_name):
         """
-        Reads a graph from a file, creates two subplots for visualization, and
-        sets up the x-axis and y-axis labels.
+        Reads a graph from a file and creates an instance of the Graph class,
+        optionally creating a figure and axes to visualize the graph.
 
         Args:
-            file_name (str): Used to specify the path to a GraphML file from which
-                the graph structure is read.
+            file_name (str): Used to specify the path to a graph file from which
+                the graph will be read.
 
         """
         try:
@@ -49,7 +48,7 @@ class LongTermGraph:
             print("Graph read from", file_name, self.g.summary())
         except FileNotFoundError:
             print("File not found")
-            self.g = None
+            self.g = ig.Graph(directed=True)
 
         plt.ion()
         self.fig, self.ax = plt.subplots()
@@ -95,7 +94,8 @@ class LongTermGraph:
 
         objects = []
         for succ in self.g.successors(node):
-            objects += self.get_room_objects_by_type_recursive(self.g.vs[succ], object_type)
+            if self.g.vs[succ]["room_id"] == node["room_id"]:
+                objects += self.get_room_objects_by_type_recursive(self.g.vs[succ], object_type)
         return objects
 
     def get_room_objects_transform_matrices(self, room_name, object_type) -> list:
@@ -140,10 +140,10 @@ class LongTermGraph:
         transform = self.transform_room(target_room_name, origin_room_name)
         # corners = self.get_room_objects_coordinates(origin_room_name, "corner")
         corners_transf = self.get_room_objects_transform_matrices(origin_room_name, "corner")
-
+        print("Corners transformed", corners_transf)
         corners_in_room = [transform.A @ np.array(c_transf.A[:, -1]) for c_transf in corners_transf]
         # corners_in_room = [transform.A @ np.array(corner) for corner in corners]
-
+        print("Corners in room", corners_in_room)
         x_coords = [corner[0] for corner in corners_in_room]
         y_coords = [corner[1] for corner in corners_in_room]
         points = [QPoint(x, y) for x, y in zip(x_coords, y_coords)]
@@ -282,13 +282,12 @@ class LongTermGraph:
 
     def draw_graph(self, only_rooms=True):
         """
-        Generates a graph representation of a long-term state machine (LTSM) based
-        on its adjacency matrix. It creates the graph layout, defines edge colors,
-        and adds node and edge labels.
+        Creates a graph based on a directed graph represented by a NetworkX graph
+        object, and displays it using Matplotlib's scatter and plot functions.
 
         Args:
-            only_rooms (bool): Used to filter nodes based on their type. It restricts
-                the subgraph to only include nodes labeled as "room".
+            only_rooms (bool): Used to filter the nodes and edges of the graph
+                according to their types, only including rooms and doors.
 
         """
         self.ax_2.clear()
