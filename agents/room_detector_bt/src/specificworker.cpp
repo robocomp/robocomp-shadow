@@ -119,7 +119,7 @@ void SpecificWorker::initialize(int period)
 //        };
 
         this->factory.registerSimpleCondition("ExistsRoom", std::bind(Nodes::ExistsRoom, this->G));
-        this->factory.registerNodeType<Nodes::ExistsCurrent>("ExistsCurrent", this->G, [this](bool value){ this->set_update_room(value);});
+        this->factory.registerNodeType<Nodes::ExistsCurrent>("ExistsCurrent", this->G, std::bind(&SpecificWorker::insert_measured_corners_loaded_room, this));
         this->factory.registerNodeType<Nodes::CreateTargetEdge>("CreateTargetEdge", this->G);
         this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G);
         this->factory.registerNodeType<Nodes::RoomStabilitation>("RoomStabilitation", this->G, std::bind(&SpecificWorker::room_stabilitation, this));
@@ -483,6 +483,43 @@ bool SpecificWorker::movement_completed(const Eigen::Vector2f &target, float dis
 {
     return (target.norm() < distance_to_target);
 }
+
+void SpecificWorker::insert_measured_corners_loaded_room()
+{
+    // delete room_measured node if exists
+    auto room_measured = G->get_node("room_measured");
+    if(room_measured.has_value())
+        { G->delete_node(room_measured.value()); }
+
+    auto corners_nodes = G->get_nodes_by_type("corner");
+    //check if its empty
+    if(corners_nodes.empty())
+    { qWarning() << __FUNCTION__ << " No corners in graph"; return; }
+
+    for (auto &nominal_corner : corners_nodes)
+    {
+        //get attribute corner id from nominal corner
+        auto corner_id = G->get_attrib_by_name<corner_id_att>(nominal_corner);
+        if(not corner_id.has_value())
+        { qWarning() << __FUNCTION__ << " No corner id in graph"; return; }
+
+        //Check if exist previous corner
+        auto corner_aux_ = G->get_node("corner_" + std::to_string(corner_id.value()) + "_measured");
+
+        auto robot_node_ = G->get_node("Shadow");
+        if(not robot_node_.has_value())
+        { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
+        auto robot_node = robot_node_.value();
+
+        //transform using inner_eigen api robot to corner_aux
+        auto corner_measured_pose_ = inner_eigen->transform(params.robot_name, corner_aux_.value().name());
+        auto corner_measured_pose = corner_measured_pose_.value();
+        create_corner(corner_id.value(), {(float) corner_measured_pose.x(), (float) corner_measured_pose.y(), 0.}, robot_node, false);
+    }
+
+    this->set_update_room(true);
+}
+
 std::tuple<std::vector<Eigen::Vector2d>, Eigen::Vector3d> SpecificWorker::extract_g2o_data(string optimization)
 {
     //std::cout << __FUNCTION__ << __FUNCTION__ << std::endl;

@@ -36,7 +36,7 @@ namespace Nodes
         else
         {
             std::cout << __FUNCTION__  << " Current edges found" << std::endl;
-            set_update_room(true);
+            insert_measured_corners_loaded_room();
             return BT::NodeStatus::SUCCESS;
         }
     }

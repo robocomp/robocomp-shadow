@@ -195,6 +195,8 @@ class SpecificWorker : public GenericWorker
     void BTFunction();
 
     void set_update_room(bool update_room_valid);
+
+    void insert_measured_corners_loaded_room();
 };
 #include "nodes.h"
 

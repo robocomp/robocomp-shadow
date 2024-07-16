@@ -39,8 +39,8 @@ namespace Nodes
     {
     public:
         ExistsCurrent(const std::string& name) : BT::ConditionNode(name, {}) {}
-        ExistsCurrent(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void(bool)>& _set_update_room) :
-                BT::ConditionNode(name, {}), G(G_), set_update_room(_set_update_room) {}
+        ExistsCurrent(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void()>& _insert_measured_corners_loaded_room) :
+                BT::ConditionNode(name, {}), G(G_), insert_measured_corners_loaded_room(_insert_measured_corners_loaded_room) {}
 
     protected:
         virtual BT::NodeStatus tick() override;
@@ -48,7 +48,7 @@ namespace Nodes
     private:
         std::shared_ptr<DSR::DSRGraph> G;
         rc::Params params;
-        std::function<void(bool)> set_update_room;
+        std::function<void()> insert_measured_corners_loaded_room;
     };
 
 #pragma endregion CONDITION_NODES
