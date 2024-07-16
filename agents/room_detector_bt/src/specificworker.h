@@ -194,6 +194,7 @@ class SpecificWorker : public GenericWorker
 
     void BTFunction();
 
+    void set_update_room(bool update_room_valid);
 };
 #include "nodes.h"
 
