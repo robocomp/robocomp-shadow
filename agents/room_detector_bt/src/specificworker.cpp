@@ -174,9 +174,8 @@ void SpecificWorker::BTFunction()
 {
     sleep(1);
 
-    BT::NodeStatus status = BT::NodeStatus::FAILURE;
-
-    while(status != BT::NodeStatus::SUCCESS)
+    BT::NodeStatus status = BT::NodeStatus::RUNNING;
+    while (status == BT::NodeStatus::RUNNING)
     {
         status = this->tree.tickOnce();
         // std::cout << __FUNCTION__ << " BT function tree status: " << status << std::endl;
@@ -1517,7 +1516,6 @@ int SpecificWorker::startup_check()
 }
 
 
-
 ///////////////////////////////////////////////////// SLOT /////////////////////////////////////
 
 void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
@@ -1552,7 +1550,7 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to, cons
 {
     if (edge_tag == "exit")
     {
-        std:cout << "EXIT EDGE" << std::endl;
+        std::cout << "EXIT EDGE" << std::endl;
          if (auto exit_node_door_ = G->get_node(to); exit_node_door_.has_value())
             {
                 auto exit_node = exit_node_door_.value();
