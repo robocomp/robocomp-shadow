@@ -7,6 +7,8 @@ namespace Nodes
 
     BT::NodeStatus ExistsRoom(std::shared_ptr<DSR::DSRGraph> G)
     {
+        //get current edges
+
         if (std::optional<DSR::Node> room_node_ = G->get_node("room"); room_node_.has_value())
         {
             DSR::Node room_node = room_node_.value();
@@ -19,6 +21,23 @@ namespace Nodes
         {
             std::cout << "Room node not found" << std::endl;
             return BT::NodeStatus::FAILURE;
+        }
+    }
+
+    BT::NodeStatus ExistsCurrent::tick()
+    {
+        //get edge by types "current"
+        auto current_edges = G->get_edges_by_type("current");
+        if(current_edges.empty())
+        {
+            qWarning() << __FUNCTION__ << " No current edges in graph";
+            return BT::NodeStatus::FAILURE;
+        }
+        else
+        {
+            std::cout << __FUNCTION__  << " Current edges found" << std::endl;
+            set_update_room(true);
+            return BT::NodeStatus::SUCCESS;
         }
     }
 

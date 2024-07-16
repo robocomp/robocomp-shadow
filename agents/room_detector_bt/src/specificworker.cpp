@@ -119,13 +119,13 @@ void SpecificWorker::initialize(int period)
 //        };
 
         this->factory.registerSimpleCondition("ExistsRoom", std::bind(Nodes::ExistsRoom, this->G));
+        this->factory.registerNodeType<Nodes::ExistsCurrent>("ExistsCurrent", this->G, [this](bool value){ this->set_update_room(value);});
         this->factory.registerNodeType<Nodes::CreateTargetEdge>("CreateTargetEdge", this->G);
         this->factory.registerNodeType<Nodes::InRoomCenter>("InRoomCenter", this->G);
         this->factory.registerNodeType<Nodes::RoomStabilitation>("RoomStabilitation", this->G, std::bind(&SpecificWorker::room_stabilitation, this));
         this->factory.registerNodeType<Nodes::CreateRoom>("CreateRoom", this->G, std::bind(&SpecificWorker::create_room, this));
         this->factory.registerNodeType<Nodes::UpdateRoom>("UpdateRoom", this->G, std::bind(&SpecificWorker::check_corner_matching, this),
                                                           std::bind(&SpecificWorker::update_room, this));
-//        this->factory.registerNodeType<Nodes::UpdateRoomV2>("UpdateRoomV2", this->G, std::bind(&SpecificWorker::update_room, this));
 
         // Create BehaviorTree
         try
@@ -162,6 +162,11 @@ void SpecificWorker::compute()
         update_room();
         draw_nominal_corners_in_room_frame(&widget_2d->scene);
     }
+}
+
+void SpecificWorker::set_update_room(bool update_room_valid)
+{
+    this->update_room_valid = update_room_valid;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

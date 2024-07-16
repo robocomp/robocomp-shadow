@@ -35,6 +35,22 @@ namespace Nodes
             int time_in_center = 5000;
     };
 
+    class ExistsCurrent : public BT::ConditionNode
+    {
+    public:
+        ExistsCurrent(const std::string& name) : BT::ConditionNode(name, {}) {}
+        ExistsCurrent(const std::string& name, std::shared_ptr<DSR::DSRGraph> G_, const std::function<void(bool)>& _set_update_room) :
+                BT::ConditionNode(name, {}), G(G_), set_update_room(_set_update_room) {}
+
+    protected:
+        virtual BT::NodeStatus tick() override;
+
+    private:
+        std::shared_ptr<DSR::DSRGraph> G;
+        rc::Params params;
+        std::function<void(bool)> set_update_room;
+    };
+
 #pragma endregion CONDITION_NODES
 
 #pragma region ACTION_NODES
