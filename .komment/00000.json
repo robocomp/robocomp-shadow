@@ -4,42 +4,42 @@
     "path": "agents/long_term_spatial_memory_agent/src/long_term_graph.py",
     "content": {
       "structured": {
-        "description": "a class `Room` that represents a 2D room with walls, doors, and objects. It uses the Graphviz library to visualize the room using the DOT language. The code has several methods for computing various aspects of the room, such as getting the center point of the room, drawing walls and doors, and computing the projective coordinates of objects in the room frame.\n\nThe `get_room_corners` method computes the corners of a room by traversing the room graph and finding all nodes with type \"corner\". It then returns a list of these nodes. The `get_room_objects_coordinates` method computes the projective coordinates of objects in the room frame by recursively traversing the room graph, finding all nodes with a given object type, and computing the rotation matrix and rotation vector for each object using the shortest path algorithm.\n\nOverall, this code provides a flexible framework for representing and manipulating 2D rooms with various features, such as walls, doors, and objects, using Graphviz for visualization.",
+        "description": "A class `Room` that represents a 3D room in a graph, with nodes representing corners and edges representing walls. The class provides methods for calculating the projective coordinates (4x1) of the corners and objects in the room frame, as well as for drawing the room and its objects on a plot. The code uses the `networkx` and `scipy.spatial` libraries to manipulate and analyze the graph data.",
         "items": [
           {
-            "id": "a5b8dc06-fd09-cd98-cb49-455fa8997129",
+            "id": "e77351db-7a15-56b3-3644-4399c887d62b",
             "ancestors": [],
-            "description": "Acts as a plotter for a graph representation of a metric reconstruction. It provides methods to draw rooms and doors, and to customize the plot's appearance.",
+            "description": "Provides a user interface for visualizing and exploring a graph, including rooms and doors. It allows for adding nodes, edges, and doors, as well as displaying room names and distances between nodes.",
             "attributes": [
               {
                 "name": "g",
                 "type_name": "str|int",
-                "description": "Used to specify the color of the graph's edges, defaulting to 'r-' for non-current rooms and 'g-' for current rooms."
+                "description": "Used to specify the color of the graph's edges. It can be set to a valid matplotlib color name or an integer value between 0 and 1, representing the transparency level of the edge."
               },
               {
                 "name": "read_graph",
-                "type_name": "Callable[[Union[str,Path],int],Graph]",
-                "description": "Used to read a graph from a file specified by the file path or name."
+                "type_name": "Callable[[str],Dict[str,float]]",
+                "description": "Used to read a graph from a file specified by the filename parameter. It returns a dictionary containing the graph data as key-value pairs where keys are node or edge indices and values are the corresponding coordinates or weights."
               },
               {
                 "name": "fig",
                 "type_name": "matplotlibfigureFigure",
-                "description": "Used to represent the figure instance for visualization of the graph."
+                "description": "Used to represent the figure object that will be drawn with the graph. It contains information about the figure, such as its size, layout, and any additional elements that will be displayed in it."
               },
               {
                 "name": "ax",
                 "type_name": "matplotlibpyplotAxes",
-                "description": "Used to represent the axis of the graph. It provides methods for setting various properties of the axes, such as titles, labels, limits, and annotations."
+                "description": "Used to represent a 2D axes object that displays the graphical representation of the long-term graph."
               },
               {
                 "name": "fig_2",
                 "type_name": "matplotlibfigureFigure",
-                "description": "Used to store the second figure object that is created for visualizing the metric reconstruction."
+                "description": "Used to store the figure object for the second graph."
               },
               {
                 "name": "ax_2",
-                "type_name": "matplotlibpyplotAxes",
-                "description": "Used to access and manipulate the second axes object created by the `subplot()` function in the parent plot."
+                "type_name": "AxesSubplot|MatplotlibFigure",
+                "description": "Used to store a secondary axes object, which can be used to display additional visualizations or metrics alongside the primary graph."
               }
             ],
             "name": "LongTermGraph",
@@ -51,26 +51,26 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 271,
+            "length": 269,
             "docLength": null
           },
           {
-            "id": "a7b64245-15fe-bab5-fc4f-fd7f097e041e",
+            "id": "35f455db-0eef-1ba5-f04f-cb6cacf60abb",
             "ancestors": [
-              "a5b8dc06-fd09-cd98-cb49-455fa8997129"
+              "e77351db-7a15-56b3-3644-4399c887d62b"
             ],
-            "description": "Reads a graph from a file and creates an instance of the Graph class, optionally creating a figure and axes to visualize the graph.",
+            "description": "Reads a graph from a file, creates an igraph object, and displays both the original graph and its metric reconstruction using matplotlib.",
             "params": [
               {
                 "name": "file_name",
                 "type_name": "str",
-                "description": "Used to specify the path to a graph file from which the graph will be read."
+                "description": "Used to specify the name of the graph file that contains the LTSM data to be reconstructed."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Calling the initialization method of the class LongTermGraph with file_name as a parameter\nltg = LongTermGraph('file.txt')\n\n# Accessing and using the graph instance read from the file\nprint(ltg.g)\nprint(ltg.g.summary())\n",
+              "code": "from LongTermGraph import LongTermGraph\n\n# create an instance of the class and set its name\nltg = LongTermGraph(\"my_graph.pickle\")\n\n# print the summary of the graph\nprint(ltg.summary())\n\n# plot the graph on a matplotlib figure\nltg.plot()\n",
               "description": ""
             },
             "name": "__init__",
@@ -86,28 +86,28 @@
             "docLength": null
           },
           {
-            "id": "99491a89-ca41-e68a-5e46-7cd175e3030f",
+            "id": "252c67c9-d429-faa7-ef4a-8d465711c8a0",
             "ancestors": [
-              "a5b8dc06-fd09-cd98-cb49-455fa8997129"
+              "e77351db-7a15-56b3-3644-4399c887d62b"
             ],
-            "description": "Creates a graph based on a directed graph represented by a NetworkX graph object, and displays it using Matplotlib's scatter and plot functions.",
+            "description": "Generates a graph based on a subgraph of the original graph, with only certain types of nodes and edges visible.",
             "params": [
               {
                 "name": "only_rooms",
                 "type_name": "bool",
-                "description": "Used to filter the nodes and edges of the graph according to their types, only including rooms and doors."
+                "description": "Used to filter out nodes that are not rooms or doors, and edges that do not connect rooms or doors."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "import matplotlib.pyplot as plt\nfrom LongTermGraph import LongTermGraph\n\n# Create a graph object from a file\ngt = LongTermGraph(\"path/to/file\")\n\n# Draw the graph with only rooms and doors\ngt.draw_graph(only_rooms=True)\n\n# Update the plot\nplt.show()\n",
+              "code": "# create an instance of LongTermGraph class and read graph from file\nmy_graph = LongTermGraph(\"myfile.pkl\")\n\n# draw graph with only rooms\nmy_graph.draw_graph(only_rooms=True)\n\n# draw graph with all nodes including walls, doors, and rooms\nmy_graph.draw_graph()\n",
               "description": ""
             },
             "name": "draw_graph",
             "location": {
-              "start": 254,
-              "insert": 255,
+              "start": 252,
+              "insert": 253,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -251,187 +251,192 @@
     "path": "agents/g2o_agent/src/specificworker.py",
     "content": {
       "structured": {
-        "description": "A class `RosOdometry` that handles robot odometry data from a ROS node. It has various methods for updating and deleting nodes and edges in the graph, as well as handling different types of updates such as current position, RT translation, and room changes. The code uses the `graph` package to handle the graph structure and the `rospy` package for ROS-related functionality.",
+        "description": "a class called `RtOdometry` that implements an algorithm for estimating the position and orientation of a robot based on its odometry data. The code uses the `gazebo` package to simulate the robot's environment and perform odometry calculations. It also utilizes the `rosbag` package to read and process ROS bag files containing sensor data.\n\nThe algorithm first initializes the robot's position and orientation based on the starting pose of the simulation. Then, it updates the node and edge information in the graph using the odometry data from the ROS bag file. Specifically, it calculates the current side speed and angular speed of the robot, and updates the node's position and orientation based on these values. It also updates the edges in the graph based on the current edge set and the RT transmission information.\n\nThe code then implements a few methods for updating and deleting nodes and edges in the graph, as well as updating the algorithm's state based on new sensor data. Overall, the code provides a basic implementation of an odometry algorithm that can be used to estimate the position and orientation of a robot in a simulated environment.",
         "items": [
           {
-            "id": "81834b2b-13a8-409b-7041-ea7aad5792ec",
+            "id": "cdcb03d8-8236-2faa-f349-0e323183c24c",
             "ancestors": [],
-            "description": "Manages a specific robot's state and updates its graph, edges, and attributes based on messages from the occupancy grid. It also handles room changes and RT sets for the specified robot.",
+            "description": "Manages a specific worker's tasks and updates in a graph. It has methods for updating node attributes, deleting nodes, and setting up RT transmission, as well as checking for updates and handling errors.",
             "attributes": [
               {
                 "name": "Period",
                 "type_name": "float|int",
-                "description": "200 by default, indicating the time interval (in milliseconds) between updates of the graph. It can be modified to adjust the update rate of the worker."
+                "description": "Used to control the update rate of the graph. It determines how often the graph is updated, with a higher value resulting in more frequent updates."
               },
               {
                 "name": "agent_id",
                 "type_name": "int|str",
-                "description": "A unique identifier for the agent, which can be used to identify specific agents within the system."
+                "description": "Used to store the ID of the agent that will be using the specific worker."
               },
               {
                 "name": "g",
                 "type_name": "Graph|QGraphicsScene",
-                "description": "Used to store and manipulate the graph data structure."
+                "description": "Used to store the graph data for the worker's algorithm, including the nodes, edges, and their attributes."
               },
               {
                 "name": "startup_check",
                 "type_name": "QTimersingleShot200,QApplicationinstancequit",
-                "description": "Set to call the quit function of the QApplication instance after a delay of 200 milliseconds."
+                "description": "Used to check if the application is still running after a certain time period (200 milliseconds) and quit if so."
               },
               {
                 "name": "rt_api",
-                "type_name": "Union[int,str]",
-                "description": "Used to store the API for the Robot Translation (RT) functionality in the worker. It can take the value of either an integer representing the RT algorithm or a string representing the RT algorithm name."
+                "type_name": "Union[str,int]",
+                "description": "Used to store the RT (Real-time) edge set ID for the worker's specific room."
               },
               {
                 "name": "inner_api",
-                "type_name": "Dict[str,Any]",
-                "description": "Used to store additional internal data for the worker, such as the current room ID or the first RT set. It is only accessible within the worker's implementation and is not part of the public API."
+                "type_name": "Callable[[],None]",
+                "description": "Used to define a custom API for the worker to interact with its internal data structures and algorithms without exposing them to the outer world."
               },
               {
                 "name": "odometry_node_id",
                 "type_name": "int",
-                "description": "Used to identify the node in the graph that represents the robot's position and orientation."
+                "description": "Used to identify the node in the graph that represents the robot's odometry information."
               },
               {
                 "name": "odometry_queue",
                 "type_name": "List[Tuple[float,float,float,int]]",
-                "description": "Used to store the latest odometry data from the robot's sensors for graph updating."
+                "description": "Used to store odometry data from the environment, containing the robot's current advance speed, side speed, and angular speed, as well as the timestamp in milliseconds since the epoch."
               },
               {
                 "name": "last_odometry",
                 "type_name": "float|List[float]",
-                "description": "Used to store the last known odometry information of the robot, including its position, velocity, and angular velocity, which are updated every 200 milliseconds."
+                "description": "Used to store the last known odometry values (position, orientation, and translation) of the robot, which are updated in real-time during the simulation."
               },
               {
                 "name": "g2o",
-                "type_name": "Graph|npndarray",
-                "description": "Used to represent the graph of the environment, allowing the worker to perform operations on it such as adding or deleting nodes and edges."
+                "type_name": "Graph|Tuple[str,str]",
+                "description": "Used to represent the graph structure of the robot's environment. It contains a tuple of two elements: the first element is the name of the graph file, and the second element is the name of the node file."
+              },
+              {
+                "name": "visualizer",
+                "type_name": "Callable[[QWidget],None]",
+                "description": "Used to create a QWidget instance for visualizing the robot's movement and orientation in real-time."
               },
               {
                 "name": "odometry_noise_std_dev",
                 "type_name": "float|int",
-                "description": "Used to represent the standard deviation of noise in the odometry measurements. It determines how much the actual robot position, orientation, and velocity are expected to deviate from their predicted values based on the odometry measurements."
+                "description": "0.1 by default, representing the standard deviation of noise added to the odometry measurements for the robot's position, orientation, and angular velocity."
               },
               {
                 "name": "odometry_noise_angle_std_dev",
-                "type_name": "float|int",
-                "description": "1.0 by default, which represents the standard deviation of the noise angle in the odometry measurement. It helps to quantify the uncertainty in the estimated angle of the robot's movement."
+                "type_name": "float|double",
+                "description": "0.2 by default, representing the standard deviation of angle noise in the odometry estimates. It affects how much the worker's estimate of the agent's position and orientation deviates from the true values due to random noise in the sensor readings."
               },
               {
                 "name": "measurement_noise_std_dev",
                 "type_name": "float|int",
-                "description": "Used to represent the standard deviation of measurement noise in the robot's odometry readings. It is used to estimate the uncertainty of the robot's position and velocity."
+                "description": "0.1 by default, indicating the standard deviation of the noise present in the robot's measurements."
               },
               {
                 "name": "last_room_id",
-                "type_name": "str|int",
-                "description": "Used to store the last room ID seen by the agent before changing rooms, used for updating the RT set."
+                "type_name": "int|str",
+                "description": "Used to store the room ID of the previous room that the agent has entered before changing rooms, which is useful for determining when the agent has moved to a new room."
               },
               {
                 "name": "actual_room_id",
-                "type_name": "str|int",
+                "type_name": "int|str",
                 "description": "Used to store the current room ID of the agent, which is updated when the agent moves to a new room."
               },
               {
                 "name": "elapsed",
                 "type_name": "float|int",
-                "description": "Used to keep track of the time since the last call to the `update()` method, which is used to control the frequency of updates to the graph."
+                "description": "Used to store the time since the last call to the `update()` method, which is used to update the node's attributes."
               },
               {
                 "name": "room_initialized",
                 "type_name": "bool",
-                "description": "Set to False when a room change is detected, indicating that the worker has switched rooms. It is then reset to True once the new room's ID is determined."
+                "description": "Set to False when a room change is detected, indicating that the worker has not yet initialized its current room's graph. It is reset to True once the worker has successfully initialized the new room's graph."
               },
               {
                 "name": "iterations",
-                "type_name": "int|List[int]",
-                "description": "Used to keep track of the number of iterations of the worker's function that have been performed, or the list of iteration numbers if the function is called multiple times with different inputs."
+                "type_name": "int|float",
+                "description": "Used to keep track of the number of iterations (i.e., frames) that the worker has processed. It is updated with each frame processed by the worker, and can be used to control the speed of the worker or to implement various algorithms."
               },
               {
                 "name": "hide",
                 "type_name": "bool",
-                "description": "Used to hide the worker from the graphical user interface (GUI) when set to True."
+                "description": "Used to indicate whether the worker should be hidden or not, affecting its visibility in the graph."
               },
               {
                 "name": "init_graph",
                 "type_name": "bool",
-                "description": "Used to track whether the graph has been initialized by the worker during its lifetime. It is used to prevent unnecessary work from being performed when the graph has already been initialized."
+                "description": "Used to indicate whether the graph has been initialized or not. It is set to True when the worker is initialized and False otherwise, allowing for proper handling of the graph and its nodes and edges in the update methods."
               },
               {
                 "name": "current_edge_set",
                 "type_name": "bool",
-                "description": "Used to indicate whether the current edge being processed is part of a RT set or not. It is set to True when a new RT edge is encountered, and False otherwise."
+                "description": "Used to track whether an edge set has been computed for the current room id. It is set to True when the first RT edge set is computed and False otherwise, allowing the worker to avoid recomputing the edge set if it has already been computed for the same room id."
               },
               {
                 "name": "first_rt_set",
                 "type_name": "bool",
-                "description": "Set to True when the robot performs its first RT (Real-time) movement, indicating that the worker has started tracking RT movements."
+                "description": "Set to `True` when the RT translation and rotation values are being set for the first time, and `False` otherwise."
               },
               {
                 "name": "translation_to_set",
                 "type_name": "float|List[float]",
-                "description": "Used to store the translation value to set for the shadow robot. The list stores the values of the translation in the x, y, and z dimensions respectively."
+                "description": "Used to store the translation values set by the RT algorithm."
               },
               {
                 "name": "rotation_to_set",
                 "type_name": "float|int",
-                "description": "Used to store the rotation of the robot to set its position relative to its starting point."
+                "description": "A value representing the rotation of the robot to set its end effector at a specific location."
               },
               {
                 "name": "room_polygon",
-                "type_name": "Tuple[float,float,float,]",
-                "description": "Used to store the coordinates of a room's polygon in a graph."
+                "type_name": "List[float]",
+                "description": "Used to store the vertices of a polygon that represents the room boundary in the environment."
               },
               {
                 "name": "security_polygon",
-                "type_name": "Polygon|List[Point]",
-                "description": "Used to store the security polygon of a room, which is used for collision detection and avoidance during robot navigation."
+                "type_name": "Union[int,List[float]]",
+                "description": "Used to store the security polygon of the worker's workspace in 3D space. It is used to detect collisions between the worker's manipulator and objects in the environment."
               },
               {
                 "name": "initialize_g2o_graph",
-                "type_name": "void|QTimersingleShot200,QApplicationinstancequit",
-                "description": "Used to initialize a Graph2O graph for representing the environment."
+                "type_name": "void",
+                "description": "Used to create a new graph for the given worker instance, which will be used to store the robot's position and orientation in the environment."
               },
               {
                 "name": "rt_set_last_time",
                 "type_name": "int|float",
-                "description": "Used to track the time since the last RT (Room To) set by the agent. It is used to determine when to reset the translation and rotation to set values."
+                "description": "Used to store the last time a RT (Real-Time) edge was set for a specific agent ID. It is used in conjunction with the `rt_time_min` attribute to determine when to reset the RT translation and rotation values."
               },
               {
                 "name": "rt_time_min",
-                "type_name": "float|int",
-                "description": "Defined as a minimum time gap between two successive RT edge sets, used to determine when to update the translation and rotation values for the agent."
+                "type_name": "float",
+                "description": "Defined as the minimum time duration between two consecutive RT sets in milliseconds. It is used to determine when to reset the translation and rotation values for the shadow agent during RT tracking."
               },
               {
                 "name": "last_update_with_corners",
                 "type_name": "int|bool",
-                "description": "Used to keep track of when the worker has last updated its state with corners data. It is initially set to True, indicating that the worker has not yet received any corners data, and then is updated to False whenever the worker receives new corners data."
+                "description": "Used to keep track of the last time a node or edge update was performed with corner information. It is initially set to False, and its value changes when updates are performed with corners. Its purpose is to check if the worker has updated with corners before, so as to avoid unnecessary updates in the future."
               },
               {
                 "name": "timer",
-                "type_name": "int|float",
-                "description": "Used to track the time elapsed since the last update of the graph, with the purpose of checking if it's been a certain amount of time (200ms) since the last update, and if so, quit the application."
+                "type_name": "float|int",
+                "description": "Used to schedule a call to the `QApplication.instance().quit()` function after 2 seconds."
               },
               {
                 "name": "compute",
-                "type_name": "Callable[[float,float],float]",
-                "description": "Used to compute the next node ID for the worker's node. It takes two arguments: the current time and a seed value, and returns the next node ID as a float value."
+                "type_name": "Callable[[],Any]",
+                "description": "Used to define a function that computes the worker's task based on the graph and other attributes."
               },
               {
                 "name": "update_node_att",
-                "type_name": "Tuple[int,str,int,int]",
-                "description": "Used to update the attributes of a node in the graph when the node's ID matches the given ID. The attribute takes four arguments: the node ID, the attribute names, the old value, and the new value."
+                "type_name": "Callable[int,[str]]",
+                "description": "Used to update the attributes of a specific node in the graph based on its ID and the type of update. It takes two arguments: id, which is the ID of the node to be updated, and attribute_names, which is a list of attribute names to be updated."
               },
               {
                 "name": "update_edge",
-                "type_name": "Callable[float,float,str]",
-                "description": "Used to update the edge attributes of a graph based on specific conditions. It takes three arguments: the first is the source node ID, the second is the target node ID, and the third is the edge type. The attribute is called whenever a new edge is added or an existing edge is modified in the graph, and it can be used to set or update edge attributes based on specific conditions."
+                "type_name": "Callable[int,str,str]",
+                "description": "Used to update the attributes of an edge in the graph based on its type (current or RT translation) and the node it connects."
               },
               {
                 "name": "update_edge_att",
-                "type_name": "List[str]",
-                "description": "Used to update the attributes of an edge based on a specific type and name. It takes three parameters: the first is the id of the edge, the second is the type of edge, and the third is a list of attribute names to be updated."
+                "type_name": "Tuple[str,]",
+                "description": "Used to update the attributes of an edge in a graph based on its type and the name of the attribute."
               }
             ],
             "name": "SpecificWorker",
@@ -443,31 +448,31 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 421,
+            "length": 425,
             "docLength": null
           },
           {
-            "id": "dff97ec1-552a-9187-a548-c33a4b688e14",
+            "id": "d8d35337-69aa-7fa4-5141-35f2de87d6c9",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Initializes the worker's internal state, including its graph, odometry queue, and other components essential for its operation.",
+            "description": "Initializes instance variables and sets up event handling for signals related to node and edge attributes, as well as a timer to compute the worker's output every `Period` seconds.",
             "params": [
               {
                 "name": "proxy_map",
                 "type_name": "Dict[str, Any]",
-                "description": "Used to pass additional data to the SpecificWorker object."
+                "description": "Used to store the mapping between the original node attributes and their proxies."
               },
               {
                 "name": "startup_check",
                 "type_name": "bool",
-                "description": "Used to check if the graph has been properly initialized before starting the worker's computation. If set to `False`, it will skip this check and proceed with the computation."
+                "description": "Used to check if the graph has already been initialized before starting the worker's execution."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "from SpecificWorker import SpecificWorker\n\n# Create an instance of the SpecificWorker class, passing in necessary arguments and initializing variables.\nproxy_map = {}\nworker = SpecificWorker(proxy_map)\n\n# Use the init method to initialize any necessary variables or perform any initialization actions that need to be done once when the object is created.\nworker.init()\n\n# Use the compute method to perform any computations required by the program and update any necessary variables.\nworker.compute()\n",
+              "code": "# Create an instance of the SpecificWorker class\nmy_specific_worker = SpecificWorker(proxy_map)\n\n# Set up the startup check\nmy_specific_worker.startup_check()\n\n# Connect signals to update node attributes and edges\nsignals.connect(my_specific_worker.g, signals.UPDATE_NODE_ATTR, my_specific_worker.update_node_att)\nsignals.connect(my_specific_worker.g, signals.UPDATE_EDGE, my_specific_worker.update_edge)\n",
               "description": ""
             },
             "name": "__init__",
@@ -479,20 +484,20 @@
               "comment": null
             },
             "item_type": "constructor",
-            "length": 54,
+            "length": 56,
             "docLength": null
           },
           {
-            "id": "494ffcaf-17f0-9292-5440-6391c5fd6330",
+            "id": "8a46ef7f-7071-d3b0-3741-830cddb99e31",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Processes robot odometry data and updates the graph using G2O optimization to estimate the robot's position and orientation.",
+            "description": "Computes and updates the robot's position, orientation, and covariance matrix based on RT messages received from the environment.",
             "params": [],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Example usage of the Python function compute\ndef main():\n    # Create a new instance of the SpecificWorker class\n    specific_worker = SpecificWorker(proxy_map)\n\n    # Set some initial values for the worker's attributes\n    specific_worker.agent_id = 20\n    specific_worker.g = DSRGraph(0, \"G2O_agent\", specific_worker.agent_id)\n\n    # Call the compute function with a few arguments\n    specific_worker.compute(args=[\"--input-file\", \"/path/to/input_file.csv\"])\n\n# Call the main function to run the example code\nif __name__ == \"__main__\":\n    main()\n",
+              "code": "import time\nfrom specific_worker import SpecificWorker\n\n# Create a SpecificWorker object\nspecific_worker = SpecificWorker()\n\n# Call the compute method\nspecific_worker.compute(time.time())\n",
               "description": ""
             },
             "name": "compute",
@@ -504,29 +509,29 @@
               "comment": null
             },
             "item_type": "method",
-            "length": 101,
+            "length": 103,
             "docLength": null
           },
           {
-            "id": "2140c48f-ed84-5b99-2545-c6c54962a658",
+            "id": "be89d23a-daac-3db1-8843-67ae2a27d66e",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "1) initializes the g2o graph based on room and robot nodes, 2) adds nominal corners for rooms and doors, and 3) fixes the pose of a robot node using odometry information.",
+            "description": "Initializes a Graph-Based Odometry (G2O) graph for a specific room by:\n\n1. Retrieving node and edge information from a robot's sensor data.\n2. Filtering out invalid nodes and edges based on their position and orientation.\n3. Adding nominal corners and fixed poses to the G2O graph using the retrieved data.",
             "params": [],
             "returns": {
               "type_name": "bool",
-              "description": "1 if the g2o graph is successfully initialized with nominal corners and fixed poses, and 0 otherwise."
+              "description": "True if the g2o graph is successfully initialized and False otherwise."
             },
             "usage": {
               "language": "python",
-              "code": "import SpecificWorker\n\n# Create a new instance of the worker class and call its initialize method with some arguments.\nworker = SpecificWorker(proxy_map=True, startup_check=False)\nworker.initialize_g2o_graph()\n\n# Some time later, use the g2o graph object to perform operations such as adding a new node or edge.\nworker.g2o.add_node(name='NewNode')\n",
+              "code": "from genericworker import SpecificWorker\n\n# Create a graph and assign it to g2o variable\ng = DSRGraph(0, \"G2O_agent\", agent_id)\ng2o = G2OGraph(verbose=False)\n\n# Use initialize_g2o_graph function from genericworker module\nSpecificWorker.initialize_g2o_graph(g2o)\n",
               "description": ""
             },
             "name": "initialize_g2o_graph",
             "location": {
-              "start": 252,
-              "insert": 255,
+              "start": 253,
+              "insert": 256,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -536,31 +541,31 @@
             "docLength": null
           },
           {
-            "id": "196e3e68-4c11-b38e-7b41-719b5edd6101",
+            "id": "9cb9cdad-12a5-6da4-1440-34306b05a309",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Calculates the displacement of the robot in three dimensions (lateral, forward, and angular) based on the odometry data stored in a queue.",
+            "description": "Computes the displacement of a robot based on its odometry data, taking into account the advance, lateral movement, and angular velocity of the robot.",
             "params": [
               {
                 "name": "odometry",
                 "type_name": "Tuple[float, float, float]",
-                "description": "A sequence of 3-element tuples representing the robot's position, velocity, and timestamp in a time interval."
+                "description": "An immutable sequence containing the robot's odometry data at each time step, consisting of the linear displacement, lateral displacement, and angular velocity, respectively."
               }
             ],
             "returns": {
               "type_name": "Tuple[float,float,float]",
-              "description": "3 floating-point values representing the lateral displacement, forward displacement, and angular displacement of an object over a given time interval."
+              "description": "The displacement along the x, y and z axes, respectively, calculated using the odometry data from a robot's sensors."
             },
             "usage": {
               "language": "python",
-              "code": "specific_worker = SpecificWorker(proxy_map=SomeProxyMap)\ndesplazamiento_lateral, desplazamiento_avance, desplazamiento_angular = specific_worker.get_displacement(odometry=SomeOdometry)\nprint(\"Displacement:\", displacement)\n",
-              "description": ""
+              "code": "# Create an instance of SpecificWorker class and set the proxy map\nspecific_worker = SpecificWorker(proxy_map)\n\n# Set the last odometry to a value\nlast_odometry = (1, 2, 3, 4)\n\n# Call the get_displacement function with the last odometry as an argument\ndisplacement = specific_worker.get_displacement(last_odometry)\n",
+              "description": "\nIn this example, we create an instance of the SpecificWorker class and set its proxy map. We then set the last odometry to a value and call the get_displacement function with that value as an argument. The function returns the displacement calculated from the odometry data."
             },
             "name": "get_displacement",
             "location": {
-              "start": 457,
-              "insert": 458,
+              "start": 458,
+              "insert": 459,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -570,31 +575,31 @@
             "docLength": null
           },
           {
-            "id": "6c21ce38-1c27-049b-984f-6be77c359b75",
+            "id": "e5fedf8a-150c-fd98-d148-a6df1ea4a074",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Computes the covariance matrix between a given vertex and all other vertices in the graph, using the G2O optimizer to compute marginals and upper triangle matrix representation.",
+            "description": "Computes the covariance matrix of a set of vertices in a graph, using an optimization algorithm to compute the marginals of the vertices and then constructing the covariance matrix from the resulting upper triangle.",
             "params": [
               {
                 "name": "vertex",
                 "type_name": "G2O.Vertex | G2O.HessianIndex",
-                "description": "Used to compute the covariance matrix for a specific vertex in the graph."
+                "description": "Used to compute the covariance matrix for a specific vertex in a graph."
               }
             ],
             "returns": {
-              "type_name": "numpyndarray",
-              "description": "2-dimensional and upper-triangular matrix representing the covariance matrix between a given vertex and all other vertices in the graph."
+              "type_name": "Tuple[bool,npndarray]",
+              "description": "A result of computing covariance matrix and the actual computed matrix."
             },
             "usage": {
               "language": "python",
-              "code": "# Create an instance of SpecificWorker\nworker = SpecificWorker()\n\n# Call the get_covariance_matrix method with a vertex as argument\nvertex = g2o.VertexSE3(0)  # Create a VertexSE3 object with index 0\nresult, cov_mat = worker.get_covariance_matrix(vertex)\n\n# Print the result and covariance matrix\nprint(f\"Result: {result}\")\nprint(f\"Covariance Matrix:\\n{cov_mat}\")\n",
+              "code": "import sys\nfrom specific_worker import SpecificWorker\n\n# Create a new instance of SpecificWorker\nworker = SpecificWorker()\n\n# Set the proxy map and startup check to True\nproxy_map = \"proxy_map\"\nstartup_check = True\n\n# Initialize the worker with the given parameters\nworker.init(proxy_map, startup_check)\n\n# Get the covariance matrix of a vertex in the graph\nvertex = worker.g2o.graph.vertices[0]\ncovariance_matrix = worker.get_covariance_matrix(vertex)\nprint(\"Covariance matrix:\", covariance_matrix)\n",
               "description": ""
             },
             "name": "get_covariance_matrix",
             "location": {
-              "start": 476,
-              "insert": 477,
+              "start": 477,
+              "insert": 478,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -604,28 +609,28 @@
             "docLength": null
           },
           {
-            "id": "32bdf14a-da4a-c7ae-2443-b9488fb241d4",
+            "id": "3fa09193-ee9b-8ebd-e44e-8d5f121f7d5a",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Visualizes the real-time optimization process of a G2O algorithm by plotting the positions and edges of the vertices in 3D space.",
+            "description": "Visualizes a real-time 3D graphical representation of a G2O optimization problem using Python's Matplotlib library.",
             "params": [
               {
                 "name": "optimizer",
-                "type_name": "object | Optimizer",
-                "description": "Used to load G2O files, estimate vertex positions, and visualize them in real-time."
+                "type_name": "object",
+                "description": "Used to load G2O files for visualization."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "from SpecificWorker import SpecificWorker\nimport matplotlib.pyplot as plt\n\n# Create a new instance of the SpecificWorker class\nworker = SpecificWorker()\n\n# Load a graph file and set up the G2OGraph object\nworker.g2o.load(\"archivo.g2o\")\n\n# Visualize the real-time optimization process using matplotlib's 3D plotting library\nplt.ion()\nfig = plt.figure()\nax = fig.add_subplot(111, projection='3d')\nworker.visualize_g2o_realtime(optimizer)\n",
+              "code": "import numpy as np\nfrom g2o import *\nfrom g2o_visualizer import G2OVisualizer\n\n# Create a new instance of the SpecificWorker class.\nworker = SpecificWorker(proxy_map=None, startup_check=False)\n\n# Set up the visualizer and G2OGraph for the worker.\nworker.visualizer = G2OVisualizer(\"G2O Graph\")\nworker.g2o = G2OGraph(verbose=False)\n\n# Load a graph file into the worker's G2OGraph instance.\nworker.g2o.load(\"archivo.g2o\")\n\n# Set up the visualization loop for the worker.\nwhile True:\n    # Load the graph file and update the visualizer.\n    optimizer = worker.g2o\n    positions = []\n    for vertex_id in range(optimizer.vertices().size()):\n        vertex = optimizer.vertex(vertex_id)\n        position = vertex.estimate()\n        positions.append(position)\n    positions = np.array(positions)\n\n    worker.visualizer.ax.clear()\n    worker.visualizer.ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c='b', marker='o', label='Vertices')\n\n    edges = optimizer.edges()\n    for edge_id in range(edges.size()):\n        edge = edges[edge_id]\n        measurement = edge.measurement()\n        worker.visualizer.ax.plot(measurement[:, 0], measurement[:, 1], measurement[:, 2], c='r')\n\n    worker.visualizer.ax.set_xlabel('X')\n    worker.visualizer.ax.set_ylabel('Y')\n    worker.visualizer.ax.set_zlabel('Z')\n    worker.visualizer.ax.legend()\n\n    worker.visualizer.draw()\n    worker.visualizer.pause(0.1)\n",
               "description": ""
             },
             "name": "visualize_g2o_realtime",
             "location": {
-              "start": 489,
-              "insert": 490,
+              "start": 490,
+              "insert": 491,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -635,33 +640,33 @@
             "docLength": null
           },
           {
-            "id": "db934395-dc97-4b9f-7f41-4d42e8474534",
+            "id": "595b6b91-9394-1b80-7345-230aff72914c",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Updates the attributes of a node in a graph, specifically the odometry queue.",
+            "description": "Updates attributes of a node in a graph based on the current time and robot state, and appends the updated values to an odometry queue for later use.",
             "params": [
               {
                 "name": "id",
                 "type_name": "int",
-                "description": "Represented as an integer value that identifies the node to be updated."
+                "description": "Used to identify the node for which the attributes are being updated."
               },
               {
                 "name": "attribute_names",
                 "type_name": "[str]",
-                "description": "An array containing the names of attributes to be updated for the given node ID."
+                "description": "An array of strings representing the names of attributes to be updated on the given node ID."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Import SpecificWorker class from the module specific_worker.py\nfrom specific_worker import SpecificWorker\n\n# Initialize a SpecificWorker object named \"specific_worker\" with proxy map and startup check as True\nspecific_worker = SpecificWorker(proxy_map=True, startup_check=True)\n\n# Update node attribute using the update_node_att method\nspecific_worker.update_node_att(id=20, attribute_names=[\"robot_current_advance_speed\", \"robot_current_side_speed\", \"robot_current_angular_speed\"])\n",
-              "description": "\nIn this example, we initialize a SpecificWorker object with proxy map and startup check as True. Then, we use the update_node_att method to update the node attribute of the robot with ID 20 by passing in the attribute names that we want to update. The update_node_att method is then executed using the specific_worker object."
+              "code": "specificWorker = SpecificWorker(proxy_map)\nspecificWorker.update_node_att(id=20, attribute_names=[\"robot_current_advance_speed\", \"robot_current_side_speed\", \"-robot_current_angular_speed\"])\n",
+              "description": "\nIn this example, the end-user is creating a SpecificWorker instance and calling update_node_att with an ID of 20 and a list of attribute names. The function will retrieve the node from the graph based on the ID provided and update the specified attributes in the node's attribute dictionary."
             },
             "name": "update_node_att",
             "location": {
-              "start": 526,
-              "insert": 535,
+              "start": 527,
+              "insert": 536,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -671,33 +676,33 @@
             "docLength": null
           },
           {
-            "id": "adfc3c84-948f-4690-934e-0275aa1375a7",
+            "id": "e4669eb8-bce7-27aa-de44-d04a35cedb5c",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Updates a node with ID `id`. The method checks if the node type is \"corner\", and if so, it retrieves the room node from the graph and sets a flag indicating that the room has been initialized.",
+            "description": "Updates the node with the given ID based on the type parameter. If the type is \"corner\", it initializes a room graph and sets the `init_graph` attribute to `True`.",
             "params": [
               {
                 "name": "id",
                 "type_name": "int",
-                "description": "Used to identify the node to be updated."
+                "description": "An identifier for the node to be updated."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to specify the node's type."
+                "description": "Used to specify the node's type, which can be either \"corner\" or any other valid value."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Assuming you have created an instance of the SpecificWorker class, worker, as shown in the previous code snippet\nworker.update_node(id=100, type='corner')  # Updates the node with ID 100 to be a corner\n",
-              "description": "\nThis example shows how the update_node function can be used to update the specific node with ID 100 to be of type 'corner'."
+              "code": "worker = SpecificWorker(proxy_map)  # Initializes a worker with the proxy map\nid = 5                             # Assigns node ID to the variable id\ntype = \"corner\"                     # Assigns node type to the variable type\nworker.update_node(id, type)         # Updates the node in the graph with the given ID and type\n",
+              "description": "\nIn this example, the worker is initialized by passing the proxy map as a parameter and then the update_node function is called with the id and type arguments assigned to variables outside the function."
             },
             "name": "update_node",
             "location": {
-              "start": 542,
-              "insert": 552,
+              "start": 543,
+              "insert": 553,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -707,28 +712,28 @@
             "docLength": null
           },
           {
-            "id": "3e556671-8722-7790-9c4b-f6eb29ed8f0f",
+            "id": "6e50ec45-7089-e09c-a842-9c0f0714d216",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Deletes a node from a list or dict based on its ID, setting `self.room_initialized` to `False`.",
+            "description": "Deletes a node from a list of nodes maintained by the worker.",
             "params": [
               {
                 "name": "id",
                 "type_name": "int",
-                "description": "Intended to represent the unique identifier for the node being deleted."
+                "description": "Used to represent the unique identifier of the node to be deleted."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Create an instance of SpecificWorker class\nworker = SpecificWorker(proxy_map)\n\n# Call delete_node method with node id as parameter\nworker.delete_node(1234)\n",
-              "description": ""
+              "code": "# Create an instance of the SpecificWorker class\nworker = SpecificWorker(proxy_map)\n\n# Call the delete_node method with the ID of the node to delete\nworker.delete_node(1234567890)\n",
+              "description": "\nIn this example, we create an instance of the SpecificWorker class and then call the delete_node method with the ID of the node we want to delete (1234567890). The function will then execute the code to delete the specified node from the graph."
             },
             "name": "delete_node",
             "location": {
-              "start": 554,
-              "insert": 555,
+              "start": 555,
+              "insert": 556,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -738,38 +743,38 @@
             "docLength": null
           },
           {
-            "id": "ad7c5a47-c41a-8982-0d4b-b1573ab838c8",
+            "id": "67728d31-113e-e0b4-c34d-aaa4fd6ab27c",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Updates the room ID and sets the current edge set based on the type of edge received from the graph.",
+            "description": "Updates the room ID and RT translation and rotation values based on the incoming edge type and node attributes.",
             "params": [
               {
                 "name": "fr",
                 "type_name": "int",
-                "description": "Representing the starting node index of an edge in a graph."
+                "description": "The index of the current edge being processed."
               },
               {
                 "name": "to",
                 "type_name": "int",
-                "description": "The target node index of the edge to be updated, which can be either a room or the Shadow node."
+                "description": "Representing the index of the next node in the graph that is being processed."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to specify the edge type, which can be either \"current\" or \"RT\"."
+                "description": "Used to specify the edge's type, which can be either \"current\" or \"RT\"."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Initialize the SpecificWorker class and its graph g\nspecific_worker = SpecificWorker(proxy_map=ProxyMap())\nspecific_worker.g = DSRGraph()\n\n# Add nodes to the graph\nnode1 = specific_worker.g.add_node(\"Node 1\")\nnode2 = specific_worker.g.add_node(\"Node 2\")\n\n# Add edges between the nodes\nedge = specific_worker.g.add_edge(node1, node2)\n\n# Call the update_edge function to set a new edge type\nspecific_worker.update_edge(fr=node1, to=node2, type=\"current\")\n\n# Update the graph with the new edge type\nspecific_worker.g.update()\n",
-              "description": ""
+              "code": "# In the context of the SpecificWorker class, where \"worker\" is an instance of the SpecificWorker class\nworker.update_edge(fr=0, to=1, type=\"current\") # Update the current edge from node 0 to node 1\nworker.update_edge(fr=0, to=1, type=\"RT\") # Update the RT edge from node 0 to node 1\n",
+              "description": "\nThe update_edge function updates the edge between two nodes in the DSRGraph with a specific type (current or RT). The fr parameter specifies the start node of the edge, while the to parameter specifies the end node."
             },
             "name": "update_edge",
             "location": {
-              "start": 563,
-              "insert": 564,
+              "start": 564,
+              "insert": 565,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -779,38 +784,38 @@
             "docLength": null
           },
           {
-            "id": "e0e06e79-6b30-35bd-c340-bdc7b00ca599",
+            "id": "4825b582-5f59-328e-c944-7eddbc75d3f0",
             "ancestors": [
-              "81834b2b-13a8-409b-7041-ea7aad5792ec"
+              "cdcb03d8-8236-2faa-f349-0e323183c24c"
             ],
-            "description": "Deletes an edge from a graph, specified by its index (fr) and the index of its adjacent vertex (to). The edge's type can be specified for further filtering.",
+            "description": "Deletes an edge from a graph, identified by its index (fr) and type (to).",
             "params": [
               {
                 "name": "fr",
                 "type_name": "int",
-                "description": "1st argument or input of the function indicating the first vertex or node to delete an edge from."
+                "description": "0-based index of the edge to be deleted."
               },
               {
                 "name": "to",
                 "type_name": "int",
-                "description": "Used to specify the destination vertex ID for the edge deletion operation."
+                "description": "Used to specify the target vertex for edge deletion."
               },
               {
                 "name": "type",
                 "type_name": "str",
-                "description": "Used to indicate the edge type to be deleted, with possible values 'in' or 'out'."
+                "description": "Used to specify the type of edge to delete, with possible values 'direct' or 'indirect'."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Delete an edge from the graph\nworker.delete_edge(fr=1, to=2, type=\"TYPE\")\n",
-              "description": "\nIn this example, the `delete_edge` method of the SpecificWorker class is called with three arguments: fr, to, and type. The first two arguments, fr and to, represent the source and target nodes of the edge that should be deleted, respectively. The third argument, type, specifies the type of the edge that should be deleted.\n\nFor instance, if we want to delete an edge with the source node being node 1 and the target node being node 2, and the edge has a type of \"TYPE\", we can call the `delete_edge` method as follows:\n"
+              "code": "my_graph = SpecificWorker(proxy_map)\n# Create a new edge between two nodes in the graph\nmy_graph.add_edge(0, 1, \"type\")\n# Delete the edge from the graph\nmy_graph.delete_edge(0, 1, \"type\")\n",
+              "description": ""
             },
             "name": "delete_edge",
             "location": {
-              "start": 591,
-              "insert": 592,
+              "start": 592,
+              "insert": 593,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1223,127 +1228,142 @@
     "path": "agents/long_term_spatial_memory_agent/src/specificworker.py",
     "content": {
       "structured": {
-        "description": "An igraph module that simulates a robot's navigation through a room using RT graph theory. It provides several functions for inserting, updating, and deleting nodes and edges in the room graph, as well as querying node and edge attributes. The code also includes logic to set the current state of the robot based on the type of edge inserted or removed from the room graph. The module uses the `igraph` package to manipulate graphs and perform graph theory operations.",
+        "description": "An igraph wrapper around a graph and provides several methods for working with it, including inserting new nodes and edges, updating edge attributes, and deleting nodes and edges. The code uses the `igraph` package to interface with the graph. Specifically, it creates a long-term graph (LTG) and a short-term graph (STG), allowing for efficient insertion, deletion, and manipulation of nodes and edges in the LTG while maintaining the integrity of the STG. The code also provides functions to update edge attributes and delete nodes or edges from the graph.",
         "items": [
           {
-            "id": "8012c732-b5dd-93a9-2441-d47f31f3d2fa",
+            "id": "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b",
             "ancestors": [],
-            "description": "Manages a graph representing a manipulation task, providing methods for inserting, updating, and deleting nodes and edges. It also keeps track of the robot's current state and performs actions based on that state.",
+            "description": "Manages a specific node and edge attributes and performs various operations on them, such as updating, inserting, deleting, and attributing. It also keeps track of the current state of the robot and updates the graph accordingly.",
             "attributes": [
               {
                 "name": "Period",
-                "type_name": "str|int",
-                "description": "Used to store the period of time during which the worker performs its task, either in seconds or minutes, depending on the value assigned to it."
+                "type_name": "Union[int,str]",
+                "description": "Used to store the period of time during which the worker can perform its task, such as a day or a week."
               },
               {
                 "name": "agent_id",
                 "type_name": "int|str",
-                "description": "Used to store the ID of the specific worker for which the methods of this class are intended to work."
+                "description": "Used to identify the specific worker instance, allowing the agent to perform tasks and maintain a unique identity during its lifetime."
               },
               {
                 "name": "g",
                 "type_name": "igraphGraph",
-                "description": "Used for handling long-term dependencies between nodes in the graph."
+                "description": "Used to represent the long-term graph of the environment, which is updated periodically by the worker."
               },
               {
                 "name": "startup_check",
                 "type_name": "bool|str",
-                "description": "Used to check if the worker has started successfully or not. It can be set to a specific value like \"success\" or \"failure\" to indicate whether the startup was successful or not, or it can be left blank to default to a boolean value indicating whether the worker started successfully or not."
+                "description": "Used to check if the worker has been started or not, with possible values \"yes\", \"no\", or False."
               },
               {
                 "name": "rt_api",
                 "type_name": "str|int",
-                "description": "Used to store the RT (Real-Time) API of the worker, which allows the robot to perform real-time actions."
+                "description": "Used for storing the RT (Real-Time) API ID which represents the current task being executed by the worker."
               },
               {
                 "name": "inner_api",
                 "type_name": "Dict[str,Any]",
-                "description": "Used to store internal APIs for the worker's methods that are not exposed to the outside world."
+                "description": "Used to store the inner API of the worker, which is a Python function that performs actions related to the worker's task."
               },
               {
                 "name": "robot_name",
-                "type_name": "str|List[str]",
-                "description": "Used to store the name of the robot that the worker belongs to."
+                "type_name": "str|int",
+                "description": "Used to store the name of the robot that will perform a specific task."
               },
               {
                 "name": "robot_id",
                 "type_name": "int",
-                "description": "Used to represent the unique identifier of the robot node in the graph."
+                "description": "Used to identify the robot node in the graph, which is the starting point for the worker's movement."
               },
               {
                 "name": "last_robot_pose",
-                "type_name": "Dict[str,float]",
-                "description": "Used to store the last known pose of the robot before it entered a room or crossed a boundary."
+                "type_name": "Tuple[float,float,float]",
+                "description": "Stored as the last known pose (position, orientation, and scale) of the robot before any actions were taken in the environment."
               },
               {
                 "name": "robot_exit_pose",
                 "type_name": "str|int",
-                "description": "Used to store the ID of the room node that the robot exits through when transitioning from a door node to a room node."
+                "description": "A reference to the pose of the robot when it exits a room. It is used to determine when the robot has reached its goal in a task."
               },
               {
                 "name": "state",
-                "type_name": "str|bool",
-                "description": "Used to keep track of the worker's current state (either \"idle\", \"crossed\", or \"completed\")."
+                "type_name": "str|int",
+                "description": "Used to keep track of the current state of the worker, which can be either \"idle\", \"crossed\", or \"completed\"."
               },
               {
                 "name": "affordance_node_active_id",
                 "type_name": "int|bool",
-                "description": "Used to store the ID of the affordance node that is currently active or not."
+                "description": "Used to keep track of the active affordance node ID, which is used to determine when the robot has reached its goal."
               },
               {
                 "name": "exit_door_id",
                 "type_name": "int|str",
-                "description": "Used to store the ID of the door node that serves as an exit from a room."
+                "description": "Used to store the ID of the door node that leads from a room to the outside world."
               },
               {
                 "name": "room_exit_door_id",
                 "type_name": "int|str",
-                "description": "16 by default, representing the id of a specific door node in the long-term graph that marks the exit of a room."
+                "description": "Used to represent the ID of the door node that leads from a room to the outside world."
               },
               {
                 "name": "enter_room_node_id",
-                "type_name": "int|str",
-                "description": "Represented as a room number that, when updated to a value greater than zero, indicates that the robot has entered a new room."
+                "type_name": "int",
+                "description": "Used to store the ID of the room node that the worker is currently entering."
               },
               {
                 "name": "vertex_size",
                 "type_name": "int|str",
-                "description": "Used to store the size or dimension of a vertex in the graph, which can be used to determine the size of a node in the graph."
+                "description": "Used to keep track of the number of vertices in the graph, which can be useful for various operations such as insertion, deletion, and querying the graph."
               },
               {
                 "name": "not_required_attrs",
                 "type_name": "List[str]",
-                "description": "Used to store a list of attributes that are not required for the worker's operations. It helps to optimize the worker's performance by ignoring these unused attributes during updates, inserts, or deletes."
+                "description": "Used to store a list of attributes that are not required for the worker's functionality, but can be useful for debugging or other purposes."
+              },
+              {
+                "name": "last_save_time",
+                "type_name": "datetime|str",
+                "description": "Used to store the time when the worker's long-term graph was last saved. It helps track when the graph was last updated for subsequent actions."
               },
               {
                 "name": "long_term_graph",
                 "type_name": "igraphGraph",
-                "description": "Used to store the long-term graph representation of the environment, which is updated during the worker's execution."
+                "description": "Used to store the long-term graph representation of the environment, which is updated over time as new data becomes available."
+              },
+              {
+                "name": "initialize_room_from_igraph",
+                "type_name": "Dict[str,Any]",
+                "description": "Used to initialize the room graph from an igraph graph. It takes the igraph graph as input and creates a new room graph with the same node IDs and edges as the input igraph."
+              },
+              {
+                "name": "update_robot_pose_in_igraph",
+                "type_name": "void",
+                "description": "Used to update the pose of a robot node in the graph by inserting a new edge with the correct \"RT\" translation and rotation."
               },
               {
                 "name": "insert_current_edge",
-                "type_name": "NoneOrEdge|List[str]",
-                "description": "Used to insert a new edge into the graph with the specified fr and to nodes, and sets it as the current edge if no current edge exists."
+                "type_name": "List[Edge]",
+                "description": "Used to insert a new edge into the graph with the specified source and target nodes and edge type, effectively setting it as the current edge in the graph."
               },
               {
                 "name": "timer",
                 "type_name": "int|float",
-                "description": "Used to track the time taken by the worker to process a task."
+                "description": "Used to track the time taken by the worker to perform its tasks."
               },
               {
                 "name": "compute",
-                "type_name": "Callable[[str,str],Any]",
-                "description": "Used to specify a function that computes the next action for the robot based on its current state and the environment."
+                "type_name": "Callable[[int],str|int]",
+                "description": "Defined as a method that takes an integer argument and returns a string or integer value representing the result \nof some computation. It is used in various methods of the worker to perform computations on the graph."
               },
               {
                 "name": "update_node",
                 "type_name": "Dict[str,Any]",
-                "description": "Used to update a node in the graph based on its ID, type (door or room), and name. It performs various actions such as checking if a door node exists, inserting a door node, updating the RT translation and rotation, and drawing the graph."
+                "description": "Responsible for updating a node in the graph when the worker's id matches the node's id. It takes three parameters: `id`, `type`, and `door_node`. The method updates the node's attributes based on its type and inserts an RT edge between the node and its parent if necessary."
               },
               {
                 "name": "update_edge",
-                "type_name": "Union[str,int]",
-                "description": "Used to update the edge attributes of a specific robot node in the graph when the node's door is opened."
+                "type_name": "Union[int,str]",
+                "description": "Used to update an edge's type or remove it altogether based on certain conditions."
               }
             ],
             "name": "SpecificWorker",
@@ -1355,31 +1375,31 @@
               "comment": null
             },
             "item_type": "class",
-            "length": 600,
+            "length": 628,
             "docLength": null
           },
           {
-            "id": "2420b0f0-67bd-b096-4c4c-57bbc351c392",
+            "id": "ad42c39d-e8e5-3180-aa4c-67d2bbbe477e",
             "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
             ],
-            "description": "Initializes instance variables and sets up event listeners for graph updates, timeouts, and node measurements.",
+            "description": "Initializes the worker's internal state, including its graph, node and edge variables, and timers for computing and updating the graph.",
             "params": [
               {
                 "name": "proxy_map",
-                "type_name": "Dict[str, Any]",
-                "description": "Used to pass additional data to the SpecificWorker object. It contains key-value pairs that can be used to store any information required by the worker."
+                "type_name": "dict",
+                "description": "Used to pass a mapping of proxy nodes to their corresponding real nodes in the graph."
               },
               {
                 "name": "startup_check",
                 "type_name": "bool",
-                "description": "Used to check if the agent has already started its computation, skipping the computation if it has already been done."
+                "description": "Set to False by default. It performs a check on the graph upon initialization if it's set to True, otherwise, it does not."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "from SpecificWorker import SpecificWorker\n\n# Initialize a new instance of the class\nspecific_worker = SpecificWorker(proxy_map)\n",
+              "code": "from SpecificWorker import SpecificWorker\nimport time\n\n# Initialize the worker with a proxy map and a startup check\nworker = SpecificWorker(proxy_map, True)\n\n# Set up the timer for the compute method\ntimer = time.time()\nworker.setPeriod(100)\nworker.startTimer()\n\nwhile True:\n    # Perform the computation\n    worker.compute()\n    \n    # Check if it's time to save the graph\n    if time.time() - last_save_time > 3600:\n        worker.saveGraph(\"graph.pkl\")\n",
               "description": ""
             },
             "name": "__init__",
@@ -1391,20 +1411,20 @@
               "comment": null
             },
             "item_type": "constructor",
-            "length": 51,
+            "length": 54,
             "docLength": null
           },
           {
-            "id": "3cc990dd-edc6-eaa3-e84f-526e79602e4f",
+            "id": "61093faf-d7f7-cebb-4d49-712ed045066d",
             "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
             ],
-            "description": "Sets the parameters passed as an argument to `True`. Then, it removes a self-edge from the current room, stores the ID of the exit door in a variable, and sets the name attribute of both doors to the other side door's name.",
+            "description": "Sets parameters and modifies the state of the room by removing a self-edge, storing an exit door ID, and adding attributes to doors.",
             "params": [
               {
                 "name": "params",
                 "type_name": "bool",
-                "description": "Passed to set parameters for an object of class `Room`."
+                "description": "Passed to set the parameters of the room."
               }
             ],
             "returns": {
@@ -1413,13 +1433,13 @@
             },
             "usage": {
               "language": "python",
-              "code": "# Initialise a SpecificWorker instance and assign its parameters\nworker = SpecificWorker(proxy_map)\nparams = {\"Period\": 100, \"agent_id\": 13}\nworker.setParams(params)\n\n# Use the worker instance to perform some tasks\nworker.startup_check()\nworker.rt_api.update_node_attributes(worker.g, node_id=worker.robot_id, attr_map={\"timestamp_alivetime\": 1})\n",
-              "description": "\nIn this example, we first create a new SpecificWorker instance and initialise its parameters using the setParams function. We then use the worker instance to perform some tasks such as startup_check() and updating node attributes with the rt_api object."
+              "code": "worker = SpecificWorker(proxy_map)\n# setParams takes in a dictionary of parameters as input\nparams = {\"Period\": 10, \"agent_id\": 12}\nworker.setParams(params)\n",
+              "description": "\nIn this example, the user creates an instance of the SpecificWorker class and passes a dictionary of parameters to the setParams method. The function then updates the worker's internal state based on the input parameters."
             },
             "name": "setParams",
             "location": {
-              "start": 124,
-              "insert": 125,
+              "start": 127,
+              "insert": 128,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1429,429 +1449,22 @@
             "docLength": null
           },
           {
-            "id": "d6fad876-0520-74ba-db4f-01fdb0bda8d3",
+            "id": "cfc1e69d-8797-9087-e844-76a8a7e76242",
             "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
             ],
-            "description": "Computes and updates the robot's RT (reactive transport) based on the current state of the graph.",
+            "description": "Updates the robot's pose in the graph and performs various actions based on the current state of the robot.",
             "params": [],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "import SpecificWorker\n\n# Initialize the SpecificWorker object with the proxy map and a flag for startup check\nspecific_worker = SpecificWorker(proxy_map, startup_check=True)\n\n# Call the compute method to perform the computation\nresult = specific_worker.compute()\n\n# Print the result of the computation\nprint(result)\n",
+              "code": "specific_worker = SpecificWorker()\nspecific_worker.compute()\n",
               "description": ""
             },
             "name": "compute",
             "location": {
-              "start": 138,
-              "insert": 141,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 61,
-            "docLength": null
-          },
-          {
-            "id": "8506fabb-8dc7-2aab-f04a-6f0ba0f9cc92",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Computes the affordance pose of the robot in a new room based on its current position and orientation, and associates doors in the long-term graph with their corresponding rooms.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "specific_worker = SpecificWorker(proxy_map) # Initiate a specific worker object\nspecific_worker.idle() # Call the idle method from the specific worker object\n",
-              "description": ""
-            },
-            "name": "idle",
-            "location": {
-              "start": 211,
-              "insert": 213,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 75,
-            "docLength": null
-          },
-          {
-            "id": "04e2af7d-eddb-8f8c-6743-11e3dda21651",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Updates the state of the worker based on the active affordance node and exit door ID.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# create an instance of the SpecificWorker class\nworker = SpecificWorker(proxy_map)\n\n# set the agent's ID and robot name\nagent_id = 13\nrobot_name = \"Shadow\"\n\n# call the crossed method\nworker.crossed()\n",
-              "description": "\nThe crossed function is a method of the SpecificWorker class that subclasses GenericWorker. It takes no arguments and does not return any value. The function first gets the affordance node with ID self.affordance_node_active_id from the graph g using get_node(). If this node has a parent attribute, it sets the exit door ID to the parent attribute value. If the parent attribute is empty, it returns.\nIf the exit door ID is set, the function deletes an edge between room_exit_door_id and self.room_exit_door_id using delete_edge().\nThe function then gets the exit door node with ID self.exit_door_id from the graph g using get_node(). If this node has a connected_room_name attribute, it sets the state to known_room and prints an INSERTING KNOWN ROOM message. If the exit door ID is empty, it sets the state to initializing_room and prints an INITIALIZING ROOM message.\nNote that the SpecificWorker class also has other attributes such as agent_id, g, rt_api, inner_api, robot_name, last_robot_pose, robot_exit_pose, state, affordance_node_active_id, exit_door_id, room_exit_door_id, enter_room_node_id, and vertex_size."
-            },
-            "name": "crossed",
-            "location": {
-              "start": 310,
-              "insert": 312,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 16,
-            "docLength": null
-          },
-          {
-            "id": "789455c6-28e2-7985-854d-e4841c68865e",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Initializes the room nodes and sets the enter room node ID, then transitions to the \"initializing doors\" state.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Initialize the specific worker class with the proxy map and the startup check flag set to False\nspecific_worker = SpecificWorker(proxy_map, startup_check=False)\n\n# Call the initializing_room method on the specific worker instance\nspecific_worker.initializing_room()\n",
-              "description": ""
-            },
-            "name": "initializing_room",
-            "location": {
-              "start": 330,
-              "insert": 333,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 10,
-            "docLength": null
-          },
-          {
-            "id": "423155ab-cc3e-9ab0-2342-a93d7e99b214",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Determines the room name associated with a door based on its ID and updates the graph with new edges and nodes to simulate robot movement through the door and into the adjacent room.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Initialize a SpecificWorker object with the proxy map\nspecific_worker = SpecificWorker(proxy_map)\n\n# Call the known_room method on the specific worker object\nspecific_worker.known_room()\n",
-              "description": ""
-            },
-            "name": "known_room",
-            "location": {
-              "start": 344,
-              "insert": 346,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 73,
-            "docLength": null
-          },
-          {
-            "id": "20438ef8-46d9-6a88-2346-a153824233c9",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "1) retrieves exit edges and matching doors, 2) sets other side door name and connected room name attributes for each exit door node, and 3) associates doors using their names and connected rooms.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "SpecificWorker(proxy_map).initializing_doors()\n",
-              "description": "\nThis code will call the method \"initializing_doors\" of the class SpecificWorker. The method takes no arguments, and it is part of a class that inherits from GenericWorker, so we need to pass an instance of a GenericWorker to the method. In this example, we are passing proxy_map as argument."
-            },
-            "name": "initializing_doors",
-            "location": {
-              "start": 438,
-              "insert": 440,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 28,
-            "docLength": null
-          },
-          {
-            "id": "f8912fcb-f70e-d0a1-424e-4a48496ff5f8",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Connects two doors in a graph by adding an edge between their nodes and updates their attributes to reflect the connection.",
-            "params": [
-              {
-                "name": "door_1",
-                "type_name": "str",
-                "description": "A list containing the name of the first door to be associated with the long-term graph."
-              },
-              {
-                "name": "door_2",
-                "type_name": "str",
-                "description": "A name of another door in the graph, which will be connected to the current door node through an edge in the graph."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "worker = SpecificWorker(proxy_map)\ndoor_1 = (\"door_name\", \"connected_room_name\")\ndoor_2 = (\"other_side_door_name\", \"connected_room_name\")\nworker.associate_doors(door_1, door_2)\n",
-              "description": "\nIn this example, the user is creating a new instance of the SpecificWorker class and then invoking the associate_doors method by passing in two doors (door_1 and door_2). The method will add an edge between the two nodes in the graph representing each door, as well as set the \"other_side_door_name\" and \"connected_room_name\" attributes for both nodes."
-            },
-            "name": "associate_doors",
-            "location": {
-              "start": 477,
-              "insert": 479,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 16,
-            "docLength": null
-          },
-          {
-            "id": "a8d529d0-b6f1-f692-b541-cfd55b35f825",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Saves the graph representation of a room to a file named \"graph.pkl\" using Python's pickle module.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Example usage of store_graph function\nworker = SpecificWorker(proxy_map=ProxyMap(), startup_check=False)\nroom_node_id = -1  # Room node id\nworker.store_graph(room_node_id)\n",
-              "description": "\nIn this example, the user creates an instance of the `SpecificWorker` class and calls the `store_graph` method with a room node ID as an argument. The function then tries to find the corresponding room node in the igraph object using the `find` method and saves it to a file if it is not found."
-            },
-            "name": "store_graph",
-            "location": {
-              "start": 496,
-              "insert": 497,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 11,
-            "docLength": null
-          },
-          {
-            "id": "0cdf2d45-fad8-44a8-c74d-90a9b7d7fe2d",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Removes edges from the long-term graph based on room numbers and updates the state of the worker.",
-            "params": [],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Create an instance of SpecificWorker\nspecific_worker = SpecificWorker(proxy_map)\n\n# Call the removing method with a specific node as its argument\nspecific_worker.removing(200)\n",
-              "description": "\nIn this example, we create an instance of `SpecificWorker` and then call the `removing` method with a specific node as its argument. The function removes all nodes connected to the specified node by any edge with the \"RT\" type. It also removes all edges of the \"has\" type that have the specified node as their origin or destination, and deletes the specified node."
-            },
-            "name": "removing",
-            "location": {
-              "start": 510,
-              "insert": 512,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 19,
-            "docLength": null
-          },
-          {
-            "id": "24746b75-48b7-4bb6-1b42-dbcab50aabd8",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Traverses a graph by starting at a designated node and following RT edges to reach other nodes, inserting vertices and edges into an IGraph object as it goes.",
-            "params": [
-              {
-                "name": "node_id",
-                "type_name": "int",
-                "description": "Used to represent the unique identifier for a node in the graph."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Create a SpecificWorker instance with proxy_map and startup_check arguments set to True\nspecific_worker = SpecificWorker(proxy_map, startup_check=True)\n\n# Traverse the graph starting from the robot node\nspecific_worker.traverse_graph(\"Robot\")\n",
-              "description": "\nThis example uses the traverse_graph function of the SpecificWorker class to traverse a graph starting from the \"Robot\" node."
-            },
-            "name": "traverse_graph",
-            "location": {
-              "start": 536,
-              "insert": 538,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 7,
-            "docLength": null
-          },
-          {
-            "id": "500a6fa2-405e-aa91-9540-a1c44ea71e8e",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Traverses the graph by visiting all vertices that have successors in the long-term graph, and for each such vertex, it checks if its successor has a higher level than the current vertex, and if so, it inserts a DSR vertex and edge between them, and recursively traverses the successor.",
-            "params": [
-              {
-                "name": "node",
-                "type_name": "igraph.Vertex",
-                "description": "Used to represent the current node being traversed."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "graph = SpecificWorker(proxy_map)\nstarting_node = graph.g.get_node(\"MyStartingNode\")\ngraph.traverse_igraph(starting_node)\n",
-              "description": "\nThe code creates an instance of the SpecificWorker class and passes a proxy map object to the constructor. Then, it retrieves a starting node from the graph using the g.get_node method and uses this node as the argument for the traverse_igraph function. The function then recursively traverses the graph, inserting DSR vertices and edges based on the condition in the if statement."
-            },
-            "name": "traverse_igraph",
-            "location": {
-              "start": 546,
-              "insert": 547,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 10,
-            "docLength": null
-          },
-          {
-            "id": "60d7e0f3-5642-a39a-4e40-66246d4c4948",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Adds a new vertex to an existing graph, updating its attributes and edges based on node-specific data.",
-            "params": [
-              {
-                "name": "node",
-                "type_name": "igraph.Node",
-                "description": "Used to insert a new vertex into the graph."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# create a new instance of the SpecificWorker class and pass in proxy_map as argument\nspecific_worker = SpecificWorker(proxy_map)\n\n# add a vertex to the long term graph with the name \"MyVertex\"\nspecific_worker.insert_igraph_vertex(\"MyVertex\")\n",
-              "description": "\nIn this example, we first create a new instance of the SpecificWorker class and pass in proxy_map as an argument. We then use the insert_igraph_vertex function to add a vertex with the name \"MyVertex\" to the long term graph."
-            },
-            "name": "insert_igraph_vertex",
-            "location": {
-              "start": 559,
-              "insert": 560,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 29,
-            "docLength": null
-          },
-          {
-            "id": "7467a4df-2da4-a89d-dc40-8d0db7be370f",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Inserts a new node into a graph, updating the parent node's attribute with the agent ID and copying over non-required attributes from the input node to the new node.",
-            "params": [
-              {
-                "name": "parent_name",
-                "type_name": "str",
-                "description": "Used to specify the name of the parent node to which the new node will be added."
-              },
-              {
-                "name": "node",
-                "type_name": "Node | dict",
-                "description": "Passed the attributes and data of a vertex to be inserted into a graph."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Create a new instance of SpecificWorker class and call its constructor\nmy_worker = SpecificWorker(proxy_map)\n\n# Use the worker to add a vertex to the graph\nmy_worker.insert_dsr_vertex(\"parent_node\", {\"type\": \"room\", \"name\": \"Living Room\"})\n",
-              "description": ""
-            },
-            "name": "insert_dsr_vertex",
-            "location": {
-              "start": 594,
-              "insert": 596,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 9,
-            "docLength": null
-          },
-          {
-            "id": "ac75a866-f308-2a90-484f-864828cce9c4",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Adds an edge to a long-term graph based on a given edge attribute, updating the node positions and rotation accordingly.",
-            "params": [
-              {
-                "name": "edge",
-                "type_name": "rt.Edge",
-                "description": "Passed by reference to the method, representing an edge with attributes such as translation and rotation."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Create an instance of SpecificWorker\nmy_worker = SpecificWorker()\n\n# Create an edge object with attributes \"origin\" and \"destination\"\nedge = Edge(origin=\"node1\", destination=\"node2\")\n\n# Call the insert_igraph_edge method on my_worker with the edge as an argument\nmy_worker.insert_igraph_edge(edge)\n",
-              "description": "\nIn this example, an instance of SpecificWorker is created and an Edge object is created with attributes \"origin\" and \"destination\". The insert_igraph_edge method of SpecificWorker is then called with the Edge object as an argument, which adds a new edge to the graph."
-            },
-            "name": "insert_igraph_edge",
-            "location": {
-              "start": 608,
-              "insert": 609,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 12,
-            "docLength": null
-          },
-          {
-            "id": "35a1d65c-21d4-f7be-c446-071ce717b9a2",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Modifies an existing graph by adding an edge with specific RT attributes, based on input org and dest nodes.",
-            "params": [
-              {
-                "name": "org",
-                "type_name": "GraphNode | NoneType",
-                "description": "Used to represent the origin node of the edge to be inserted. If it is None, the function will use the root node as the origin."
-              },
-              {
-                "name": "dest",
-                "type_name": "Node | str",
-                "description": "Used to specify the destination node or name in the graph for insertion of an edge."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "worker = SpecificWorker(proxy_map)\n# Create a new edge between two nodes in the graph\nworker.insert_dsr_edge(\"node1\", \"node2\")\n",
-              "description": "\nIn this example, the insert_dsr_edge function is called on an instance of the SpecificWorker class (which inherits from GenericWorker). The function takes in two arguments: org and dest. Org represents the origin node of the edge, and dest represents the destination node. The function first checks if org is None. If it is not None, then it retrieves the edge ID between org and dest using g.get_eid() and retrieves the attributes of the edge using g.es[edge_id]. It then creates a new Edge object with the destination node ID as its origin, the origin node ID as its destination, and an RT attribute with a value of 0 (as this is not a realistic use case). It then assigns the RT translation and rotation attributes to the new edge using new_edge.attrs[\"rt_translation\"] = Attribute(np.array([0, 0, 0], dtype=np.float32), self.agent_id) and new_edge.attrs[\"rt_rotation_euler_xyz\"] = Attribute(np.array([0, 0, 0], dtype=np.float32), self.agent_id). Finally, it inserts the new edge into the graph using g.insert_or_assign_edge()."
-            },
-            "name": "insert_dsr_edge",
-            "location": {
-              "start": 625,
-              "insert": 628,
+              "start": 141,
+              "insert": 144,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -1861,163 +1474,47 @@
             "docLength": null
           },
           {
-            "id": "d927aae0-9021-6196-9b41-95f639864b45",
+            "id": "8b3d3eed-7010-bd8a-8045-f75833aa77e7",
             "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
             ],
-            "description": "Determines the room number of an element by retrieving the attribute 'room_id' from the element's node ID.",
-            "params": [
-              {
-                "name": "node_id",
-                "type_name": "str",
-                "description": "Used to reference a node in the graph."
-              }
-            ],
-            "returns": {
-              "type_name": "int",
-              "description": "The room ID associated with a given node ID."
-            },
-            "usage": {
-              "language": "python",
-              "code": "# Initialize the SpecificWorker class and its attributes\nspecific_worker = SpecificWorker()\n\n# Get the room number of a node with ID \"my_node\"\nroom_id = specific_worker.check_element_room_number(\"my_node\")\nprint(f\"The room number of node 'my_node' is {room_id}\")\n",
-              "description": ""
-            },
-            "name": "check_element_room_number",
-            "location": {
-              "start": 655,
-              "insert": 656,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 7,
-            "docLength": null
-          },
-          {
-            "id": "5ce9e553-2b0d-88b8-bf49-7882013c2d15",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Determines the element level of a node based on its attribute \"level\" and returns it if found, or -1 otherwise.",
-            "params": [
-              {
-                "name": "node_id",
-                "type_name": "int",
-                "description": "Represented by the identifier `node_id`. It serves as an index into the graph's node list to access the specified node."
-              }
-            ],
-            "returns": {
-              "type_name": "int",
-              "description": "Element level of the node with given id"
-            },
-            "usage": {
-              "language": "python",
-              "code": "# Import SpecificWorker class from GenericWorker module\nfrom GenericWorker import SpecificWorker\n\n# Initialize a new SpecificWorker object\nmy_specific_worker = SpecificWorker(\"proxy_map\")\n\n# Call the check_element_level method with the desired node ID as an argument\nelement_level = my_specific_worker.check_element_level(1234)\n\n# Print the element level value to the console\nprint(f\"Element level of node 1234 is {element_level}\")\n",
-              "description": ""
-            },
-            "name": "check_element_level",
-            "location": {
-              "start": 664,
-              "insert": 665,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 25,
-            "docLength": null
-          },
-          {
-            "id": "ca797b1f-3a72-7887-b54c-bcac0d9c7872",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "1) retrieves room information from the graph, 2) identifies RT edges connecting to the current room, and 3) extracts translation attribute for the current room.",
-            "params": [
-              {
-                "name": "room_node_id",
-                "type_name": "str | int",
-                "description": "Required, indicating that it is mandatory to pass this value for the function to work correctly."
-              }
-            ],
+            "description": "Initializes a room in a graph by deleting an edge, finding the robot node and its neighbors, creating a new vertex for the root of the igraph, inserting edges to connect the robot to the room and the room to itself, and updating the robot's parent node attribute.",
+            "params": [],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "# Creating a specific worker object\nspecific_worker = SpecificWorker(proxy_map)\n\n# Generating a room picture for a specific room node id\nspecific_worker.generate_room_picture(123456789)\n\n# Saving the image to a file\ncv2.imwrite(\"room_image.jpg\", specific_worker.room_image)\n",
+              "code": "worker = SpecificWorker(proxy_map, startup_check=False)\nworker.initialize_room_from_igraph()\n",
+              "description": "\nThis code uses the Python function \"initialize_room_from_igraph\" to initialize the room from an igraph graph structure. The function is called on a worker object created from the SpecificWorker class, which subclasses GenericWorker."
+            },
+            "name": "initialize_room_from_igraph",
+            "location": {
+              "start": 165,
+              "insert": 167,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 22,
+            "docLength": null
+          },
+          {
+            "id": "aab2b882-aaae-999f-b248-533b7089da3f",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Updates the robot's pose in an igraph graph based on a RT translation and rotation, taking into account the robot's current location and the surrounding rooms.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "# create an instance of SpecificWorker class\nspecific_worker = SpecificWorker(proxy_map)\n\n# call the update_robot_pose_in_igraph method to update robot pose in igraph\nspecific_worker.update_robot_pose_in_igraph()\n",
               "description": ""
             },
-            "name": "generate_room_picture",
+            "name": "update_robot_pose_in_igraph",
             "location": {
-              "start": 707,
-              "insert": 709,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 24,
-            "docLength": null
-          },
-          {
-            "id": "9d6cc73f-8cb4-e89e-7945-94e9bd98c8ac",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Inserts or assigns an edge in the graph representing the room hierarchy, with the current worker's ID as the source and the current room ID as the target.",
-            "params": [
-              {
-                "name": "room_id",
-                "type_name": "str",
-                "description": "Used as an identifier for the current room that the agent is located in."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "def insert_current_edge(self, room_id):\n        current_edge = Edge(room_id, room_id, \"current\", self.agent_id)\n        self.g.insert_or_assign_edge(current_edge)\n",
-              "description": "\nIn this example, the SpecificWorker class is used to insert an edge into a graph representing a LongTermSpatialMemory with the robot's current location represented by room_id. The function first creates an Edge object with the same room_id as the target and source node ids. Then, it inserts or assigns the created edge into the graph using the insert_or_assign_edge() method of the DSRGraph class."
-            },
-            "name": "insert_current_edge",
-            "location": {
-              "start": 742,
-              "insert": 744,
-              "offset": " ",
-              "indent": 8,
-              "comment": null
-            },
-            "item_type": "method",
-            "length": 3,
-            "docLength": null
-          },
-          {
-            "id": "339e852e-5da6-aa92-6146-a2388fe634c4",
-            "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
-            ],
-            "description": "Updates a node in the graph based on its ID and type. If the type is \"door\", it inserts a vertex in the long-term graph, checks if a room node exists, and inserts an edge with a specific translation and rotation. If the ID is the affordance node active ID, it checks the state and activeness of the node and transitions to the crossed state.",
-            "params": [
-              {
-                "name": "id",
-                "type_name": "int",
-                "description": "Used to identify the node being updated."
-              },
-              {
-                "name": "type",
-                "type_name": "str",
-                "description": "Used to identify the node being updated, with possible values of \"door\" or \"room\"."
-              }
-            ],
-            "returns": null,
-            "usage": {
-              "language": "python",
-              "code": "# Create a specific worker object and initialize it with the startup check flag set to True\nspecific_worker = SpecificWorker(proxy_map, startup_check=True)\n\n# Call the update_node method of the specific worker object with the node ID and type as arguments\nspecific_worker.update_node(1234567890, \"door\")\n",
-              "description": "\nThis code creates a SpecificWorker object and initializes it with the startup check flag set to True. Then it calls the update_node method of the specific worker object with the node ID 1234567890 and type \"door\" as arguments. The function would then check if there is an igraph vertex for the door node, insert it if necessary, and then check if there are any edges between the parent node and the door node in the long-term graph, inserting them if necessary and drawing the updated graph."
-            },
-            "name": "update_node",
-            "location": {
-              "start": 756,
-              "insert": 757,
+              "start": 198,
+              "insert": 200,
               "offset": " ",
               "indent": 8,
               "comment": null
@@ -2027,38 +1524,611 @@
             "docLength": null
           },
           {
-            "id": "2abe3cea-a1da-b5bc-224c-fb099b8b8257",
+            "id": "67757034-6f36-3890-0942-bd47b1455c70",
             "ancestors": [
-              "8012c732-b5dd-93a9-2441-d47f31f3d2fa"
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
             ],
-            "description": "Updates the current edge based on the specified frame, to node, and type. If no current edge exists, it inserts a new edge and sets it as the current one.",
+            "description": "Detects when the robot enters a new room and associates doors based on their proximity to the robot's current position, updating the graph and door attributes accordingly.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "# Initialize the worker and specify the startup check parameter as True\nworker = SpecificWorker(proxy_map, startup_check=True)\n\n# Perform an initialization check for the worker\nworker.startup_check()\n\n# Set the agent ID to 13\nworker.agent_id = 13\n\n# Update the robot name to \"Shadow\"\nworker.robot_name = \"Shadow\"\n\n# Update the vertex size to 0\nworker.vertex_size = 0\n\n# Set the state of the worker to idle\nworker.state = \"idle\"\n",
+              "description": ""
+            },
+            "name": "idle",
+            "location": {
+              "start": 251,
+              "insert": 253,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 75,
+            "docLength": null
+          },
+          {
+            "id": "51b1dbb4-c5a5-63b2-4b43-06106aa87d12",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "1) retrieves the active affordance node and its parent, 2) sets the exit door ID to the value of the parent attribute, and 3) deletes the edge connecting the current room to itself.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "import SpecificWorker\n\n# Create an instance of the SpecificWorker class\nworker = SpecificWorker(proxy_map=your_proxy_map)\n\n# Call the crossed method with no arguments and store the return value in a variable\nroom_state = worker.crossed()\n\n# Print the returned value to see if the function executed successfully\nprint(\"Room state:\", room_state)\n",
+              "description": ""
+            },
+            "name": "crossed",
+            "location": {
+              "start": 350,
+              "insert": 352,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 16,
+            "docLength": null
+          },
+          {
+            "id": "d55c53ae-f2c0-628c-ca4e-0ad084fa17b1",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Determines and sets the ID of the room node to enter upon construction, based on conditions involving the existence of nodes labeled \"room\" and the absence of certain attributes.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "from mymodule import SpecificWorker\n\n# Creating an instance of the class and using its method initializing_room\nmyworker = SpecificWorker(proxy_map)\nmyworker.initializing_room()\n\n# The function will be executed within the context of the object,\n# allowing it to modify any attributes or methods associated with it.\n",
+              "description": ""
+            },
+            "name": "initializing_room",
+            "location": {
+              "start": 370,
+              "insert": 373,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 10,
+            "docLength": null
+          },
+          {
+            "id": "bdadfa6f-3602-06ad-9c4d-0b5443a38eed",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Detects the room the robot is currently in and finds the door node leading to the next room. It then creates a new edge in the graph representing the RT pose of the robot and updates the graph with the new edge.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "# Initialize a SpecificWorker object named \"worker\"\nworker = SpecificWorker(proxy_map)\n\n# Call the known_room method with a given room name and node ID\nworker.known_room(\"room1\", 234)\n",
+              "description": ""
+            },
+            "name": "known_room",
+            "location": {
+              "start": 384,
+              "insert": 386,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 73,
+            "docLength": null
+          },
+          {
+            "id": "911fde00-668a-68ae-d446-d45ece69baae",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "1) retrieves edges leading to the exit door, 2) checks if any matching edges exist, and 3) updates node attributes and associates doors based on the matched edges.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "# create a SpecificWorker object\nworker = SpecificWorker(proxy_map)\n\n# initialize the doors in the graph\nworker.initializing_doors()\n",
+              "description": ""
+            },
+            "name": "initializing_doors",
+            "location": {
+              "start": 478,
+              "insert": 480,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 28,
+            "docLength": null
+          },
+          {
+            "id": "17a38090-fb25-fbbd-6242-3b9b704aaad8",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Connects two nodes representing doors in the long-term graph, adding an edge between them and updating their attributes to reflect the connection.",
             "params": [
               {
-                "name": "fr",
-                "type_name": "int",
-                "description": "Representative of the 'from' node value, which indicates the starting point of an edge"
-              },
-              {
-                "name": "to",
-                "type_name": "int",
-                "description": "The target node ID of an edge to be updated."
-              },
-              {
-                "name": "type",
+                "name": "door_1",
                 "type_name": "str",
-                "description": "Used to specify the type of edge being updated, either \"RT\" for real-time or \"NRT\" for non-real-time."
+                "description": "A list containing the name of the first door to be associated with another door."
+              },
+              {
+                "name": "door_2",
+                "type_name": "str",
+                "description": "A string representation of the second door to be associated with the long-term graph."
               }
             ],
             "returns": null,
             "usage": {
               "language": "python",
-              "code": "worker = SpecificWorker(proxy_map)\n# Initialize the worker with the given proxy map and startup check set to False.\n\nworker.update_edge(fr=10, to=20, type=\"RT\")\n# Update the edge connecting nodes 10 and 20 with type \"RT\".\n",
+              "code": "# Initialize the SpecificWorker class object\nworker = SpecificWorker(proxy_map)\n\n# Define two door objects with names and room identifiers\ndoor1 = {\"name\": \"Front Door\", \"room_id\": 2}\ndoor2 = {\"name\": \"Back Door\", \"room_id\": 4}\n\n# Call the associate_doors method on the worker object\nworker.associate_doors(door1, door2)\n",
               "description": ""
+            },
+            "name": "associate_doors",
+            "location": {
+              "start": 517,
+              "insert": 519,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 16,
+            "docLength": null
+          },
+          {
+            "id": "cc21732a-a5cc-7d90-2b4b-65d37df3c117",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Saves the graph representation of a room node and its exit door id to a file.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "from worker import SpecificWorker\n\n# Initialize the worker\nworker = SpecificWorker(proxy_map, startup_check=False)\n\n# Create a new room node\nroom_node = worker.g.vs.find(name=\"New Room\")\nif not room_node:\n    room_node = worker.g.add_vertex(name=\"New Room\")\n\n# Store the graph in pickle format\nwith open(\"graph.pkl\", \"wb\") as f:\n    pickle.dump(worker.long_term_graph.g, f)\n",
+              "description": ""
+            },
+            "name": "store_graph",
+            "location": {
+              "start": 536,
+              "insert": 537,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 11,
+            "docLength": null
+          },
+          {
+            "id": "f099c4de-b784-939e-6846-a148b2aeec31",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Removes edges from the long-term graph based on certain conditions, including room numbers and types of edges.",
+            "params": [],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "specific_worker = SpecificWorker(proxy_map, startup_check=True)\nspecific_worker.removing()\n",
+              "description": "\nThis code creates a new instance of the `SpecificWorker` class and then calls the `removing` method on it. The `removing` function is defined in the `SpecificWorker` class, and it removes certain elements from the graph using the `delete_node` method. The graph is an attribute of the `SpecificWorker` class, and it represents a long-term spatial memory for a robot named Shadow. The `startup_check` argument passed to the `SpecificWorker` constructor is set to `True`, indicating that the startup check should be performed before the removal process can begin."
+            },
+            "name": "removing",
+            "location": {
+              "start": 550,
+              "insert": 552,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 19,
+            "docLength": null
+          },
+          {
+            "id": "18553e7e-c150-41ac-6742-b52ca312d465",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Traverses a graph and performs actions based on the type of edges it encounters. It starts at a designated node, then visits the children nodes of that node according to the RT edge type, and repeats this process for each child node until no more actions are left to perform.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "int",
+                "description": "Represented by the igraph vertex ID of the current node being traversed."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "specific_worker = SpecificWorker(proxy_map, startup_check=False)\nnode_id = \"a_node_id\"\nspecific_worker.traverse_graph(node_id)\n",
+              "description": "\nThis example shows how the traverse_graph method of the SpecificWorker class can be used to start traversing a graph from a specific node. The node ID is passed as an argument to the function, and the function then performs the necessary steps to traverse the graph starting at that node."
+            },
+            "name": "traverse_graph",
+            "location": {
+              "start": 576,
+              "insert": 578,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 7,
+            "docLength": null
+          },
+          {
+            "id": "8ac6a6a7-f160-089e-bb4c-9b09f663081c",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Traverses the graph, identifying vertices with higher level than the current vertex and adding them to the DSR graph along with their connections.",
+            "params": [
+              {
+                "name": "node",
+                "type_name": "igraph.Vertex",
+                "description": "Representing a vertex in the graph."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "specific_worker = SpecificWorker(proxy_map)\nspecific_worker.traverse_igraph(specific_worker.g.vs[0])\n",
+              "description": "\nThis code creates a new object of type SpecificWorker and then calls the traverse_igraph method, passing in the first vertex of the graph as an argument. This vertex is used to start the traversal of the graph."
+            },
+            "name": "traverse_igraph",
+            "location": {
+              "start": 586,
+              "insert": 587,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 10,
+            "docLength": null
+          },
+          {
+            "id": "8d4576e6-5bd3-6d9d-6548-08acb2abc696",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Adds a new vertex to an existing graph, updating the graph's vertices with provided attributes and matching other vertices based on specified conditions.",
+            "params": [
+              {
+                "name": "node",
+                "type_name": "igraph.Vertex",
+                "description": "Used to represent a single vertex in the graph, including its name, ID, and attributes."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker()  # Initiate the class\nnode = Node(name=\"Door\", id=1, type=\"door\")  # Create a node with name and ID\nworker.insert_igraph_vertex(node)  # Pass the node to the function\n",
+              "description": "\nThe example shows how a node with name \"Door\" and ID \"1\" is created and then passed to the insert_igraph_vertex() function, which will add it as a vertex in the graph. The function also takes care of any other attributes that may be present in the node object, such as parent or timestamp creation."
+            },
+            "name": "insert_igraph_vertex",
+            "location": {
+              "start": 599,
+              "insert": 600,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 29,
+            "docLength": null
+          },
+          {
+            "id": "705003db-9448-d6bc-2145-c9b70fa2a402",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Modifies an existing node within a graph, adding new attributes and linking it to its parent node through an attribute.",
+            "params": [
+              {
+                "name": "parent_name",
+                "type_name": "str",
+                "description": "Used to specify the name of the parent node to insert the new vertex into."
+              },
+              {
+                "name": "node",
+                "type_name": "Node | dict",
+                "description": "Passed in from caller, it contains attributes that define the vertex to be inserted into graph."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "specific_worker = SpecificWorker(proxy_map)\nspecific_worker.insert_dsr_vertex(\"parent_name\", {\"type\": \"node_type\", \"name\": \"node_name\"})\n",
+              "description": "\nThis example inserts a node with the name \"node_name\" into the graph with the type \"node_type\" and links it to the parent node named \"parent_name\"."
+            },
+            "name": "insert_dsr_vertex",
+            "location": {
+              "start": 634,
+              "insert": 636,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 9,
+            "docLength": null
+          },
+          {
+            "id": "57a732e1-901a-ef80-944c-23f4f0907fda",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Adds an edge to a long-term graph based on a received edge attribute. It checks if the destination node is the robot, and if so, uses the correct translation and rotation attributes. Otherwise, it uses the provided translation and rotation attributes.",
+            "params": [
+              {
+                "name": "edge",
+                "type_name": "GraphEdge",
+                "description": "Passed as a whole object containing information about an edge in the graph, including its origin and destination nodes, as well as attribute values such as translation and rotation."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker(proxy_map, startup_check=False)\nedge = Edge(\"Origin\", \"Destination\")\nedge.attrs[\"rt_translation\"] = [10, 20, 30]\nedge.attrs[\"rt_rotation_euler_xyz\"] = [45, 90, 180]\nworker.insert_igraph_edge(edge)\n",
+              "description": "\nIn this example, a user creates an instance of the SpecificWorker class and then adds an edge to the graph by calling the insert_igraph_edge method with the edge object as an argument. The edge object contains information about the origin and destination nodes of the edge, such as their names or IDs. The method then uses this information to add a new edge to the long-term spatial memory graph with the given translation and rotation attributes."
+            },
+            "name": "insert_igraph_edge",
+            "location": {
+              "start": 648,
+              "insert": 649,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 12,
+            "docLength": null
+          },
+          {
+            "id": "3f1ca468-3163-3ba8-e54f-a2fb9ce810fa",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Creates a new edge in the long-term graph based on data from the short-term graph. It assigns attributes to the new edge, including a translation and rotation value for RT tracking.",
+            "params": [
+              {
+                "name": "org",
+                "type_name": "GraphNode | NoneType",
+                "description": "Used to specify the starting node of the edge to be inserted. If it is None, it means the starting node is unknown or unspecified."
+              },
+              {
+                "name": "dest",
+                "type_name": "Node | str",
+                "description": "Used to specify the destination node or edge id for the edge insertion operation."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker(proxy_map)\n# Define the nodes and edges in the graph\nnode1 = Node(\"Node 1\", agent_id=worker.agent_id)\nnode2 = Node(\"Node 2\", agent_id=worker.agent_id)\nedge = Edge(node1, node2, \"RT\", worker.agent_id)\n# Call the function to insert the edge into the graph\nworker.insert_dsr_edge(node1, node2)\n",
+              "description": ""
+            },
+            "name": "insert_dsr_edge",
+            "location": {
+              "start": 665,
+              "insert": 668,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 22,
+            "docLength": null
+          },
+          {
+            "id": "04491164-d053-7abe-e94a-0772c85a56b6",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Determines the room number associated with a given node ID by retrieving the attribute \"room_id\" from the node and returning its value if found, or -1 otherwise.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "int",
+                "description": "Passed as an argument to the function, indicating the id of the element whose room number needs to be checked."
+              }
+            ],
+            "returns": {
+              "type_name": "int",
+              "description": "The room ID associated with a given node ID if the node has an attribute \"room_id\" and its value is not None, or -1 otherwise."
+            },
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker(proxy_map)\nnode_id = 1234567890\nroom_id = worker.check_element_room_number(node_id)\nif room_id == -1:\n    print(\"Node is not in a room\")\nelse:\n    print(\"Node is in room\", room_id)\n",
+              "description": ""
+            },
+            "name": "check_element_room_number",
+            "location": {
+              "start": 695,
+              "insert": 696,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 7,
+            "docLength": null
+          },
+          {
+            "id": "f912f9d3-d6ed-b482-ee40-a7c750e382d7",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "1) retrieves the element level of a node with the given ID, and 2) handles missing or non-existent element levels by printing an error message and returning -1.",
+            "params": [
+              {
+                "name": "node_id",
+                "type_name": "int",
+                "description": "Representing an element node identifier, which identifies a specific element in the graph."
+              }
+            ],
+            "returns": {
+              "type_name": "int",
+              "description": "Element level if found, or -1 otherwise."
+            },
+            "usage": {
+              "language": "python",
+              "code": "# Initialize SpecificWorker class instance\nworker = SpecificWorker(proxy_map)\n\n# Get node_id of a specific element in the graph\nnode_id = 123456789\n\n# Call check_element_level function to retrieve level attribute value from node\nelement_level = worker.check_element_level(node_id)\n\n# Print retrieved level attribute value for the specified element\nprint(\"Element level:\", element_level)\n",
+              "description": ""
+            },
+            "name": "check_element_level",
+            "location": {
+              "start": 704,
+              "insert": 705,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 25,
+            "docLength": null
+          },
+          {
+            "id": "1141fbc6-886b-ab8c-324d-576e1b3fb114",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Retrieves and processes information about a room node in a graph, including its ID, old RT edges, translation attribute, and doors. It then draws the room polygon and doors on an image for saving.",
+            "params": [
+              {
+                "name": "room_node_id",
+                "type_name": "str | int",
+                "description": "Used to identify the room for which the picture will be generated."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "specific_worker = SpecificWorker(proxy_map)\n# Startup check and initialize the robot's name, id, and last robot pose.\nspecific_worker.startup_check()\n\n# Generate the room picture using the specific worker instance and the desired room node ID.\nroom_node_id = 123456 # Replace with actual node ID\nspecific_worker.generate_room_picture(room_node_id)\n",
+              "description": ""
+            },
+            "name": "generate_room_picture",
+            "location": {
+              "start": 747,
+              "insert": 749,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 24,
+            "docLength": null
+          },
+          {
+            "id": "abb52b39-2b77-1e95-5943-2ff31d0cfa5b",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Inserts or assigns an edge in the graph with the current room ID as the tail and the same ID as the head, indicating that the agent is currently located in that room.",
+            "params": [
+              {
+                "name": "room_id",
+                "type_name": "str",
+                "description": "Used to represent the id of the current room in which the agent is located."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker(proxy_map)\nworker.insert_current_edge(room_id)\n",
+              "description": ""
+            },
+            "name": "insert_current_edge",
+            "location": {
+              "start": 782,
+              "insert": 784,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 3,
+            "docLength": null
+          },
+          {
+            "id": "c580b131-a2f7-48b2-d347-fd8315f9d58a",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Updates the node attributes based on user input and inserts new edges into the graph according to predefined rules.",
+            "params": [
+              {
+                "name": "id",
+                "type_name": "int",
+                "description": "Used to identify the node to be updated."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to identify the type of node being updated (door or room)."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "# Call the function update_node() with parameters\nworker.update_node(1, \"door\")\n",
+              "description": "\nIn this code snippet, we call the `update_node()` function in the `SpecificWorker` class by passing two arguments: 1 and \"door\". The first argument is the id of the node to be updated, and the second argument is the type of the node, which is door in this case. This call will update the node with the id 1 with the new type information.\n\nWe can also use `update_node()` to update other types of nodes, such as rooms or affordances, by passing different arguments for the type parameter. For example:\n"
+            },
+            "name": "update_node",
+            "location": {
+              "start": 796,
+              "insert": 797,
+              "offset": " ",
+              "indent": 8,
+              "comment": null
+            },
+            "item_type": "method",
+            "length": 41,
+            "docLength": null
+          },
+          {
+            "id": "1b073fde-9b9f-83a1-3541-533c6e7e206e",
+            "ancestors": [
+              "68a48220-ebf4-7cb1-6d46-ec8ae0b47c1b"
+            ],
+            "description": "Updates an edge in the graph based on its type, source node, and target node.",
+            "params": [
+              {
+                "name": "fr",
+                "type_name": "int",
+                "description": "Representing the first room number of an edge to be updated with new information."
+              },
+              {
+                "name": "to",
+                "type_name": "int",
+                "description": "Used to identify the target node in the graph for updating the edge."
+              },
+              {
+                "name": "type",
+                "type_name": "str",
+                "description": "Used to indicate whether the edge is a robot or a room node."
+              }
+            ],
+            "returns": null,
+            "usage": {
+              "language": "python",
+              "code": "worker = SpecificWorker(proxy_map, startup_check=False)\n# Update edge in graph\nworker.update_edge(fr=1, to=2, type=\"RT\")\n",
+              "description": "\nThis updates the edge with fr as the starting node and to as the ending node with the type of \"RT\"."
             },
             "name": "update_edge",
             "location": {
-              "start": 811,
-              "insert": 815,
+              "start": 851,
+              "insert": 855,
               "offset": " ",
               "indent": 8,
               "comment": null
