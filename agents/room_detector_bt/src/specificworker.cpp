@@ -485,37 +485,53 @@ bool SpecificWorker::movement_completed(const Eigen::Vector2f &target, float dis
 
 void SpecificWorker::insert_measured_corners_loaded_room()
 {
+    qInfo() << "asdfgadfg 1";
     // delete room_measured node if exists
     auto room_measured = G->get_node("room_measured");
     if(room_measured.has_value())
         { G->delete_node(room_measured.value()); }
 
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
+    if(not room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
+    auto room_node = room_node_.value();
+
+    if(auto act_room_id = G->get_attrib_by_name<room_id_att>(room_node); act_room_id.has_value())
+    {
+        room_id = act_room_id.value();
+        qInfo() << "ROOM ID: " << room_id << act_room_id.value();
+    }
+
+    qInfo() << "asdfgadfg 2";
     auto corners_nodes = G->get_nodes_by_type("corner");
     //check if its empty
     if(corners_nodes.empty())
     { qWarning() << __FUNCTION__ << " No corners in graph"; return; }
-
+    qInfo() << "asdfgadfg 3";
     for (auto &nominal_corner : corners_nodes)
     {
+        qInfo() << "asdfgadfg a";
         //get attribute corner id from nominal corner
         auto corner_id = G->get_attrib_by_name<corner_id_att>(nominal_corner);
         if(not corner_id.has_value())
         { qWarning() << __FUNCTION__ << " No corner id in graph"; return; }
-
-        //Check if exist previous corner
-        auto corner_aux_ = G->get_node("corner_" + std::to_string(corner_id.value()) + "_measured");
-
+        qInfo() << "asdfgadfg c";
         auto robot_node_ = G->get_node("Shadow");
         if(not robot_node_.has_value())
         { qWarning() << __FUNCTION__ << " No robot node in graph"; return; }
         auto robot_node = robot_node_.value();
-
+        qInfo() << "asdfgadfg d";
         //transform using inner_eigen api robot to corner_aux
-        auto corner_measured_pose_ = inner_eigen->transform(params.robot_name, corner_aux_.value().name());
+        auto corner_measured_pose_ = inner_eigen->transform(params.robot_name, nominal_corner.name());
         auto corner_measured_pose = corner_measured_pose_.value();
         create_corner(corner_id.value(), {(float) corner_measured_pose.x(), (float) corner_measured_pose.y(), 0.}, robot_node, false);
+        qInfo() << "asdfgadfg 4";
     }
-
+    qInfo() << "asdfgadfg 4";
     this->set_update_room(true);
 }
 
@@ -1383,7 +1399,7 @@ void SpecificWorker::create_corner(int id, const std::vector<float> &p, DSR::Nod
     auto room_node_ = G->get_node("room_" + std::to_string(room_id));
 
     if(not room_node_.has_value())
-    { qWarning() << __FUNCTION__ << " No room node in graph"; return; }
+    { qWarning() << __FUNCTION__ << " No room node in graph with id" << room_id; return; }
     else
     {
         auto room_node = room_node_.value();

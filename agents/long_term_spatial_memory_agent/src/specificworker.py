@@ -83,6 +83,7 @@ class SpecificWorker(GenericWorker):
             self.vertex_size = 0
             self.not_required_attrs = ["parent", "timestamp_alivetime", "timestamp_creation", "rt", "valid", "obj_checked", "name", "id"]
 
+            self.last_save_time = time.time()
             # Global map variables
             self.long_term_graph = LongTermGraph("graph.pkl")
             # Check if self.long_term_graph.g is empty
@@ -92,6 +93,8 @@ class SpecificWorker(GenericWorker):
                 # Compute metric map and draw it
                 g_map = self.long_term_graph.compute_metric_map("room_1")
                 self.long_term_graph.draw_metric_map(g_map)
+                self.initialize_room_from_igraph()
+                self.update_robot_pose_in_igraph()
 
                 
 
@@ -137,6 +140,62 @@ class SpecificWorker(GenericWorker):
         # - Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
     @QtCore.Slot()
     def compute(self):
+        # Exectue function self.update_robot_pose_in_igraph each second
+        if time.time() - self.last_save_time > 1:
+            self.update_robot_pose_in_igraph()
+
+        match self.state:
+            case "idle":
+                self.idle()
+            case "crossing":
+                pass
+            case "crossed":
+                self.crossed()
+            case "initializing_room":
+                self.initializing_room()
+            case "known_room":
+                self.known_room()
+            case "initializing_doors":
+                self.initializing_doors()
+            case "store_graph":
+                self.store_graph()
+            case "removing":
+                self.removing()
+
+    def initialize_room_from_igraph(self):
+        # Remove RT edge between "root" and "Shadow"
+        self.g.delete_edge(100, self.robot_id, "RT")
+        # Check in igraph the Shadow parent node
+        robot_node = self.long_term_graph.g.vs.find(name=self.robot_name)
+        robot_node_neighbors = self.long_term_graph.g.neighbors(robot_node)
+        # Get first value and get node
+        actual_room_igraph = self.long_term_graph.g.vs(robot_node_neighbors[0])[0]
+        # Insert the room node in the DSR graph
+        self.insert_dsr_vertex("root", actual_room_igraph)
+        self.insert_dsr_edge(None, actual_room_igraph)
+        self.traverse_igraph(actual_room_igraph)
+
+        # Get room node from graph
+        room_node = self.g.get_node(actual_room_igraph["name"])
+        new_edge = Edge(self.robot_id, room_node.id, "RT", self.agent_id)
+        # Get igraph edge from room to robot
+        robot_rt_igraph = self.long_term_graph.g.es.find(_source=actual_room_igraph.index, _target=robot_node.index)
+        # Get "translation" and "rotation" attributes
+        rt_robot = robot_rt_igraph["traslation"]
+        door_rotation = robot_rt_igraph["rotation"]
+        new_edge.attrs["rt_translation"] = Attribute(np.array(rt_robot, dtype=np.float32), self.agent_id)
+        # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
+
+        new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array(door_rotation, dtype=np.float32),
+            self.agent_id)
+        self.g.insert_or_assign_edge(new_edge)
+        robot_node = self.g.get_node(self.robot_name)
+        # Modify parent attribute of robot node
+        robot_node.attrs["parent"] = Attribute(room_node.id, self.agent_id)
+        self.g.update_node(robot_node)
+
+    def update_robot_pose_in_igraph(self):
         # # Check if graph exists
         if self.long_term_graph.g:
             # Get room with "current" edge
@@ -177,8 +236,6 @@ class SpecificWorker(GenericWorker):
 
                     except Exception as e:
                         print(e)
-                        print("1")
-
                 except Exception as e:
                     print(e)
                     print("No robot node found in igraph. Inserting")
@@ -186,27 +243,10 @@ class SpecificWorker(GenericWorker):
                     self.insert_igraph_vertex(robot_node_dsr)
                     self.insert_igraph_edge(robot_rt)
             self.long_term_graph.draw_graph(False)
-
-
-
-        match self.state:
-            case "idle":
-                self.idle()
-            case "crossing":
-                pass
-            case "crossed":
-                self.crossed()
-            case "initializing_room":
-                self.initializing_room()
-            case "known_room":
-                self.known_room()
-            case "initializing_doors":
-                self.initializing_doors()
-            case "store_graph":
-                self.store_graph()
-            case "removing":
-                self.removing()
-
+            # Save graph to file
+            with open("graph.pkl", "wb") as f:
+                pickle.dump(self.long_term_graph.g, f)
+            self.last_save_time = time.time()
 
     def idle(self):
         # Check if there is a node of type aff_cross and it has it's valid attribute to true using comprehension list
