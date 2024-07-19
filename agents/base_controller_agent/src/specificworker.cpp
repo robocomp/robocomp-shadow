@@ -379,6 +379,9 @@ std::tuple<float, float, float> SpecificWorker::compute_line_of_sight_target_vel
     float side = std::clamp( (float)vector_to_target.x(), -params.MAX_SIDE_VELOCITY, params.MAX_SIDE_VELOCITY);
     float rot = std::clamp( (float)atan2(vector_to_target.x(), vector_to_target.y()), -params.MAX_ROTATION_VELOCITY, params.MAX_ROTATION_VELOCITY);
 
+    // Apply a proportional controller to the adv velocity controlled by the rotation of the robot
+    adv = adv * pow((1 - std::abs(rot) / params.MAX_ROTATION_VELOCITY), 2);
+
     return {adv, side, rot};
 }
 void SpecificWorker::move_robot(float adv, float side, float rot)

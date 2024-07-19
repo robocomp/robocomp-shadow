@@ -96,7 +96,7 @@ private:
     Constants consts;
 
     rc::Params params;
-    int min_door_distance = 2500;
+    int min_door_distance = 8000;
 
     // Lidar
     void read_lidar();

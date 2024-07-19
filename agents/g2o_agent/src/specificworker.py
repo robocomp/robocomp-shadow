@@ -67,7 +67,7 @@ class SpecificWorker(GenericWorker):
             self.last_odometry = None
             # Initialize g2o graph with visualizer
             self.g2o = G2OGraph(verbose=False)
-            self.visualizer = G2OVisualizer("G2O Graph")
+            # self.visualizer = G2OVisualizer("G2O Graph")
 
             self.odometry_noise_std_dev = 1  # Standard deviation for odometry noise
             self.odometry_noise_angle_std_dev = 1  # Standard deviation for odometry noise
@@ -211,7 +211,7 @@ class SpecificWorker(GenericWorker):
                 # print("Optimized translation:", opt_translation, "Optimized orientation:", opt_orientation)
                 # cov_matrix = self.get_covariance_matrix(last_vertex)
                 # print("Covariance matrix:", cov_matrix)
-                self.visualizer.update_graph(self.g2o)
+                # self.visualizer.update_graph(self.g2o)
 
                 # print("No valid corners counter:", no_valid_corners_counter, self.last_update_with_corners)
                 # affordance_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value]

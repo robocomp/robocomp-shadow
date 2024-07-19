@@ -249,6 +249,7 @@ void SpecificWorker::room_stabilitation()
     auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, false);
     //std::cout << __FUNCTION__ << " Pre-condition current_room.is_initialized" << std::endl;
 
+
     if (current_room.is_initialized)
     {
         auto corners = current_room.get_corners();
@@ -363,7 +364,25 @@ void SpecificWorker::create_room()
         qWarning() << __FUNCTION__ << " Most common room size not found";
         return;
     }
-    qInfo() << 1;
+    // Generate a std::string with the current time and the room id
+    std::string filename = std::to_string(get_actual_time()) + "_" + std::to_string(room_id) + ".csv";
+    std::ofstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Unable to open file: " << filename << std::endl;
+        return;
+    }
+    file << "Medida;Room;Ancho;Alto;Frecuencia\n";
+    // Iterate over room_size histogram and write to file
+    int counter = 1;
+    for(const auto &[size, count] : BTdata.room_size_histogram)
+    {
+        file << counter << ";" << room_id << ";" << size[0] << ";" << size[1] << ";" << count << "\n";
+        counter ++;
+    }
+    file.close();
+
+
     // Get the most common room size
     auto room_size = most_common_room_size->first;
     //print room size
@@ -1218,7 +1237,7 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
         
         /// Add noise to odometry data
         g2o_graph += "VERTEX_SE2 " + std::to_string(id) + " " + std::to_string(updated_robot_pose.translation().x()) + " " + std::to_string(updated_robot_pose.translation().y()) + " " + std::to_string(angle) + "\n";
-        g2o_graph += "EDGE_SE2 " + std::to_string(id-1) + " " + std::to_string(id) + " " + std::to_string(y_displacement) + " " + std::to_string(x_displacement) + " " + std::to_string(angle_displacement) + " 20 0 0 20 0 1 \n";
+        g2o_graph += "EDGE_SE2 " + std::to_string(id-1) + " " + std::to_string(id) + " " + std::to_string(y_displacement) + " " + std::to_string(x_displacement) + " " + std::to_string(angle_displacement) + " 10 0 0 10 0 0.5 \n";
         id++;
     }
 
