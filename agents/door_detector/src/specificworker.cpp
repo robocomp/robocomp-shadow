@@ -762,7 +762,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
                     /// Obtanin the central point of the door and, considering the nominal corners, check between which corners the door is
                     auto middle = (p0_projected_eigen + p1_projected_eigen) / 2;
 
-                    if(middle.norm() > 2500)
+                    if(middle.norm() > min_door_distance)
                         continue;
 
                     auto middle_closest_point = middle_point_of_closest_segment(corners, middle);
