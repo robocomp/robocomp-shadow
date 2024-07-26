@@ -83,9 +83,9 @@ class SpecificWorker : public GenericWorker
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
-            float MAX_ADVANCE_VELOCITY = 1000;  // mm/s
+            float MAX_ADVANCE_VELOCITY = 1200;  // mm/s
             float MAX_SIDE_VELOCITY = 150;  // mm/s
-            float MAX_ROTATION_VELOCITY = 0.75;  // rad/s
+            float MAX_ROTATION_VELOCITY = 0.9;  // rad/s
             float TILE_SIZE = 100;   // mm
             float MIN_DISTANCE_TO_TARGET = ROBOT_WIDTH / 2.f; // mm
             std::string LIDAR_NAME_LOW = "bpearl";

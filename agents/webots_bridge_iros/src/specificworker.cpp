@@ -108,13 +108,12 @@ void SpecificWorker::initialize(int period)
 //            std::cout << "Error opening file" << std::endl;
 //        }
 
-
         robot = new webots::Supervisor();
 
         // Inicializa los motores y los sensores de posición.
         const char *motorNames[4] = {"wheel2", "wheel1", "wheel4", "wheel3"};
         //const char *sensorNames[4] = {"wheel1sensor", "wheel2sensor", "wheel3sensor", "wheel4sensor"};
-
+        qInfo() << 1;
         // Inicializa los sensores soportados.
         lidar_helios = robot->getLidar("helios");
         lidar_pearl = robot->getLidar("bpearl");
@@ -150,6 +149,7 @@ void SpecificWorker::initialize(int period)
         robotStartPosition[0] = robot->getFromDef("shadow")->getField("translation")->getSFVec3f()[0];
         robotStartPosition[1] = robot->getFromDef("shadow")->getField("translation")->getSFVec3f()[1];
         robotStartPosition[2] = robot->getFromDef("shadow")->getField("translation")->getSFVec3f()[2];
+
         qInfo () << "Robot start position: " << robotStartPosition[0] << " " << robotStartPosition[1] << " " << robotStartPosition[2];
 
         robotStartOrientation[0] = robot->getFromDef("shadow")->getField("rotation")->getSFRotation()[0];
@@ -247,6 +247,23 @@ void SpecificWorker::compute()
     if(camera) receiving_cameraRGBData(camera);
     if(range_finder) receiving_depthImageData(range_finder);
     if(camera360_1 && camera360_2) receiving_camera360Data(camera360_1, camera360_2);
+
+    auto std_model_name = robot->getFromDef("WALLS")->getField("url")->getMFString(0);
+    std::cout << "Model name: " << std_model_name << std::endl;
+    auto root_node_ = G->get_node("root");
+    if(not root_node_.has_value())
+    {
+        std::cout << "Root node not found" << std::endl;
+        return;
+    }
+    auto root_node = root_node_.value();
+    G->add_or_modify_attrib_local<path_att>(root_node, std::string(std_model_name));
+    G->update_node(root_node);
+
+    if(auto path_name = G->get_attrib_by_name<path_att >(root_node); path_name.has_value())
+    {
+        std::cout << "Path name: " << path_name.value().get() << std::endl;
+    }
 
     insert_robot_speed_dsr();
 //    if(keyboard)

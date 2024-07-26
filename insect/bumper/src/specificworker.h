@@ -80,7 +80,7 @@ public slots:
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
-            float MAX_ADV_SPEED = 800;    // mm/s
+            float MAX_ADV_SPEED = 1200;    // mm/s
             float MAX_BACKWARDS_ADV_SPEED = 200;    // mm/s
             float MAX_SIDE_SPEED = 0;   // mm/s
             float MAX_ROT_SPEED = 1;  // rad/s

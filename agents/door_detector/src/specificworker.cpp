@@ -679,7 +679,7 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
     for(const auto &[i, p] : ldata.points | iter::enumerate)
     {
         // if point z is between 1000 and 2500
-        if(p.z < 200 and p.z > 2000)
+        if(p.z < consts.ranges_list.first and p.z > consts.ranges_list.second)
             continue;
         if(poly_room_out.containsPoint(QPointF(p.x, p.y), Qt::OddEvenFill))
             inside_poly_out[i] = true;
@@ -1779,6 +1779,9 @@ void SpecificWorker::read_lidar()
         try
         {
             auto data = lidar3d_proxy->getLidarData(consts.lidar_name, -90, 360, 3);
+            // Modify dada.points for removing points with z < consts.ranges_list through a lambda function
+            data.points.erase(std::remove_if(data.points.begin(), data.points.end(), [this](const RoboCompLidar3D::TPoint &p){ return p.z < consts.ranges_list.first or p.z > consts.ranges_list.second; }), data.points.end());
+
             buffer_lidar_data.put<0>(std::move(data), static_cast<size_t>(data.timestamp));
         }
         catch (const Ice::Exception &e) { std::cout << "Error reading from Lidar3D " << e << std::endl; }
