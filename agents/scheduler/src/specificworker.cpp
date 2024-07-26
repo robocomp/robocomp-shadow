@@ -152,6 +152,43 @@ void SpecificWorker::compute()
         }
         return;
     }
+    // Print affordance_map
+    for(auto [key, value] : affordance_map)
+    {
+        std::cout << "Affordance: " << key << " Value: " << value << std::endl;
+    }
+    // Check if any affordance to increase exists
+    if(not affordances_to_increase.empty())
+    {
+        std::cout << "Affordances to increase not empty" << std::endl;
+        for(auto aff : affordances_to_increase)
+        {
+            std::cout << aff << std::endl;
+        }
+        // Get door nodes
+        auto door_nodes = G->get_nodes_by_type("door");
+        // Check if the door node with the other side door name attribute is found
+        for(const auto &door : door_nodes)
+        {
+            if(auto other_side_door = G->get_attrib_by_name<other_side_door_name_att>(door); other_side_door.has_value())
+            {
+                if(std::find(affordances_to_increase.begin(), affordances_to_increase.end(), other_side_door.value().get()) != affordances_to_increase.end())
+                {
+                    // Check if the affordance map has the other side door name
+                    if(affordance_map.find(other_side_door.value().get()) == affordance_map.end())
+                    {
+                        affordance_map[door.name()] = 1;
+                    }
+                    else
+                    {
+                        affordance_map[door.name()]++;
+                    }
+                    affordances_to_increase.erase(std::remove(affordances_to_increase.begin(), affordances_to_increase.end(), other_side_door.value().get()), affordances_to_increase.end());
+                }
+
+            }
+        }
+    }
 
     //FIND IF EXIST ONE AFFORDANCE ACTIVATED, TO UPDATE MISSION STATUS
     //Get all nodes of type affordance
@@ -159,6 +196,13 @@ void SpecificWorker::compute()
     // If not empty, find the affordance node with the active attribute set to true
     for(auto affordance : affordance_nodes)
     {
+        // Get parent node
+        auto parent_node_ = G->get_parent_node(affordance);
+        if(not parent_node_.has_value())
+        { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
+        auto parent_node = parent_node_.value();
+        if(affordance_map.find(parent_node.name()) == affordance_map.end())
+            affordance_map[parent_node.name()] = 0;
         if(auto affordance_active = G->get_attrib_by_name<active_att>(affordance); affordance_active.has_value())
         {
             if(affordance_active.value())
@@ -176,6 +220,41 @@ void SpecificWorker::compute()
                         std::cout << CYAN << "AFFORDANCE NODE COMPLETED, setting active to false" << RESET << std::endl;
                         wait_start_time = std::chrono::system_clock::now();
                         wait = true;
+                        // Check if affordance parent node is a door
+                        /// Get parent node
+                        auto parent_node_ = G->get_parent_node(affordance);
+                        if(not parent_node_.has_value())
+                        { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
+                        auto parent_node = parent_node_.value();
+
+                        // Check if parent node is a door
+                        if(auto parent_type = parent_node.type(); parent_type == "door")
+                        {
+                            if(auto other_side_door = G->get_attrib_by_name<other_side_door_name_att>(parent_node); other_side_door.has_value())
+                            {
+                                auto other_side_door_name = other_side_door.value();
+                                if(other_side_door_name.get() == parent_node.name())
+                                {
+                                    if(affordance_map.find(other_side_door_name.get()) == affordance_map.end())
+                                    {
+                                        std::cout << "Affordance not found in map" << std::endl;
+                                        affordance_map[other_side_door_name.get()] = 1;
+
+                                    }
+                                    else
+                                    {
+                                        affordance_map[other_side_door_name.get()]++;
+                                    }
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                qWarning() << __FUNCTION__ << " No other side door name attribute found. Waiting for the adjacent door";
+                                affordances_to_increase.push_back(parent_node.name());
+                            }
+                        }
+
                         //Print the affordance name, state and value
                         return;
                     }
@@ -290,25 +369,30 @@ void SpecificWorker::compute()
             std::cout << "Affordance affordance_room_id: " << affordance_room_id.value() << std::endl;
             if(auto affordance_state = G->get_attrib_by_name<bt_state_att>(affordance); affordance_state.has_value() and affordance_room_id.value() == room_id.value())
             {
+                // Get parent node
+                auto parent_node_ = G->get_parent_node(affordance);
+                if(not parent_node_.has_value())
+                { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
+                auto parent_node = parent_node_.value();
                 std::cout << "Affordance state: " << affordance_state.value() << std::endl;
                 //check if affordance state is waiting
 //            if(affordance_state.value() == "waiting" and executed_affordances.end() == std::find(executed_affordances.begin(), executed_affordances.end(), affordance.name()))
                 if(affordance_state.value() == "waiting")
                 {
                     //check if affordance name is in the map
-                    if(affordance_map.find(affordance.name()) == affordance_map.end())
+                    if(affordance_map.find(parent_node.name()) == affordance_map.end())
                     {
                         std::cout << "Affordance not found in map" << std::endl;
-                        affordance_map[affordance.name()] = 0;
-                        best_aff = affordance.name();
+                        affordance_map[parent_node.name()] = 0;
+                        best_aff = parent_node.name();
                         break;
                     }
                     else
                     {
                         //check if best affordance int in map is less than the current affordance
-                        if(best_aff.empty() or affordance_map[affordance.name()] < affordance_map[best_aff])
+                        if(best_aff.empty() or affordance_map[parent_node.name()] < affordance_map[best_aff])
                         {
-                            best_aff = affordance.name();
+                            best_aff = parent_node.name();
                         }
                     }
                 }
@@ -316,26 +400,35 @@ void SpecificWorker::compute()
         }
     }
     std::cout << "Best affordance: " << best_aff << std::endl;
-    // Print affordance_map
-    for(auto [key, value] : affordance_map)
-    {
-        std::cout << "Affordance: " << key << " Value: " << value << std::endl;
-    }
-    //get node from best_aff
-    if (auto affordance_ = G->get_node(best_aff); affordance_.has_value())
-    {
-        auto affordance = affordance_.value();
-        //Print NEW AFFORDANCE ACTIVE in GREEN color
-        std::cout << BLUE << "----------------- NEW AFFORDANCE ACTIVE ----------------------------" << RESET << std::endl;
-        //Print the affordance name and state
-        qInfo() << "Affordance name: " << QString::fromStdString(affordance.name());
-        // add to affordancce
 
-        //Set the affordance active to true
-        G->add_or_modify_attrib_local<active_att>(affordance, true);
-        //Set the affordance state to in_progress
-        G->update_node(affordance);
-        affordance_map[affordance.name()]++;
+    //get node from best_aff
+    if (auto door_affordance_ = G->get_node(best_aff); door_affordance_.has_value())
+    {
+        auto door_affordance = door_affordance_.value();
+        // Iterate over affordance nodes and get the affordance node which parent node is the best_aff
+        for(auto affordance : affordance_nodes)
+        {
+            if (auto parent = G->get_parent_node(affordance); parent.has_value())
+            {
+                if (parent.value().name() == best_aff)
+                {
+                    //Print NEW AFFORDANCE ACTIVE in GREEN color using printf
+                    //Print NEW AFFORDANCE ACTIVE in GREEN color
+                    std::cout << BLUE << "----------------- NEW AFFORDANCE ACTIVE ----------------------------" << RESET << std::endl;
+                    //Print the affordance name and state
+                    qInfo() << "Affordance name: " << QString::fromStdString(affordance.name());
+                    // add to affordancce
+
+                    //Set the affordance active to true
+                    G->add_or_modify_attrib_local<active_att>(affordance, true);
+                    //Set the affordance state to in_progress
+                    G->update_node(affordance);
+                    affordance_map[best_aff]++;
+                    break;
+                }
+            }
+        }
+
     }
     else
     {

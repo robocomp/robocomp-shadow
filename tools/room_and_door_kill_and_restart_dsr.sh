@@ -1,4 +1,13 @@
+#!/bin/bash
+
 # Kill process
+
+if [ "$1" == "true" ]; then
+   qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 /usr/local/webots/bin/webots-bin"
+   sleep 1
+   qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "webots&"
+   sleep 5
+fi
 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 Webots2Robocomp"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal 0 "killall -9 base_controller"

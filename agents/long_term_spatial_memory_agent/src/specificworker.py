@@ -30,6 +30,8 @@ import time
 import setproctitle
 import math
 import pickle
+import subprocess
+import json
 
 from long_term_graph import LongTermGraph
 
@@ -87,16 +89,16 @@ class SpecificWorker(GenericWorker):
             # Global map variables
             self.long_term_graph = LongTermGraph("graph.pkl")
             # Check if self.long_term_graph.g is empty
-            if self.long_term_graph.g.vcount() != 0:
-                # Draw graph from file
-                self.long_term_graph.draw_graph(False)
-                # Compute metric map and draw it
-                g_map = self.long_term_graph.compute_metric_map("room_1")
-                self.long_term_graph.draw_metric_map(g_map)
-                self.initialize_room_from_igraph()
-                self.update_robot_pose_in_igraph()
+            # if self.long_term_graph.g.vcount() != 0:
+            #     # Draw graph from file
+            #     self.long_term_graph.draw_graph(False)
+            #     # Compute metric map and draw it
+            #     g_map = self.long_term_graph.compute_metric_map("room_1")
+            #     self.long_term_graph.draw_metric_map(g_map)
+            #     self.initialize_room_from_igraph()
+            #     self.update_robot_pose_in_igraph()
 
-                
+            self.room_number_limit = 2
 
 
             # In case the room node exists but the current edge is not set, set it
@@ -141,9 +143,31 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # Exectue function self.update_robot_pose_in_igraph each second
-        if time.time() - self.last_save_time > 1:
-            self.update_robot_pose_in_igraph()
+        # if time.time() - self.last_save_time > 1:
+        #     self.update_robot_pose_in_igraph()
 
+        # # Get room nodes number in igraph
+        # try:
+        #     room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
+        #     if len(room_nodes) == self.room_number_limit:
+        #         # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
+        #         room_dict = {room["name"]: room.attributes() for room in room_nodes}
+        #         # For each room, insert an attribute with the room center in the global reference system
+        #         for room in room_dict:
+        #             room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room)
+        #             room_dict[room]["x_center"] = room_center[0]
+        #             room_dict[room]["y_center"] = room_center[1]
+        #             room_dict[room]["z_center"] = room_center[2]
+        #         # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
+        #         with open(f"tests/test_{len(os.listdir('tests'))}.json", "w+") as f:
+        #             json.dump(room_dict, f)
+        #
+        #
+        #         self.kill_everything()
+        # except Exception as e:
+        #     print(e)
+        #     pass
+        print(self.state)
         match self.state:
             case "idle":
                 self.idle()
@@ -783,6 +807,18 @@ class SpecificWorker(GenericWorker):
         # Insert current edge to the room
         current_edge = Edge(room_id, room_id, "current", self.agent_id)
         self.g.insert_or_assign_edge(current_edge)
+
+    def kill_everything(self):
+        # Ruta al script que deseas ejecutar
+        script_path = '/home/robocomp/robocomp/components/robocomp-shadow/tools/room_and_door_kill_and_restart_dsr.sh'  # Asegúrate de que el script tenga permisos de ejecución
+        # Ejecutar el script
+        subprocess.run(['chmod', '+x', script_path])
+        result = subprocess.run([script_path, 'true'], capture_output=True, text=True)
+        # Imprimir la salida del scriptprint('Salida del script:')print(result.stdout)
+        # Imprimir los errores (si los hay)
+        if result.stderr:
+            print('Errores del script:')
+            print(result.stderr)
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
