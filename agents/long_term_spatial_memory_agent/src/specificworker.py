@@ -31,6 +31,7 @@ import setproctitle
 import math
 import pickle
 import subprocess
+from collections import deque
 import json
 
 from long_term_graph import LongTermGraph
@@ -98,7 +99,19 @@ class SpecificWorker(GenericWorker):
             #     self.initialize_room_from_igraph()
             #     self.update_robot_pose_in_igraph()
 
-            self.room_number_limit = 2
+            # Get ground truth map from json
+            root_node = self.g.get_node("root")
+            path_attribute = root_node.attrs["path"].value
+            if path_attribute:
+                # Get string between "generatedRooms/" and "/ApartmentFloorPlan.stl"
+                self.room_number = path_attribute.split("generatedRooms/")[1].split("/ApartmentFloorPlan.stl")[0]
+                print("Room number", self.room_number)
+                # Get data from apartmentData.json file in '/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms'
+                with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/apartmentData.json") as f:
+                    data = json.load(f)
+                    self.room_number_limit = len(data["rooms"])
+           # Print the number of rooms in the ground truth map
+            print("Room number limit", self.room_number_limit)
 
 
             # In case the room node exists but the current edge is not set, set it
@@ -108,6 +121,8 @@ class SpecificWorker(GenericWorker):
                 print("Room node exists but no current edge. Setting as current")
                 if not "measured" in room_nodes[0].name:
                     self.insert_current_edge(room_nodes[0].id)
+
+            self.pending_doors_to_stabilize = deque(maxlen=10)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -147,27 +162,54 @@ class SpecificWorker(GenericWorker):
         #     self.update_robot_pose_in_igraph()
 
         # # Get room nodes number in igraph
-        # try:
-        #     room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
-        #     if len(room_nodes) == self.room_number_limit:
-        #         # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
-        #         room_dict = {room["name"]: room.attributes() for room in room_nodes}
-        #         # For each room, insert an attribute with the room center in the global reference system
-        #         for room in room_dict:
-        #             room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room)
-        #             room_dict[room]["x_center"] = room_center[0]
-        #             room_dict[room]["y_center"] = room_center[1]
-        #             room_dict[room]["z_center"] = room_center[2]
-        #         # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
-        #         with open(f"tests/test_{len(os.listdir('tests'))}.json", "w+") as f:
-        #             json.dump(room_dict, f)
-        #
-        #
-        #         self.kill_everything()
-        # except Exception as e:
-        #     print(e)
-        #     pass
-        print(self.state)
+        try:
+            room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
+            door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
+            # Check if every door node has a "connected_room_name" attribute
+            connected = True
+            for door in door_nodes:
+                 # Check if door has "connected_room_name" attribute and return if is None
+                if not door["other_side_door_name"]:
+                    connected = False
+                    print("Door", door["name"], "has no connected_room_name attribute")
+                    break
+            if len(room_nodes) == self.room_number_limit and connected:
+                dict = {}
+                # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
+                try:
+                    dict["rooms"] = [{"name" : room["name"], "x" : room["width"], "y" : room["depth"], "room_id" : room["room_id"]} for room in room_nodes]
+
+                    # For each room, insert an attribute with the room center in the global reference system
+                    for room in dict["rooms"]:
+                        room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room["name"])
+                        print("ROOM CENTER POSE VALUE", room_center)
+                        room["global_center"] = (room_center[0], room_center[1])
+                        if (2 * math.pi/6)  < abs(room_center[2]) < (4*math.pi/6):
+                            room["x"], room["y"] = room["y"], room["x"]
+                    dict["doors"] = [{"name" : door["name"], "width" : door["width"], "room_id" : door["room_id"], "other_side_door_name" : door["other_side_door_name"], "connected_room_name" : door["connected_room_name"]} for door in self.long_term_graph.g.vs.select(type_eq="door")]
+                    for door in dict["doors"]:
+                        door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", door["name"])
+                        door["global_center"] = (door_center[0], door_center[1])
+                        # Divide door name by "_" and get the second and the forth element to get the wall_id
+                        wall_id = "wall_" + door["name"].split("_")[1] + "_" + door["name"].split("_")[3]
+                        door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), wall_id, door["name"])
+                        door["pose"] = (door_center[0], door_center[1])
+                    print(dict)
+                    # print(dict["doors"])
+                    # Get file number in "/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number} "
+                    file_number = len([name for name in os.listdir(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}") if os.path.isfile(os.path.join(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}", name))])
+                    # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
+                    with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/generated_data_" + str(file_number) + ".json", "w+") as f:
+                        json.dump(dict, f)
+                    self.kill_everything()
+                except Exception as e:
+                    print(e)
+                    exit(0)
+
+        except Exception as e:
+            print(e)
+            pass
+        # print(self.state)
         match self.state:
             case "idle":
                 self.idle()
@@ -289,6 +331,20 @@ class SpecificWorker(GenericWorker):
                 exit_room_node = self.g.get_node(self.room_exit_door_id)
                 # Store DSR graph in igraph
                 self.store_graph()
+                # Check if there are pending doors to stabilize
+                print("Pending doors to stabilize", self.pending_doors_to_stabilize)
+                if self.pending_doors_to_stabilize:
+                    pending_door = self.pending_doors_to_stabilize.popleft()
+                    print("Pending door to stabilize", pending_door)
+                    # Try to associate
+                    try:
+                        self.associate_doors(pending_door[0], pending_door[1])
+                    except:
+                        print("Error associating doors. One of the doors was not found in the global map")
+                        self.pending_doors_to_stabilize.append(pending_door)
+
+                # Add data to json file
+
                 # Draw graph from file
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
@@ -532,9 +588,7 @@ class SpecificWorker(GenericWorker):
                 other_side_door_node.attrs["connected_room_name"] = Attribute(connected_room_name_enter_door, self.agent_id)
                 self.g.update_node(exit_door_node)
                 self.g.update_node(other_side_door_node)
-
                 self.associate_doors((other_side_door_node.name, connected_room_name_exit_door), (exit_door_node.name, connected_room_name_enter_door))
-
                 # Find each door in igraph
                 self.state = "removing"
 
@@ -544,11 +598,15 @@ class SpecificWorker(GenericWorker):
             door_1_node = self.long_term_graph.g.vs.find(name=door_1[0])
         except:
             print("No door node found in igraph", door_1[0])
+            self.pending_doors_to_stabilize.append((door_1, door_2))
+            print("Pending doors to stabilize", self.pending_doors_to_stabilize)
             return
         try:
             door_2_node = self.long_term_graph.g.vs.find(name=door_2[0])
         except:
             print("No door node found in igraph", door_2[0])
+            self.pending_doors_to_stabilize.append((door_1, door_2))
+            print("Pending doors to stabilize", self.pending_doors_to_stabilize)
             return
         self.long_term_graph.g.add_edge(door_1_node, door_2_node)
         door_1_node["other_side_door_name"] = door_2[0]
@@ -678,7 +736,11 @@ class SpecificWorker(GenericWorker):
         destination_node = self.long_term_graph.g.vs.find(name=destination_node_dsr.name)
         # Add the edge to the graph
         if destination_node_dsr.name != self.robot_name:
-            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+            # Check if destination_node["type"] == "door"
+            traslation = edge.attrs["rt_translation"].value
+            if destination_node["type"] == "door":
+                traslation[1] += 100
+            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=traslation, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         else:
             self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
@@ -820,6 +882,8 @@ class SpecificWorker(GenericWorker):
             print('Errores del script:')
             print(result.stderr)
 
+    # def add_data_to_json(self, room_node_id):
+
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
 
@@ -840,34 +904,34 @@ class SpecificWorker(GenericWorker):
                     # print("Door node found in igraph. Returning.")
                     return
                 except:
-                    print("No door node found in igraph. Checking if room node exists")
+                    # print("No door node found in igraph. Checking if room node exists")
                     # Get room node
                     room_id = door_node.attrs["room_id"].value
                     try:
                         room_node = self.long_term_graph.g.vs.find(name="room_" + str(room_id))
                         print("Room node found in igraph. Inserting door")
                         parent_id = door_node.attrs["parent"].value
-                        print("Parent id", parent_id)
+                        # print("Parent id", parent_id)
                         door_parent_node = self.g.get_node(parent_id)
-                        print("Door parent name", door_parent_node.name)
+                        # print("Door parent name", door_parent_node.name)
                         # Insert door node in igraph
                         self.insert_igraph_vertex(door_node)
-                        print("Door inserted in igraph")
+                        # print("Door inserted in igraph")
                         # Get RT from door_parent to door
                         # rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
 
                         rt_door = self.g.get_edge(door_parent_node.id, door_node.id, "RT")
-                        print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
-                        print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
-                        print("IDS", door_parent_node.id, door_node.id)
+                        # print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
+                        # print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
+                        # print("IDS", door_parent_node.id, door_node.id)
                         self.insert_igraph_edge(rt_door)
                         with open("graph.pkl", "wb") as f:
                             pickle.dump(self.long_term_graph.g, f)
-                        print("Door inserted in igraph")
+                        # print("Door inserted in igraph")
                         self.long_term_graph.draw_graph(False)
                     except Exception as e:
-                        print("No room node found in igraph. Not possible to insert door")
-                        print(e)
+                        # print("No room node found in igraph. Not possible to insert door")
+                        # print(e)
                         return
 
         if id == self.affordance_node_active_id:

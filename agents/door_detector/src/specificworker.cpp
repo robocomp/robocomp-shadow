@@ -565,6 +565,11 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
         auto wall_id = std::stoi(n.name().substr(5, 1));
         /// Get door id knowing that is the 7 string element in the name
         auto door_id = std::stoi(n.name().substr(7, 1));
+        // Check if door still exists in graph
+
+        if(not G->get_node(n.id()).has_value())
+        { qWarning() << __FUNCTION__ << " Door node does not exist in graph"; continue; }
+        
         if(auto door_width = G->get_attrib_by_name<width_att>(n); door_width.has_value())
         {
             auto p_0_ = Eigen::Vector3d {-(double)door_width.value() / 2, 0, 0};
@@ -1182,7 +1187,9 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
     G->add_or_modify_attrib_local<rt_translation_att>(door_node, measured_pose);
     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att >(door_node, measured_orientation);
     G->add_or_modify_attrib_local<valid_att>(door_node, true);
-    G->update_node(door_node);
+
+    if(auto door_node_ = G->get_node(door_name); door_node_.has_value())
+        G->update_node(door_node);
 
     /// Transform pose to parent node reference frame
     if(auto pose_transformed_ = inner_eigen->transform(parent_node.name(), Eigen::Vector3d{pose[0], pose[1], 0.f}, room_node.name()); pose_transformed_.has_value())
@@ -1573,7 +1580,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 else
                     std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
 
-                if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
                     std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                 else
                     std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
@@ -1599,7 +1606,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     else
                         std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
 
-                    if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                    if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
                         std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                     else
                         std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
@@ -1671,7 +1678,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 else
                     std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
 
-                if (G->delete_edge(wall_node.id(), door_node.id(), "rt"))
+                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
                     std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
                 else
                     std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
@@ -1721,7 +1728,7 @@ void SpecificWorker::remove_to_stabilize_door_in_graph(uint64_t door_id)
     { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
     auto parent_node = parent_node_.value();
 
-    if (G->delete_edge(parent_node.id(), door_id, "rt"))
+    if (G->delete_edge(parent_node.id(), door_id, "RT"))
         std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
     else
         std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
