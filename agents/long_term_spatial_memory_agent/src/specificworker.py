@@ -30,6 +30,9 @@ import time
 import setproctitle
 import math
 import pickle
+import subprocess
+from collections import deque
+import json
 
 from long_term_graph import LongTermGraph
 
@@ -48,92 +51,102 @@ from pydsr import *
 
 class SpecificWorker(GenericWorker):
     """
-    Manages a specific node and edge attributes and performs various operations
-    on them, such as updating, inserting, deleting, and attributing. It also keeps
-    track of the current state of the robot and updates the graph accordingly.
+    Simulates a robot navigating through a virtual environment by traversing a
+    graph, updating node and edge attributes, and performing tasks such as door
+    associations, room creation, and path planning.
 
     Attributes:
-        Period (Union[int,str]): Used to store the period of time during which the
-            worker can perform its task, such as a day or a week.
-        agent_id (int|str): Used to identify the specific worker instance, allowing
-            the agent to perform tasks and maintain a unique identity during its
-            lifetime.
-        g (igraphGraph): Used to represent the long-term graph of the environment,
-            which is updated periodically by the worker.
-        startup_check (bool|str): Used to check if the worker has been started or
-            not, with possible values "yes", "no", or False.
-        rt_api (str|int): Used for storing the RT (Real-Time) API ID which represents
-            the current task being executed by the worker.
-        inner_api (Dict[str,Any]): Used to store the inner API of the worker, which
-            is a Python function that performs actions related to the worker's task.
-        robot_name (str|int): Used to store the name of the robot that will perform
-            a specific task.
-        robot_id (int): Used to identify the robot node in the graph, which is the
-            starting point for the worker's movement.
-        last_robot_pose (Tuple[float,float,float]): Stored as the last known pose
-            (position, orientation, and scale) of the robot before any actions
-            were taken in the environment.
-        robot_exit_pose (str|int): A reference to the pose of the robot when it
-            exits a room. It is used to determine when the robot has reached its
-            goal in a task.
-        state (str|int): Used to keep track of the current state of the worker,
-            which can be either "idle", "crossed", or "completed".
-        affordance_node_active_id (int|bool): Used to keep track of the active
-            affordance node ID, which is used to determine when the robot has
-            reached its goal.
-        exit_door_id (int|str): Used to store the ID of the door node that leads
-            from a room to the outside world.
-        room_exit_door_id (int|str): Used to represent the ID of the door node
-            that leads from a room to the outside world.
-        enter_room_node_id (int): Used to store the ID of the room node that the
-            worker is currently entering.
-        vertex_size (int|str): Used to keep track of the number of vertices in the
-            graph, which can be useful for various operations such as insertion,
-            deletion, and querying the graph.
-        not_required_attrs (List[str]): Used to store a list of attributes that
-            are not required for the worker's functionality, but can be useful for
-            debugging or other purposes.
-        last_save_time (datetime|str): Used to store the time when the worker's
-            long-term graph was last saved. It helps track when the graph was last
-            updated for subsequent actions.
-        long_term_graph (igraphGraph): Used to store the long-term graph representation
-            of the environment, which is updated over time as new data becomes available.
-        initialize_room_from_igraph (Dict[str,Any]): Used to initialize the room
-            graph from an igraph graph. It takes the igraph graph as input and
-            creates a new room graph with the same node IDs and edges as the input
-            igraph.
-        update_robot_pose_in_igraph (void): Used to update the pose of a robot
-            node in the graph by inserting a new edge with the correct "RT"
-            translation and rotation.
-        insert_current_edge (List[Edge]): Used to insert a new edge into the graph
-            with the specified source and target nodes and edge type, effectively
-            setting it as the current edge in the graph.
-        timer (int|float): Used to track the time taken by the worker to perform
-            its tasks.
-        compute (Callable[[int],str|int]): Defined as a method that takes an integer
-            argument and returns a string or integer value representing the result
-            of some computation. It is used in various methods of the worker to
-            perform computations on the graph.
-        update_node (Dict[str,Any]): Responsible for updating a node in the graph
-            when the worker's id matches the node's id. It takes three parameters:
-            `id`, `type`, and `door_node`. The method updates the node's attributes
-            based on its type and inserts an RT edge between the node and its
-            parent if necessary.
-        update_edge (Union[int,str]): Used to update an edge's type or remove it
-            altogether based on certain conditions.
+        Period (None): 100 by default, indicating a period of time (in milliseconds)
+            for computing tasks. It is used to set the timer interval for periodic
+            computations.
+        agent_id (int): 13, which represents the ID of a specific agent in the
+            robotic environment. It is used as an identifier for the agent's
+            internal graph.
+        g (igraphGraph): Used to interact with the graph library igraph. It contains
+            methods to insert, delete, update nodes and edges in the graph, as
+            well as traverse the graph.
+        startup_check (None|bool): Set by default to None. It is a simple flag
+            that is used for checking if the startup process has completed successfully.
+        rt_api (object): Used to get edge RT (Rotation and Translation) from the
+            `room_exit_door_id` to the robot node.
+        inner_api (object): Used for internal API operations, likely related to
+            robot pose transformations, door connections, or other internal
+            mechanisms. The exact functionality depends on the implementation details.
+        testing (Attribute): 2. It seems to be used as a flag for testing mode,
+            controlling certain behavior or actions within the class.
+        robot_name (str): Used as a name for the robot node in the graph. It appears
+            to be used to identify the robot's location within the graph.
+        robot_id (int): 13, as initialized in the `__init__` method. It appears
+            to be a unique identifier for the robot node in the graph.
+        last_robot_pose (npfloat64): 3-dimensional, representing the last known
+            pose (position and orientation) of the robot in the room. It is used
+            to store the previous position of the robot before updating it with
+            new data.
+        robot_exit_pose (npndarray[npfloat64,1D]): 3-dimensional representing a
+            pose (x, y, z) of the robot when exiting a room. It stores the final
+            affordance pose transformed to the global reference system.
+        state (str|None): Used to keep track of the current state of the worker,
+            such as "idle", "crossing", "known_room", etc., which determines how
+            it should behave in different situations.
+        affordance_node_active_id (int): 13 by default, which corresponds to the
+            agent's ID. This variable seems to keep track of the active affordance
+            node in the graph.
+        exit_door_id (int): Used as a reference to identify the ID of the door
+            that represents the exit from a room.
+        room_exit_door_id (int): 13, as specified in the class initialization
+            method (`__init__`). It represents the ID of the exit door node in the
+            graph.
+        enter_room_node_id (int): Set when a new room is entered. It holds the ID
+            of the node that represents the current room being explored by the robot.
+        vertex_size (int): 0 initially. It increments by 1 each time a new vertex
+            (node) is inserted into the graph, keeping track of the number of
+            vertices created so far.
+        not_required_attrs (List[str]): Used to store the names of attributes that
+            are not required for vertex objects in the graph, such as "parent",
+            "timestamp_alivetime", etc. These attributes are ignored when inserting
+            vertices into the graph.
+        last_save_time (float): Used to store the timestamp when the worker's state
+            was last saved or updated.
+        long_term_graph (igraphGraph): Used to store and manipulate the long-term
+            graph data structure, which represents the agent's internal model of
+            its environment.
+        room_number (int): 1-based indexing for the room ID. It represents the
+            unique identifier of a room node in the graph data structure.
+        room_number_limit (None|int): 0 by default. It seems to be related to the
+            limit of rooms in a generated apartment, used for procedural room generation.
+        insert_current_edge (None): Used to set a current edge between two nodes
+            in the graph, updating the room state to idle.
+        pending_doors_to_stabilize (List[tuple[str,str]]): Initialized with a
+            deque(maxlen=10) to store door names to be stabilized later. It keeps
+            track of doors that need to be connected in the graph based on certain
+            conditions.
+        timer (QTimer): Used for scheduling the execution of a method after a
+            certain time delay or interval (set by the `start` method).
+        compute (None|Callable[[Any],Any]): Used as a slot for handling timer
+            events. It contains a method that gets called at regular intervals,
+            performing specific tasks depending on the state of the worker.
+        update_node (None|int,str): Used to update a node with the given id and type.
+        update_edge (NoneNonefrint,toint,typestr): Used to update edges in the
+            graph, specifically when the edge's destination is the robot ID, source
+            node is not the room exit door, type is "RT" and there are no current
+            edges.
 
     """
     def __init__(self, proxy_map, startup_check=False):
         """
-        Initializes the worker's internal state, including its graph, node and
-        edge variables, and timers for computing and updating the graph.
+        Initializes various attributes, sets up graph data structures, and connects
+        signals to methods for updating nodes and edges. It also starts a timer
+        that triggers the compute method at regular intervals.
 
         Args:
-            proxy_map (dict): Used to pass a mapping of proxy nodes to their
-                corresponding real nodes in the graph.
-            startup_check (bool): Set to False by default. It performs a check on
-                the graph upon initialization if it's set to True, otherwise, it
-                does not.
+            proxy_map (object): Passed to the superclass constructor using the
+                `super()` function, indicating that it should be used for
+                initialization. Its purpose and content are not specified within
+                this code block.
+            startup_check (bool): Set to False by default. It determines whether
+                a startup check should be performed or not. If set to True, it
+                calls the `startup_check` method; otherwise, it initializes the
+                other parts of the class.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -148,6 +161,8 @@ class SpecificWorker(GenericWorker):
         else:
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
+
+            self.testing = False
 
             # Robot node variables
             self.robot_name = "Shadow"
@@ -175,16 +190,29 @@ class SpecificWorker(GenericWorker):
             # Global map variables
             self.long_term_graph = LongTermGraph("graph.pkl")
             # Check if self.long_term_graph.g is empty
-            if self.long_term_graph.g.vcount() != 0:
-                # Draw graph from file
-                self.long_term_graph.draw_graph(False)
-                # Compute metric map and draw it
-                g_map = self.long_term_graph.compute_metric_map("room_1")
-                self.long_term_graph.draw_metric_map(g_map)
-                self.initialize_room_from_igraph()
-                self.update_robot_pose_in_igraph()
+            # if self.long_term_graph.g.vcount() != 0:
+            #     # Draw graph from file
+            #     self.long_term_graph.draw_graph(False)
+            #     # Compute metric map and draw it
+            #     g_map = self.long_term_graph.compute_metric_map("room_1")
+            #     self.long_term_graph.draw_metric_map(g_map)
+            #     self.initialize_room_from_igraph()
+            #     self.update_robot_pose_in_igraph()
 
-                
+            if self.testing:
+                # Get ground truth map from json
+                root_node = self.g.get_node("root")
+                path_attribute = root_node.attrs["path"].value
+                if path_attribute:
+                    # Get string between "generatedRooms/" and "/ApartmentFloorPlan.stl"
+                    self.room_number = path_attribute.split("generatedRooms/")[1].split("/ApartmentFloorPlan.stl")[0]
+                    print("Room number", self.room_number)
+                    # Get data from apartmentData.json file in '/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms'
+                    with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/apartmentData.json") as f:
+                        data = json.load(f)
+                        self.room_number_limit = len(data["rooms"])
+               # Print the number of rooms in the ground truth map
+                print("Room number limit", self.room_number_limit)
 
 
             # In case the room node exists but the current edge is not set, set it
@@ -194,6 +222,8 @@ class SpecificWorker(GenericWorker):
                 print("Room node exists but no current edge. Setting as current")
                 if not "measured" in room_nodes[0].name:
                     self.insert_current_edge(room_nodes[0].id)
+
+            self.pending_doors_to_stabilize = deque(maxlen=10)
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -214,17 +244,21 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         """
-        Sets parameters and modifies the state of the room by removing a self-edge,
-        storing an exit door ID, and adding attributes to doors.
+        Sets parameters for a scenario and performs subsequent actions on doors,
+        including removing self-edges, storing door IDs, updating door attributes,
+        and adding an attribute to an entrance door node.
 
         Args:
-            params (bool): Passed to set the parameters of the room.
+            params (Dict[any, any]): Expected to contain various parameters used
+                for setting up the current room state in the game.
 
         Returns:
             bool: True.
 
         """
         return True
+
+
 
         # PROTOcode
         # Check if there is a node of type aff_cross and it has it's valid attribute to true
@@ -240,14 +274,65 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # Exectue function self.update_robot_pose_in_igraph each second
-        """
-        Updates the robot's pose in the graph and performs various actions based
-        on the current state of the robot.
+        # if time.time() - self.last_save_time > 1:
+        #     self.update_robot_pose_in_igraph()
 
         """
-        if time.time() - self.last_save_time > 1:
-            self.update_robot_pose_in_igraph()
+        Computes the position and orientation of rooms and doors, generates JSON
+        data for each room, saves it to a file, and then terminates the process
+        if testing mode is enabled.
 
+        """
+        if self.testing:
+            # # Get room nodes number in igraph
+            try:
+                room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
+                door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
+                # Check if every door node has a "connected_room_name" attribute
+                connected = True
+                for door in door_nodes:
+                     # Check if door has "connected_room_name" attribute and return if is None
+                    if not door["other_side_door_name"]:
+                        connected = False
+                        print("Door", door["name"], "has no connected_room_name attribute")
+                        break
+                if len(room_nodes) == self.room_number_limit and connected:
+                    dict = {}
+                    # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
+                    try:
+                        dict["rooms"] = [{"name" : room["name"], "x" : room["width"], "y" : room["depth"], "room_id" : room["room_id"]} for room in room_nodes]
+
+                        # For each room, insert an attribute with the room center in the global reference system
+                        for room in dict["rooms"]:
+                            room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room["name"])
+                            print("ROOM CENTER POSE VALUE", room_center)
+                            room["global_center"] = (room_center[0], room_center[1])
+                            if (2 * math.pi/6)  < abs(room_center[2]) < (4*math.pi/6):
+                                room["x"], room["y"] = room["y"], room["x"]
+                        dict["doors"] = [{"name" : door["name"], "width" : door["width"], "room_id" : door["room_id"], "other_side_door_name" : door["other_side_door_name"], "connected_room_name" : door["connected_room_name"]} for door in self.long_term_graph.g.vs.select(type_eq="door")]
+                        for door in dict["doors"]:
+                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", door["name"])
+                            door["global_center"] = (door_center[0], door_center[1])
+                            # Divide door name by "_" and get the second and the forth element to get the wall_id
+                            wall_id = "wall_" + door["name"].split("_")[1] + "_" + door["name"].split("_")[3]
+                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), wall_id, door["name"])
+                            door["pose"] = (door_center[0], door_center[1])
+                        print(dict)
+                        # print(dict["doors"])
+                        # Get file number in "/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number} "
+                        file_number = len([name for name in os.listdir(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}") if os.path.isfile(os.path.join(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}", name))])
+                        # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
+                        with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/generated_data_" + str(file_number) + ".json", "w+") as f:
+                            json.dump(dict, f)
+                        self.kill_everything()
+                    except Exception as e:
+                        print(e)
+                        exit(0)
+
+            except Exception as e:
+                print(e)
+                pass
+        # print(self.state)
         match self.state:
             case "idle":
                 self.idle()
@@ -269,10 +354,9 @@ class SpecificWorker(GenericWorker):
     def initialize_room_from_igraph(self):
         # Remove RT edge between "root" and "Shadow"
         """
-        Initializes a room in a graph by deleting an edge, finding the robot node
-        and its neighbors, creating a new vertex for the root of the igraph,
-        inserting edges to connect the robot to the room and the room to itself,
-        and updating the robot's parent node attribute.
+        Initializes a room structure from an igraph object, creates a root node
+        and edges, updates node attributes, and inserts or assigns new edges into
+        the graph.
 
         """
         self.g.delete_edge(100, self.robot_id, "RT")
@@ -309,9 +393,10 @@ class SpecificWorker(GenericWorker):
     def update_robot_pose_in_igraph(self):
         # # Check if graph exists
         """
-        Updates the robot's pose in an igraph graph based on a RT translation and
-        rotation, taking into account the robot's current location and the surrounding
-        rooms.
+        Updates the robot's pose in an igraph graph by reflecting changes from a
+        long-term graph to the current graph and saving the updated graph. It
+        handles cases where the robot moves between rooms or when it is not found
+        in the igraph.
 
         """
         if self.long_term_graph.g:
@@ -368,9 +453,9 @@ class SpecificWorker(GenericWorker):
     def idle(self):
         # Check if there is a node of type aff_cross and it has it's valid attribute to true using comprehension list
         """
-        Detects when the robot enters a new room and associates doors based on
-        their proximity to the robot's current position, updating the graph and
-        door attributes accordingly.
+        Handles affordance nodes, stabilizes doors, and computes robot poses for
+        crossing between rooms. It updates the graph state and prints relevant
+        information during its execution.
 
         """
         aff_cross_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value == True]
@@ -388,6 +473,20 @@ class SpecificWorker(GenericWorker):
                 exit_room_node = self.g.get_node(self.room_exit_door_id)
                 # Store DSR graph in igraph
                 self.store_graph()
+                # Check if there are pending doors to stabilize
+                print("Pending doors to stabilize", self.pending_doors_to_stabilize)
+                if self.pending_doors_to_stabilize:
+                    pending_door = self.pending_doors_to_stabilize.popleft()
+                    print("Pending door to stabilize", pending_door)
+                    # Try to associate
+                    try:
+                        self.associate_doors(pending_door[0], pending_door[1])
+                    except:
+                        print("Error associating doors. One of the doors was not found in the global map")
+                        self.pending_doors_to_stabilize.append(pending_door)
+
+                # Add data to json file
+
                 # Draw graph from file
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
@@ -473,9 +572,8 @@ class SpecificWorker(GenericWorker):
     def crossed(self):
         # Get parent node of affordance node
         """
-        1) retrieves the active affordance node and its parent, 2) sets the exit
-        door ID to the value of the parent attribute, and 3) deletes the edge
-        connecting the current room to itself.
+        Updates the room state and door connections based on the current affordance
+        node and exit door node in the graph.
 
         """
         affordance_node = self.g.get_node(self.affordance_node_active_id)
@@ -500,9 +598,10 @@ class SpecificWorker(GenericWorker):
 
         # Get room nodes
         """
-        Determines and sets the ID of the room node to enter upon construction,
-        based on conditions involving the existence of nodes labeled "room" and
-        the absence of certain attributes.
+        Retrieves a list of room nodes, selects the first node, sets it as the
+        current room, and inserts an edge representing this change into a graph.
+        The method then changes its internal state to "initializing_doors" and
+        prints a status message.
 
         """
         room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
@@ -519,9 +618,9 @@ class SpecificWorker(GenericWorker):
     def known_room(self):
         # Get other side door name attribute
         """
-        Detects the room the robot is currently in and finds the door node leading
-        to the next room. It then creates a new edge in the graph representing the
-        RT pose of the robot and updates the graph with the new edge.
+        Navigates from the current room to another connected room through an exit
+        door, updates the graph representation of the new room and door, and adjusts
+        the robot's position and orientation accordingly.
 
         """
         other_side_door_node = self.g.get_node(self.exit_door_id)
@@ -619,9 +718,9 @@ class SpecificWorker(GenericWorker):
     def initializing_doors(self):
         # Check if node called "room_entry" of type room exists
         """
-        1) retrieves edges leading to the exit door, 2) checks if any matching
-        edges exist, and 3) updates node attributes and associates doors based on
-        the matched edges.
+        Initializes and associates exit doors with their corresponding rooms,
+        storing the door names and connected room names as attributes. It also
+        updates the graph and sets a state to "removing".
 
         """
         exit_edges = [edge for edge in self.g.get_edges_by_type("exit") if edge.destination == self.exit_door_id]
@@ -655,34 +754,38 @@ class SpecificWorker(GenericWorker):
                 other_side_door_node.attrs["connected_room_name"] = Attribute(connected_room_name_enter_door, self.agent_id)
                 self.g.update_node(exit_door_node)
                 self.g.update_node(other_side_door_node)
-
                 self.associate_doors((other_side_door_node.name, connected_room_name_exit_door), (exit_door_node.name, connected_room_name_enter_door))
-
                 # Find each door in igraph
                 self.state = "removing"
 
     def associate_doors(self, door_1, door_2):
         # Find each door in igraph and update attributes
         """
-        Connects two nodes representing doors in the long-term graph, adding an
-        edge between them and updating their attributes to reflect the connection.
+        Associates two doors by adding an edge between their corresponding nodes
+        in the long-term graph, and sets additional attributes on each node to
+        store information about the other door and connected room.
 
         Args:
-            door_1 (str): A list containing the name of the first door to be
-                associated with another door.
-            door_2 (str): A string representation of the second door to be associated
-                with the long-term graph.
+            door_1 (Tuple[str, str]): Expected to represent a pair of door names
+                with connected rooms' names as its elements.
+            door_2 (Tuple[str, str]): Expected to contain the name of the second
+                door and its connected room. It is used to find the node corresponding
+                to this door in the graph and associate it with the first door.
 
         """
         try:
             door_1_node = self.long_term_graph.g.vs.find(name=door_1[0])
         except:
             print("No door node found in igraph", door_1[0])
+            self.pending_doors_to_stabilize.append((door_1, door_2))
+            print("Pending doors to stabilize", self.pending_doors_to_stabilize)
             return
         try:
             door_2_node = self.long_term_graph.g.vs.find(name=door_2[0])
         except:
             print("No door node found in igraph", door_2[0])
+            self.pending_doors_to_stabilize.append((door_1, door_2))
+            print("Pending doors to stabilize", self.pending_doors_to_stabilize)
             return
         self.long_term_graph.g.add_edge(door_1_node, door_2_node)
         door_1_node["other_side_door_name"] = door_2[0]
@@ -693,7 +796,9 @@ class SpecificWorker(GenericWorker):
 
     def store_graph(self):
         """
-        Saves the graph representation of a room node and its exit door id to a file.
+        Stores the current state of a graph, represented by an igraph object, into
+        a pickle file named "graph.pkl". It first retrieves and verifies the
+        existence of a room node in the graph before storing it.
 
         """
         actual_room_node = self.g.get_node(self.room_exit_door_id)
@@ -712,8 +817,10 @@ class SpecificWorker(GenericWorker):
     def removing(self):
         # # Get last number in the name of the room
         """
-        Removes edges from the long-term graph based on certain conditions, including
-        room numbers and types of edges.
+        Deletes nodes and edges from the graph based on certain conditions. It
+        first identifies nodes connected to a specified room exit door, then removes
+        nodes with no outgoing edges and finally removes destinations of remaining
+        edges sorted by their values in descending order.
 
         """
         room_number = self.g.get_node(self.room_exit_door_id).attrs["room_id"].value
@@ -743,14 +850,13 @@ class SpecificWorker(GenericWorker):
     def traverse_graph(self, node_id):
         # Mark the current node as visited and print it
         """
-        Traverses a graph and performs actions based on the type of edges it
-        encounters. It starts at a designated node, then visits the children nodes
-        of that node according to the RT edge type, and repeats this process for
-        each child node until no more actions are left to perform.
+        Recursively traverses a graph, starting from a specified node, and inserts
+        nodes and edges into an igraph object. It identifies RT-type edges with
+        destinations other than the robot ID and explores them further.
 
         Args:
-            node_id (int): Represented by the igraph vertex ID of the current node
-                being traversed.
+            node_id (int): Expected to be an identifier for a node within the graph
+                data structure (`self.g`).
 
         """
         node = self.g.get_node(node_id)
@@ -763,11 +869,15 @@ class SpecificWorker(GenericWorker):
 
     def traverse_igraph(self, node):
         """
-        Traverses the graph, identifying vertices with higher level than the current
-        vertex and adding them to the DSR graph along with their connections.
+        Traverses the long-term graph, starting from a given node, and recursively
+        explores its successors, inserting new vertices and edges into a data
+        structure whenever it finds a suitable successor with higher level and
+        same room_id as the current node.
 
         Args:
-            node (igraph.Vertex): Representing a vertex in the graph.
+            node (igraph.vs): Passed to this function. It represents an individual
+                vertex (node) within the graph and contains information about the
+                node, such as its index, name, room_id, and level.
 
         """
         vertex_successors = self.long_term_graph.g.successors(node.index)
@@ -784,12 +894,15 @@ class SpecificWorker(GenericWorker):
 
     def insert_igraph_vertex(self, node):
         """
-        Adds a new vertex to an existing graph, updating the graph's vertices with
-        provided attributes and matching other vertices based on specified conditions.
+        Adds a vertex to an igraph graph object, long_term_graph.g, with attributes
+        from a given node object. It also checks for specific attributes and adds
+        edges between vertices if necessary.
 
         Args:
-            node (igraph.Vertex): Used to represent a single vertex in the graph,
-                including its name, ID, and attributes.
+            node (object): Assumed to have attributes such as `name`, `id`, `type`,
+                and possibly others like `attrs`. The `node` parameter is used to
+                add vertices to an igraph graph and also potentially establish
+                edges between them.
 
         """
         self.long_term_graph.g.add_vertex(name=node.name, id=node.id, type=node.type)
@@ -829,14 +942,17 @@ class SpecificWorker(GenericWorker):
     def insert_dsr_vertex(self, parent_name, node):
         # print("Inserting vertex", node["name"], node["type"])
         """
-        Modifies an existing node within a graph, adding new attributes and linking
-        it to its parent node through an attribute.
+        Inserts a new node into a graph, creating it from a given dictionary and
+        linking it to an existing parent node with the provided name. It also
+        copies over some attributes from the original node.
 
         Args:
-            parent_name (str): Used to specify the name of the parent node to
-                insert the new vertex into.
-            node (Node | dict): Passed in from caller, it contains attributes that
-                define the vertex to be inserted into graph.
+            parent_name (str): Used to get an existing node from the graph using
+                its name, which is then used as the parent for the new vertex being
+                inserted into the graph.
+            node (Dict): Expected to contain attributes such as "type", "name"
+                that are used to create a new Node object. The values in this
+                dictionary are used to set the properties of the newly created node.
 
         """
         new_node = Node(agent_id=self.agent_id, type=node["type"], name=node["name"])
@@ -853,15 +969,14 @@ class SpecificWorker(GenericWorker):
         id_result = self.g.insert_node(new_node)
     def insert_igraph_edge(self, edge):
         """
-        Adds an edge to a long-term graph based on a received edge attribute. It
-        checks if the destination node is the robot, and if so, uses the correct
-        translation and rotation attributes. Otherwise, it uses the provided
-        translation and rotation attributes.
+        Inserts an edge into the long-term graph based on the origin and destination
+        nodes, considering translation and rotation attributes from the provided
+        edge. It also applies special handling for door destinations.
 
         Args:
-            edge (GraphEdge): Passed as a whole object containing information about
-                an edge in the graph, including its origin and destination nodes,
-                as well as attribute values such as translation and rotation.
+            edge (object): Likely an instance of a class representing an edge in
+                a graph, possibly containing information about its origin,
+                destination, translation, rotation, and other attributes.
 
         """
         origin_node_dsr = self.g.get_node(edge.origin)
@@ -872,7 +987,11 @@ class SpecificWorker(GenericWorker):
         destination_node = self.long_term_graph.g.vs.find(name=destination_node_dsr.name)
         # Add the edge to the graph
         if destination_node_dsr.name != self.robot_name:
-            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+            # Check if destination_node["type"] == "door"
+            traslation = edge.attrs["rt_translation"].value
+            if destination_node["type"] == "door":
+                traslation[1] += 100
+            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=traslation, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         else:
             self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
@@ -884,16 +1003,17 @@ class SpecificWorker(GenericWorker):
         # print("ORG::", org)
         # self.insert_dsr_vertex(dest)
         """
-        Creates a new edge in the long-term graph based on data from the short-term
-        graph. It assigns attributes to the new edge, including a translation and
-        rotation value for RT tracking.
+        Inserts or updates an edge between two nodes in a graph based on whether
+        one node (org) exists or not. It retrieves relevant data, creates a new
+        edge with attributes and inserts/assigns it to the graph.
 
         Args:
-            org (GraphNode | NoneType): Used to specify the starting node of the
-                edge to be inserted. If it is None, it means the starting node is
-                unknown or unspecified.
-            dest (Node | str): Used to specify the destination node or edge id for
-                the edge insertion operation.
+            org (object | None): Used to specify whether a root node should be
+                created or an existing node from which to create a new edge.
+            dest (Dict[str, int]): Used to represent a destination node in the
+                graph. It contains a "name" key with a string value representing
+                the name of the node, and an "index" key with an integer value
+                representing the index of the node.
 
         """
         if org is None:
@@ -925,17 +1045,17 @@ class SpecificWorker(GenericWorker):
 
     def check_element_room_number(self, node_id):
         """
-        Determines the room number associated with a given node ID by retrieving
-        the attribute "room_id" from the node and returning its value if found,
-        or -1 otherwise.
+        Retrieves the room ID associated with a node identified by its node ID
+        from a graph, and returns it if found; otherwise, it returns -1. The method
+        handles potential exceptions that may occur during the retrieval process.
 
         Args:
-            node_id (int): Passed as an argument to the function, indicating the
-                id of the element whose room number needs to be checked.
+            node_id (int | str): Required for this function. It represents an
+                identifier that uniquely identifies a node within a graph data structure.
 
         Returns:
-            int: The room ID associated with a given node ID if the node has an
-            attribute "room_id" and its value is not None, or -1 otherwise.
+            str|int: Either a room ID associated with a node or -1 if no room ID
+            is found for that node.
 
         """
         node = self.g.get_node(node_id)
@@ -948,16 +1068,19 @@ class SpecificWorker(GenericWorker):
 
     def check_element_level(self, node_id):
         """
-        1) retrieves the element level of a node with the given ID, and 2) handles
-        missing or non-existent element levels by printing an error message and
-        returning -1.
+        Retrieves an element level from the attributes of a node with the given
+        ID in the graph, and returns it if found; otherwise, prints an error message
+        and returns -1.
 
         Args:
-            node_id (int): Representing an element node identifier, which identifies
-                a specific element in the graph.
+            node_id (object): Expected to be the ID of a node stored in the graph
+                `self.g`. It is used to retrieve information about the node from
+                the graph.
 
         Returns:
-            int: Element level if found, or -1 otherwise.
+            int|str: 1) the value of "level" attribute of node with given id if
+            present, or 2) -1 and a print statement indicating that no such attribute
+            was found.
 
         """
         node = self.g.get_node(node_id)
@@ -1005,13 +1128,13 @@ class SpecificWorker(GenericWorker):
     def generate_room_picture(self, room_node_id):
 
         """
-        Retrieves and processes information about a room node in a graph, including
-        its ID, old RT edges, translation attribute, and doors. It then draws the
-        room polygon and doors on an image for saving.
+        Retrieves information about a given room node, identifies edges of type
+        "RT" that are connected to it, and extracts translation data from these edges.
 
         Args:
-            room_node_id (str | int): Used to identify the room for which the
-                picture will be generated.
+            room_node_id (int): Used to retrieve a specific node from a graph
+                object (`self.g`). This node represents a room, and its id is
+                needed to generate a picture for this room.
 
         """
         room_node = self.g.get_node(room_node_id)
@@ -1050,17 +1173,37 @@ class SpecificWorker(GenericWorker):
     def insert_current_edge(self, room_id):
         # Insert current edge to the room
         """
-        Inserts or assigns an edge in the graph with the current room ID as the
-        tail and the same ID as the head, indicating that the agent is currently
-        located in that room.
+        Inserts or updates an edge in a graph (self.g). The edge represents a
+        current connection between two rooms with given IDs, identified by the
+        agent ID. It is created based on room_id and its mirrored version.
 
         Args:
-            room_id (str): Used to represent the id of the current room in which
-                the agent is located.
+            room_id (int): Required for the creation of an `Edge` object. It
+                represents the ID of a room that will be part of the edge being
+                inserted into the graph.
 
         """
         current_edge = Edge(room_id, room_id, "current", self.agent_id)
         self.g.insert_or_assign_edge(current_edge)
+
+    def kill_everything(self):
+        # Ruta al script que deseas ejecutar
+        """
+        Executes a shell script, sets its executable permissions, runs it with the
+        argument 'true', and captures any output or errors.
+
+        """
+        script_path = '/home/robocomp/robocomp/components/robocomp-shadow/tools/room_and_door_kill_and_restart_dsr.sh'  # Asegúrate de que el script tenga permisos de ejecución
+        # Ejecutar el script
+        subprocess.run(['chmod', '+x', script_path])
+        result = subprocess.run([script_path, 'true'], capture_output=True, text=True)
+        # Imprimir la salida del scriptprint('Salida del script:')print(result.stdout)
+        # Imprimir los errores (si los hay)
+        if result.stderr:
+            print('Errores del script:')
+            print(result.stderr)
+
+    # def add_data_to_json(self, room_node_id):
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
@@ -1073,13 +1216,18 @@ class SpecificWorker(GenericWorker):
 
     def update_node(self, id: int, type: str):
         """
-        Updates the node attributes based on user input and inserts new edges into
-        the graph according to predefined rules.
+        Updates the node with given id and type in the graph. If the type is "door",
+        it inserts the door node into an igraph graph and adds edges between nodes.
+        If the id matches the affordance node active id, it checks the state of
+        the affordance node and changes its state if necessary.
 
         Args:
-            id (int): Used to identify the node to be updated.
-            type (str): Used to identify the type of node being updated (door or
-                room).
+            id (int): Used as an identifier for nodes in a graph, specifically to
+                identify either a door node or an affordance node based on the
+                value of the `type` parameter.
+            type (str): Used to determine what action should be taken when updating
+                a node with the given id. The valid values for this parameter are
+                "door" or other types that may be added in the future.
 
         """
         if type == "door":
@@ -1092,34 +1240,34 @@ class SpecificWorker(GenericWorker):
                     # print("Door node found in igraph. Returning.")
                     return
                 except:
-                    print("No door node found in igraph. Checking if room node exists")
+                    # print("No door node found in igraph. Checking if room node exists")
                     # Get room node
                     room_id = door_node.attrs["room_id"].value
                     try:
                         room_node = self.long_term_graph.g.vs.find(name="room_" + str(room_id))
                         print("Room node found in igraph. Inserting door")
                         parent_id = door_node.attrs["parent"].value
-                        print("Parent id", parent_id)
+                        # print("Parent id", parent_id)
                         door_parent_node = self.g.get_node(parent_id)
-                        print("Door parent name", door_parent_node.name)
+                        # print("Door parent name", door_parent_node.name)
                         # Insert door node in igraph
                         self.insert_igraph_vertex(door_node)
-                        print("Door inserted in igraph")
+                        # print("Door inserted in igraph")
                         # Get RT from door_parent to door
                         # rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
 
                         rt_door = self.g.get_edge(door_parent_node.id, door_node.id, "RT")
-                        print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
-                        print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
-                        print("IDS", door_parent_node.id, door_node.id)
+                        # print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
+                        # print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
+                        # print("IDS", door_parent_node.id, door_node.id)
                         self.insert_igraph_edge(rt_door)
                         with open("graph.pkl", "wb") as f:
                             pickle.dump(self.long_term_graph.g, f)
-                        print("Door inserted in igraph")
+                        # print("Door inserted in igraph")
                         self.long_term_graph.draw_graph(False)
                     except Exception as e:
-                        print("No room node found in igraph. Not possible to insert door")
-                        print(e)
+                        # print("No room node found in igraph. Not possible to insert door")
+                        # print(e)
                         return
 
         if id == self.affordance_node_active_id:
@@ -1141,14 +1289,17 @@ class SpecificWorker(GenericWorker):
         # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
 
         """
-        Updates an edge in the graph based on its type, source node, and target node.
+        Updates the current edge when a specific condition is met: if there are
+        no current edges, the update edge originates from the room exit door, and
+        its type is "RT". It inserts the edge into the graph and prints a message.
 
         Args:
-            fr (int): Representing the first room number of an edge to be updated
-                with new information.
-            to (int): Used to identify the target node in the graph for updating
-                the edge.
-            type (str): Used to indicate whether the edge is a robot or a room node.
+            fr (int): Likely to represent the from ID, indicating the starting
+                point of an edge in the graph.
+            to (int): Used to specify the destination of an edge in a graph, which
+                represents the ID of another node in the graph.
+            type (str): Expected to be set with value "RT". This indicates that
+                it is an exit door edge, which leads to the robot's current room.
 
         """
         if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:

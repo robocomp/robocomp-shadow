@@ -49,126 +49,128 @@ except:
 
 class SpecificWorker(GenericWorker):
     """
-    Manages a graph-based representation of an environment and its objects, providing
-    functions for updating node and edge attributes, deleting nodes and edges, and
-    handling RT messages. It also maintains a set of rooms and their initial positions.
+    Is a worker thread responsible for processing robot odometry data and updating
+    the graph representation using G2O library. It initializes the graph, adds
+    edges and vertices, computes pose and covariance matrix, and visualizes the
+    graph in real-time.
 
     Attributes:
-        Period (float|int): Set to `200` by default, indicating the time interval
-            (in milliseconds) between successive calls to the `update` method. It
-            determines how frequently the worker updates its state.
-        agent_id (int|str): Used to identify the worker's agent in the simulation
-            environment.
-        g (Graph|NetworkXGraph): Used for managing graphs in the worker's update
-            and delete operations.
-        startup_check (QTimersingleShot200,QApplicationinstancequit): Used to check
-            if the application should quit after a certain period of time.
-        rt_api (str|int): Used to store the last RT (Real-time) edge set id that
-            was received by the worker, so it can check if a new RT edge set has
-            been received since the last time it was checked.
-        inner_api (Callable[[],None]): Used to define a custom API for the worker
-            to interact with its internal state and update its graph.
-        odometry_node_id (int): Used to store the ID of the node representing the
-            shadow robot in the graph, which is used for updating the robot's odometry.
-        odometry_queue (List[Tuple[float,float,float,int]]): Used to store the
-            odometry data points received from the ROS node. It is updated every
-            200 milliseconds.
-        last_odometry (float|List[float]): Used to store the last known odometry
-            values (position, orientation, and advance speed) for the robot.
-        g2o (None|Graph2O): Used to store the graph data in Graph2O format for the
-            robot's environment.
-        odometry_noise_std_dev (float|int): Used to control the noise level in
-            robot odometry readings.
-        odometry_noise_angle_std_dev (float|int): 0.1 by default, representing the
-            standard deviation of the angle noise added to the robot's odometry
-            measurements during simulation.
-        measurement_noise_std_dev (float|double): Used to represent the standard
-            deviation of measurement noise in the worker's measurements. It is
-            used to simulate random fluctuations in the measurements during training.
-        last_room_id (int|str): Used to store the last room ID seen by the worker
-            before changing rooms, which allows the worker to track the current
-            room ID.
-        actual_room_id (str|int): Used to keep track of the current room ID that
-            the worker is in, during its execution
-        elapsed (float|int): Used to store the elapsed time since the worker's
-            last call to the `update` method, which can be used to control the
-            worker's execution rate.
-        room_initialized (bool): Used to track whether a specific room has been
-            initialized for RT mapping. It is set to False when the room is first
-            encountered, and True when it has been successfully mapped with the
-            robot's pose.
-        iterations (int|float): Used to keep track of the number of iterations of
-            the worker's tasks that have been performed.
-        hide (bool): Used to hide or show the worker's updates during simulation.
-        init_graph (bool): Set to True when the worker initializes its graph and
-            False otherwise, indicating whether the graph has been initialized or
-            not.
-        current_edge_set (bool): Used to keep track of whether the current edge
-            set has been updated recently, indicating when a new RT translation
-            or rotation should be computed. It is set to True after each edge set
-            update and reset to False after a certain time interval (defined as
-            `rt_time_min` in the code) has passed without any updates, to avoid
-            computing unnecessary RT translations or rotations.
-        first_rt_set (bool): Set to True when the RT translation and rotation are
-            first detected, False otherwise. It indicates whether the RT set has
-            been detected for a given edge.
-        translation_to_set (float|List[float]): Used to store the translation of
-            the robot to set. It is updated when the RT transmission is received
-            and its value represents the distance from the origin of the robot's
-            frame to the origin of the set frame in the global coordinate system.
-        rotation_to_set (float|List[float]): Used to store the Euler angles
-            representing the rotation from the current room to the target set.
-        room_polygon (List[float]): Used to store the coordinates of a polygon
-            representing the boundary of a room in the environment, which is used
-            for collision detection and avoidance.
-        security_polygon (Shape|str): Used to store a polygon that defines the
-            security area around the robot, which is used for collision detection
-            and obstacle avoidance.
-        initialize_g2o_graph (void): Used to initialize a Graph2O graph, which is
-            a data structure representing a robot's environment, and perform other
-            operations such as adding nodes and edges, setting attributes, and
-            updating node positions.
-        rt_set_last_time (float|int): Used to track the time since the last RT set
-            was created by the worker. It is used to determine when to set a new
-            RT translation and rotation value.
-        rt_time_min (float|int): Defined as the minimum time interval between
-            consecutive RT sets. Its purpose is to ensure that the robot's motion
-            is smooth and does not oscillate excessively during navigation.
-        last_update_with_corners (int|bool): Used to keep track of the last time
-            corners were updated. When the corner of a room was updated, it's set
-            to True, otherwise it's set to False.
-        timer (QTimersingleShot200,QApplicationinstancequit): Used to schedule a
-            call to the `QApplication.instance().quit()` function after 200
-            milliseconds. This allows the worker to run indefinitely until the
-            user presses the "Stop" button.
-        compute (Callable[[],float]): Used to compute the next node id to update
-            based on the current node id and the edge id. It takes no arguments
-            and returns a floating-point value representing the next node id to update.
-        update_node_att (List[str]): Used to update the attributes of a node in
-            the graph based on certain conditions, such as when the node's id
-            matches the `odometry_node_id` constant.
-        update_edge (Callable[[int,int,str],None]): Called when an edge's type
-            changes to "RT". It sets the `translation_to_set`, `rotation_to_set`,
-            and `rt_set_last_time` attributes based on the new RT translation and
-            rotation.
-        update_edge_att (List[str]): Used to update the attributes of an edge based
-            on a specific condition. It takes three parameters: `fr`, `to`, and
-            `type`, which are the ID of the edge being updated, its destination
-            ID, and the type of update respectively.
+        Period (int): 50 by default. It represents the time period for which the
+            worker's timer should wait before calling the `compute` method.
+        agent_id (int): 20 by default. It seems to be used as a unique identifier
+            for the agent, possibly in conjunction with other nodes or edges in
+            the graph.
+        g (DSRGraph): Initialized with a node named "G2O_agent" and agent_id 20.
+            It represents a graph data structure used to store nodes, edges, and
+            their attributes.
+        startup_check (NoneNone): Used as a parameter in the method with the same
+            name. It seems to be a placeholder or a flag for checking whether some
+            initialization is done, but its exact purpose is not clear from the
+            provided code.
+        rt_api (object): Used to get edge information from a Room-Terrain model
+            (RT) API, which seems to provide information about robot edges in a room.
+        inner_api (object): Not fully defined in this code snippet. Its purpose
+            appears to be related to transforming room node names to robot pose
+            measurements, but its implementation is unclear without more context
+            or additional code.
+        odometry_node_id (int): 20 in this case. It seems to be used as a reference
+            to the robot's node in the graph, likely representing its current
+            position or pose.
+        odometry_queue (deque[int,float,int]): 15 elements long. It stores odometry
+            data, where each element contains robot's current advance speed, side
+            speed, angular speed, and timestamp in milliseconds.
+        last_odometry (Tuple[float,float,float,int]): 4-element tuple that represents
+            the last recorded odometry values of the robot, including its advancement
+            speed, lateral speed, angular speed, and timestamp.
+        g2o (G2OGraph): Used for graph optimization with g2o library. It represents
+            a graph where nodes are poses and edges are measurements between them,
+            allowing to compute the most likely pose given the measurements.
+        odometry_noise_std_dev (float): 1 by default. It seems to be related to
+            noise added to odometry measurements, representing the standard deviation
+            of the noise.
+        odometry_noise_angle_std_dev (float): 1 by default. It represents the
+            standard deviation of the noise added to odometry angles during the
+            estimation process using G2O.
+        measurement_noise_std_dev (float): 1 by default. It seems to be used as a
+            standard deviation for noise in measurements, possibly related to
+            odometry or landmark estimation in SLAM (Simultaneous Localization and
+            Mapping).
+        last_room_id (None|str): Used to store the previously visited room ID. It
+            is initialized as None, but gets updated when the current room ID changes.
+        actual_room_id (int|None): Set as follows:
+            
+            - Initially, it is None.
+            - When a room node is found with its id matching `actual_room_id`, it
+            becomes equal to that room's id.
+            - When a new room node is found, `last_room_id` is set to the current
+            `actual_room_id`, and `actual_room_id` is updated with the new room's
+            id.
+        elapsed (float): Initialized as `time.time()`. It seems to be used to track
+            the time elapsed since the last update of some variables or data,
+            possibly related to the robot's odometry.
+        room_initialized (bool): Used to indicate whether the g2o graph has been
+            successfully initialized for a specific room or not.
+        iterations (int): Initialized as 0 in the constructor (`__init__`). It
+            keeps track of the number of iterations since the last frame was processed.
+        hide (NoneType): Set to True or False. However, there is no clear description
+            or usage of this attribute within the provided code.
+        init_graph (bool): Initialized as `False`. It seems to be used to track
+            whether the g2o graph has been initialized or not, and its value changes
+            after certain events such as a room change.
+        current_edge_set (bool): Set to True when a current edge is detected between
+            a room node and the Shadow node, indicating that the robot has moved
+            into a new room.
+        first_rt_set (bool): Set to True when a first RT edge (Robot Translation)
+            is detected between the "room" node and the "Shadow" node, indicating
+            that the robot has moved into a new room.
+        translation_to_set (Tuple[float,float,float]): Set when a new RT edge is
+            detected, storing the translation values (tx, ty, tz) for further
+            processing in the G2O graph.
+        rotation_to_set (Tuple[float,float,float]): Set when a "RT" edge (robot
+            translation) from a room node to the robot node is detected, indicating
+            that the robot's rotation needs to be updated.
+        room_polygon (QPolygonF): Used to store a polygon representing the boundaries
+            of the current room being explored by the robot.
+        security_polygon (QPolygonF): Used to store a polygon that defines a region
+            within which the robot must remain to ensure safety.
+        initialize_g2o_graph (bool): Used to initialize a G2O graph object.
+        rt_set_last_time (float): Set to the current time when a "RT" edge is
+            updated between a room node and the robot node named "Shadow". This
+            is used to track the last update time for RT edges.
+        rt_time_min (float): 1 second. It is used to determine when to update the
+            translation and rotation values after setting a new RT edge.
+        last_update_with_corners (float): Updated with the current time when the
+            robot's corners are updated. It keeps track of the last update time
+            for the corners.
+        timer (QtCoreQTimer): Used to schedule a method (in this case, `compute`)
+            at regular intervals (`self.Period`). It starts the timer after
+            initializing the g2o graph.
+        compute (QtCoreSlot): Used to compute and update the robot's position in
+            real-time based on its odometry data and room information. It also
+            checks for valid corners and doors, and updates the g2o graph accordingly.
+        update_node_att (NoneNone): Not defined within the given code snippet.
+        update_edge (defupdate_edgeself,frint,toint,typestrNone): Called when an
+            edge in the graph changes. It handles different types of edges, such
+            as "current" or "RT", and updates internal state accordingly.
+        update_edge_att (None): Passed as a parameter to the `update_edge_att`
+            method. It is not used anywhere in the code.
 
     """
     def __init__(self, proxy_map, startup_check=False):
         """
-        Initializes various components of the worker, including the graph, odometry
-        queue, and timer. It also sets up signal connections for updates on nodes
-        and edges.
+        Initializes various attributes and performs startup checks or sets up
+        internal APIs, graph structures, and timers based on input parameters. It
+        connects signals to methods for handling node updates, edge updates, and
+        other events.
 
         Args:
-            proxy_map (Dict[str, Any]): Used to store map-related information,
-                such as the graph's nodes and edges, which are required for the
-                worker's functionality.
-            startup_check (bool): Used to check if the graph has been properly
-                initialized before proceeding with the worker's tasks.
+            proxy_map (object): Passed to the superclass using `super(SpecificWorker,
+                self).__init__(proxy_map)`. Its purpose is not explicitly mentioned
+                in this snippet, but it might be related to initialization or setup
+                of some sort.
+            startup_check (bool): Used to decide whether to perform a startup check
+                or not. If it is True, the `startup_check` method is called;
+                otherwise, other initialization steps are performed.
 
         """
         super(SpecificWorker, self).__init__(proxy_map)
@@ -245,12 +247,10 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         """
-        Performs the following tasks:
-        1/ Checks if enough time has passed since the last frame was computed.
-        2/ Updates the robot's position and orientation using odometry data.
-        3/ Generates a new RT edge for the robot based on its current position and
-        orientation.
-        4/ Adds the new RT edge to the graph.
+        Computes and updates the robot's pose, odometry, and edge information by
+        analyzing the room environment and integrating new data from sensors. It
+        also optimizes the pose estimation using the G2O library and updates the
+        robot's position in the graph.
 
         """
         if time.time() - self.elapsed > 1:
@@ -385,13 +385,13 @@ class SpecificWorker(GenericWorker):
         # print("Initializing g2o graph")
         # get robot pose in room
         """
-        1) retrieves nodes and edges from the ROS topic, 2) validates node and
-        edge presence, 3) adds nominal corners and fixed poses to the G2O graph
-        for robot and door nodes, and 4) initializes last odometry timestamp.
+        Initializes the G2O graph by setting fixed poses and adding nominal corners
+        based on the robot's pose, room geometry, and door nodes. It also updates
+        the actual room ID and checks for valid node attributes.
 
         Returns:
-            bool: 1 if the initialization of the G2O graph was successful, and 0
-            otherwise.
+            bool|None: True if successful and initializes a G2O graph, otherwise
+            it returns None or False indicating failure.
 
         """
         self.g2o.clear_graph()
@@ -445,7 +445,7 @@ class SpecificWorker(GenericWorker):
 
             # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
             room_poly_bounding = self.room_polygon.boundingRect()
-            d = 500
+            d = 350
             self.security_polygon = QPolygonF()
             if self.room_polygon is not None:
                 landmark_information = np.array([[0.05, 0.0],
@@ -598,16 +598,18 @@ class SpecificWorker(GenericWorker):
 
     def get_displacement(self, odometry):
         """
-        Calculates the displacement of a robot based on its odometry data, computing
-        the lateral displacement, forward displacement, and angular displacement.
+        Calculates displacement values (lateral, advance, and angular) based on
+        odometry data stored in a queue, using timestamps to match consecutive
+        readings and applying a filtering factor (0.8).
 
         Args:
-            odometry (Tuple[float, float, float]): A sequence of 3-element tuples
-                representing the robot's position, velocity, and timestamp.
+            odometry (Tuple[float, float, float, float]): Assumed to represent the
+                current odometry data.
 
         Returns:
-            Tuple[float,float,float]: 3 components of displacement (lateral, avance
-            and angular) calculated based on the odometry data.
+            Tuple[float,float,float]: A tuple containing three float values
+            representing the lateral displacement, advance displacement, and angular
+            displacement respectively.
 
         """
         desplazamiento_avance = 0
@@ -630,15 +632,18 @@ class SpecificWorker(GenericWorker):
 
     def get_covariance_matrix(self, vertex):
         """
-        Computes the covariance matrix of a set of vertices in a graph using the
-        G2O optimizer and returns the result.
+        Computes and returns the covariance matrix for a given vertex using the
+        g2o optimizer's compute_marginals function, and prints relevant messages
+        indicating whether computation was successful or not.
 
         Args:
-            vertex (G2O.HessianIndex): Used to represent a vertex in the graph.
+            vertex (object): Expected to have attributes such as `hessian_index`.
 
         Returns:
-            Tuple[bool,npndarray]: A result of computing marginals and a covariance
-            matrix.
+            Tuple[Optional[str],Optional[Dict[int,float]]|None: A tuple containing
+            two values: the first one is an optional string ("Covariance computed"
+            or "Covariance not computed") and the second one is an optional
+            covariance matrix (or None).
 
         """
         cov_vertices = [(vertex.hessian_index(), vertex.hessian_index())]
@@ -655,11 +660,13 @@ class SpecificWorker(GenericWorker):
 
     def visualize_g2o_realtime(self, optimizer):
         """
-        Loads G2O files, visualizes their positions and edges in 3D, and updates
-        the display in real-time using matplotlib.
+        Visualizes the estimated positions of vertices and edges from a G2O
+        optimization process in real-time using matplotlib's 3D plotting functionality.
 
         Args:
-            optimizer (object): Used to load a G2O file for visualization.
+            optimizer (g2o::OptimizationAlgorithm): Responsible for optimizing the
+                graph represented by vertices and edges. It contains methods to
+                load, iterate over vertices and edges, as well as other operations.
 
         """
         plt.ion()
@@ -708,15 +715,18 @@ class SpecificWorker(GenericWorker):
         #         print("INIT GRAPH")
 
         """
-        Updates the attributes of a node in a graph, specifically the odometry
-        node, and appends a new entry to the odometry queue based on the current
-        robot position and speed.
+        Updates node attributes and appends data to a queue when the specified ID
+        matches the odometry node ID, processing relevant attribute values from
+        the Shadow node.
 
         Args:
-            id (int): Used to identify the node for which attributes are being
-                updated, specifically the odometry node.
-            attribute_names ([str]): An array of strings that represents the names
-                of attributes to be updated on a node in the graph.
+            id (int): Required when calling this function. It represents an
+                identifier that determines which node attributes will be updated,
+                specifically the odometry node if its value matches the self.odometry_node_id.
+            attribute_names ([str]): Not used within the provided code snippet.
+                Its presence suggests that it may be intended for future use or
+                as a placeholder for some functionality, but its purpose remains
+                unclear.
 
         """
         if id == self.odometry_node_id:
@@ -737,25 +747,28 @@ class SpecificWorker(GenericWorker):
         #             self.room_initialized = True if self.initialize_g2o_graph() else False
         #             self.init_graph = True
         """
-        Updates an individual node's type, specifically "corner". If the node
-        belongs to a room, it initializes the graph's room structure if necessary.
+        Updates a node in a graph based on its ID and type, possibly initializing
+        the graph if necessary for certain types of nodes, such as room corners.
 
         Args:
-            id (int): Used to identify the node being updated.
-            type (str): Used to identify the node's type, which can be either
-                "corner" or "room".
+            id (int): Required. It specifies the unique identifier for the node
+                to be updated in the graph.
+            type (str): Expected to be either "corner" or any other string value.
+                This information will help determine how the node with given `id`
+                should be updated.
 
         """
         pass
 
     def delete_node(self, id: int):
         """
-        Deletes a node from a graph data structure represented in the method
-        signature, by setting the `room_initialized` attribute to `False`.
+        Deletes a node based on its id and resets the `room_initialized` flag to
+        False after deletion, implying that the room's initialization is undone
+        as a result of deleting a node.
 
         Args:
-            id (int): Intended to represent the unique identifier of the node to
-                be deleted.
+            id (int): Expected to receive an integer value representing the ID of
+                a node to be deleted.
 
         """
         pass
@@ -768,15 +781,19 @@ class SpecificWorker(GenericWorker):
 
     def update_edge(self, fr: int, to: int, type: str):
         """
-        Updates the room ID and sets the current edge set based on node type and
-        RT edge information.
+        Updates the current room ID and initializes/updates RT (Rotation Translation)
+        settings based on the edge type ("current", "RT") and node attributes. It
+        also prints status messages for debugging purposes.
 
         Args:
-            fr (int): Representing the from node ID in the graph.
-            to (int): Used to represent the ID of the node that follows the edge
-                being updated.
-            type (str): Used to specify the edge's type, which can be either
-                "current" or "RT".
+            fr (int): Referred to as "from" or source node. It represents the node
+                from which an edge originates in a graph, specifically a room in
+                the context of this function.
+            to (int): Used as an edge destination node ID when updating edges of
+                graph `g`.
+            type (str): Used to determine the action to be taken when updating an
+                edge in the graph. It can have one of two values: "current" or
+                "RT", depending on the type of update being performed.
 
         """
         if type == "current" and self.g.get_node(fr).type == "room":
@@ -808,15 +825,15 @@ class SpecificWorker(GenericWorker):
 
     def delete_edge(self, fr: int, to: int, type: str):
         """
-        Deletes an edge from a graph, specified by its index (fr), type (to), and
-        the worker instance.
+        Removes an edge from the graph. The method takes three parameters: fr
+        (from), to (to) and type, representing the edge's endpoints and type respectively.
 
         Args:
-            fr (int): 1st in the function signature, indicating that it should be
-                the first argument passed to the function when calling it.
-            to (int): Representing the second vertex index of an edge to be deleted.
-            type (str): Used to specify the edge type to be deleted, which can be
-                either "weighted" or "unweighted".
+            fr (int): Expected to represent the starting vertex of an edge in a
+                graph. It specifies the node from which the edge originates.
+            to (int): Likely an identifier for a node or vertex in a graph.
+            type (str): Intended to specify the type or nature of the edge being
+                deleted between nodes fr and to.
 
         """
         pass
