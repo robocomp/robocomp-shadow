@@ -15,7 +15,7 @@ namespace rc
         int ROBOT_ID = 200;
         std::string robot_name = "Shadow";
         std::string lidar_name = "helios";
-        std::vector<std::pair<float, float>> ranges_list = {{300, 1200}};
+        std::vector<std::pair<float, float>> ranges_list = {{800, 2000}};
         float MAX_LIDAR_LOW_RANGE = 10000;  // mm
         float MAX_LIDAR_HIGH_RANGE = 10000;  // mm
         float MAX_LIDAR_RANGE = 10000;  // mm used in the grid

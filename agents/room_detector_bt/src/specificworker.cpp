@@ -149,6 +149,7 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     auto ldata  = buffer_lidar_data.get_idemp();
+    draw_lidar(ldata, &widget_2d->scene, "green");
     //std::cout << __FUNCTION__ << " Pre-room lines" << std::endl;
 
     auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
@@ -210,6 +211,8 @@ void SpecificWorker::read_lidar()
         try
         {
             auto data = lidar3d_proxy->getLidarData(params.lidar_name, -90, 360, 3);
+            data.points.erase(std::remove_if(data.points.begin(), data.points.end(), [this](const RoboCompLidar3D::TPoint &p){ return p.z < params.ranges_list[0].first or p.z > params.ranges_list[0].second; }), data.points.end());
+
             buffer_lidar_data.put(std::move(data));
             // TODO: filter out zero and very large values
             //, [](auto &&I, auto &T)
