@@ -6,7 +6,7 @@
       <Sequence name="InFrontOfDoor">
         <ExistsParent door_id="{door_id}"/>
         <CreateHasIntention door_id="{door_id}"
-                            target_vector="-500"/>
+                            target_vector="-1000"/>
         <IsIntentionCompleted/>
       </Sequence>
       <Sequence name="InMiddleOfDoor">
@@ -18,7 +18,7 @@
       <Sequence name="ThroughDoor">
         <ExistsParent door_id="{door_id}"/>
         <CreateHasIntention door_id="{door_id}"
-                            target_vector="700"/>
+                            target_vector="1000"/>
         <IsIntentionCompleted/>
       </Sequence>
     </Sequence>

@@ -304,7 +304,7 @@ class SpecificWorker(GenericWorker):
 
             # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
             room_poly_bounding = self.room_polygon.boundingRect()
-            d = 500
+            d = 350
             self.security_polygon = QPolygonF()
             if self.room_polygon is not None:
                 landmark_information = np.array([[0.05, 0.0],
