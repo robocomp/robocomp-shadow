@@ -64,6 +64,8 @@ class SpecificWorker(GenericWorker):
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
 
+            self.testing = False
+
             # Robot node variables
             self.robot_name = "Shadow"
             self.robot_id = self.g.get_node(self.robot_name).id
@@ -99,19 +101,20 @@ class SpecificWorker(GenericWorker):
             #     self.initialize_room_from_igraph()
             #     self.update_robot_pose_in_igraph()
 
-            # Get ground truth map from json
-            root_node = self.g.get_node("root")
-            path_attribute = root_node.attrs["path"].value
-            if path_attribute:
-                # Get string between "generatedRooms/" and "/ApartmentFloorPlan.stl"
-                self.room_number = path_attribute.split("generatedRooms/")[1].split("/ApartmentFloorPlan.stl")[0]
-                print("Room number", self.room_number)
-                # Get data from apartmentData.json file in '/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms'
-                with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/apartmentData.json") as f:
-                    data = json.load(f)
-                    self.room_number_limit = len(data["rooms"])
-           # Print the number of rooms in the ground truth map
-            print("Room number limit", self.room_number_limit)
+            if self.testing:
+                # Get ground truth map from json
+                root_node = self.g.get_node("root")
+                path_attribute = root_node.attrs["path"].value
+                if path_attribute:
+                    # Get string between "generatedRooms/" and "/ApartmentFloorPlan.stl"
+                    self.room_number = path_attribute.split("generatedRooms/")[1].split("/ApartmentFloorPlan.stl")[0]
+                    print("Room number", self.room_number)
+                    # Get data from apartmentData.json file in '/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms'
+                    with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/apartmentData.json") as f:
+                        data = json.load(f)
+                        self.room_number_limit = len(data["rooms"])
+               # Print the number of rooms in the ground truth map
+                print("Room number limit", self.room_number_limit)
 
 
             # In case the room node exists but the current edge is not set, set it
@@ -144,6 +147,8 @@ class SpecificWorker(GenericWorker):
     def setParams(self, params):
         return True
 
+
+
         # PROTOcode
         # Check if there is a node of type aff_cross and it has it's valid attribute to true
         # if so, check if aff_cross status attribute is completed, was active and robot pose is outside the room polygon,
@@ -161,54 +166,55 @@ class SpecificWorker(GenericWorker):
         # if time.time() - self.last_save_time > 1:
         #     self.update_robot_pose_in_igraph()
 
-        # # Get room nodes number in igraph
-        try:
-            room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
-            door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
-            # Check if every door node has a "connected_room_name" attribute
-            connected = True
-            for door in door_nodes:
-                 # Check if door has "connected_room_name" attribute and return if is None
-                if not door["other_side_door_name"]:
-                    connected = False
-                    print("Door", door["name"], "has no connected_room_name attribute")
-                    break
-            if len(room_nodes) == self.room_number_limit and connected:
-                dict = {}
-                # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
-                try:
-                    dict["rooms"] = [{"name" : room["name"], "x" : room["width"], "y" : room["depth"], "room_id" : room["room_id"]} for room in room_nodes]
+        if self.testing:
+            # # Get room nodes number in igraph
+            try:
+                room_nodes = self.long_term_graph.g.vs.select(type_eq="room")
+                door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
+                # Check if every door node has a "connected_room_name" attribute
+                connected = True
+                for door in door_nodes:
+                     # Check if door has "connected_room_name" attribute and return if is None
+                    if not door["other_side_door_name"]:
+                        connected = False
+                        print("Door", door["name"], "has no connected_room_name attribute")
+                        break
+                if len(room_nodes) == self.room_number_limit and connected:
+                    dict = {}
+                    # Create a dictionary with the room names. Every room name is a key which value is a dictionary with the room attributes
+                    try:
+                        dict["rooms"] = [{"name" : room["name"], "x" : room["width"], "y" : room["depth"], "room_id" : room["room_id"]} for room in room_nodes]
 
-                    # For each room, insert an attribute with the room center in the global reference system
-                    for room in dict["rooms"]:
-                        room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room["name"])
-                        print("ROOM CENTER POSE VALUE", room_center)
-                        room["global_center"] = (room_center[0], room_center[1])
-                        if (2 * math.pi/6)  < abs(room_center[2]) < (4*math.pi/6):
-                            room["x"], room["y"] = room["y"], room["x"]
-                    dict["doors"] = [{"name" : door["name"], "width" : door["width"], "room_id" : door["room_id"], "other_side_door_name" : door["other_side_door_name"], "connected_room_name" : door["connected_room_name"]} for door in self.long_term_graph.g.vs.select(type_eq="door")]
-                    for door in dict["doors"]:
-                        door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", door["name"])
-                        door["global_center"] = (door_center[0], door_center[1])
-                        # Divide door name by "_" and get the second and the forth element to get the wall_id
-                        wall_id = "wall_" + door["name"].split("_")[1] + "_" + door["name"].split("_")[3]
-                        door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), wall_id, door["name"])
-                        door["pose"] = (door_center[0], door_center[1])
-                    print(dict)
-                    # print(dict["doors"])
-                    # Get file number in "/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number} "
-                    file_number = len([name for name in os.listdir(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}") if os.path.isfile(os.path.join(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}", name))])
-                    # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
-                    with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/generated_data_" + str(file_number) + ".json", "w+") as f:
-                        json.dump(dict, f)
-                    self.kill_everything()
-                except Exception as e:
-                    print(e)
-                    exit(0)
+                        # For each room, insert an attribute with the room center in the global reference system
+                        for room in dict["rooms"]:
+                            room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room["name"])
+                            print("ROOM CENTER POSE VALUE", room_center)
+                            room["global_center"] = (room_center[0], room_center[1])
+                            if (2 * math.pi/6)  < abs(room_center[2]) < (4*math.pi/6):
+                                room["x"], room["y"] = room["y"], room["x"]
+                        dict["doors"] = [{"name" : door["name"], "width" : door["width"], "room_id" : door["room_id"], "other_side_door_name" : door["other_side_door_name"], "connected_room_name" : door["connected_room_name"]} for door in self.long_term_graph.g.vs.select(type_eq="door")]
+                        for door in dict["doors"]:
+                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", door["name"])
+                            door["global_center"] = (door_center[0], door_center[1])
+                            # Divide door name by "_" and get the second and the forth element to get the wall_id
+                            wall_id = "wall_" + door["name"].split("_")[1] + "_" + door["name"].split("_")[3]
+                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), wall_id, door["name"])
+                            door["pose"] = (door_center[0], door_center[1])
+                        print(dict)
+                        # print(dict["doors"])
+                        # Get file number in "/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number} "
+                        file_number = len([name for name in os.listdir(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}") if os.path.isfile(os.path.join(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}", name))])
+                        # Save the dictionary in a .json file inside "tests" folder. The name of the file is dependent of the number of files in "tests"
+                        with open(f"/home/robocomp/robocomp/components/proceduralRoomGeneration/generatedRooms/{self.room_number}/generated_data_" + str(file_number) + ".json", "w+") as f:
+                            json.dump(dict, f)
+                        self.kill_everything()
+                    except Exception as e:
+                        print(e)
+                        exit(0)
 
-        except Exception as e:
-            print(e)
-            pass
+            except Exception as e:
+                print(e)
+                pass
         # print(self.state)
         match self.state:
             case "idle":
