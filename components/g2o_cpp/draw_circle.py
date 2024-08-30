@@ -62,6 +62,13 @@ def read_covariances_from_file(filename):
 
     return covariances
 
+def progressive_plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=True):
+    # Considering the poses and landmarks, plot them ordered in time in a dynamic way in the same plot
+    # Plot landmarks
+    for landmark in landmarks.values():
+        ax.plot(landmark[0], landmark[1], 'ro')
+
+
 def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=True):
     # Plot landmarks
     for landmark in landmarks.values():
@@ -75,6 +82,7 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
         # Create a circle at the robot's position
         circle = Circle((x, y), radius=20, color='blue', fill=True)
         ax.add_patch(circle)
+
         # Draw the orientation line
         # line_length = 60
         # end_x = x + line_length * np.cos(theta)
@@ -104,6 +112,41 @@ def plot_graph(poses, landmarks, edges, ax, title, covariances=None, original=Tr
         # plot una cada cinco posiciones como una flecha roja
         # if int(x) % 5 == 0:
         ax.arrow(x, y, end_x - x, end_y - y, head_width=5, head_length=10, fc='r', ec='r')
+
+
+
+    # Iterate over edges
+    for (vertex_id, landmark_id), (x, y) in edges.items():
+        # Print a line between the robot pose and the landmark with not too much width
+        if vertex_id == 60 or vertex_id == 81:
+            # ax.plot([poses[vertex_id][1], x], [-poses[vertex_id][0], y], 'g-', linewidth=1)  # 'g-' for green line
+            # ax.plot([0, x], [0, y], 'g-', linewidth=1)  # 'g-' for green line
+            # Plot each landmark with a circle which color depends on the landmark id. Consider that there are 4 landmarks
+            ax.plot(x, y, 'o', color=['red', 'green', 'blue', 'purple'][landmark_id])
+
+    # Iterate over vertices
+    for vertex_id, (x, y, theta) in poses.items():
+        # if vertex_id == 59 or vertex_id == 60 or vertex_id == 81:
+
+
+        for i in range(4):
+            # For the same vertex, plot the edges linked by line
+            edge_data = edges.get((vertex_id, i))
+            if edge_data:
+                x, y = edge_data
+                if i == 3:
+                    next_edge_data = edges.get((vertex_id, 2))
+                if i==1:
+                    next_edge_data = edges.get((vertex_id, 3))
+                if i == 2:
+                    next_edge_data = edges.get((vertex_id, 0))
+                if i==0:
+                    next_edge_data = edges.get((vertex_id, 1))
+                if next_edge_data:
+                    x_next, y_next = next_edge_data
+                    ax.plot([x_next, x], [y_next, y], 'g-')
+
+
 
     # Plot edges linked by line
 

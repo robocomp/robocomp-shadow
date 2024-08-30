@@ -32,7 +32,9 @@ namespace Nodes
         private:
             std::shared_ptr<DSR::DSRGraph> G;
             rc::Params params;
-            int time_in_center = 5000;
+            int time_in_center = 2500;
+            bool initialize_counter = true;
+            std::chrono::time_point<std::chrono::high_resolution_clock> start = std::chrono::high_resolution_clock::now();
     };
 
     class ExistsCurrent : public BT::ConditionNode

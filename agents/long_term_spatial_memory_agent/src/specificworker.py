@@ -232,7 +232,7 @@ class SpecificWorker(GenericWorker):
             case "store_graph":
                 self.store_graph()
             case "removing":
-                self.removing()
+                self.removing_dsr_room()
 
     def initialize_room_from_igraph(self):
         # Remove RT edge between "root" and "Shadow"
@@ -635,7 +635,7 @@ class SpecificWorker(GenericWorker):
         with open("graph.pkl", "wb") as f:
             pickle.dump(self.long_term_graph.g, f)
 
-    def removing(self):
+    def removing_dsr_room(self):
         # # Get last number in the name of the room
         room_number = self.g.get_node(self.room_exit_door_id).attrs["room_id"].value
         # # Get all RT edges
@@ -733,6 +733,7 @@ class SpecificWorker(GenericWorker):
                 # Add the attribute to the node
                 new_node.attrs[attr] = Attribute(node[attr], self.agent_id)
         id_result = self.g.insert_node(new_node)
+
     def insert_igraph_edge(self, edge):
         origin_node_dsr = self.g.get_node(edge.origin)
         destination_node_dsr = self.g.get_node(edge.destination)

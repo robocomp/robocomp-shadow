@@ -804,8 +804,8 @@ void SpecificWorker::insert_robot_speed_dsr()
 //        std::cout <<  "X speed " << rt_rotation_matrix_inv(0,2) << "; Y speed " << rt_rotation_matrix_inv(1,2) << "; Angular Speed " << shadow_velocity[5] << "; ROBOT REFERENCE SYSTEM." << std::endl;
 
         // Velocidades puras en mm/s y rad/s
-        double velocidad_x = 0.05; // Ejemplo: 100 mm/s
-        double velocidad_y = 0.05; // Ejemplo: 150 mm/s
+        double velocidad_x = 0.1; // Ejemplo: 100 mm/s
+        double velocidad_y = 0.1; // Ejemplo: 150 mm/s
         double alpha = 0.075; // Ejemplo: 0.05 rad/s
 
         // Desviación estándar del ruido (ejemplo: 5% del valor de las velocidades)

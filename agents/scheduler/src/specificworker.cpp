@@ -273,13 +273,17 @@ void SpecificWorker::compute()
     auto has_intention_edges = G->get_edges_by_type("has_intention");
     // If not empty, find the edge with the active attribute set to true
     for(auto edge : has_intention_edges)
-    {
+        // Get intention edge active
         if(auto edge_active = G->get_attrib_by_name<active_att>(edge); edge_active.has_value())
-        {
-            if(edge_active.value())
+            // Get intention edge state
+            if(auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
             {
-                //Check if edge is completed
-                if(auto edge_state = G->get_attrib_by_name<state_att>(edge); edge_state.has_value())
+                if(not edge_active.value() and edge_state.value() == "completed")
+                {
+                    qInfo() << "Waiting intention edge removal";
+                    return;
+                }
+                else if(edge_active.value())
                 {
                     //Print the edge from and to names
                     qInfo() << "Edge from: " << QString::fromStdString(G->get_node(edge.from()).value().name()) << "Edge to: " << QString::fromStdString(G->get_node(edge.to()).value().name());
@@ -300,8 +304,6 @@ void SpecificWorker::compute()
                     }
                 }
             }
-        }
-    }
 
     //NO CURRENT MISSION ACTIVATED, TIME TO SELECT ONE
 

@@ -264,8 +264,14 @@ void SpecificWorker::compute()
 
     door_prefilter(to_prefilter_doors);
 
-    //Print
-    set_doors_to_stabilize(to_prefilter_doors, room_node);
+//    // Check if any affordance node is active using a lambda function
+//    auto affordance_nodes = G->get_nodes_by_type("affordance");
+//    auto affordance_active = std::ranges::find_if(affordance_nodes, [this](DSR::Node n) { return G->get_attrib_by_name<active_att>(n.id()).value(); });
+//    if(affordance_active == affordance_nodes.end())
+//        set_doors_to_stabilize(to_prefilter_doors, room_node);
+    qInfo() << "ROBOT INSIDE POLYGON" << inside_polygon;
+    if(inside_polygon)
+        set_doors_to_stabilize(to_prefilter_doors, room_node);
 
     affordance();
     auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty() and exit_door_exists)
@@ -653,7 +659,8 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
     }
 
     int n = corners.size();
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i)
+    {
         Eigen::Vector2f c_prev = corners[(i - 1 + n) % n];  // Esquina anterior
         Eigen::Vector2f c_curr = corners[i];                // Esquina actual
         Eigen::Vector2f c_next = corners[(i + 1) % n];      // Siguiente esquina
@@ -674,6 +681,11 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const RoboCompLidar3D:
         poly_room_out << QPointF(new_corner_out.x(), new_corner_out.y());
     }
 
+    // Check if robot pose (0,0) is inside the room
+    if(not poly_room_in.containsPoint(QPointF(0, 0), Qt::OddEvenFill))
+        inside_polygon = false;
+    else
+        inside_polygon = true;
 
     // Filter lidar points inside room polygon
     std::vector<bool> inside_poly_out (ldata.points.size());
@@ -1117,13 +1129,13 @@ std::vector<DoorDetector::Door> SpecificWorker::update_and_remove_doors(std::vec
                 door_name = "door_" + std::to_string(graph_doors[match.second].wall_id) + "_" + std::to_string(graph_doors[match.second].id) + "_" + std::to_string(actual_room_id) + "_pre";
             if(match.first != -1)
             {
-//            if(nominal)
-//            {
-////                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
-////                measured_doors.erase(measured_doors.begin() + i);
-//                indexes_to_remove.push_back(match.first);
-//                continue;
-//            }
+            if(nominal)
+            {
+//                std::cout << "Deleting because is matched with a nominal" << door_name << std::endl;
+//                measured_doors.erase(measured_doors.begin() + i);
+                indexes_to_remove.push_back(match.first);
+                continue;
+            }
 //            qInfo() << "Updating door data in graph";
                 /// Get graph door name
 
@@ -1350,7 +1362,9 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     /// Generate static map for histogram with coordinate in wall and door width
     std::map<int, int> width_histogram;
     std::map<int, int> pose_histogram;
-    int time_collecting_data = 5000;
+
+    bool start_counter = false;
+    int time_collecting_data = 1500;
 
     while(not is_stabilized)
     {
@@ -1376,9 +1390,9 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
         //get is active attribute from intention edge
         auto is_active = G->get_attrib_by_name<active_att>(intention_edge);
-
         if(not is_active.has_value())
         { qWarning() << __FUNCTION__ << " No is_active attribute in graph"; return; }
+        if(is_active.value()) {start_counter = true;}
 
         auto intention_state = G->get_attrib_by_name<state_att>(intention_edge);
         if(not intention_state.has_value())
@@ -1405,15 +1419,38 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
         /// If "is active" attribute is true, the schedules assigns priority to stabilizing the door
         if(is_active.value() or time_collecting_data > 0)
         {
+            /// check if robot is outside the polygon for killing the thread
+            if(not inside_polygon)
+            {
+                qInfo() << "Robot outside polygon. Removing node and taking door into account for future exploration.";
+
+                //Delete edge between wall and door in all cases
+                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
+                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+                else
+                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+
+                //delete door node
+                G->delete_node(door_node.id());
+                initialize_odom = false;
+                return;
+            }
                 /// If intention state is "in_progress", start getting data from the door and the room to stabilize the door
-            if(intention_state_value == "in_progress" or time_collecting_data > 0) {
+            if(intention_state_value == "in_progress" or time_collecting_data > 0)
+            {
                 static auto start = std::chrono::high_resolution_clock::now();
                 //print time_collecting data
                 qInfo() << "Time_collecting_data" << time_collecting_data;
 
                 /// Get measured corners from graph
                 auto corner_nodes = G->get_nodes_by_type("corner");
-                if (corner_nodes.empty()) {
+                if (corner_nodes.empty())
+                {
                     qWarning() << __FUNCTION__ << " No corner nodes in graph";
                     std::vector<Eigen::Matrix<float, 2, 1>> empty_corner{};
                     measured_corner_points.push_back(empty_corner);
@@ -1430,10 +1467,12 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                               [](auto &n1, auto &n2) { return n1.name() < n2.name(); });
 
                     /// In case is the first time, get robot pose and nominal corners for g2o optimization
-                    if (first_time) {
+                    if (first_time)
+                    {
                         /// Get robot pose
                         auto rt_room_robot = rt->get_edge_RT(room_node, robot_node.id());
-                        if (not rt_room_robot.has_value()) {
+                        if (not rt_room_robot.has_value())
+                        {
                             qWarning() << __FUNCTION__ << " No room -> robot RT edge";
                             return;
                         }
@@ -1526,14 +1565,10 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                                     }
                             }
                             else
-                            {
                                 actual_measured_corner_points.push_back(Eigen::Matrix<float, 2, 1>{0.f, 0.f});
-                            }
                         }
                         else
-                        {
                             actual_measured_corner_points.push_back(Eigen::Matrix<float, 2, 1>{0.f, 0.f});
-                        }
                     }
                     measured_corner_points.push_back(actual_measured_corner_points);
                 }
@@ -1544,7 +1579,8 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 auto end = std::chrono::high_resolution_clock::now();
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-                time_collecting_data -= elapsed;
+                if(start_counter)
+                    time_collecting_data -= elapsed;
                 start = end;
 
                 }
@@ -1563,7 +1599,6 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 //                qInfo() << "Action Completed. Waiting scheduler to optimize door data.";
                     continue;
                 }
-
         }
         else // IS_ACTIVE == FALSE
         {
@@ -1587,6 +1622,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 //delete door node
                 G->delete_node(door_node.id());
+                initialize_odom = false;
                 return;
 
             }
@@ -1598,8 +1634,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
 
                 if(measured_door_points.empty())
                 {
-                    qInfo() << "No measured points. removing door";
-                    qInfo() << "POINT 2";
+                    qInfo() << "No measured points found. removing door" << QString::fromStdString(door_name);
                     //Delete edge between wall and door in all cases
                     if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
                         std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
@@ -1616,6 +1651,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                         G->delete_node(door_node.id());
                     qInfo() << "NODE DELETED";
                     is_stabilized = true;
+                    initialize_odom = false;
                     return;
                 }
                 //print width_histogram size
@@ -1689,6 +1725,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     G->delete_node(door_node.id());
                 qInfo() << "NODE DELETED";
                 is_stabilized = true;
+                initialize_odom = false;
                 return;
             }
             else if(intention_state_value == "waiting")
@@ -1738,13 +1775,11 @@ void SpecificWorker::remove_to_stabilize_door_in_graph(uint64_t door_id)
 }
 std::vector<float> SpecificWorker::get_graph_odometry()
 {
-    static bool initialize = false;
-
     //TODO: Fix last_time initialization
-    if (not initialize)
+    if (not initialize_odom)
     {
         last_time = std::chrono::high_resolution_clock::now();
-        initialize = true;
+        initialize_odom = true;
     }
 
     auto robot_node_ = G->get_node("Shadow");

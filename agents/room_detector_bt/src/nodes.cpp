@@ -58,14 +58,25 @@ namespace Nodes
                         {
                             if (state.value() == "completed")
                             {
-                                static auto start = std::chrono::high_resolution_clock::now();
+                                if(not initialize_counter)
+                                {
+                                    start = std::chrono::high_resolution_clock::now();
+                                    initialize_counter = true;
+                                }
+                                qInfo() << "Counting center time" << time_in_center;
+
                                 if(time_in_center < 0)
                                 {
                                     std::cout << "Completed!" << std::endl;
+                                    time_in_center = 2500;
+                                    initialize_counter = false;
                                     return BT::NodeStatus::SUCCESS;
                                 }
 
                                 auto end = std::chrono::high_resolution_clock::now();
+                                /// Print start and end time
+                                std::cout << "Start time: " << std::chrono::duration_cast<std::chrono::milliseconds>(start.time_since_epoch()).count() << std::endl;
+                                std::cout << "End time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end.time_since_epoch()).count() << std::endl;
                                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
                                 time_in_center -= elapsed;
                                 start = end;
@@ -81,7 +92,7 @@ namespace Nodes
             }
             else
             {
-                            std::cout << "No intention edge found" << std::endl;
+                std::cout << "No intention edge found" << std::endl;
             }
         }
         else

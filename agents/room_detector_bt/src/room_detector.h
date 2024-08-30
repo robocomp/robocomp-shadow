@@ -51,6 +51,7 @@ namespace rc
             void draw_par_lines_on_2D_tab(const Par_lines &par_lines, QGraphicsScene *scene, QColor color="orange");
             void draw_corners_on_2D_tab(const Corners &corners, const std::vector<Eigen::Vector2f> &model_corners,
                                         QGraphicsScene *scene, QColor color="blue");
+            void draw_room_center_on_2D_tab(const Eigen::Vector2f &room_center, const Eigen::Vector2f &estimated_center, QGraphicsScene *scene);
 
             // local data
 //            Room current_room;

@@ -172,8 +172,11 @@ private:
     Eigen::Vector3d exit_door_room_pose;
     void affordance_thread(uint64_t aff_id);
 
+    bool initialize_odom =false;
+
     uint64_t actual_room_id = -1;
 
+    bool inside_polygon = false;
 };
 
 #endif

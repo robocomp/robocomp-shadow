@@ -7,6 +7,7 @@ SET ( SOURCES
   icp.cpp
   Hungarian.cpp
   nodes.cpp
+  custom_widget.h
 )
 
 # Headers set
