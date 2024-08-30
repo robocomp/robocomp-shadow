@@ -48,6 +48,8 @@
 #include <behaviortree_cpp/blackboard.h>
 #include <behaviortree_cpp/bt_factory.h>
 #include <fstream>
+#include <custom_widget.h>
+#include <ui_localUI.h>
 
 class SpecificWorker : public GenericWorker
 {
@@ -89,6 +91,9 @@ class SpecificWorker : public GenericWorker
         std::unique_ptr<DSR::DSRViewer> graph_viewer;
         QHBoxLayout mainLayout;
         bool startup_check_flag;
+
+        //Local widget
+        CustomWidget *room_widget;
 
         //local widget
         DSR::QScene2dViewer* widget_2d;
@@ -139,6 +144,9 @@ class SpecificWorker : public GenericWorker
         std::vector<Eigen::Vector2d> aux_corners;
         uint64_t room_id = 1;
         int actual_room_id = -1;
+        void set_clear_room();
+        void clear_current_room();
+        bool clear_room = false;
 
         std::vector<Eigen::Vector2d> last_corner_values{4};
         std::vector<float> last_robot_pose{0.f, 0.f, 0.f};
@@ -165,13 +173,13 @@ class SpecificWorker : public GenericWorker
                                const vector<std::vector<float>> &odometry_data, const Eigen::Affine2d robot_pose,
                                const vector<Eigen::Vector2d> nominal_corners, const std::vector<Eigen::Vector2f> &room_sizes, std::vector<int> room_size);
 
-        void get_room_image();
-        void test();
         void room_stabilitation();
-        int distance_to_center();
         void create_room();
         void check_corner_matching();
         void update_room();
+
+        bool initialize_odom = false;
+
 
     //BehaviorTrees
     BT::BehaviorTreeFactory factory;

@@ -24,6 +24,7 @@ namespace rc
         current_room.estimated_size = estimated_size;
         current_room.estimated_center = room_center;
 
+        Eigen::Vector2f room_center_rect {0.f, 0.f};
         // Start with more complex features and go downwards
         if (not all_corners.empty())    // if there are room candidates, take the first room // TODO:: order by votes
         {
@@ -34,8 +35,49 @@ namespace rc
 //                qInfo() << "Room";
 //                qInfo() << "Corners" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
 //            }
+            //create an aux vector to store the corners
+            std::tuple<QPointF,QPointF,QPointF,QPointF> corners_aux;
+            //create a min distance variable
+            float min_area = std::numeric_limits<float>::max();
+            //print all corners size
+//            qInfo() << "All_corners" << all_corners.size();
 
-            const auto &[c1, c2, c3, c4] = all_corners.front();
+            for (const auto &[c1, c2, c3, c4] : all_corners)
+            {
+                std::vector<float> distances = {
+                        euc_distance_between_points(c1, c2),
+                        euc_distance_between_points(c1, c3),
+                        euc_distance_between_points(c1, c4),
+                        euc_distance_between_points(c2, c3),
+                        euc_distance_between_points(c2, c4),
+                        euc_distance_between_points(c3, c4)
+                };
+                // Ordenar las distancias de menor a mayor
+                std::sort(distances.begin(), distances.end());
+
+                // Las dos distancias más pequeñas corresponden a los lados del rectángulo
+                float lado1 = distances[0];
+                float lado2 = distances[1];
+
+                // El área del rectángulo es lado1 * lado2
+                float area = lado1 * lado2;
+                //print area
+//                qInfo() << "Area" << area;
+
+                //if the area is smaller than the min area, update the min area and the corners
+                if(area < min_area)
+                {
+                    //print something
+//                    qInfo() << "Area menor pre comparar" << min_area;
+                    min_area = area;
+                    corners_aux = std::make_tuple(c1, c2, c3, c4);
+                }
+
+//                qInfo() << "Room";
+//                qInfo() << "Corners" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
+            }
+
+            const auto &[c1, c2, c3, c4] = corners_aux;
             std::vector<cv::Point2f> poly{cv::Point2f(c1.x(), c1.y()), cv::Point2f(c2.x(), c2.y()),
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
 
@@ -44,6 +86,8 @@ namespace rc
             /// Print poly pòints
 
             current_room.rect = cv::minAreaRect(poly);
+            room_center_rect.x() = current_room.rect.center.x;
+            room_center_rect.y() = current_room.rect.center.y;
             //qInfo() << __FUNCTION__ << "Suspect end";
             current_room.is_initialized = true;
         }
@@ -58,8 +102,9 @@ namespace rc
         {
             draw_corners_on_2D_tab(corners, std::vector<Eigen::Vector2f>(), scene);
             draw_par_lines_on_2D_tab(par_lines, scene);
+            draw_room_center_on_2D_tab(room_center, room_center_rect, scene);
         }
-        return  current_room;
+        return current_room;
     }
 
     Room_Detector::Features Room_Detector::compute_features(const std::vector<std::vector<Eigen::Vector2f>> &lines)
@@ -303,6 +348,26 @@ namespace rc
             auto l = scene->addLine(m.x(), m.y(), pc.x(), pc.y(), QPen(ccolor, 25));
             items.push_back(l);
         }
+    }
+    void Room_Detector::draw_room_center_on_2D_tab(const Eigen::Vector2f &room_center, const Eigen::Vector2f &estimated_center,
+                                                   QGraphicsScene *scene)
+    {
+        static std::vector<QGraphicsItem*> items;
+        for (const auto &i: items)
+        {
+            scene->removeItem(i);
+            delete i;
+        }
+        items.clear();
+
+        // Draw both centers but using non filled circles with width 10
+        auto i = scene->addEllipse(-100, -100, 200, 200, QPen("red"), QBrush("red"));
+        i->setPos(room_center.x(), room_center.y());
+        items.push_back(i);
+
+        auto j = scene->addEllipse(-100, -100, 200, 200, QPen("blue"), QBrush("blue"));
+        j->setPos(estimated_center.x(), estimated_center.y());
+        items.push_back(j);
     }
 
     ////////// AUX  ////////////////////////////////////////////////////////////////////////////////////////////7
