@@ -175,8 +175,10 @@ private:
     bool initialize_odom =false;
 
     uint64_t actual_room_id = -1;
-
     bool inside_polygon = false;
+
+    void delete_pre_node(uint64_t node_id);
+    std::vector<uint64_t> nodes_to_remove;
 };
 
 #endif

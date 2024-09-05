@@ -38,12 +38,15 @@ namespace rc
             //create an aux vector to store the corners
             std::tuple<QPointF,QPointF,QPointF,QPointF> corners_aux;
             //create a min distance variable
+
             float min_area = std::numeric_limits<float>::max();
+
             //print all corners size
 //            qInfo() << "All_corners" << all_corners.size();
-
+            qInfo() << "All_corners" << all_corners.size();
             for (const auto &[c1, c2, c3, c4] : all_corners)
             {
+                qInfo() << "Measured room" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
                 std::vector<float> distances = {
                         euc_distance_between_points(c1, c2),
                         euc_distance_between_points(c1, c3),
@@ -55,20 +58,30 @@ namespace rc
                 // Ordenar las distancias de menor a mayor
                 std::sort(distances.begin(), distances.end());
 
+                // Check if distances 0, 1; 2, 3; 4, 5 are the same considering a threshold
+                if (abs(distances[0] - distances[1]) > 100 or abs(distances[2] - distances[3]) > 100 or abs(distances[4] - distances[5]) > 100)
+                    continue;
+
+                // Print distances
+                for(const auto &distance : distances)
+                    qInfo() << "Distances" << distance;
+
                 // Las dos distancias más pequeñas corresponden a los lados del rectángulo
                 float lado1 = distances[0];
-                float lado2 = distances[1];
+                float lado2 = distances[2];
+
+                std::cout << "Lado1: " << lado1 << ". Lado2: " << lado2 << " ." << std::endl;
 
                 // El área del rectángulo es lado1 * lado2
                 float area = lado1 * lado2;
                 //print area
-//                qInfo() << "Area" << area;
+                qInfo() << "Area" << area;
 
                 //if the area is smaller than the min area, update the min area and the corners
                 if(area < min_area)
                 {
                     //print something
-//                    qInfo() << "Area menor pre comparar" << min_area;
+                    qInfo() << "Area menor pre comparar" << min_area;
                     min_area = area;
                     corners_aux = std::make_tuple(c1, c2, c3, c4);
                 }
@@ -81,14 +94,11 @@ namespace rc
             std::vector<cv::Point2f> poly{cv::Point2f(c1.x(), c1.y()), cv::Point2f(c2.x(), c2.y()),
                                           cv::Point2f(c3.x(), c3.y()), cv::Point2f(c4.x(), c4.y())};
 
-            /// TODO: Bug sometimes when executing Noe's algorithm
-            // qInfo() << __FUNCTION__ << "Suspect start";
-            /// Print poly pòints
 
             current_room.rect = cv::minAreaRect(poly);
             room_center_rect.x() = current_room.rect.center.x;
             room_center_rect.y() = current_room.rect.center.y;
-            //qInfo() << __FUNCTION__ << "Suspect end";
+
             current_room.is_initialized = true;
         }
 
@@ -282,7 +292,8 @@ namespace rc
             std::vector<float> ds{euc_distance_between_points(p1, p2), euc_distance_between_points(p1, p3), euc_distance_between_points(p2, p3)};
 
             // if all pairs meet the distance criteria of being more than min_dist apart
-            if (std::ranges::all_of(ds, [min_dist](auto &a) { return a > min_dist; }))
+//            if (std::ranges::all_of(ds, [min_dist](auto &a) { return a > min_dist; }))
+            if (std::ranges::all_of(ds, [](auto &a) { return a > 0; })) //TODO: Solve, estimated_size supress min área rooms
             {
                 auto res = std::ranges::max_element(ds); // find the longest distance
                 long pos = std::distance(ds.begin(), res);  //
