@@ -178,7 +178,7 @@ void SpecificWorker::compute()
     if(this->update_room_valid and not current_edges.empty())
     {
         update_room();
-        draw_nominal_corners_in_room_frame(&widget_2d->scene);
+//        draw_nominal_corners_in_room_frame(&widget_2d->scene);
     }
 }
 
@@ -1201,12 +1201,12 @@ void SpecificWorker::update_room_data(const rc::Room_Detector::Corners &corners,
                                 // Print corner transformed value
 //                                qInfo() << __FUNCTION__ << " Corner " << i << " transformed: " << corner_transformed_value.x() << " " << corner_transformed_value.y();
                                 // Draw corner
-                                if(std::get<3>(rt_corners_correspondences[i]))
-                                {
-                                    auto item = scene->addEllipse(-200, -200, 400, 400, QPen(QColor("red"), 100), QBrush(QColor("red")));
-                                    item->setPos(corner_transformed_value.x(), corner_transformed_value.y());
-                                    items.push_back(item);
-                                }
+//                                if(std::get<3>(rt_corners_correspondences[i]))
+//                                {
+//                                    auto item = scene->addEllipse(-200, -200, 400, 400, QPen(QColor("red"), 100), QBrush(QColor("red")));
+//                                    item->setPos(corner_transformed_value.x(), corner_transformed_value.y());
+//                                    items.push_back(item);
+//                                }
 
                                 // Draw line between ellipses
 //                                if(i > 0)
@@ -1318,17 +1318,7 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
                 }
                 /// Transform corners in aux_corners to robot frame
                 for (auto &corner : this->aux_corners)
-                {
                     corner = accumulated_odometry * corner;
-                }
-                /// Print transformed corners
-                for (int j = 0; j < 4; ++j)
-                {
-                    qInfo() << "Corner " << j << " transformed: " << this->aux_corners[j].x() << " " << this->aux_corners[j].y();
-                    qInfo() << "Corner " << j << " measured: " << current_corners[j].x() << " " << current_corners[j].y();
-                }
-
-
             }
 
             auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true);

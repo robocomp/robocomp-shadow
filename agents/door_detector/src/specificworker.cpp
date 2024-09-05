@@ -35,13 +35,6 @@ SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorke
 SpecificWorker::~SpecificWorker()
 {
     std::cout << "Destroying SpecificWorker" << std::endl;
-    //G->write_to_json_file("./"+agent_name+".json");
-    auto grid_nodes = G->get_nodes_by_type("grid");
-    for (auto grid : grid_nodes)
-    {
-        G->delete_node(grid);
-    }
-    G.reset();
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
@@ -203,6 +196,15 @@ void SpecificWorker::compute()
         }
         return;
     }
+
+    // Check if nodes_to_remove is not empty
+    if(not nodes_to_remove.empty())
+    {
+        for(auto node_id : nodes_to_remove)
+            delete_pre_node(node_id);
+        nodes_to_remove.clear();
+    }
+
 
     auto room_node_ = G->get_node(current_edges[0].to());
     if(not room_node_.has_value())
@@ -1609,19 +1611,22 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     /// remove intention edge ????
                     /// Remove measured door in graph ????
 
-                //Delete edge between wall and door in all cases
-                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+//                //Delete edge between wall and door in all cases
+//                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+//                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+//                else
+//                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+//
+//                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
+//                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+//                else
+//                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+//
+//                //delete door node
+//                G->delete_node(door_node.id());
 
-                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
-                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
+                nodes_to_remove.push_back(door_node.id());
 
-                //delete door node
-                G->delete_node(door_node.id());
                 initialize_odom = false;
                 return;
 
@@ -1635,21 +1640,24 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                 if(measured_door_points.empty())
                 {
                     qInfo() << "No measured points found. removing door" << QString::fromStdString(door_name);
-                    //Delete edge between wall and door in all cases
-                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-                    else
-                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+//                    //Delete edge between wall and door in all cases
+//                    if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
+//                        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+//                    else
+//                        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+//
+//                    if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
+//                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+//                    else
+//                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+//
+//                    //delete door node
+//                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
+//                        G->delete_node(door_node.id());
+//                    qInfo() << "NODE DELETED";
 
-                    if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
-                        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-                    else
-                        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+                    nodes_to_remove.push_back(door_node.id());
 
-                    //delete door node
-                    if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
-                        G->delete_node(door_node.id());
-                    qInfo() << "NODE DELETED";
                     is_stabilized = true;
                     initialize_odom = false;
                     return;
@@ -1706,24 +1714,13 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     qWarning() << __FUNCTION__ << " Error optimizing door data";
 
                 }
+
                 qInfo() << "Action Completed, delete intention_edge and close thread. ";
-                qInfo() << "POINT 1";
-                //Delete edge between wall and door in all cases
-                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
-
-                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
-                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+                nodes_to_remove.push_back(door_node.id());
 
 
-                //delete door node
-                if(auto door_node__ = G->get_node(door_node.id()); door_node__.has_value())
-                    G->delete_node(door_node.id());
-                qInfo() << "NODE DELETED";
+//                qInfo() << "NODE DELETED";
+
                 is_stabilized = true;
                 initialize_odom = false;
                 return;
@@ -1747,6 +1744,36 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
     qInfo() << "Thread finished";
 
 }
+
+void SpecificWorker::delete_pre_node(uint64_t node_id)
+{
+    /// Get node from id
+    auto node_ = G->get_node(node_id);
+    if(not node_.has_value())
+    { qWarning() << __FUNCTION__ << " No node in graph"; return; }
+    auto node = node_.value();
+    //Delete edge between wall and door in all cases
+    if (G->delete_edge(200, node.id(), "has_intention"))
+        std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
+    else
+        std::cout << __FUNCTION__ << " Fatal error deleting has_intention robot-door: " << std::endl;
+
+    auto parent_node_ = G->get_parent_node(node);
+    if(not parent_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No parent node in graph"; return; }
+    auto parent_node = parent_node_.value();
+
+    if (G->delete_edge(parent_node.id(), node.id(), "RT"))
+        std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
+    else
+        std::cout << __FUNCTION__ << " Fatal error deleting rt edge wall-door: " << std::endl;
+
+    //delete door node
+    if(auto door_node__ = G->get_node(node.id()); door_node__.has_value())
+        G->delete_node(node.id());
+}
+
+
 void SpecificWorker::remove_to_stabilize_door_in_graph(uint64_t door_id)
 {
     //Delete edge between wall and door in all cases

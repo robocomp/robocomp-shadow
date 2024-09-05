@@ -41,13 +41,13 @@ namespace rc
         double thetaMin = 0;
         double thetaMax = CV_PI;
         double thetaStep = CV_PI / 180.0f;
-        double MIN_VOTES = 100;
-        int LINES_MAX = 10;
+        double MIN_VOTES = 50; //TODO: Original 100
+        int LINES_MAX = 15; //TODO: Original 10
         int LINE_THRESHOLD = 25;
         float MAX_LIDAR_DISTANCE = 8000;  // mm
         double NMS_DELTA = 0.3;  // degrees  //TODO
         double NMS_DIST = 300;  // mm
-        float PAR_LINES_ANG_THRESHOLD = 10;  //degrees
+        float PAR_LINES_ANG_THRESHOLD = 15;  //TODO: original degrees 10
         float CORNERS_PERP_ANGLE_THRESHOLD = 0.2; // radians
         const float NMS_MIN_DIST_AMONG_CORNERS = 200; // mm
     };
