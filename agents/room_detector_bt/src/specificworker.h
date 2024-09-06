@@ -121,7 +121,7 @@ class SpecificWorker : public GenericWorker
         // Room features
         Lines extract_2D_lines_from_lidar3D(const RoboCompLidar3D::TPoints &points, const std::vector<std::pair<float, float>> &ranges);
         void update_room_data(const rc::Room_Detector::Corners &corners, QGraphicsScene *scene);
-        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false);
+        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time = false, bool strict_matching = false);
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_);
         void create_wall(int id, const std::vector<float> &p, float angle, DSR::Node parent_node, bool nominal=true);
         void create_corner(int id, const std::vector<float> &p, DSR::Node parent_node, bool nominal=true);

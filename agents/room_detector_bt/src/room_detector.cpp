@@ -43,10 +43,10 @@ namespace rc
 
             //print all corners size
 //            qInfo() << "All_corners" << all_corners.size();
-            qInfo() << "All_corners" << all_corners.size();
+//            qInfo() << "All_corners" << all_corners.size();
             for (const auto &[c1, c2, c3, c4] : all_corners)
             {
-                qInfo() << "Measured room" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
+//                qInfo() << "Measured room" << c1.x() << c1.y() << c2.x() << c2.y() << c3.x() << c3.y() << c4.x() << c4.y();
                 std::vector<float> distances = {
                         euc_distance_between_points(c1, c2),
                         euc_distance_between_points(c1, c3),
@@ -63,25 +63,25 @@ namespace rc
                     continue;
 
                 // Print distances
-                for(const auto &distance : distances)
-                    qInfo() << "Distances" << distance;
+//                for(const auto &distance : distances)
+//                    qInfo() << "Distances" << distance;
 
                 // Las dos distancias más pequeñas corresponden a los lados del rectángulo
                 float lado1 = distances[0];
                 float lado2 = distances[2];
 
-                std::cout << "Lado1: " << lado1 << ". Lado2: " << lado2 << " ." << std::endl;
+//                std::cout << "Lado1: " << lado1 << ". Lado2: " << lado2 << " ." << std::endl;
 
                 // El área del rectángulo es lado1 * lado2
                 float area = lado1 * lado2;
                 //print area
-                qInfo() << "Area" << area;
+//                qInfo() << "Area" << area;
 
                 //if the area is smaller than the min area, update the min area and the corners
                 if(area < min_area)
                 {
                     //print something
-                    qInfo() << "Area menor pre comparar" << min_area;
+//                    qInfo() << "Area menor pre comparar" << min_area;
                     min_area = area;
                     corners_aux = std::make_tuple(c1, c2, c3, c4);
                 }
@@ -132,6 +132,7 @@ namespace rc
 
         // compute lines
         Lines elines = get_hough_lines(floor_line_cart);
+
 
         // filter parallel lines of minimum length and separation: GOOD PLACE TO INTRODUCE TOP_DOWN MODEL
         Par_lines par_lines = get_parallel_lines(elines, estimated_size.head(2));
@@ -190,7 +191,6 @@ namespace rc
             elines.emplace_back(l[0], QLineF(p1, p2));    // votes, line
         }
 
-        // TODO: filter out lines shorter than wall estimated length
 
         // Non-Maximum Suppression of close parallel lines
         std::vector<QLineF> to_delete;
@@ -206,6 +206,8 @@ namespace rc
                 else to_delete.push_back(line1);
             }
         }
+        //erase lines shorter than a threshold = 400 mm
+
 
         // erase lines that are parallel and too close
         elines.erase(remove_if(elines.begin(), elines.end(), [to_delete](auto l){ return std::ranges::find(to_delete, std::get<1>(l)) != to_delete.end();}), elines.end());
@@ -215,7 +217,7 @@ namespace rc
     void Room_Detector::filter_lines_by_length(const Lines &lines, std::vector<Eigen::Vector2f> &floor_line_cart )
     {
         Eigen::ParametrizedLine<float, 2> eline;
-        const float max_distance_to_line = 100;
+        const float max_distance_to_line = 1000;
         std::vector<std::vector<std::pair<float, Eigen::Vector2f>>> distances(lines.size());
         for(const auto &[i, line]: lines | iter::enumerate)
         {

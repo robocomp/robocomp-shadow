@@ -150,7 +150,7 @@ class LongTermGraph:
         rpy = element_pose_transformed.rpy()
         xyz = element_pose_transformed.A[:, -1]
 
-        print("Element pose transformed", xyz, rpy)
+        # print("Element pose transformed", xyz, rpy)
 
         # return QPoint object
         return np.array([xyz[0], xyz[1], rpy[2]])
@@ -219,9 +219,9 @@ class LongTermGraph:
                 # insert another wall_id after the room_id
                 path_copy.insert(i + 3 + n_insertions, path[i + 1])
                 n_insertions += 2
-                print("######################## JUMP DETECTED #########################")
-                print("Room node id", room_id, "name", room_node["name"], "inserted", "wall id", path[i + 1])
-        print("Path after check", path_copy)
+        #         print("######################## JUMP DETECTED #########################")
+        #         print("Room node id", room_id, "name", room_node["name"], "inserted", "wall id", path[i + 1])
+        # print("Path after check", path_copy)
         return path_copy
 
     def compute_metric_map(self, base_room_name):
