@@ -1425,20 +1425,7 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
             if(not inside_polygon)
             {
                 qInfo() << "Robot outside polygon. Removing node and taking door into account for future exploration.";
-
-                //Delete edge between wall and door in all cases
-                if (G->delete_edge(robot_node.id(), door_node.id(), "has_intention"))
-                    std::cout << __FUNCTION__ << " has_intention edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
-
-                if (G->delete_edge(wall_node.id(), door_node.id(), "RT"))
-                    std::cout << __FUNCTION__ << " RT from wall to door measured edge successfully deleted: " << std::endl;
-                else
-                    std::cout << __FUNCTION__ << " Fatal error deleting node: " << std::endl;
-
-                //delete door node
-                G->delete_node(door_node.id());
+                nodes_to_remove.push_back(door_node.id());
                 initialize_odom = false;
                 return;
             }
@@ -1446,9 +1433,6 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
             if(intention_state_value == "in_progress" or time_collecting_data > 0)
             {
                 static auto start = std::chrono::high_resolution_clock::now();
-                //print time_collecting data
-                qInfo() << "Time_collecting_data" << time_collecting_data;
-
                 /// Get measured corners from graph
                 auto corner_nodes = G->get_nodes_by_type("corner");
                 if (corner_nodes.empty())
@@ -1456,11 +1440,9 @@ void SpecificWorker::stabilize_door(DoorDetector::Door door, std::string door_na
                     qWarning() << __FUNCTION__ << " No corner nodes in graph";
                     std::vector<Eigen::Matrix<float, 2, 1>> empty_corner{};
                     measured_corner_points.push_back(empty_corner);
-//                        return;
                 }
                 else
                 {
-
                     /// Generate corner_nodes_measured vector with corner nodes that contains "measured" in name using a lambda function and order them
                     std::vector<DSR::Node> corner_nodes_measured;
                     std::copy_if(corner_nodes.begin(), corner_nodes.end(), std::back_inserter(corner_nodes_measured),

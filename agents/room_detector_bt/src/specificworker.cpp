@@ -405,7 +405,6 @@ void SpecificWorker::create_room()
     // Get optimized nominal corners and actual robot pose
     auto g2o_data = extract_g2o_data(optimization);
     // Associate start nominal corners with optimized
-    auto associated_nominal_corners = calculate_rooms_correspondences_id(std::get<0>(g2o_data), robot_initial_pose.second, true);
     std::sort(std::get<0>(g2o_data).begin(), std::get<0>(g2o_data).end(), [](const auto &p1, const auto &p2){ return std::atan2(p1.y(), p1.x()) < std::atan2(p2.y(), p2.x()); });
 
     // Insert room data in graph
@@ -429,6 +428,13 @@ void SpecificWorker::update_room()
     auto ldata  = buffer_lidar_data.get_idemp();
     auto lines = extract_2D_lines_from_lidar3D(ldata.points, params.ranges_list);
     auto corners = room_detector.detect_corners({lines[0]}, &widget_2d->scene, false);
+
+//    /// Print corners
+//    for(const auto &corner : corners)
+//    {
+//        auto corner_point = std::get<1>(corner);
+//        std::cout << __FUNCTION__ << " Corner: " << corner_point.x() << " " << corner_point.y() << std::endl;
+//    }
 
     //std::cout << __FUNCTION__ << " PRE-UPDATE ROOM" << std::endl;
     update_room_data(corners, &widget_2d->scene);
@@ -714,8 +720,8 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
     {
         // Print if valid
         std::cout << __FUNCTION__ << " Corner " << id << " valid: " << valid << std::endl;
-        if(valid)
-        {
+//        if(valid)
+//        {
             //Check if exist previous corner
             auto corner_aux_ = G->get_node("corner_" + std::to_string(id) + "_measured");
             if(not corner_aux_.has_value())
@@ -727,7 +733,7 @@ void SpecificWorker::insert_room_into_graph(tuple<std::vector<Eigen::Vector2d>, 
             {
                 qWarning() << __FUNCTION__ << " Corner already exists in graph";
             }
-        }
+//        }
     }
 
     auto new_room_node_ = G->get_node("room_"+ std::to_string(room_id));
@@ -1277,7 +1283,7 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
     }
 
     std::vector<Eigen::Vector2d> first_corners = { corner_data[0][0].cast<double>(), corner_data[0][1].cast<double>(), corner_data[0][2].cast<double>(), corner_data[0][3].cast<double>() };
-    auto first_correspondence = calculate_rooms_correspondences_id(nominal_corners, first_corners, true);
+    auto first_correspondence = calculate_rooms_correspondences_id(nominal_corners, first_corners, true, true);
 
     for(int i = 0; i < 4; i++)
         g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id-1) + " " + std::to_string(std::get<0>(first_correspondence[i])) + " " + std::to_string(std::get<2>(first_correspondence[i]).x()) + " " + std::to_string(std::get<2>(first_correspondence[i]).y()) + " 5 0 5 \n";
@@ -1308,8 +1314,10 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
                 qWarning() << " More than one node between corners. Accumulating odometry data to transform.";
                 /// Considering the node ids, accumulate the odometry data between ids to transform the corners
                 Eigen::Affine2d accumulated_odometry = Eigen::Affine2d::Identity();
+                qInfo() << "Odometry data length: " << odometry_data.size();
                 for (int j = last_node_id + 1; j < node_id-1; ++j)
                 {
+                    qInfo() << "Accumulating odometry data from node " << j;
                     double x_displacement = odometry_data[j][0] * odometry_time_factor;
                     double y_displacement = odometry_data[j][1] * odometry_time_factor;
                     double angle_displacement = odometry_data[j][2] * odometry_time_factor;
@@ -1317,11 +1325,12 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
                     accumulated_odometry = accumulated_odometry * odometryTransform.inverse();
                 }
                 /// Transform corners in aux_corners to robot frame
+                qInfo() << "Transforming corners with accumulated odometry data";
                 for (auto &corner : this->aux_corners)
                     corner = accumulated_odometry * corner;
             }
 
-            auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true);
+            auto correspondences = calculate_rooms_correspondences_id(this->aux_corners, current_corners, true, true);
 
             for (size_t j = 0; j < corner_data[i].size(); ++j)
                 g2o_graph += "EDGE_SE2_XY " + std::to_string(node_id) + " " +
@@ -1336,7 +1345,7 @@ std::string SpecificWorker::build_g2o_graph(const std::vector<std::vector<Eigen:
     }
     return g2o_graph;
 }
-std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time)
+std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWorker::calculate_rooms_correspondences_id(const std::vector<Eigen::Vector2d> &source_points_, std::vector<Eigen::Vector2d> &target_points_, bool first_time, bool strict_matching)
 {
     std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
 
@@ -1350,31 +1359,33 @@ std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> SpecificWor
     if (distances_matrix.size() == 0 or distances_matrix[0].size() == 0)
     {
         qInfo() << "Empty source or target points";
-//        std::vector<std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>> correspondences;
-//        for (size_t i = 0; i < source_points_.size(); ++i)
-//            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], Eigen::Vector2d(0, 0), false));
-//        return correspondences;
         return correspondences;
     }
     /// Process metrics matrix with Hungarian algorithm
     vector<int> assignment;
     HungAlgo.Solve(distances_matrix, assignment);
-    /// Check if every element in assignment is different from -1
-    if (std::all_of(assignment.begin(), assignment.end(), [](int i){ return i != -1; }))
+
+    if(strict_matching)
+    {
+        /// Check if every element in assignment is different from -1
+        if (not std::all_of(assignment.begin(), assignment.end(), [](int i){ return i != -1; }))
+            for (size_t i = 0; i < source_points_.size(); ++i)
+                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], source_points_[i], false));
+        else
+            for (size_t i = 0; i < assignment.size(); ++i)
+                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], target_points_[assignment[i]], true));
+    }
+
+    else
         for (unsigned int x = 0; x < assignment.size(); x++)
         {
             /// Check if assignment is valid and the distance is less than the threshold
-//            qInfo() << __FUNCTION__  << "Row " << x << " min distance: " << distances_matrix[x][assignment[x]] << " at column " << assignment[x];
-            if (distances_matrix[x][assignment[x]] < BTdata.corner_matching_threshold)
+            if (distances_matrix[x][assignment[x]] < BTdata.corner_matching_threshold and assignment[x] != -1)
                 correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], target_points_[assignment[x]], true));
             else
-                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], target_points_[assignment[x]], false));
+                correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(x, source_points_[x], source_points_[x], false));
         }
 
-    /// If the assignment is not valid, return the source points
-    else
-        for (size_t i = 0; i < source_points_.size(); ++i)
-            correspondences.push_back(std::tuple<int, Eigen::Vector2d, Eigen::Vector2d, bool>(i, source_points_[i], source_points_[i], false));
     return correspondences;
 }
 std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> SpecificWorker::calculate_rooms_correspondences(const std::vector<Eigen::Vector2d> &source_points_, const std::vector<Eigen::Vector2d> &target_points_)

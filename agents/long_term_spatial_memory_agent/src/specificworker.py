@@ -52,7 +52,7 @@ from pydsr import *
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 500
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 13
@@ -64,7 +64,7 @@ class SpecificWorker(GenericWorker):
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
 
-            self.testing = False
+            self.testing = True
 
             # Robot node variables
             self.robot_name = "Shadow"
@@ -216,6 +216,8 @@ class SpecificWorker(GenericWorker):
                 print(e)
                 pass
         # print(self.state)
+        # Check igraph graph to check doors that are the same in the graph from different rooms
+        self.check_igraph_similar_doors()
         match self.state:
             case "idle":
                 self.idle()
@@ -433,6 +435,41 @@ class SpecificWorker(GenericWorker):
                 print("No current room")
                 return
 
+    def check_igraph_similar_doors(self):
+        print("Checking igraph similar doors")
+        try:
+            # Check if there are doors with the same name in different rooms
+            door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
+            for door in door_nodes:
+                print("Door name", door["name"])
+                door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64),
+                                                                            "room_1", door["name"])
+                # Iterate over all doors
+                for door2 in door_nodes:
+                    # If the doors are different
+                    if door["name"] != door2["name"]:
+                        other_side_door_name = door2["other_side_door_name"]
+                        if not other_side_door_name:
+                            print("No other_side_door_name attribute in door", door2["name"])
+                            door2_center = self.long_term_graph.compute_element_pose(
+                                np.array([0., 0., 0.], dtype=np.float64),
+                                "room_1", door2["name"])
+                            # Get the distance between the doors
+                            distance = math.sqrt(
+                                (door_center[0] - door2_center[0]) ** 2 + (door_center[1] - door2_center[1]) ** 2)
+                            print("Distance between doors", distance)
+                            # If the distance is less than 0.5 meters, print the doors
+                            if distance < 300:
+                                print("Similar doors", door["name"], door2["name"])
+                                # Get the room name of the door knowing that room id is the last element of the door name
+                                room_name = "room_" + door["name"].split("_")[-1]
+                                # Get the room name of the door knowing that room id is the last element of the door name
+                                room_name2 = "room_" + door2["name"].split("_")[-1]
+
+                                # Associate the doors in igraph
+                                self.associate_doors((door["name"], room_name), (door2["name"], room_name2))
+        except:
+            pass
     def crossed(self):
         # Get parent node of affordance node
         affordance_node = self.g.get_node(self.affordance_node_active_id)
