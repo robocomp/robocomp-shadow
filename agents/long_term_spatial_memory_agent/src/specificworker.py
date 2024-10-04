@@ -64,7 +64,7 @@ class SpecificWorker(GenericWorker):
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
 
-            self.testing = True
+            self.testing = False
 
             # Robot node variables
             self.robot_name = "Shadow"
