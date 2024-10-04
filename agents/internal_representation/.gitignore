@@ -1,0 +1,19 @@
+# Ignorar archivos y carpetas de CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+src/CMakeFiles/
+src/cmake_install.cmake
+
+# Ignorar archivos de Python generados
+__pycache__/
+
+# Ignorar archivos de configuración de IDE
+.idea/
+
+# Ignorar Makefiles (opcional)
+Makefile
+src/Makefile
+
+# Ignorar otros archivos temporales
+*.new

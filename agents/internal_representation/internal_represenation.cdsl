@@ -1,0 +1,9 @@
+Component internal_representation
+{
+    Communications
+    {
+    };
+    language python;
+    options dsr;
+};
+

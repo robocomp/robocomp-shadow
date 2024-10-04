@@ -248,22 +248,22 @@ void SpecificWorker::compute()
     if(range_finder) receiving_depthImageData(range_finder);
     if(camera360_1 && camera360_2) receiving_camera360Data(camera360_1, camera360_2);
 
-    auto std_model_name = robot->getFromDef("WALLS")->getField("url")->getMFString(0);
-    std::cout << "Model name: " << std_model_name << std::endl;
-    auto root_node_ = G->get_node("root");
-    if(not root_node_.has_value())
-    {
-        std::cout << "Root node not found" << std::endl;
-        return;
-    }
-    auto root_node = root_node_.value();
-    G->add_or_modify_attrib_local<path_att>(root_node, std::string(std_model_name));
-    G->update_node(root_node);
-
-    if(auto path_name = G->get_attrib_by_name<path_att >(root_node); path_name.has_value())
-    {
-        std::cout << "Path name: " << path_name.value().get() << std::endl;
-    }
+//    auto std_model_name = robot->getFromDef("WALLS")->getField("url")->getMFString(0);
+//    std::cout << "Model name: " << std_model_name << std::endl;
+//    auto root_node_ = G->get_node("root");
+//    if(not root_node_.has_value())
+//    {
+//        std::cout << "Root node not found" << std::endl;
+//        return;
+//    }
+//    auto root_node = root_node_.value();
+//    G->add_or_modify_attrib_local<path_att>(root_node, std::string(std_model_name));
+//    G->update_node(root_node);
+//
+//    if(auto path_name = G->get_attrib_by_name<path_att >(root_node); path_name.has_value())
+//    {
+//        std::cout << "Path name: " << path_name.value().get() << std::endl;
+//    }
 
     insert_robot_speed_dsr();
 //    if(keyboard)
