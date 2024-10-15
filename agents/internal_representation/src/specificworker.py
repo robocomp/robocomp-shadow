@@ -102,9 +102,9 @@ class SpecificWorker(GenericWorker):
 
         self.update_robot_pose()
         print("ROOM_CREATED",self.room_created)
+
         if not self.room_created:
             nominal_corners = self.get_room_nominal_corners()
-            print("NOMINAL CORNERS LEN",len(nominal_corners))
             if len(nominal_corners) == 4:
                 if self.create_room(nominal_corners):
                     self.room_created = True
@@ -112,11 +112,8 @@ class SpecificWorker(GenericWorker):
                 print("Nominal corners no initialized yet")
         else:
             for door in self.g.get_nodes_by_type("door"):
-                print("DOOR", door.name)
                 print(door.attrs["room_id"].value)
-                print(self.current_room_id)
                 if "pre" not in door.name and door.attrs["room_id"].value == self.current_room_id and door.name not in self.created_doors:
-                    print("DOOR", door.name)
                     self.create_door(door)
                     self.created_doors.append(door.name)
 
@@ -174,9 +171,6 @@ class SpecificWorker(GenericWorker):
 
                 if not self.run:
                     self.run = True
-
-                    # Code that should execute only once
-                    print("ROBOT POSE", robot_pose_x, robot_pose_y)
                     robot = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.2, height=1.4)
                     self.pybullet_robot_id = p.createMultiBody(0, robot,
                                                          basePosition=[robot_pose_x, robot_pose_y, 0.])
@@ -222,15 +216,9 @@ class SpecificWorker(GenericWorker):
                 world_door_x_right /= 1000.
                 world_door_y_right /= 1000.
 
-                print("WORLD DOOR X,Y LEFT: ", world_door_x_left, world_door_y_left)
-                print("WORLD DOOR X,Y RIGHT: ", world_door_x_right, world_door_y_right)
-                # p.removeBody(2)  # Asegúrate de que el ID sea correcto
-
                 wall_index = -1
                 for index, wall in enumerate(self.py_walls_ids):
-                    print("WALL", wall)
                     if self.is_door_in_wall_area(room_door_x, room_door_y, wall, 0.5):
-                        print("WALL THAT CONTAINS DOOR", wall)
                         wall_index = index
                         break
 
@@ -296,11 +284,10 @@ class SpecificWorker(GenericWorker):
         self.py_walls_ids = []
 
     def create_room(self, nominal_corners):
-        print('create_room')
         corners_arr = {}
 
         current_edge = self.g.get_edges_by_type("current")
-        print(len(current_edge))
+
         if len(current_edge) > 0 and len(nominal_corners) > 0:
             room_node = self.g.get_node(current_edge[0].origin)
             if room_node is None:
@@ -311,8 +298,6 @@ class SpecificWorker(GenericWorker):
                 corner_edge_rt /= 1000.0
                 if nominal_corner.attrs["corner_id"].value is not None and len(corner_edge_rt) > 0:
                     corners_arr["corner" + str(nominal_corner.attrs["corner_id"].value)] = [corner_edge_rt[0], corner_edge_rt[1], -1.]
-
-            print(corners_arr)
 
         # Pared 1: entre corner0 y corner1 (horizontal inferior)
         p.addUserDebugLine(corners_arr["corner0"], corners_arr["corner1"], [1, 0, 0], 3)
@@ -366,8 +351,8 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
 
     def delete_edge(self, fr: int, to: int, type: str):
-        console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
         if type == "current":
+            console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
             self.clear_pybullet()
             self.room_created = False
             self.current_room_id = -1
