@@ -50,24 +50,31 @@ class SpecificWorker(GenericWorker):
 
         # Pybullet
         self.physicsClient = p.connect(p.GUI)
+        # Hide some GUI debug elements
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
         p.setTimeStep(1/50,0)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -10)
         planeId = p.loadURDF("plane.urdf")
         p.setGravity(0, 0, -9.81)
 
-
         self.pybullet_robot_id = -1
         self.run = False
-        self.compute_singleshot = False
-
+        self.room_created = False
+        self.created_door = False
+        self.py_walls_ids = []
+        self.current_room_id = -1
+        self.created_doors = []
+        self.walls_height = 2.
+        self.doors_height = 2.
+        
         try:
             # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
         except RuntimeError as e:
             print(e)
@@ -94,31 +101,60 @@ class SpecificWorker(GenericWorker):
     def compute(self):
 
         self.update_robot_pose()
-
-        if not self.compute_singleshot:
-            self.compute_singleshot = True
+        print("ROOM_CREATED",self.room_created)
+        if not self.room_created:
             nominal_corners = self.get_room_nominal_corners()
-            self.create_room(nominal_corners)
-            door_node = self.g.get_node("door_2_0_1")
-            if door_node is not None:
-                self.create_door({},{}, door_node, 1000.0,{})
+            print("NOMINAL CORNERS LEN",len(nominal_corners))
+            if len(nominal_corners) == 4:
+                if self.create_room(nominal_corners):
+                    self.room_created = True
+            else:
+                print("Nominal corners no initialized yet")
+        else:
+            for door in self.g.get_nodes_by_type("door"):
+                print("DOOR", door.name)
+                print(door.attrs["room_id"].value)
+                print(self.current_room_id)
+                if "pre" not in door.name and door.attrs["room_id"].value == self.current_room_id and door.name not in self.created_doors:
+                    print("DOOR", door.name)
+                    self.create_door(door)
+                    self.created_doors.append(door.name)
 
         p.stepSimulation()
         time.sleep(1./240.)  # 240Hz de simulación
 
-        return True
-
     def get_room_nominal_corners(self):
         current_edge = self.g.get_edges_by_type("current")
         if len(current_edge) > 0:
+            room_node = self.g.get_node(current_edge[0].origin)
             corners  = self.g.get_nodes_by_type("corner")
 
             if len(corners) > 0:
-                nominal_corners = [node for node in corners if "measured" not in node.name]
+                nominal_corners = [node for node in corners if "measured" not in node.name and node.attrs["room_id"].value == room_node.attrs["room_id"].value]
                 if len(nominal_corners) > 0:
                     return nominal_corners
 
         return []
+
+    def is_door_in_wall_area(self, door_x, door_y, wall, width):
+        # Función para calcular la distancia desde un punto a una línea
+        def distance_point_to_line(px, py, ax, ay, bx, by):
+            numerator = abs((by - ay) * px - (bx - ax) * py + bx * ay - by * ax)
+            denominator = math.sqrt((by - ay) ** 2 + (bx - ax) ** 2)
+            return numerator / denominator if denominator != 0 else float('inf')
+
+        cornerA = wall["cornerA"]
+        cornerB = wall["cornerB"]
+
+        # Obtener coordenadas
+        x1, y1 = cornerA[0], cornerA[1]
+        x2, y2 = cornerB[0], cornerB[1]
+
+        # Calcular la distancia desde la puerta a la línea
+        distance = distance_point_to_line(door_x, door_y, x1, y1, x2, y2)
+
+        # Comprobar si la distancia es menor o igual a la mitad del ancho del muro
+        return distance <= width / 2
 
     def get_current_room_node(self):
         current_edge = self.g.get_edges_by_type("current")
@@ -150,7 +186,6 @@ class SpecificWorker(GenericWorker):
 
     # Crear las paredes usando cajas
     def create_wall(self, corner1, corner2, color):
-        wall_height = 2.
         x1, y1 = corner1[:2]
         x2, y2 = corner2[:2]
         distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
@@ -158,27 +193,26 @@ class SpecificWorker(GenericWorker):
         # Calcular el ángulo para la rotación
         angle = math.atan2(y2 - y1, x2 - x1)
         # Crear la pared
-        wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[distance / 2, 0.1, wall_height])
-        wall_id = p.createMultiBody(0, wall, basePosition=[(x1 + x2) / 2, (y1 + y2) / 2, wall_height],
+        wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[distance / 2, 0.1, self.walls_height])
+        wall_id = p.createMultiBody(0, wall, basePosition=[(x1 + x2) / 2, (y1 + y2) / 2, self.walls_height],
                                     baseOrientation=p.getQuaternionFromEuler([0, 0, angle]))  # Rotar la pared
         p.changeVisualShape(wall_id, -1, rgbaColor=color)  # Cambiar color de la pared
         return wall_id
 
-    def create_door(self, corner1, corner2, door, door_width, wall_id):
-        wall_height = 2.
-
+    def create_door(self,door):
         if (wall_id := door.attrs["parent"].value) is not None:
             if (wall_node := self.g.get_node(wall_id)) is not None:
                 room_node = self.get_current_room_node()
-
+                door_width = door.attrs["width"].value
                 door_x, door_y, _ = self.inner_api.transform(wall_node.name, door.name)
                 room_door_x, room_door_y, _ = self.inner_api.transform(room_node.name, door.name)
-                print("WALL DOOR X,Y MIDDLE POINT:", door_x, door_y)
+
+                room_door_x /= 1000.
+                room_door_y /= 1000.
 
                 door_x_left = door_x - door_width / 2
                 door_x_right = door_x + door_width / 2
-                print("WALL DOOR X,Y LEFT POINT:", door_x_left, door_y)
-                print("WALL DOOR X,Y RIGHT POINT:", door_x_right, door_y)
+
 
                 world_door_x_left, world_door_y_left, _ = self.inner_api.transform( room_node.name, [door_x_left, 0., 0.], wall_node.name)
                 world_door_x_right, world_door_y_right, _ = self.inner_api.transform( room_node.name, [door_x_right, 0., 0.], wall_node.name)
@@ -192,39 +226,74 @@ class SpecificWorker(GenericWorker):
                 print("WORLD DOOR X,Y RIGHT: ", world_door_x_right, world_door_y_right)
                 # p.removeBody(2)  # Asegúrate de que el ID sea correcto
 
-                left_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.2, height=wall_height)
-                left_cilinder_id = p.createMultiBody(0, left_cilinder,
-                                                    basePosition=[world_door_x_left, world_door_y_left, wall_height / 2])
-                p.changeVisualShape(left_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+                wall_index = -1
+                for index, wall in enumerate(self.py_walls_ids):
+                    print("WALL", wall)
+                    if self.is_door_in_wall_area(room_door_x, room_door_y, wall, 0.5):
+                        print("WALL THAT CONTAINS DOOR", wall)
+                        wall_index = index
+                        break
 
-                right_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.2, height=wall_height)
-                right_cilinder_id = p.createMultiBody(0, right_cilinder,
-                                                    basePosition=[world_door_x_right, world_door_y_right, wall_height / 2])
-                p.changeVisualShape(right_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+                x1, y1 = self.py_walls_ids[wall_index]["cornerB"][:2]
+                distance = math.sqrt((world_door_x_left - x1) ** 2 + (world_door_y_left - y1) ** 2)
 
-                top_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.2, height=door_width / 1000.)
-                top_cilinder_id = p.createMultiBody(0, top_cilinder, basePosition=[room_door_x / 1000., room_door_y / 1000., wall_height],
-                                                baseOrientation=p.getQuaternionFromEuler([0, math.pi / 2, 0]))
-                p.changeVisualShape(top_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+                # Get rotation angle from corresponding wall
+                _ , orientation = p.getBasePositionAndOrientation(self.py_walls_ids[wall_index]["wall_id"][0])
+                # Get color from corresponding wall
+                color = p.getVisualShapeData(self.py_walls_ids[wall_index]["wall_id"][0])[0][7]
+                # Remove wall that contains the door
+                for wall in self.py_walls_ids[wall_index]["wall_id"]:
+                    p.removeBody(wall)
 
-                # # Calcular el ángulo para la rotación
-                # _ , orientation = p.getBasePositionAndOrientation(wall_id)
-        # print(orientation)
-        #
-        # # Convertir orientación (cuaternión) a ángulos de Euler
-        # euler_angles = p.getEulerFromQuaternion(orientation)
-        # roll, pitch, yaw = euler_angles
-        #
-        #
-        #
-        # # Crear las nuevas paredes (izquierda y derecha del hueco de la puerta)
-        # left_wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[door_width / 2, 0.1, wall_height])
-        # left_wall_id = p.createMultiBody(0, left_wall, basePosition=left_wall_position, baseOrientation=orientation)
-        # p.changeVisualShape(left_wall_id, -1, rgbaColor=[1, 1, 1, 1])  # Blanco para el muro izquierdo
-        #
-        # right_wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[door_width / 2, 0.1, wall_height])
-        # right_wall_id = p.createMultiBody(0, right_wall, basePosition=right_wall_position, baseOrientation=orientation)
-        # p.changeVisualShape(right_wall_id, -1, rgbaColor=[0, 0, 0, 1])  # Negro para el muro derecho
+                self.py_walls_ids[wall_index]["wall_id"] = []
+
+                wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[distance / 2, 0.1, self.walls_height])
+                wall_id = p.createMultiBody(0, wall, basePosition=[(x1 + world_door_x_left) / 2, (y1 + world_door_y_left) / 2, self.walls_height],
+                                            baseOrientation=orientation)  # Rotar la pared
+                p.changeVisualShape(wall_id, -1, rgbaColor=color)  # Cambiar color de la pared
+                self.py_walls_ids[wall_index]["wall_id"].append(wall_id)
+
+                x1, y1 = self.py_walls_ids[wall_index]["cornerA"][:2]
+                distance = math.sqrt((world_door_x_right - x1) ** 2 + (world_door_y_right - y1) ** 2)
+
+                wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[distance / 2, 0.1, self.walls_height])
+                wall_id = p.createMultiBody(0, wall,
+                                            basePosition=[(x1 + world_door_x_right) / 2, (y1 + world_door_y_right) / 2,
+                                                          self.walls_height],
+                                            baseOrientation=orientation)  # Rotar la pared
+                p.changeVisualShape(wall_id, -1, rgbaColor=color)  # Cambiar color de la pared
+                self.py_walls_ids[wall_index]["wall_id"].append(wall_id)
+
+                wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[door_width /2 / 1000., 0.1, self.walls_height / 2])
+                wall_id = p.createMultiBody(0, wall,
+                                            basePosition=[(world_door_x_right + world_door_x_left) / 2, (world_door_y_right + world_door_y_left) / 2, self.doors_height + self.walls_height / 2],
+                                            baseOrientation=orientation)  # Rotar la pared
+                p.changeVisualShape(wall_id, -1, rgbaColor=color)  # Cambiar color de la pared
+                self.py_walls_ids[wall_index]["wall_id"].append(wall_id)
+
+                print(self.py_walls_ids)
+
+                # CREATES THE DOOR FRAME IN THE WALL
+                # left_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.15, height=self.walls_height)
+                # left_cilinder_id = p.createMultiBody(0, left_cilinder,
+                #                                     basePosition=[world_door_x_left, world_door_y_left, self.walls_height / 2])
+                # p.changeVisualShape(left_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+                #
+                # right_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.15, height=self.walls_height)
+                # right_cilinder_id = p.createMultiBody(0, right_cilinder,
+                #                                     basePosition=[world_door_x_right, world_door_y_right, self.walls_height / 2])
+                # p.changeVisualShape(right_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+                #
+                # top_cilinder = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.15, height=door_width / 1000.)
+                # top_cilinder_id = p.createMultiBody(0, top_cilinder, basePosition=[room_door_x, room_door_y, self.walls_height],
+                #                                 baseOrientation=orientation)
+                # p.changeVisualShape(top_cilinder_id, -1, rgbaColor=[1, 1, 1, 1])
+
+    def clear_pybullet(self):
+        for wall in self.py_walls_ids:
+            for wall_id in wall["wall_id"]:
+                p.removeBody(wall_id)
+        self.py_walls_ids = []
 
     def create_room(self, nominal_corners):
         print('create_room')
@@ -235,37 +304,37 @@ class SpecificWorker(GenericWorker):
         if len(current_edge) > 0 and len(nominal_corners) > 0:
             room_node = self.g.get_node(current_edge[0].origin)
             if room_node is None:
-                return
-
+                return False
+            self.current_room_id = room_node.attrs["room_id"].value
             for nominal_corner in nominal_corners:
                 corner_edge_rt = self.inner_api.transform(room_node.name, nominal_corner.name)
-                print(corner_edge_rt[0]/1000.0 , corner_edge_rt[1]/1000.0)
+                corner_edge_rt /= 1000.0
                 if nominal_corner.attrs["corner_id"].value is not None and len(corner_edge_rt) > 0:
-                    corners_arr["corner" + str(nominal_corner.attrs["corner_id"].value)] = [corner_edge_rt[0]/1000.0, corner_edge_rt[1]/1000.0, -1.]
+                    corners_arr["corner" + str(nominal_corner.attrs["corner_id"].value)] = [corner_edge_rt[0], corner_edge_rt[1], -1.]
 
             print(corners_arr)
-
-        # Altura de las paredes
-        wall_height = 2.5
-
-        door_width = 2.
 
         # Pared 1: entre corner0 y corner1 (horizontal inferior)
         p.addUserDebugLine(corners_arr["corner0"], corners_arr["corner1"], [1, 0, 0], 3)
         wall_id = self.create_wall(corners_arr["corner0"], corners_arr["corner1"], [1, 0, 0, 1])  # Rojo
-        punto_medio = [(corners_arr["corner0"][0] + corners_arr["corner1"][0]) / 2, (corners_arr["corner0"][1] + corners_arr["corner0"][2]) / 2]
+        self.py_walls_ids.append({"wall_id":[wall_id], "cornerA":corners_arr["corner0"], "cornerB":corners_arr["corner1"]})
 
         # Pared 2: entre corner1 y corner2 (vertical derecha)
         p.addUserDebugLine(corners_arr["corner1"], corners_arr["corner2"], [0, 1, 0], 3)
-        self.create_wall(corners_arr["corner1"], corners_arr["corner2"], [0, 1, 0, 1])  # Verde
+        wall_id = self.create_wall(corners_arr["corner1"], corners_arr["corner2"], [0, 1, 0, 1])  # Verde
+        self.py_walls_ids.append({"wall_id":[wall_id], "cornerA":corners_arr["corner1"], "cornerB":corners_arr["corner2"]})
 
         # Pared 3: entre corner2 y corner3 (horizontal superior)
         p.addUserDebugLine(corners_arr["corner2"], corners_arr["corner3"], [0, 0, 1], 3)
-        self.create_wall(corners_arr["corner2"], corners_arr["corner3"], [0, 0, 1, 1])  # Azul
+        wall_id = self.create_wall(corners_arr["corner2"], corners_arr["corner3"], [0, 0, 1, 1])  # Azul
+        self.py_walls_ids.append({"wall_id":[wall_id], "cornerA":corners_arr["corner2"], "cornerB":corners_arr["corner3"]})
 
         # Pared 4: entre corner3 y corner0 (vertical izquierda)
         p.addUserDebugLine(corners_arr["corner3"], corners_arr["corner0"], [1, 1, 0], 3)
-        self.create_wall(corners_arr["corner3"], corners_arr["corner0"], [1, 1, 0, 1])  # Amarillo
+        wall_id = self.create_wall(corners_arr["corner3"], corners_arr["corner0"], [1, 1, 0, 1])  # Amarillo
+        self.py_walls_ids.append({"wall_id":[wall_id], "cornerA":corners_arr["corner3"], "cornerB":corners_arr["corner0"]})
+
+        return True
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
@@ -278,13 +347,19 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
-        console.print(f"UPDATE NODE: {id} {type}", style='green')
+        # console.print(f"UPDATE NODE: {id} {type}", style='green')
+        # if type == "door" and self.room_created is True:
+        #     door_node = self.g.get_node(id)
+        #     if door_node is not None:
+        #         if "pre" not in door_node.name:
+        #             self.create_door(door_node)
+        pass
 
     def delete_node(self, id: int):
-        console.print(f"DELETE NODE:: {id} ", style='green')
+        # console.print(f"DELETE NODE:: {id} ", style='green')
+        pass
 
     def update_edge(self, fr: int, to: int, type: str):
-
         console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
@@ -292,3 +367,8 @@ class SpecificWorker(GenericWorker):
 
     def delete_edge(self, fr: int, to: int, type: str):
         console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
+        if type == "current":
+            self.clear_pybullet()
+            self.room_created = False
+            self.current_room_id = -1
+            self.created_doors = []
