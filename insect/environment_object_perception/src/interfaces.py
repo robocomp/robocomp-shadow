@@ -9,12 +9,8 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/Camera360RGBD.ice")
 import RoboCompCamera360RGBD
-Ice.loadSlice("-I ./src/ --all ./src/FullPoseEstimation.ice")
-import RoboCompFullPoseEstimation
-Ice.loadSlice("-I ./src/ --all ./src/LidarOdometry.ice")
-import RoboCompLidarOdometry
-Ice.loadSlice("-I ./src/ --all ./src/SegmentatorTrackingPub.ice")
-import RoboCompSegmentatorTrackingPub
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+import RoboCompLidar3D
 Ice.loadSlice("-I ./src/ --all ./src/VisualElementsPub.ice")
 import RoboCompVisualElementsPub
 
@@ -54,6 +50,60 @@ class ImgType(list):
         super(ImgType, self).insert(index, item)
 
 setattr(RoboCompCamera360RGBD, "ImgType", ImgType)
+class TPoints(list):
+    def __init__(self, iterable=list()):
+        super(TPoints, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TPoints", TPoints)
+class TFloatArray(list):
+    def __init__(self, iterable=list()):
+        super(TFloatArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(TFloatArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TFloatArray", TFloatArray)
+class TIntArray(list):
+    def __init__(self, iterable=list()):
+        super(TIntArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, int)
+        super(TIntArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TIntArray", TIntArray)
 class TObjects(list):
     def __init__(self, iterable=list()):
         super(TObjects, self).__init__(iterable)
@@ -73,7 +123,6 @@ class TObjects(list):
 
 setattr(RoboCompVisualElementsPub, "TObjects", TObjects)
 
-import segmentatortrackingpubI
 
 
 
@@ -119,7 +168,7 @@ class Requires:
 
         self.Camera360RGBD = self.create_proxy("Camera360RGBDProxy", RoboCompCamera360RGBD.Camera360RGBDPrx)
 
-        self.LidarOdometry = self.create_proxy("LidarOdometryProxy", RoboCompLidarOdometry.LidarOdometryPrx)
+        self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
 
     def get_proxies_map(self):
         return self.mprx
@@ -147,8 +196,6 @@ class Subscribes:
     def __init__(self, ice_connector, topic_manager, default_handler):
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
-
-        self.SegmentatorTrackingPub = self.create_adapter("SegmentatorTrackingPubTopic", segmentatortrackingpubI.SegmentatorTrackingPubI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
