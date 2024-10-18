@@ -59,7 +59,6 @@ class SpecificWorker(GenericWorker):
         p.setGravity(0, 0, -9.81)
 
         self.pybullet_robot_id = -1
-        self.run = False
         self.room_created = False
         self.created_door = False
         self.py_walls_ids = []
@@ -67,7 +66,44 @@ class SpecificWorker(GenericWorker):
         self.created_doors = []
         self.walls_height = 2.
         self.doors_height = 2.
-        
+
+        #Sintetic Lidar
+        # Definir los parámetros del LIDAR sintético
+        self.lidar_height = 1.1169  # Altura desde la que se lanzan los rayos (como si fuera el LIDAR en el robot)
+        self.lidar_range = 3.  # Distancia máxima del LIDAR
+        self.angles_polares = [(np.radians(az), np.radians(el)) for az in range(0, 360, 20) for el in range(-81, 81, 15)]
+        self.debug_lines_ids = []
+        self.create_lines = False
+        self.ray_from = []
+        self.ray_to = []
+
+        #Robot integration
+        self.robot_height = 1.26443
+        # TODO: CHANGE ROBOLAB FOR USER
+        stl_path = "/home/robolab/robocomp/components/robocomp-shadow/agents/internal_representation/Shadow_Assembly_res.STL"
+        collision_shape_id = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=stl_path)
+        visual_shape_id = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=stl_path)
+
+        # Crear el cuerpo en la simulación con la rotación inicial aplicada
+        self.pybullet_robot_id = p.createMultiBody(baseCollisionShapeIndex=collision_shape_id,
+                                    baseVisualShapeIndex=visual_shape_id,
+                                    basePosition=[0., 0., self.robot_height / 2],  # Posición inicial del objeto
+                                    baseOrientation=[0, 0 , 0])  # Rotación aplicada en el eje X
+
+        # Change the color of the robot
+        p.changeVisualShape(self.pybullet_robot_id, -1, rgbaColor=[0.827, 0.827, 0.827, 1])
+
+        # Deshabilitar colisiones del robot con los rayos del LIDAR
+        p.setCollisionFilterGroupMask(self.pybullet_robot_id, -1, collisionFilterGroup=0, collisionFilterMask=0)
+
+        # # Create a wall close to the robot FOR DEBUGGING
+        # wall = p.createCollisionShape(p.GEOM_BOX, halfExtents=[1, 0.1, 1])
+        # wall_id = p.createMultiBody(0, wall, basePosition=[1, 1, 0.5], baseOrientation=[0, 0, 0, 1])
+        # p.changeVisualShape(wall_id, -1, rgbaColor=[0, 0, 1, 1])
+
+        distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances()
+        self.draw_debug_lines(distances, ray_from, ray_to, hit_positions)
+
         try:
             # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
@@ -100,8 +136,13 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
 
-        self.update_robot_pose()
-        print("ROOM_CREATED",self.room_created)
+        pass
+        robot_pose_x, robot_pose_y = self.update_robot_pose()
+        if robot_pose_x is None or robot_pose_y is None:
+            return
+        else:
+            distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances()
+            self.draw_debug_lines(distances, ray_from, ray_to, hit_positions)
 
         if not self.room_created:
             nominal_corners = self.get_room_nominal_corners()
@@ -112,13 +153,178 @@ class SpecificWorker(GenericWorker):
                 print("Nominal corners no initialized yet")
         else:
             for door in self.g.get_nodes_by_type("door"):
-                print(door.attrs["room_id"].value)
                 if "pre" not in door.name and door.attrs["room_id"].value == self.current_room_id and door.name not in self.created_doors:
                     self.create_door(door)
                     self.created_doors.append(door.name)
 
         p.stepSimulation()
         time.sleep(1./240.)  # 240Hz de simulación
+
+    def robot_sintetic_lidar_distances(self):
+        # Obtener posición y orientación del robot en el mundo
+        robot_pos, robot_orient = p.getBasePositionAndOrientation(self.pybullet_robot_id)
+
+        # Crear los puntos de inicio del LIDAR en el sistema de referencia local del robot
+        lidar_from_local = [0, 0, self.lidar_height / 2]  # El LIDAR en la posición local (0, 0, altura)
+        # Generar rayos en diferentes direcciones en el plano XY
+        ray_from = []
+        ray_to = []
+        ray_from_global = []
+        for azimuth, elevation in self.angles_polares:
+            # Calcular la posición del rayo en coordenadas polares
+            x_local = self.lidar_range * np.cos(azimuth) * np.cos(elevation)
+            y_local = self.lidar_range * np.cos(elevation) * np.sin(azimuth)
+            z_local = self.lidar_range * np.sin(elevation) # Maybe lidar_height should be added here
+
+            # Transformar el rayo desde local a global usando la posición y orientación del robot
+            ray_from_global, _ = p.multiplyTransforms(robot_pos, robot_orient, lidar_from_local, [0, 0, 0, 1])
+            ray_to_global, _ = p.multiplyTransforms(robot_pos, robot_orient, [x_local, y_local, z_local], [0, 0, 0, 1])
+
+            ray_from.append(ray_from_global)
+            ray_to.append(ray_to_global)
+
+        ray_results = p.rayTestBatch(ray_from, ray_to)
+
+        distances = []
+        hit_positions = []
+        for result in ray_results:
+            hit_object_id = result[0]  # ID del objeto que el rayo ha golpeado (-1 si no golpea nada o el robot)
+            hit_position = result[3]  # Posición de impacto
+            print("OBJECT_ID:", hit_object_id)
+            # Robot id print
+            # print("ROBOTID",self.pybullet_robot_id)
+            if hit_object_id == -1 or hit_object_id == self.pybullet_robot_id:
+                distances.append(self.lidar_range)  # No golpea nada, usa la distancia máxima
+                hit_positions.append(hit_position)
+            else:
+                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([ray_from_global[0], ray_from_global[1], self.lidar_height / 2]))
+                distances.append(hit_distance)
+                hit_positions.append(hit_position)
+
+
+        return distances, ray_from, ray_to, hit_positions
+
+    def draw_debug_lines(self, distances, ray_from, ray_to, hit_positions):
+        point = [0, 0, 0]
+        for i, (from_pos, hit_position) in enumerate(zip(ray_from, hit_positions)):
+            if distances[i] == self.lidar_range:
+                color = [1, 0, 0]
+                point = ray_to[i]
+            else:
+                color = [0, 0, 0]  # Rojo si no golpea nada, negro si golpea algo
+                point = hit_position
+
+            if not self.create_lines:
+                print("FROM_POS", from_pos)
+                print("POINT", point)
+                line_id = p.addUserDebugLine(from_pos, point, color)
+                time.sleep(0.05)
+                print("LINE_IO:", line_id)
+                self.debug_lines_ids.append(line_id)
+                print("################################################################################################")
+            else:
+
+                # Actualizar la línea existente
+                p.addUserDebugLine(from_pos, point, lineColorRGB=color, lineWidth=1,
+                                   replaceItemUniqueId=self.debug_lines_ids[i])
+
+                print("debug lines",self.debug_lines_ids[i])
+                print("i:",i)
+
+        if not self.create_lines: self.create_lines = True
+
+    def sintetic_lidar_distances(self, robot_pose_x, robot_pose_y):
+        # Calcular las posiciones de los rayos en función del ángulo y la distancia
+        self.ray_from = []
+        self.ray_to = []
+        ray_from_x = robot_pose_x
+        ray_from_y = robot_pose_y
+
+        for azimuth, elevation in self.angles_polares:
+            # Calcular la posición del rayo en coordenadas polares
+            x = ray_from_x + (self.lidar_range * np.cos(azimuth) * np.cos(elevation))
+            y = ray_from_y + (self.lidar_range * np.cos(elevation) * np.sin(azimuth))
+            z = self.lidar_height + (self.lidar_range * np.sin(elevation))
+
+            # Añadir el rayo a la lista
+            self.ray_from.append([ray_from_x, ray_from_y, self.lidar_height])
+            self.ray_to.append([x, y, z])
+
+        ray_results = p.rayTestBatch(self.ray_from, self.ray_to)
+
+        distances = []
+        for result in ray_results:
+            hit_object_id = result[0]  # ID del objeto que el rayo ha golpeado (-1 si no golpea nada o el robot)
+            hit_position = result[3]  # Posición de impacto
+
+            print("HIT OBJECT ID", hit_object_id)
+            if hit_object_id == -1 or hit_object_id == self.pybullet_robot_id:
+                distances.append(self.lidar_range)  # No golpea nada, usa la distancia máxima
+            else:
+                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([ray_from_x, ray_from_y, self.lidar_height]))
+                distances.append(hit_distance)
+
+        print("DISTANCES", distances)
+        return distances, ray_from_x, ray_from_y
+
+    # def draw_debug_lines(self, distances, robot_pose_x, robot_pose_y):
+    #
+    #     lidar_pos = [robot_pose_x, robot_pose_y, self.lidar_height]  # Posición del LIDAR
+    #
+    #     for i, (azimuth, elevation) in enumerate(self.angles_polares):
+    #         # Calcular la dirección del rayo en coordenadas cartesianas
+    #         ray_end_x = robot_pose_x + (distances[i] * np.cos(azimuth) * np.cos(elevation))
+    #         ray_end_y = robot_pose_y + (distances[i] * np.cos(elevation) * np.sin(azimuth))
+    #         ray_end_z = self.lidar_height + (distances[i] * np.sin(elevation))
+    #
+    #         # Definir la posición final del rayo
+    #         ray_end = [ray_end_x, ray_end_y, ray_end_z]
+    #
+    #         # Dibujar línea de depuración
+    #         if not self.create_lines:
+    #             line_id = p.addUserDebugLine(lidar_pos, ray_end, lineColorRGB=[1, 0, 0],
+    #                                          lineWidth=1)  # Rojo para rayos de LIDAR
+    #
+    #             self.debug_lines_ids.append(line_id)
+    #         else:
+    #             # Actualizar la línea existente
+    #             p.addUserDebugLine(lidar_pos, ray_end, lineColorRGB=[1, 0, 0], lineWidth=1,
+    #                                replaceItemUniqueId=self.debug_lines_ids[i])
+    #
+    #             print("DEBUG_LINES_IDS", self.debug_lines_ids[i])
+    #             print("i", i)
+    #
+    #     print("Drawing lines", self.debug_lines_ids)
+    #     self.create_lines = True
+
+    def sintetic_lidar_items(self, robot_pose_x, robot_pose_y):
+        self.ray_from = []
+        self.ray_to = []
+        angles_polares = [(np.radians(az), 0) for az in range(0, 360, 10)]
+
+        for azimuth, elevation in angles_polares:
+            # Calcular la posición del rayo en coordenadas polares
+            x = robot_pose_x + (self.lidar_range * np.cos(azimuth) * np.cos(elevation))
+            y = robot_pose_y + (self.lidar_range * np.cos(elevation) * np.sin(azimuth))
+            z = self.lidar_height + (self.lidar_range * np.sin(elevation))
+
+            # Añadir el rayo a la lista
+            self.ray_from.append([robot_pose_x, robot_pose_y, self.lidar_height])
+            self.ray_to.append([x, y, z])
+
+        ray_results = p.rayTestBatch(self.ray_from, self.ray_to)
+
+        # Inicializar un diccionario para almacenar resultados
+        hit_info = {}
+        for result in ray_results:
+            hit_object_id = result[0]  # ID del objeto que el rayo ha golpeado (-1 si no golpea nada)
+            hit_position = result[3]  # Posición de impacto
+
+            if hit_object_id != -1:
+                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([robot_pose_x, robot_pose_y, self.lidar_height]))
+                hit_info[hit_object_id] = {'hit_position': hit_position, 'hit_distance': hit_distance }
+
+        return hit_info  # Devolver el diccionario con la información de impactos
 
     def get_room_nominal_corners(self):
         current_edge = self.g.get_edges_by_type("current")
@@ -165,18 +371,17 @@ class SpecificWorker(GenericWorker):
     def update_robot_pose(self):
         if (robot_node := self.g.get_node("Shadow")) is not None:
             if (room_node := self.get_current_room_node()) is not None:
-                robot_pose_x, robot_pose_y, _ = self.inner_api.transform(room_node.name, robot_node.name)
-                robot_pose_x /= 1000
-                robot_pose_y /= 1000
+                if (transform := self.inner_api.transform_axis(room_node.name, robot_node.name)) is not None:
+                    print(transform)
+                    robot_pose_x, robot_pose_y, _, angle_x, angle_y, angle_z = transform
+                    robot_pose_x /= 1000
+                    robot_pose_y /= 1000
+                    orientation_quaternion = p.getQuaternionFromEuler([0, 0, angle_z])
+                    p.resetBasePositionAndOrientation(self.pybullet_robot_id, [robot_pose_x, robot_pose_y, self.robot_height / 2], orientation_quaternion)  # No rotation, so orientation is [0,0,0,1]
 
-                if not self.run:
-                    self.run = True
-                    robot = p.createCollisionShape(p.GEOM_CYLINDER, radius=0.2, height=1.4)
-                    self.pybullet_robot_id = p.createMultiBody(0, robot,
-                                                         basePosition=[robot_pose_x, robot_pose_y, 0.])
-                    p.changeVisualShape(self.pybullet_robot_id, -1, rgbaColor=[0, 0, 0, 1])
-                else:
-                    p.resetBasePositionAndOrientation(self.pybullet_robot_id, [robot_pose_x, robot_pose_y, 0.], [0., 0., 0., 1])  # No rotation, so orientation is [0,0,0,1]
+                    return robot_pose_x, robot_pose_y
+
+        return None, None
 
     # Crear las paredes usando cajas
     def create_wall(self, corner1, corner2, color):
@@ -332,12 +537,6 @@ class SpecificWorker(GenericWorker):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
     def update_node(self, id: int, type: str):
-        # console.print(f"UPDATE NODE: {id} {type}", style='green')
-        # if type == "door" and self.room_created is True:
-        #     door_node = self.g.get_node(id)
-        #     if door_node is not None:
-        #         if "pre" not in door_node.name:
-        #             self.create_door(door_node)
         pass
 
     def delete_node(self, id: int):
