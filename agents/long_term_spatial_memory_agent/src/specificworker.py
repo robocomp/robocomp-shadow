@@ -64,7 +64,7 @@ class SpecificWorker(GenericWorker):
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
 
-            self.testing = False
+            self.testing = True
 
             # Robot node variables
             self.robot_name = "Shadow"
@@ -92,14 +92,14 @@ class SpecificWorker(GenericWorker):
             # Global map variables
             self.long_term_graph = LongTermGraph("graph.pkl")
             # Check if self.long_term_graph.g is empty
-            # if self.long_term_graph.g.vcount() != 0:
-            #     # Draw graph from file
-            #     self.long_term_graph.draw_graph(False)
-            #     # Compute metric map and draw it
-            #     g_map = self.long_term_graph.compute_metric_map("room_1")
-            #     self.long_term_graph.draw_metric_map(g_map)
-            #     self.initialize_room_from_igraph()
-            #     self.update_robot_pose_in_igraph()
+            if self.long_term_graph.g.vcount() != 0:
+                # Draw graph from file
+                self.long_term_graph.draw_graph(False)
+                # Compute metric map and draw it
+                g_map = self.long_term_graph.compute_metric_map("room_1")
+                self.long_term_graph.draw_metric_map(g_map)
+                self.initialize_room_from_igraph()
+                self.update_robot_pose_in_igraph()
 
             if self.testing:
                 # Get ground truth map from json
@@ -163,8 +163,8 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # Exectue function self.update_robot_pose_in_igraph each second
-        # if time.time() - self.last_save_time > 1:
-        #     self.update_robot_pose_in_igraph()
+        if time.time() - self.last_save_time > 1:
+            self.update_robot_pose_in_igraph()
 
         if self.testing:
             # # Get room nodes number in igraph
@@ -215,7 +215,16 @@ class SpecificWorker(GenericWorker):
             except Exception as e:
                 print(e)
                 pass
-        # print(self.state)
+
+        try:
+            path_to_room_1 = self.long_term_graph.get_path_to_target("room_1")
+            # Print element names in the path
+            print("Path to room 1:")
+            for element in path_to_room_1:
+                print("-", self.long_term_graph.g.vs[element]["name"])
+        except Exception as e:
+            print(e)
+
         # Check igraph graph to check doors that are the same in the graph from different rooms
         self.check_igraph_similar_doors()
         match self.state:
@@ -436,12 +445,12 @@ class SpecificWorker(GenericWorker):
                 return
 
     def check_igraph_similar_doors(self):
-        print("Checking igraph similar doors")
+        # print("Checking igraph similar doors")
         try:
             # Check if there are doors with the same name in different rooms
             door_nodes = self.long_term_graph.g.vs.select(type_eq="door")
             for door in door_nodes:
-                print("Door name", door["name"])
+                # print("Door name", door["name"])
                 door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64),
                                                                             "room_1", door["name"])
                 # Iterate over all doors
@@ -450,17 +459,17 @@ class SpecificWorker(GenericWorker):
                     if door["name"] != door2["name"]:
                         other_side_door_name = door2["other_side_door_name"]
                         if not other_side_door_name:
-                            print("No other_side_door_name attribute in door", door2["name"])
+                            # print("No other_side_door_name attribute in door", door2["name"])
                             door2_center = self.long_term_graph.compute_element_pose(
                                 np.array([0., 0., 0.], dtype=np.float64),
                                 "room_1", door2["name"])
                             # Get the distance between the doors
                             distance = math.sqrt(
                                 (door_center[0] - door2_center[0]) ** 2 + (door_center[1] - door2_center[1]) ** 2)
-                            print("Distance between doors", distance)
+                            # print("Distance between doors", distance)
                             # If the distance is less than 0.5 meters, print the doors
                             if distance < 300:
-                                print("Similar doors", door["name"], door2["name"])
+                                # print("Similar doors", door["name"], door2["name"])
                                 # Get the room name of the door knowing that room id is the last element of the door name
                                 room_name = "room_" + door["name"].split("_")[-1]
                                 # Get the room name of the door knowing that room id is the last element of the door name
@@ -786,7 +795,8 @@ class SpecificWorker(GenericWorker):
                 traslation[1] += 100
             self.long_term_graph.g.add_edge(origin_node, destination_node, rt=traslation, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         else:
-            self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+            self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=[0, 0, 0], rotation=[0, 0, 0])
+            # self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
         # print("RT", edge.attrs["rt_translation"].value)
         # print("Rotation", edge.attrs["rt_rotation_euler_xyz"].value)
