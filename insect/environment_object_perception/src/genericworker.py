@@ -32,15 +32,9 @@ Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
 import RoboCompCommonBehavior
 
 
-try:
-    from ui_mainUI import *
-except:
-    print("Can't import UI file. Did you run 'make'?")
-    sys.exit(-1)
 
 
-
-class GenericWorker(QtWidgets.QWidget):
+class GenericWorker(QtCore.QObject):
 
     kill = QtCore.Signal()
 
@@ -49,12 +43,8 @@ class GenericWorker(QtWidgets.QWidget):
 
         self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
         self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
-        self.lidarodometry_proxy = mprx["LidarOdometryProxy"]
+        self.lidar3d_proxy = mprx["Lidar3DProxy"]
         self.visualelementspub_proxy = mprx["VisualElementsPub"]
-
-        self.ui = Ui_guiDlg()
-        self.ui.setupUi(self)
-        self.show()
 
         self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 30

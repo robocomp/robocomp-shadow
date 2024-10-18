@@ -1,19 +1,15 @@
 import "Camera360RGBD.idsl";
 import "Camera360RGB.idsl";
+import "Lidar3D.idsl";
 import "VisualElementsPub.idsl";
-import "SegmentatorTrackingPub.idsl";
-import "LidarOdometry.idsl";
 
 Component environment_object_perception
 {
     Communications
     {
-        requires Camera360RGBD, Camera360RGB, LidarOdometry;
+        requires Camera360RGBD, Camera360RGB, Lidar3D;
         publishes VisualElementsPub;
-        subscribesTo SegmentatorTrackingPub;
     };
     language python;
-    gui Qt(QWidget);
-    options dsr;
 };
 
