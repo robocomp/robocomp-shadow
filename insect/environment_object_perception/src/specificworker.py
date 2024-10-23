@@ -305,7 +305,6 @@ class SpecificWorker(GenericWorker):
             start = time.time()
             out_v8_front, color_front, orientation_bboxes_front, orientations_front, depth_front, delta, alive_time, period, front_roi = self.inference_read_queue.pop()
             people_front, objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
-            print("Yolo people front", people_front)
             people_front = self.associate_orientation_with_segmentation(people_front, orientation_bboxes_front, orientations_front)
 
             # print("People front", people_front)
@@ -499,7 +498,6 @@ class SpecificWorker(GenericWorker):
         object_counter = 0
         total_objects = []
         for i in range(len(people["bboxes"])):
-            print("Person", object_counter)
             generic_attrs = {
                 "score": str(people["confidences"][i]),
                 "bbox_left": str(int(people["bboxes"][i][0])),
@@ -520,7 +518,6 @@ class SpecificWorker(GenericWorker):
             total_objects.append(object_)
             object_counter += 1
         for i in range(len(objects["bboxes"])):
-            print("Object", object_counter)
             generic_attrs = {
                 "score": str(objects["confidences"][i]),
                 "bbox_left": str(int(objects["bboxes"][i][0])),
@@ -643,10 +640,8 @@ class SpecificWorker(GenericWorker):
                             depth_image_mask = depth_image[element_bbox[1]:element_bbox[3],
                                                element_bbox[0]:element_bbox[2]]
                             element_pose, filtered_depth_mask = self.get_mask_distance(image_mask_element, depth_image_mask)
-                            print("Element pose", element_pose, filtered_depth_mask)
                             if element_pose != [0, 0, 0]:
                                 if element_class == 0:
-                                    print("Inserting person", element_pose, element_bbox)
                                     people["poses"].append(element_pose)
                                     people["bboxes"].append(element_bbox)
                                     people["confidences"].append(element_confidence)
@@ -668,7 +663,6 @@ class SpecificWorker(GenericWorker):
     def get_mask_distance(self, mask, depth_image):
         # Get bbox center point
         # Get depth image shape and calculate bbox center
-        print("dept image", depth_image[np.any(depth_image != [0, 0, 0], axis=-1)])
         depth_image_shape = depth_image.shape
         bbox_center = [depth_image_shape[1] // 2, depth_image_shape[0] // 2]
         segmentation_points = np.argwhere(np.all(mask == 1, axis=-1))[:, [1, 0]]
@@ -792,7 +786,7 @@ class SpecificWorker(GenericWorker):
         Returns:
             img (numpy array): The image with overlaid object data.
         """
-        print("Elements", elements)
+
         if elements is None:
             return img
         img = img.astype(np.uint8)
