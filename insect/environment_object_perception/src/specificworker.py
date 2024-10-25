@@ -404,7 +404,7 @@ class SpecificWorker(GenericWorker):
                     start = time.time()
                     # Get ROIs from the camera.
 
-                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 540, 540, 640, 640)
+                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
                     roi_data_front = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_front.roi.xcenter, ycenter=image_front.roi.ycenter, xsize=image_front.roi.xsize, ysize=image_front.roi.ysize, finalxsize=image_front.roi.finalxsize, finalysize=image_front.roi.finalysize)
 
                     color_front = np.frombuffer(image_front.rgb, dtype=np.uint8).reshape(image_front.height, image_front.width, 3)
