@@ -1,3 +1,7 @@
+# Endpoints for implements interfaces
+Lidar3D.Endpoints=tcp -p 13420
+
+
 
 
 

@@ -3,4 +3,4 @@ PROJECT(  internal_representation )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior  )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior Lidar3D )

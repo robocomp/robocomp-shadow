@@ -37,11 +37,12 @@ import pybullet_data
 import time
 import numpy as np
 import math
+import os
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 500
+        self.Period = 1
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 15
@@ -55,45 +56,63 @@ class SpecificWorker(GenericWorker):
         p.setTimeStep(1/50,0)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -10)
-        planeId = p.loadURDF("plane.urdf")
+        p.loadURDF("plane.urdf")
         p.setGravity(0, 0, -9.81)
 
-        self.pybullet_robot_id = -1
+        # Boolean flags for room and door creation
         self.room_created = False
         self.created_door = False
-        self.py_walls_ids = []
         self.current_room_id = -1
+
+        # Pybullet variables
+        self.pybullet_robot_id = -1
+        self.py_walls_ids = []
         self.created_doors = []
         self.walls_height = 2.
         self.doors_height = 2.
-
-        #Sintetic Lidar
-        # Definir los parámetros del LIDAR sintético
-        self.lidar_height = 1.1169  # Altura desde la que se lanzan los rayos (como si fuera el LIDAR en el robot)
-        self.lidar_range = 3.  # Distancia máxima del LIDAR
-        self.angles_polares = [(np.radians(az), np.radians(el)) for az in range(0, 360, 20) for el in range(-81, 81, 15)]
-        self.debug_lines_ids = []
-        self.create_lines = False
-        self.ray_from = []
-        self.ray_to = []
-
-        #Robot integration
         self.robot_height = 1.26443
-        # TODO: CHANGE ROBOLAB FOR USER
-        stl_path = "/home/robolab/robocomp/components/robocomp-shadow/agents/internal_representation/Shadow_Assembly_res.STL"
+
+        # Sintetic Lidar
+        self.lidar_height = 1.1169  # lidar height from the ground in meters
+        self.lidar_range = 5.  # Lidar max range in meters
+        # self.angles_polares = [(np.radians(az), np.radians(el)) for el in range(0, 60, 10) for az in range(-180, 180, 10)]
+        # One lidar ray in robot middle
+        self.angles_polares = [(np.radians(az), np.radians(el)) for el in range(-1, 61, 5) for az in range(-181, 181, 5)]
+
+        # Helios lidar angles
+        self.helios_angles_polares = [(np.radians(az), np.radians(el)) for el in range(-1, 41, 5) for az in range(-181, 181, 5)]
+        self.helios_color = [0, 1, 0]
+        self.robot_helios_pose = [0, -0.16, (self.lidar_height / 2) - 0.08 ]
+        self.helios_debug_lines_ids = []
+        self.helios_interface_lidar_data = []
+        self.helios_create_lines = False
+
+        # Bpearl lidar angles
+        self.bpearl_angles_polares = [(np.radians(az), np.radians(el)) for el in range(-41, -1, 5) for az in range(-181, 181, 5)]
+        self.bpearl_color = [0, 0, 1]
+        self.robot_bpearl_pose = [0, 0.14, (self.lidar_height / 2) - 0.48]
+        self.bpearl_debug_lines_ids = []
+        self.bpearl_interface_lidar_data = []
+        self.bpearl_create_lines = False
+        # Debug lines array to store the ids of the lines
+
+
+        #Robot integration in PyBullet
+        user = os.getlogin()
+        stl_path = f"/home/{user}/robocomp/components/robocomp-shadow/agents/internal_representation/Shadow_Assembly_res.STL"
         collision_shape_id = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=stl_path)
         visual_shape_id = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=stl_path)
 
-        # Crear el cuerpo en la simulación con la rotación inicial aplicada
+        # Create the robot in the simulation
         self.pybullet_robot_id = p.createMultiBody(baseCollisionShapeIndex=collision_shape_id,
                                     baseVisualShapeIndex=visual_shape_id,
-                                    basePosition=[0., 0., self.robot_height / 2],  # Posición inicial del objeto
-                                    baseOrientation=[0, 0 , 0])  # Rotación aplicada en el eje X
+                                    basePosition=[0., 0., self.robot_height / 2],  # Initial robot pose
+                                    baseOrientation=[0, 0 , 0])
 
         # Change the color of the robot
         p.changeVisualShape(self.pybullet_robot_id, -1, rgbaColor=[0.827, 0.827, 0.827, 1])
 
-        # Deshabilitar colisiones del robot con los rayos del LIDAR
+        # Disable collisions of the robot with the sintetic lidar
         p.setCollisionFilterGroupMask(self.pybullet_robot_id, -1, collisionFilterGroup=0, collisionFilterMask=0)
 
         # # Create a wall close to the robot FOR DEBUGGING
@@ -101,8 +120,12 @@ class SpecificWorker(GenericWorker):
         # wall_id = p.createMultiBody(0, wall, basePosition=[1, 1, 0.5], baseOrientation=[0, 0, 0, 1])
         # p.changeVisualShape(wall_id, -1, rgbaColor=[0, 0, 1, 1])
 
-        distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances()
-        self.draw_debug_lines(distances, ray_from, ray_to, hit_positions)
+        # Initialize the lidar for the first time and draw the debug lines
+        distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances(self.robot_bpearl_pose, self.bpearl_angles_polares, "bpearl")
+        self.bpearl_create_lines = self.draw_debug_lines(distances, ray_from, ray_to, hit_positions, self.bpearl_color, self.bpearl_debug_lines_ids, self.bpearl_create_lines)
+
+        distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances(self.robot_helios_pose, self.helios_angles_polares, "helios")
+        self.helios_create_lines = self.draw_debug_lines(distances, ray_from, ray_to, hit_positions, self.helios_color, self.helios_debug_lines_ids, self.helios_create_lines)
 
         try:
             # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -136,167 +159,144 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
 
-        pass
+        # Get the robot pose in the world from the working memory graph if the robot is in a room
         robot_pose_x, robot_pose_y = self.update_robot_pose()
         if robot_pose_x is None or robot_pose_y is None:
             return
         else:
-            distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances()
-            self.draw_debug_lines(distances, ray_from, ray_to, hit_positions)
+            print("Beparl debug lines len:", len(self.bpearl_debug_lines_ids), "BOLEAN BPEARL", self.bpearl_create_lines)
+            print("Helios debug lines len:", len(self.helios_debug_lines_ids), "BOLEAN HELIOS", self.helios_create_lines)
+            # Compute the sintetic lidar distances and draw the debug lines
+            distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances(self.robot_bpearl_pose,
+                                                                                             self.bpearl_angles_polares,
+                                                                                             "bpearl")
+            self.bpearl_create_lines = self.draw_debug_lines(distances, ray_from, ray_to, hit_positions, self.bpearl_color,
+                                  self.bpearl_debug_lines_ids, self.bpearl_create_lines)
 
+            distances, ray_from, ray_to, hit_positions = self.robot_sintetic_lidar_distances(self.robot_helios_pose,
+                                                                                             self.helios_angles_polares,
+                                                                                             "helios")
+            self.helios_create_lines = self.draw_debug_lines(distances, ray_from, ray_to, hit_positions, self.helios_color,
+                                  self.helios_debug_lines_ids, self.helios_create_lines)
+
+        # Check if the room has been created
         if not self.room_created:
+            # Get the nominal corners of the current room
             nominal_corners = self.get_room_nominal_corners()
             if len(nominal_corners) == 4:
+                # Create the room in PyBullet using the nominal corners
                 if self.create_room(nominal_corners):
                     self.room_created = True
             else:
                 print("Nominal corners no initialized yet")
         else:
+            # Iterate over the nominal doors (not "pre_door") in the graph and create them in PyBullet
             for door in self.g.get_nodes_by_type("door"):
                 if "pre" not in door.name and door.attrs["room_id"].value == self.current_room_id and door.name not in self.created_doors:
+                    # Create door
                     self.create_door(door)
+                    # Add the door to the list of created doors
                     self.created_doors.append(door.name)
 
         p.stepSimulation()
         time.sleep(1./240.)  # 240Hz de simulación
 
-    def robot_sintetic_lidar_distances(self):
-        # Obtener posición y orientación del robot en el mundo
+    def robot_sintetic_lidar_distances(self, lidar_from_local, lidar_angles, name):
+        # Get robot position and orientation from PyBullet
         robot_pos, robot_orient = p.getBasePositionAndOrientation(self.pybullet_robot_id)
 
-        # Crear los puntos de inicio del LIDAR en el sistema de referencia local del robot
-        lidar_from_local = [0, 0, self.lidar_height / 2]  # El LIDAR en la posición local (0, 0, altura)
-        # Generar rayos en diferentes direcciones en el plano XY
+        # Crete the LIDAR in the local position (0, 0, height)
+        # lidar_from_local = [0, 0, self.lidar_height / 2]  # El LIDAR en la posición local (0, 0, altura)
+
+        # Create the ray initial and final points in global coordinates for each angle
         ray_from = []
         ray_to = []
         ray_from_global = []
-        for azimuth, elevation in self.angles_polares:
+
+        for azimuth, elevation in lidar_angles:
             # Calcular la posición del rayo en coordenadas polares
-            x_local = self.lidar_range * np.cos(azimuth) * np.cos(elevation)
-            y_local = self.lidar_range * np.cos(elevation) * np.sin(azimuth)
+            y_local = self.lidar_range * np.cos(azimuth) * np.cos(elevation)
+            x_local = self.lidar_range * np.cos(elevation) * np.sin(azimuth)
             z_local = self.lidar_range * np.sin(elevation) # Maybe lidar_height should be added here
 
-            # Transformar el rayo desde local a global usando la posición y orientación del robot
+            # Transform the beam from local to global using robot position and orientation
             ray_from_global, _ = p.multiplyTransforms(robot_pos, robot_orient, lidar_from_local, [0, 0, 0, 1])
             ray_to_global, _ = p.multiplyTransforms(robot_pos, robot_orient, [x_local, y_local, z_local], [0, 0, 0, 1])
 
             ray_from.append(ray_from_global)
             ray_to.append(ray_to_global)
 
+        # Perform the ray test in PyBullet to get the distances and hit positions of the rays
         ray_results = p.rayTestBatch(ray_from, ray_to)
 
         distances = []
         hit_positions = []
-        for result in ray_results:
-            hit_object_id = result[0]  # ID del objeto que el rayo ha golpeado (-1 si no golpea nada o el robot)
-            hit_position = result[3]  # Posición de impacto
-            print("OBJECT_ID:", hit_object_id)
-            # Robot id print
-            # print("ROBOTID",self.pybullet_robot_id)
-            if hit_object_id == -1 or hit_object_id == self.pybullet_robot_id:
-                distances.append(self.lidar_range)  # No golpea nada, usa la distancia máxima
-                hit_positions.append(hit_position)
-            else:
-                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([ray_from_global[0], ray_from_global[1], self.lidar_height / 2]))
-                distances.append(hit_distance)
-                hit_positions.append(hit_position)
+        lidar_points = []
+        hit_distance = -1
 
+        for i, result in enumerate(ray_results):
+            hit_object_id = result[0]  # ID of the object hit by the beam (-1 if nothing or the robot is hit)
+            hit_position = result[3]  # Hit position in global coordinates
+            azimuth, elevation = lidar_angles[i]
+
+            # Check if the hit object is the robot itself or nothing TODO: Check if the hit object is the robot it is necessary
+            if hit_object_id == -1 or hit_object_id == self.pybullet_robot_id:
+                # Set the hit distance to the maximum range of the LIDAR and the hit position to the final point of the corresponding ray
+                hit_distance = self.lidar_range
+                hit_position = ray_to[i]
+            else:
+                # Calculate the distance from the hit position to the LIDAR origin in global coordinates
+                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([ray_from_global[0], ray_from_global[1], self.lidar_height / 2]))
+
+            # Calculate the 2D distance from the hit position to the LIDAR origin
+            distance2d = np.linalg.norm(np.array(hit_position[:2]) - np.array(ray_from[i][:2]))
+            # Store the hit position and distances in the corresponding lists for further processing and visualization
+            hit_positions.append(hit_position)
+            distances.append(hit_distance)
+
+            # Transform the impact position to the robot's reference system for visualization in Lidar3D viewer component
+            ray_to_robot_ref, _ = p.multiplyTransforms([0, 0, 0], p.invertTransform(robot_pos, robot_orient)[1],
+                                                             hit_position, [0, 0, 0, 1])
+
+            # Transform to RoboCompLidar3D.TPoint format and append to the list of lidar points for RoboCompLidar3D component
+            point = ifaces.RoboCompLidar3D.TPoint(x = ray_to_robot_ref[0]*1000, y = ray_to_robot_ref[1]*1000, z = ray_to_robot_ref[2]*1000,
+                                                  intensity = 1, phi = azimuth, theta = elevation, r = hit_distance*1000,
+                                                  distance2d = distance2d*1000)
+            lidar_points.append(point)
+
+        # Create the RoboCompLidar3D.TData object
+        if name == "helios":
+            self.helios_interface_lidar_data = ifaces.RoboCompLidar3D.TData(points = lidar_points, period = 1./240. ,timestamp = int(time.time())*1000)
+        elif name == "bpearl":
+            self.bpearl_interface_lidar_data = ifaces.RoboCompLidar3D.TData(points = lidar_points, period = 1./240. ,timestamp = int(time.time())*1000)
 
         return distances, ray_from, ray_to, hit_positions
 
-    def draw_debug_lines(self, distances, ray_from, ray_to, hit_positions):
+    # Draw the Lidar debug lines in PyBullet, the red lines are the ones that do not hit anything, the black ones are the ones that hit something
+    def draw_debug_lines(self, distances, ray_from, ray_to, hit_positions, color, debug_lines_ids, create_lines):
         point = [0, 0, 0]
         for i, (from_pos, hit_position) in enumerate(zip(ray_from, hit_positions)):
             if distances[i] == self.lidar_range:
-                color = [1, 0, 0]
+                # color = [1, 0, 0]
                 point = ray_to[i]
             else:
-                color = [0, 0, 0]  # Rojo si no golpea nada, negro si golpea algo
+                # color = [0, 0, 0]  # Rojo si no golpea nada, negro si golpea algo
                 point = hit_position
 
-            if not self.create_lines:
-                print("FROM_POS", from_pos)
-                print("POINT", point)
+            if not create_lines:
                 line_id = p.addUserDebugLine(from_pos, point, color)
-                time.sleep(0.05)
-                print("LINE_IO:", line_id)
-                self.debug_lines_ids.append(line_id)
-                print("################################################################################################")
+                time.sleep(0.01)
+                debug_lines_ids.append(line_id)
             else:
-
                 # Actualizar la línea existente
-                p.addUserDebugLine(from_pos, point, lineColorRGB=color, lineWidth=1,
-                                   replaceItemUniqueId=self.debug_lines_ids[i])
+                if len(debug_lines_ids) > 0:
+                    p.addUserDebugLine(from_pos, point, lineColorRGB=color, lineWidth=1,
+                                       replaceItemUniqueId=debug_lines_ids[i])
 
-                print("debug lines",self.debug_lines_ids[i])
-                print("i:",i)
+        if not create_lines: create_lines = True
+        return create_lines
 
-        if not self.create_lines: self.create_lines = True
-
-    def sintetic_lidar_distances(self, robot_pose_x, robot_pose_y):
-        # Calcular las posiciones de los rayos en función del ángulo y la distancia
-        self.ray_from = []
-        self.ray_to = []
-        ray_from_x = robot_pose_x
-        ray_from_y = robot_pose_y
-
-        for azimuth, elevation in self.angles_polares:
-            # Calcular la posición del rayo en coordenadas polares
-            x = ray_from_x + (self.lidar_range * np.cos(azimuth) * np.cos(elevation))
-            y = ray_from_y + (self.lidar_range * np.cos(elevation) * np.sin(azimuth))
-            z = self.lidar_height + (self.lidar_range * np.sin(elevation))
-
-            # Añadir el rayo a la lista
-            self.ray_from.append([ray_from_x, ray_from_y, self.lidar_height])
-            self.ray_to.append([x, y, z])
-
-        ray_results = p.rayTestBatch(self.ray_from, self.ray_to)
-
-        distances = []
-        for result in ray_results:
-            hit_object_id = result[0]  # ID del objeto que el rayo ha golpeado (-1 si no golpea nada o el robot)
-            hit_position = result[3]  # Posición de impacto
-
-            print("HIT OBJECT ID", hit_object_id)
-            if hit_object_id == -1 or hit_object_id == self.pybullet_robot_id:
-                distances.append(self.lidar_range)  # No golpea nada, usa la distancia máxima
-            else:
-                hit_distance = np.linalg.norm(np.array(hit_position) - np.array([ray_from_x, ray_from_y, self.lidar_height]))
-                distances.append(hit_distance)
-
-        print("DISTANCES", distances)
-        return distances, ray_from_x, ray_from_y
-
-    # def draw_debug_lines(self, distances, robot_pose_x, robot_pose_y):
-    #
-    #     lidar_pos = [robot_pose_x, robot_pose_y, self.lidar_height]  # Posición del LIDAR
-    #
-    #     for i, (azimuth, elevation) in enumerate(self.angles_polares):
-    #         # Calcular la dirección del rayo en coordenadas cartesianas
-    #         ray_end_x = robot_pose_x + (distances[i] * np.cos(azimuth) * np.cos(elevation))
-    #         ray_end_y = robot_pose_y + (distances[i] * np.cos(elevation) * np.sin(azimuth))
-    #         ray_end_z = self.lidar_height + (distances[i] * np.sin(elevation))
-    #
-    #         # Definir la posición final del rayo
-    #         ray_end = [ray_end_x, ray_end_y, ray_end_z]
-    #
-    #         # Dibujar línea de depuración
-    #         if not self.create_lines:
-    #             line_id = p.addUserDebugLine(lidar_pos, ray_end, lineColorRGB=[1, 0, 0],
-    #                                          lineWidth=1)  # Rojo para rayos de LIDAR
-    #
-    #             self.debug_lines_ids.append(line_id)
-    #         else:
-    #             # Actualizar la línea existente
-    #             p.addUserDebugLine(lidar_pos, ray_end, lineColorRGB=[1, 0, 0], lineWidth=1,
-    #                                replaceItemUniqueId=self.debug_lines_ids[i])
-    #
-    #             print("DEBUG_LINES_IDS", self.debug_lines_ids[i])
-    #             print("i", i)
-    #
-    #     print("Drawing lines", self.debug_lines_ids)
-    #     self.create_lines = True
-
+    # TODO: UPDATE FUNCTION USING ROOBOT_SINTETIC_LIDAR FUNCTION
     def sintetic_lidar_items(self, robot_pose_x, robot_pose_y):
         self.ray_from = []
         self.ray_to = []
@@ -326,6 +326,7 @@ class SpecificWorker(GenericWorker):
 
         return hit_info  # Devolver el diccionario con la información de impactos
 
+    # Returns the nominal corners of the room as a list of nodes
     def get_room_nominal_corners(self):
         current_edge = self.g.get_edges_by_type("current")
         if len(current_edge) > 0:
@@ -339,6 +340,7 @@ class SpecificWorker(GenericWorker):
 
         return []
 
+    # Returns the distance between the door and the wall
     def is_door_in_wall_area(self, door_x, door_y, wall, width):
         # Función para calcular la distancia desde un punto a una línea
         def distance_point_to_line(px, py, ax, ay, bx, by):
@@ -359,6 +361,7 @@ class SpecificWorker(GenericWorker):
         # Comprobar si la distancia es menor o igual a la mitad del ancho del muro
         return distance <= width / 2
 
+    # Get the current room node from the working memory graph
     def get_current_room_node(self):
         current_edge = self.g.get_edges_by_type("current")
         if len(current_edge) > 0:
@@ -383,7 +386,7 @@ class SpecificWorker(GenericWorker):
 
         return None, None
 
-    # Crear las paredes usando cajas
+    # Create the walls using the nominal corners of the room as input
     def create_wall(self, corner1, corner2, color):
         x1, y1 = corner1[:2]
         x2, y2 = corner2[:2]
@@ -411,7 +414,6 @@ class SpecificWorker(GenericWorker):
 
                 door_x_left = door_x - door_width / 2
                 door_x_right = door_x + door_width / 2
-
 
                 world_door_x_left, world_door_y_left, _ = self.inner_api.transform( room_node.name, [door_x_left, 0., 0.], wall_node.name)
                 world_door_x_right, world_door_y_right, _ = self.inner_api.transform( room_node.name, [door_x_right, 0., 0.], wall_node.name)
@@ -532,7 +534,6 @@ class SpecificWorker(GenericWorker):
 
     # =============== DSR SLOTS  ================
     # =============================================
-
     def update_node_att(self, id: int, attribute_names: [str]):
         console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
 
@@ -556,3 +557,54 @@ class SpecificWorker(GenericWorker):
             self.room_created = False
             self.current_room_id = -1
             self.created_doors = []
+
+# =============== Methods for Component Implements ==================
+    # ===================================================================
+
+    #
+    # IMPLEMENTATION of getLidarData method from Lidar3D interface
+    #
+    def Lidar3D_getLidarData(self, name, start, len, decimationDegreeFactor):
+        #print("Calling getLidarData")
+        if name == "bpearl":
+            return self.bpearl_interface_lidar_data
+        elif name == "helios":
+            return self.helios_interface_lidar_data
+
+    #
+    # IMPLEMENTATION of getLidarDataArrayProyectedInImage method from Lidar3D interface
+    #
+    def Lidar3D_getLidarDataArrayProyectedInImage(self, name):
+        ret = ifaces.RoboCompLidar3D.TDataImage()
+        #
+        # write your CODE here
+        #
+        return ret
+    #
+    # IMPLEMENTATION of getLidarDataProyectedInImage method from Lidar3D interface
+    #
+    def Lidar3D_getLidarDataProyectedInImage(self, name):
+        ret = ifaces.RoboCompLidar3D.TData()
+        #
+        # write your CODE here
+        #
+        return ret
+    #
+    # IMPLEMENTATION of getLidarDataWithThreshold2d method from Lidar3D interface
+    #
+    def Lidar3D_getLidarDataWithThreshold2d(self, name, distance, decimationDegreeFactor):
+        ret = ifaces.RoboCompLidar3D.TData()
+        #
+        # write your CODE here
+        #
+        return ret
+    # ===================================================================
+    # ===================================================================
+
+
+    ######################
+    # From the RoboCompLidar3D you can use this types:
+    # RoboCompLidar3D.TPoint
+    # RoboCompLidar3D.TDataImage
+    # RoboCompLidar3D.TData
+
