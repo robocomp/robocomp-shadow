@@ -1,7 +1,10 @@
+import "Lidar3D.idsl";
+
 Component internal_representation
 {
     Communications
     {
+    	implements Lidar3D;
     };
     language python;
     options dsr;
