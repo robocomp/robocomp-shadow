@@ -73,6 +73,8 @@ class SpecificWorker : public GenericWorker
 
         // fps
         FPSCounter fps;
+        std::atomic<std::chrono::high_resolution_clock::time_point> last_read;
+        int MAX_INACTIVE_TIME = 5;  // secs after which the component is paused. It reactivates with a new reset
 
         // camera buffers
         cv::Mat rgb_frame_write, depth_frame_write;

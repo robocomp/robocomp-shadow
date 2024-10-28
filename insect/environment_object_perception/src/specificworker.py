@@ -19,9 +19,9 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from PySide2.QtCore import Qt
-# from PySide2.QtCore import QTimer
-# from PySide2.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+# from PySide6.QtCore import QTimer
+# from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -44,7 +44,6 @@ from ultralytics import YOLO
 import torch
 import itertools
 import math
-
 
 sys.path.append('/home/robocomp/software/JointBDOE')
 
@@ -164,8 +163,8 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 100
-            self.thread_period = 100
+            self.Period = 50
+            self.thread_period = 50
             self.display = False
 
             # Hz
@@ -307,13 +306,12 @@ class SpecificWorker(GenericWorker):
             out_v8_front, color_front, orientation_bboxes_front, orientations_front, depth_front, delta, alive_time, period, front_roi = self.inference_read_queue.pop()
             people_front, objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
             people_front = self.associate_orientation_with_segmentation(people_front, orientation_bboxes_front, orientations_front)
+
             # print("People front", people_front)
             # print("Objects front", objects_front)
             # seg_img = out_v8_front[0].plot()
             # cv2.imshow("seg_img", seg_img)
             # cv2.waitKey(1)
-
-
 
             # Fuse people and objects and equal it to self.objects_write
             self.objects = self.to_visualelements_interface(people_front, objects_front, alive_time)
@@ -370,6 +368,7 @@ class SpecificWorker(GenericWorker):
             self.download_and_convert_v8_model("yolo11" + model_name + "-seg")
     def download_and_convert_v8_model(self, model_name):
         # Download model
+        print("Downloading model:", model_name)
         self.v8_model = YOLO(model_name)
         # Export the model to TRT
         self.v8_model.export(format='engine', device='0')
@@ -383,8 +382,9 @@ class SpecificWorker(GenericWorker):
             self.stride = int(self.model.stride.max())
             with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
                 self.data = yaml.safe_load(f)  # load data dict
-        except:
-            print("Error loading JointBDOE model")
+        except Exception as e:
+            print("Error loading JointBDOE model", e)
+
             exit(1)
     ######################################################################################################3
 
@@ -404,7 +404,7 @@ class SpecificWorker(GenericWorker):
                     start = time.time()
                     # Get ROIs from the camera.
 
-                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 540, 540, 640, 640)
+                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
                     roi_data_front = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_front.roi.xcenter, ycenter=image_front.roi.ycenter, xsize=image_front.roi.xsize, ysize=image_front.roi.ysize, finalxsize=image_front.roi.finalxsize, finalysize=image_front.roi.finalysize)
 
                     color_front = np.frombuffer(image_front.rgb, dtype=np.uint8).reshape(image_front.height, image_front.width, 3)
@@ -509,9 +509,10 @@ class SpecificWorker(GenericWorker):
                 "z_pos": str(round(people["poses"][i][2], 2)),
                 "orientation": str(round(float(people["orientations"][i]), 2))
             }
-            mask_points = ifaces.RoboCompLidar3D.TDataImage(XArray=objects["masks"][i][:, 0].tolist(),
-                                                            YArray=objects["masks"][i][:, 1].tolist(),
-                                                            ZArray=objects["masks"][i][:, 2].tolist())
+
+            mask_points = ifaces.RoboCompLidar3D.TDataImage(XArray=people["masks"][i][:, 0].tolist(),
+                                                            YArray=people["masks"][i][:, 1].tolist(),
+                                                            ZArray=people["masks"][i][:, 2].tolist())
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=people["classes"][i],
                                                                attributes=generic_attrs, maskpoints=mask_points)
             total_objects.append(object_)
@@ -531,13 +532,14 @@ class SpecificWorker(GenericWorker):
             mask_points = ifaces.RoboCompLidar3D.TDataImage(XArray=objects["masks"][i][:, 0].tolist(),
                                                             YArray=objects["masks"][i][:, 1].tolist(),
                                                             ZArray=objects["masks"][i][:, 2].tolist())
-            print("MASK POINTS", mask_points.XArray)
+            #print("MASK POINTS", mask_points.XArray)
             # object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=objects["classes"][i],
                                                                attributes=generic_attrs, maskpoints=mask_points)
             total_objects.append(object_)
             object_counter += 1
         # print("IMAGE TIMESTAMP", image_timestamp)
+
         return ifaces.RoboCompVisualElementsPub.TData(timestampimage=image_timestamp, timestampgenerated=int(time.time() * 1000), period=self.Period, objects=total_objects)
 
     def mask_to_TImage(self, mask, roi):
@@ -564,6 +566,7 @@ class SpecificWorker(GenericWorker):
                     min_distance = distance
                     people["orientations"][i] = np.deg2rad(orientations[j][0])
         return people
+
     def get_distance(self, person, orientation_bbox):
         """
         This method calculates the distance between a person and an orientation.
@@ -578,6 +581,7 @@ class SpecificWorker(GenericWorker):
         orientation_center = self.get_center(orientation_bbox)
         distance = np.linalg.norm(person_center - orientation_center)
         return distance
+
     def get_center(self, bbox):
         """
         This method calculates the center of a bounding box.
@@ -619,6 +623,7 @@ class SpecificWorker(GenericWorker):
                 if len(masks) == len(boxes):
                     for i in range(len(boxes)):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
+
                         if element_confidence > 0.4:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
                             element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
@@ -781,6 +786,10 @@ class SpecificWorker(GenericWorker):
         Returns:
             img (numpy array): The image with overlaid object data.
         """
+
+        if elements is None:
+            return img
+        img = img.astype(np.uint8)
         for element in elements:
             x0, y0, x1, y1 = map(int, [int(float(element.attributes["bbox_left"])), int(float(element.attributes["bbox_top"])), int(float(element.attributes["bbox_right"])), int(float(element.attributes["bbox_bot"]))])
             cls_ind = element.type
@@ -790,6 +799,11 @@ class SpecificWorker(GenericWorker):
             txt_color = (0, 0, 0) if np.mean(_COLORS[cls_ind]) > 0.5 else (255, 255, 255)
             font = cv2.FONT_HERSHEY_SIMPLEX
             txt_size = cv2.getTextSize(text, font, 0.4, 1)[0]
+
+            # Check if the img array is read-only
+            if not img.flags.writeable:
+                # Create a writable copy of the img array
+                img = img.copy()
 
             cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
             txt_bk_color = (_COLORS[cls_ind] * 255 * 0.7).astype(np.uint8).tolist()

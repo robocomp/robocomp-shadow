@@ -53,33 +53,44 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
+        // pause variable
+        last_read.store(std::chrono::high_resolution_clock::now());
+
+        capture_time = -1;
+        while(!enabled_lidar)
+        {
+            try
+            {
+                RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
+                enabled_lidar = true;
+            }
+            catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
+        }
+        while(!enabled_camera)
+        {
+            try
+            {
+                RoboCompCamera360RGB::TImage cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
+                MAX_WIDTH = cam_data.width;
+                MAX_HEIGHT = cam_data.height;
+                enabled_camera = true;
+            }
+            catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
+        }
+
 		timer.start(Period);
 	}
-    capture_time = -1;
-    while(!enabled_lidar)
-    {
-        try
-        {
-            RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
-            enabled_lidar = true;
-        }
-        catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
-    }
-    while(!enabled_camera)
-    {
-        try
-        {
-            RoboCompCamera360RGB::TImage cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
-            MAX_WIDTH = cam_data.width;
-            MAX_HEIGHT = cam_data.height;
-            enabled_camera = true;
-        }
-        catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
-    }
 }
 
 void SpecificWorker::compute()
 {
+    /// check idle time
+    if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
+    {
+        fps.print("No requests in the last 5 seconds. Pausing. Comp wil continue in next call", 3000);
+        return;
+    }
+
     RoboCompLidar3D::TDataImage lidar_data;
     RoboCompCamera360RGB::TImage cam_data;
 
@@ -103,8 +114,6 @@ void SpecificWorker::compute()
     int timestamp_diff = 999999999;
     int chosen_rgb, chosen_lidar;
     bool exists_data = false;
-    //    std::cout << "CAMERA QUEUE SIZE " << camera_queue.size() << std::endl;
-    //    std::cout << "LIDAR QUEUE SIZE " << lidar_queue.size() << std::endl;
     for(const auto &[i, rgb] : camera_queue | iter::enumerate)
     {
         for(const auto &[j, lidar] : lidar_queue | iter::enumerate)
@@ -178,6 +187,8 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
     const std::lock_guard<std::mutex> lg(swap_mutex);
     if (enabled_camera and enabled_lidar)
     {
+        last_read.store(std::chrono::high_resolution_clock::now());
+
         if(sx == 0 || sy == 0)
         {
             std::cout << "No size. Sending complete image" << std::endl;
