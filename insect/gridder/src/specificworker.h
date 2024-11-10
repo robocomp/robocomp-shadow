@@ -59,7 +59,7 @@ class SpecificWorker : public GenericWorker
 	bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 	
 	RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints);
-public slots:
+    public slots:
         void compute();
         int startup_check();
         void initialize(int period);
@@ -88,7 +88,7 @@ public slots:
             int LIDAR_HIGH_DECIMATION_FACTOR = 1;
             QRectF GRID_MAX_DIM{-5000, -5000, 10000, 10000};
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
-            int PERIOD = 50;    // ms (20 Hz) for compute timer
+            int PERIOD = 100;    // ms (20 Hz) for compute timer
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
             int NUM_PATHS_TO_SEARCH = 3;
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
