@@ -10,6 +10,7 @@ Lidar3D1Proxy = lidar3d:tcp -h localhost -p 11991
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
 
+period = 100
 display = false
 
 Ice.Warn.Connections=0

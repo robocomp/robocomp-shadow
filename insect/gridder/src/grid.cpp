@@ -725,7 +725,6 @@ void Grid::update_map( const std::vector<Eigen::Vector3f> &points,
         if((p-point.head(2)).norm() < static_cast<float>(params.tile_size))  // in case last miss overlaps tip
             add_hit(point.head(2));
     }
-
 }
 
 ////////////////////////////// DRAW /////////////////////////////////////////////////////////

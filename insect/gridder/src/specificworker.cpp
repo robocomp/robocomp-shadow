@@ -40,6 +40,15 @@ SpecificWorker::~SpecificWorker()
 }
 bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 {
+    try
+    {
+        this->params.PERIOD = std::stoi(params.at("period").value);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Error reading period parameter" << e.what() << std::endl;
+        return false;
+    }
 	return true;
 }
 void SpecificWorker::initialize(int period)
