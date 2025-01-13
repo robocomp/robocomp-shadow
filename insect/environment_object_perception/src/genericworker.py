@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2024 by YOUR NAME HERE
+#    Copyright (C) 2025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide6 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
 ROBOCOMP = ''
 try:
@@ -44,9 +44,9 @@ class GenericWorker(QtCore.QObject):
         self.camera360rgb_proxy = mprx["Camera360RGBProxy"]
         self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
         self.lidar3d_proxy = mprx["Lidar3DProxy"]
-        self.visualelementspub_proxy = mprx["VisualElementsPub"]
+        self.visualelementspub_proxy = mprx["VisualElementsPubProxy"]
 
-        self.mutex = QtCore.QMutex()
+        self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
         self.Period = 30
         self.timer = QtCore.QTimer(self)
 

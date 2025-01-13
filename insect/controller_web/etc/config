@@ -1,5 +1,5 @@
-# Endpoints for subscriptions interfaces
-VisualElementsPubTopic.Endpoints=tcp -p 13011
+# Endpoints for implements interfaces
+VisualElementsPub.Endpoints=tcp -p 13928
 
 # Proxies for required interfaces
 Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
@@ -12,7 +12,7 @@ VisualElementsProxy = visualelements:tcp -h localhost -p 10252 # yolo
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -h localhost -p 9999
 
-server_ip = 192.168.50.114
+server_ip = 192.168.50.118
 
 Ice.Warn.Connections=0
 Ice.Trace.Network=0

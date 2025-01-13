@@ -405,8 +405,8 @@ class SpecificWorker(GenericWorker):
                     # Get ROIs from the camera.
 
                     ### getROI(int cx, int cy, int sx, int sy, int roiwidth, introiheight);
-                    #image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
-                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 1200, 480, 1200, 480)
+                    image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
+                    #image_front = self.camera360rgbd_proxy.getROI(960, 480, 1200, 480, 1200, 480)
                     roi_data_front = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_front.roi.xcenter, ycenter=image_front.roi.ycenter, xsize=image_front.roi.xsize, ysize=image_front.roi.ysize, finalxsize=image_front.roi.finalxsize, finalysize=image_front.roi.finalysize)
 
                     color_front = np.frombuffer(image_front.rgb, dtype=np.uint8).reshape(image_front.height, image_front.width, 3)
@@ -499,6 +499,9 @@ class SpecificWorker(GenericWorker):
         """
         object_counter = 0
         total_objects = []
+        image_data = ifaces.RoboCompCamera360RGB.TImage(
+            roi=ifaces.RoboCompCamera360RGB.TRoi(xcenter=960, ycenter=480, xsize=960, ysize=960, finalxsize=960,
+                                                 finalysize=960))
         for i in range(len(people["bboxes"])):
             generic_attrs = {
                 "score": str(people["confidences"][i]),
@@ -516,7 +519,7 @@ class SpecificWorker(GenericWorker):
                                                             YArray=people["masks"][i][:, 1].tolist(),
                                                             ZArray=people["masks"][i][:, 2].tolist())
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=people["classes"][i],
-                                                               attributes=generic_attrs, maskpoints=mask_points)
+                                                               attributes=generic_attrs, maskpoints=mask_points, image=image_data)
             total_objects.append(object_)
             object_counter += 1
         for i in range(len(objects["bboxes"])):
@@ -537,7 +540,7 @@ class SpecificWorker(GenericWorker):
             #print("MASK POINTS", mask_points.XArray)
             # object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
             object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=objects["classes"][i],
-                                                               attributes=generic_attrs, maskpoints=mask_points)
+                                                               attributes=generic_attrs, maskpoints=mask_points, image=image_data)
             total_objects.append(object_)
             object_counter += 1
         # print("IMAGE TIMESTAMP", image_timestamp)

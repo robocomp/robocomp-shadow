@@ -3,4 +3,4 @@ PROJECT(  controller )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGB Camera360RGB GenericBase MPC MaskElements OmniRobot SegmentatorTrackingPub VisualElementsPub VisualElementsPub )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGB Camera360RGB GenericBase Lidar3D MPC MaskElements OmniRobot SegmentatorTrackingPub VisualElementsPub VisualElementsPub )

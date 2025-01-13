@@ -4,7 +4,7 @@ CommonBehavior.Endpoints=tcp -p 12340
 GridPlanner.Endpoints=tcp -p 12341
 
 # Endpoints for proxy interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11991
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11989
 
 
 Ice.Warn.Connections=0

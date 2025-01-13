@@ -79,7 +79,7 @@ class SpecificWorker : public GenericWorker
             float CARROT_ANGLE = M_PI_4 / 6.f;   // rad
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             int PERIOD = 100;    // ms (20 Hz) for compute timer
-            float MIN_ANGLE_TO_TARGET = 1.f;   // rad
+            float MIN_ANGLE_TO_TARGET = 0.1;   // rad
             int MPC_HORIZON = 8;
             bool USE_MPC = true;
             unsigned int ELAPSED_TIME_BETWEEN_PATH_UPDATES = 3000;
@@ -87,7 +87,7 @@ class SpecificWorker : public GenericWorker
             float MIN_DISTANCE_BETWEEN_PATHS = 500; // mm
             bool DISPLAY = true;
             size_t MAX_PATH_STEPS = 1000;
-            float TRACKING_DISTANCE_TO_TARGET = 1000; // mm
+            float TRACKING_DISTANCE_TO_TARGET = 1200; // mm
 
             // colors
             QColor TARGET_COLOR= {"orange"};

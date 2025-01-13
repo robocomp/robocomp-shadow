@@ -132,8 +132,6 @@ class Publishes:
         self.mprx={}
         self.topic_manager = topic_manager
 
-        self.visualelementspub = self.create_topic("VisualElementsPub", RoboCompVisualElementsPub.VisualElementsPubPrx)
-
 
     def create_topic(self, topic_name, ice_proxy):
         # Create a proxy to publish a AprilBasedLocalization topic
@@ -169,6 +167,8 @@ class Requires:
         self.Camera360RGBD = self.create_proxy("Camera360RGBDProxy", RoboCompCamera360RGBD.Camera360RGBDPrx)
 
         self.Lidar3D = self.create_proxy("Lidar3DProxy", RoboCompLidar3D.Lidar3DPrx)
+
+        self.VisualElementsPub = self.create_proxy("VisualElementsPubProxy", RoboCompVisualElementsPub.VisualElementsPubPrx)
 
     def get_proxies_map(self):
         return self.mprx
@@ -237,7 +237,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = True
+        needs_rcnode = False
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0

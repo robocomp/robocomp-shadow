@@ -230,6 +230,8 @@ void SpecificWorker::compute()
     //else  if(params.DISPLAY)(draw_paths(returning_plan.paths, &viewer->scene));
 
     /// if target is tracked, set the real target at a distance of params.TRACKING_DISTANCE_TO_TARGET from the original target
+    bool rotation_adjustment = false;
+    RoboCompGridPlanner::TPlan rotation_plan;
     if(target.is_tracked())
     {
         // move forward through path until the distance to the target is equal to params.TRACKING_DISTANCE_TO_TARGET
@@ -249,17 +251,34 @@ void SpecificWorker::compute()
         if(not success)
         {
             qWarning() << __FUNCTION__ << "Target too close. Cancelling target";
-            inject_ending_plan();
-            return;
+            // Check if angle is too big
+            qDebug() << "Angle to robot" << target.angle_to_robot();
+            if(fabs(target.angle_to_robot()) > params.MIN_ANGLE_TO_TARGET)
+            {
+                qWarning() << __FUNCTION__ << "Angle too big. Cancelling target";
+                // Generate plan to rotate robot
+                rotation_plan.controls.push_back(RoboCompGridPlanner::TControl{.adv=0.f, .side=0.f, .rot=target.angle_to_robot()});
+                rotation_adjustment = true;
+            }
+            else
+            {
+                inject_ending_plan();
+                return;
+            }
         }
     }
 
     /// MPC
     RoboCompGridPlanner::TPlan final_plan;
-    if(params.USE_MPC) /// convert plan to list of control actions calling MPC
+    if(params.USE_MPC and not rotation_adjustment) /// convert plan to list of control actions calling MPC
         final_plan = convert_plan_to_control(returning_plan, target);
-    if(params.DISPLAY)(this->lcdNumber_length->display((int)final_plan.path.size()));
+    else
+        final_plan = rotation_plan;
 
+    if(params.DISPLAY)(this->lcdNumber_length->display((int)final_plan.path.size()));
+    // Print final_plan controls
+    for(const auto &c: final_plan.controls)
+        qDebug() << "Controls" << c.adv << c.side << c.rot;
    /// send plan to remote interface and publish it to rcnode
     if(not this->pushButton_stop->isChecked())
         send_and_publish_plan(final_plan);
@@ -271,7 +290,8 @@ void SpecificWorker::compute()
     if(params.DISPLAY)
     {
         this->lcdNumber_hz->display(this->hz);
-        this->lcdNumber_dist_to_target->display((int)target.distance_to_robot());
+//        this->lcdNumber_dist_to_target->display((int)target.distance_to_robot());
+        qDebug() << "Control values" << final_plan.controls.front().adv << final_plan.controls.front().side << final_plan.controls.front().rot;
         draw_timeseries(final_plan.controls.front().side/10, final_plan.controls.front().adv/10, (target.distance_to_robot())/10);
     }
 }

@@ -9,6 +9,8 @@ Ice.loadSlice("-I ./src/ --all ./src/Camera360RGB.ice")
 import RoboCompCamera360RGB
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+import RoboCompLidar3D
 Ice.loadSlice("-I ./src/ --all ./src/MPC.ice")
 import RoboCompMPC
 Ice.loadSlice("-I ./src/ --all ./src/MaskElements.ice")
@@ -40,6 +42,60 @@ class ImgType(list):
         super(ImgType, self).insert(index, item)
 
 setattr(RoboCompCamera360RGB, "ImgType", ImgType)
+class TPoints(list):
+    def __init__(self, iterable=list()):
+        super(TPoints, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompLidar3D.TPoint)
+        super(TPoints, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TPoints", TPoints)
+class TFloatArray(list):
+    def __init__(self, iterable=list()):
+        super(TFloatArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, float)
+        super(TFloatArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, float)
+        super(TFloatArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TFloatArray", TFloatArray)
+class TIntArray(list):
+    def __init__(self, iterable=list()):
+        super(TIntArray, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, int)
+        super(TIntArray, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, int)
+        super(TIntArray, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TIntArray", TIntArray)
 class Path(list):
     def __init__(self, iterable=list()):
         super(Path, self).__init__(iterable)
@@ -226,8 +282,6 @@ class Subscribes:
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
 
-        self.VisualElementsPub = self.create_adapter("VisualElementsPubTopic", visualelementspubI.VisualElementsPubI(default_handler))
-
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
         handler = interface_handler
@@ -256,6 +310,7 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
+        self.visualelementspub = self.create_adapter("VisualElementsPub", visualelementspubI.VisualElementsPubI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)

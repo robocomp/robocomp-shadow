@@ -5,7 +5,7 @@ Gridder.Endpoints=tcp -p 13541
 
 # Proxies for required interfaces
 Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
-Lidar3D1Proxy = lidar3d:tcp -h localhost -p 11991
+Lidar3D1Proxy = lidar3d:tcp -h localhost -p 11989
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

@@ -1,9 +1,12 @@
+# Endpoints for implements interfaces
+VisualElementsPub.Endpoints=tcp -p 17349
+
+
 # Proxies for required interfaces
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 12910
-MPCProxy = mpc:tcp -h localhost -p 10218
-MaskElementsProxy = maskelements:tcp -h localhost -p 10100
-OmniRobotProxy = omnirobot:tcp -h localhost -p 13567
-VisualElementsProxy = visualelements:tcp -h localhost -p 13574
+Camera360RGBProxy = camera360rgb:tcp -h localhost -p 18493
+MPCProxy = mpc:tcp -h localhost -p 12082
+MaskElementsProxy = maskelements:tcp -h localhost -p 15719
+OmniRobotProxy = omnirobot:tcp -h localhost -p 10824
 
 
 
