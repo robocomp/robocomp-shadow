@@ -80,10 +80,10 @@ public slots:
             float ROBOT_LENGTH = 480;  // mm
             float ROBOT_SEMI_WIDTH = ROBOT_WIDTH / 2.f;     // mm
             float ROBOT_SEMI_LENGTH = ROBOT_LENGTH / 2.f;    // mm
-            float MAX_ADV_SPEED = 1200;    // mm/s
+            float MAX_ADV_SPEED = 1500;    // mm/s
             float MAX_BACKWARDS_ADV_SPEED = 200;    // mm/s
             float MAX_SIDE_SPEED = 0;   // mm/s
-            float MAX_ROT_SPEED = 1;  // rad/s
+            float MAX_ROT_SPEED = 2.0;  // rad/s
             std::string LIDAR_NAME = "bpearl";
             float MAX_LIDAR_RANGE = 10000;  // mm
             float LIDAR_DECIMATION_FACTOR = 1;
@@ -91,7 +91,7 @@ public slots:
             long PERIOD_HYSTERESIS = 2; // to avoid oscillations in the adjustment of the lidar thread period
             float REPULSION_GAIN = 10.f;
             int PERIOD = 50;    // ms (20 Hz) for compute timer
-            float LAMBDA_GAIN = 0.3f;   // gain to split contributions between the bumper and the target. 1 -> target
+            float LAMBDA_GAIN = 0.2f;   // gain to split contributions between the bumper and the target. 1 -> target
             bool ENABLE_JOYSTICk = true;
         };
         Params params;

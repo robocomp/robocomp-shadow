@@ -11,7 +11,7 @@ Component controller
     Communications
     {
         requires Camera360RGB, OmniRobot, MPC, MaskElements;
-        subscribesTo VisualElementsPub;
+        implements VisualElementsPub;
         publishes SegmentatorTrackingPub;
     };
     language python;
