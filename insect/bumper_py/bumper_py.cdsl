@@ -1,0 +1,17 @@
+import "Lidar3D.idsl";
+import "GridPlanner.idsl";
+import "OmniRobot.idsl";
+import "JoystickAdapter.idsl";
+
+Component bumper_py
+{
+    Communications
+    {
+	    implements GridPlanner, OmniRobot;
+        requires Lidar3D, OmniRobot;
+        subscribesTo JoystickAdapter;
+    };
+    language python;
+    gui Qt(QWidget);
+};
+
