@@ -23,6 +23,7 @@ from warnings import catch_warnings
 
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
+from pyautogui import sleep
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -41,7 +42,9 @@ class SpecificWorker(GenericWorker):
 
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 30
+        self.pcd = None
+        self.VOXEL_SIZE = None
+        self.Period = 15
 
         # Control
         self.adv = 0.0
@@ -67,6 +70,10 @@ class SpecificWorker(GenericWorker):
         self.speed_r = (0, 0, 0)
         self.speed = (0, 0, 0)
 
+        # Sigmoide parameters
+        self.lateral_th = 0.3
+        self.advance_th = 0.3
+        self.angle_th = np.radians(45)
         # Configurar la interfaz gráfica
         self.init_plot()
 
@@ -77,6 +84,12 @@ class SpecificWorker(GenericWorker):
             self.timer.start(self.Period)
 
     def __del__(self):
+        # Send command to robot
+        try:
+            self.omnirobot_proxy.setSpeedBase(0.0, 0.0, 0.0)
+            print("BUMPER __DEL__: Stopping robot")
+        except Ice.Exception as e:
+            print("Error sending speed to robot", e)
         """Destructor"""
 
     def setParams(self, params):
@@ -89,12 +102,13 @@ class SpecificWorker(GenericWorker):
         self.repulsion = np.array([0.0, 0.0])
         self.speed_line = np.array([[0, 0], [0, 0]])
 
+        #TODO: Implement to override omnirobot with joystick
         # Check if joystick data is available
-        if self.adv_j != 0.0 or self.side_j != 0.0 or self.rot_j != 0.0:
-            self.adv = self.adv_j
-            self.side = self.side_j
-            self.rot = self.rot_j
-            print("joystick")
+        # if self.adv_j != 0.0 or self.side_j != 0.0 or self.rot_j != 0.0:
+        self.adv = self.adv_j
+        self.side = self.side_j
+        self.rot = self.rot_j
+        # else:
             # Send command to robot
             # try:
             #     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
@@ -103,118 +117,142 @@ class SpecificWorker(GenericWorker):
             # return
 
         t1 = time.time()
-
+        ldata_ = None
         try:
-            # Speed vector (adv, rot)
-            dt = 1
-            dy = (self.adv / 1000 * np.cos(self.rot) - self.side / 1000 * np.sin(self.rot)) * dt
-            dx = (self.adv / 1000 * np.sin(self.rot) + self.side / 1000 * np.cos(self.rot)) * dt
-            self.speed = np.array([dx, dy])
-
-            # build vector line
-            d = 3
-            resolution = 0.1
-            N_points = int(d / resolution)
-
-            self.VOXEL_SIZE = 0.1
-
-            # Get Lidar data
             ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 3000, 2)
-            # for ldata in ldata_: build a point cloud
-            self.pcd = o3d.geometry.PointCloud()
-            # Print Ldata.points size
-            for ldata in ldata_.points:
-                self.pcd.points.append([ldata.x / 1000, ldata.y / 1000, ldata.z / 1000])
-
-            # Voxelize the point cloud
-            self.pcd = self.pcd.voxel_down_sample(voxel_size=self.VOXEL_SIZE)
-
-            # DBSCAN clustering of point cloud
-
-            self.pcd_np = np.asarray(self.pcd.points)
-            clustering = DBSCAN(eps=0.7, min_samples=20).fit(self.pcd_np)
-            self.labels = clustering.labels_
-
-            self.clusters = []
-
-            for i in range(max(self.labels) + 1):
-                cluster = self.pcd_np[self.labels == i]
-                centroid = np.mean(cluster, axis=0)
-                # compute radius
-                radius = np.max(np.linalg.norm(cluster - centroid, axis=1))
-
-                # If speed != 0
-                # if np.linalg.norm(self.speed) > 0:
-                if(np.linalg.norm(self.speed)>0):
-                    v_dir = self.speed / (np.linalg.norm(self.speed))* resolution
-                    speed_line = np.array([np.array([0, 0]), v_dir * N_points])
-
-
-
-                    # TODO: One call to point_to_line
-                    # Compute closest point from cluster to speed line
-                    closest_point = cluster[np.argmin([self.point_to_line_distance(point, speed_line[-1], speed_line[0])[0] for point in cluster])]
-                    dist, nearest = self.point_to_line_distance(closest_point, speed_line[1], speed_line[0])
-
-                    #Sigmoide parameters
-                    lateral_th = 0.7
-                    advance_th = 0.5
-
-                    #Security distances TODO: Tune this values
-                    side_th = 1 + 1 * abs(self.rot / 0.78)
-                    front_th = 1.5 + abs(self.adv / 750)
-
-
-                    # if dist < side_th and np.linalg.norm(nearest[:2]) < front_th:
-                    # Calcular los factores k1 y k2 usando funciones sigmoides
-                    k1 = self.sigmoid(dist, lateral_th)
-                    k2 = self.sigmoid(np.linalg.norm(nearest[:2]), advance_th)
-
-                    # Calcular la repulsión optimizada
-                    repulsion = (nearest[:2] - closest_point[:2])
-                    repulsion = repulsion / np.linalg.norm(repulsion)
-
-                    # Escalar por el inverso de la distancia
-                    repulsion =  k1 * k2 * repulsion / (
-                                dist + 1e-6)  # Avoid zero division
-
-                    # Clip repulsion vector to MAX_REPULSION using clip function
-                    MAX_REPULSION = 1
-                    repulsion = np.clip(repulsion, -MAX_REPULSION, MAX_REPULSION)
-
-                    # Print repulsion vector
-                    print("Repulsion vector", repulsion)
-
-                    self.clusters.append((centroid, radius, closest_point[:2], nearest[:2], repulsion))
-
-
-            speed_r = [0.0,0.0]
-            if self.clusters:
-                # Compute sum of repulsion vectors
-                self.repulsion = np.sum([cluster[4] for cluster in self.clusters], axis=0)
-                speed_r += repulsion
-
-            print("Time to compute", time.time() - t1)
-            # Send command to robot
-            # self.omnirobot_proxy.setSpeedBase(self.adv, self.side, self.rot)
-            # Get adv, side and rot from speed_r
-
-            self.adv = self.adv - self.speed[1]
-            self.rot = self.rot
-            self.side = speed_r[0] * 300
-
+        except Ice.Exception as e:
+            print("Error reading Lidar, stopping robot", e)
+            # Send stop command to robot
             try:
-                self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
+                self.omnirobot_proxy.setSpeedBase(0.0, 0.0, 0.0)
             except Ice.Exception as e:
                 print("Error sending speed to robot", e)
+            return
 
-        except Ice.Exception as e:
-          print("Error reading Lidar",e)
+
+        # TODO: Control ldata values
+        if not ldata_:  # If ldata is not None
+            return
+        else:
+            # print("Lidar data received")
+            try:
+                # Speed vector (adv, rot)
+                dt = 1
+                dy = (self.adv / 1000 * np.cos(self.rot) - self.side / 1000 * np.sin(self.rot)) * dt
+                dx = (self.adv / 1000 * np.sin(self.rot) + self.side / 1000 * np.cos(self.rot)) * dt
+                self.speed = np.array([dx, dy])
+
+                # TODO: Move to params
+                # build vector line
+                d = 3
+                resolution = 0.2
+                n_points = int(d / resolution)
+
+                # Build point cloud
+                self.pcd = o3d.geometry.PointCloud()
+                for ldata in ldata_.points:
+                    self.pcd.points.append([ldata.x / 1000, ldata.y / 1000, ldata.z / 1000])
+
+                # Voxelize the point cloud
+                self.VOXEL_SIZE = 0.1
+                self.pcd = self.pcd.voxel_down_sample(voxel_size=self.VOXEL_SIZE)
+
+
+                # DBSCAN clustering of point cloud
+                self.pcd_np = np.asarray(self.pcd.points)
+                clustering = DBSCAN(eps=0.5, min_samples=1).fit(self.pcd_np)
+                self.labels = clustering.labels_
+
+                self.clusters = []
+                for i in range(max(self.labels) + 1):
+                    cluster = self.pcd_np[self.labels == i]
+                    centroid = np.mean(cluster, axis=0)
+                    # compute radius
+                    radius = np.max(np.linalg.norm(cluster - centroid, axis=1))
+
+
+                    if np.linalg.norm(self.speed) > 0 :
+                        v_dir = self.speed / (np.linalg.norm(self.speed))* resolution
+                        speed_line = np.array([np.array([0, 0]), v_dir * n_points])
+
+                        # Compute closest point from cluster to speed line
+                        closest_point = cluster[np.argmin(
+                            [self.point_to_line_distance(point, speed_line[-1], speed_line[0])[0] for point in cluster])]
+                        dist, nearest = self.point_to_line_distance(closest_point, speed_line[1], speed_line[0])
+
+
+                        # If distance is too large, ignore cluster
+                        if dist > 0.5:
+                            cluster_repulsion = np.array([0, 0])
+                            self.clusters.append((centroid, radius, closest_point[:2], nearest[:2], cluster_repulsion))
+                            continue
+
+                        # Calcular los factores k1 y k2 usando funciones sigmoides
+                        k1 = self.sigmoid(dist, self.lateral_th) # Lateral threshold
+                        k2 = self.sigmoid(np.linalg.norm(nearest[:2]), self.advance_th) # Advance threshold
+                        k3 = self.calculate_reduction_factor(closest_point,self.speed, self.angle_th) # Angle threshold
+
+                        # Calcular la repulsión optimizada
+                        cluster_repulsion = (nearest[:2] - closest_point[:2])
+                        cluster_repulsion = cluster_repulsion / np.linalg.norm(cluster_repulsion)
+
+                        # Scale
+                        cluster_repulsion =  k1 * k2 * k3 * cluster_repulsion / (
+                                    dist + 1e-6)  # Avoid zero division
+
+                        # Clip
+                        MAX_REPULSION = 0.6
+                        cluster_repulsion = np.clip(cluster_repulsion, -MAX_REPULSION, MAX_REPULSION)
+
+                        # Print repulsion vector
+                        print("Repulsion vector", cluster_repulsion)
+
+                        self.clusters.append((centroid, radius, closest_point[:2], nearest[:2], cluster_repulsion))
+
+                # Compute speed vector given repulsion vectors
+                self.speed_r = [0.0,0.0]
+                if self.clusters:
+                    # Compute sum of repulsion vectors
+                    self.repulsion = np.sum([cluster[4] for cluster in self.clusters], axis=0)
+                    self.speed_r += self.repulsion
+
+                    # Print self.adv, self.side, self.rot
+                    print("Speed", self.adv, self.side, self.rot)
+
+                    # TODO: FIX
+                    self.adv = self.adv
+                    self.rot = self.rot # np.arctan2(speed_r[1],speed_r[0])
+                    self.side = self.side + self.speed_r[0] * 1000
+                    print("Speed + Repulsion", self.adv, self.side, self.rot)
+                # Send command to robot
+                try:
+                    self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
+                except Ice.Exception as e:
+                    print("Error sending speed to robot", e)
+
+                # print("Time to compute", time.time() - t1)
+
+            except Ice.Exception as e:
+              print("Error reading Lidar",e)
+
 
         # # ------------------- Plotting -------------------
         self.update_plot()
 
+        # Clear values
+        self.pcd = None
+        self.pcd_np = np.array([])
+        self.labels = np.array([])
+        self.clusters = []
+
         return True
+
+
+
+    # ===================================================================
+    # ===================================================================
+    # --------------------- AUXILIARY FUNCTIONS ---------------------
+
 
     def point_to_line_distance(self, point, line_start, line_end):
         """Calcula la distancia de un punto a una línea definida por dos puntos."""
@@ -238,8 +276,38 @@ class SpecificWorker(GenericWorker):
 
         return distance, nearest
 
+    def calculate_reduction_factor(self, closest_point, speed, angulo_corte=np.radians(45)):
+        """
+        Calcula el factor de reducción k basado en el ángulo entre closest_point y speed usando una función sigmoide.
+
+        :param closest_point: np.array, vector del punto más cercano
+        :param speed: np.array, vector de velocidad
+        :param angulo_corte: float, ángulo de corte en radianes para la sigmoide
+        :return: float, factor de reducción k
+        """
+        # Asegurarse de que ambos vectores tengan la misma dimensión
+        if closest_point.shape[0] == 3:
+            closest_point = closest_point[:2]
+
+        # Normalizar los vectores
+        norm_closest_point = closest_point / np.linalg.norm(closest_point)
+        norm_speed = speed / np.linalg.norm(speed)
+
+        # Calcular el ángulo usando el producto punto
+        cos_angle = np.dot(norm_closest_point, norm_speed)
+        angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+
+        # Calcular el factor de reducción k usando la función sigmoide existente
+        k = self.sigmoid(abs(angle), angulo_corte)
+
+        return k
+
     def sigmoid(self, x, threshold):
         return 1 / (1 + np.exp(x - threshold))
+
+    # ===================================================================
+    # ===================================================================
+    # --------------------- PLOTTING FUNCTIONS ---------------------
 
     def init_plot(self):
         """Inicializa la figura de matplotlib dentro del entorno de Qt."""
@@ -282,7 +350,6 @@ class SpecificWorker(GenericWorker):
 
         # Comprobar si hay datos de puntos y etiquetas
         if self.pcd_np.size > 0 and len(self.labels) > 0:
-
             # Calcular colores para los puntos del Lidar
             max_label = max(self.labels) if max(self.labels) > 0 else 1  # Asegurarse de que max_label no sea 0
             colors = plt.get_cmap("tab20")(self.labels / max_label)  # Normalizar las etiquetas
@@ -332,6 +399,12 @@ class SpecificWorker(GenericWorker):
         # Redibujar el canvas
         self.canvas.draw()
 
+    # ===================================================================
+    # ===================================================================
+    # --------------------- ROBOCOMP FUNCTIONS ---------------------
+    # ===================================================================
+    # ===================================================================
+
     def startup_check(self):
         print(f"Testing RoboCompLidar3D.TPoint from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TPoint()
@@ -364,13 +437,11 @@ class SpecificWorker(GenericWorker):
     #
     def JoystickAdapter_sendData(self, data):
 
+        # TODO: Implement to override
         self.side_j = 0.0
         self.adv_j = 0.0
         self.rot_j = 0.0
 
-        self.adv = 0.0
-        self.side = 0.0
-        self.rot = 0.0
         # Take joystick data as an external. It comes in m/s, so we need to scale it to mm/s
         for axis in data.axes:
             if axis.name == "rotate":
@@ -378,10 +449,9 @@ class SpecificWorker(GenericWorker):
             elif axis.name == "advance":
                 self.adv_j = axis.value
             elif axis.name == "side":
-                self.side_j = 0.0
+                self.side_j = axis.value
             else:
                 print(f"[ JoystickAdapter ] Warning: Using a non-defined axes ({axis.name}).")
-
         pass
 
 
@@ -411,7 +481,7 @@ class SpecificWorker(GenericWorker):
         pass
 
 
-    #
+
     # IMPLEMENTATION of correctOdometer method from OmniRobot interface
     #
     def OmniRobot_correctOdometer(self, x, z, alpha):
@@ -496,49 +566,5 @@ class SpecificWorker(GenericWorker):
         #
         pass
 
-
-    # ===================================================================
-    # ===================================================================
-
-
-    ######################
-    # From the RoboCompLidar3D you can call this methods:
-    # self.lidar3d_proxy.getLidarData(...)
-    # self.lidar3d_proxy.getLidarDataArrayProyectedInImage(...)
-    # self.lidar3d_proxy.getLidarDataProyectedInImage(...)
-    # self.lidar3d_proxy.getLidarDataWithThreshold2d(...)
-
-    ######################
-    # From the RoboCompLidar3D you can use this types:
-    # RoboCompLidar3D.TPoint
-    # RoboCompLidar3D.TDataImage
-    # RoboCompLidar3D.TData
-
-    ######################
-    # From the RoboCompOmniRobot you can call this methods:
-    # self.omnirobot_proxy.correctOdometer(...)
-    # self.omnirobot_proxy.getBasePose(...)
-    # self.omnirobot_proxy.getBaseState(...)
-    # self.omnirobot_proxy.resetOdometer(...)
-    # self.omnirobot_proxy.setOdometer(...)
-    # self.omnirobot_proxy.setOdometerPose(...)
-    # self.omnirobot_proxy.setSpeedBase(...)
-    # self.omnirobot_proxy.stopBase(...)
-
-    ######################
-    # From the RoboCompOmniRobot you can use this types:
-    # RoboCompOmniRobot.TMechParams
-
-    ######################
-    # From the RoboCompGridPlanner you can use this types:
-    # RoboCompGridPlanner.TPoint
-    # RoboCompGridPlanner.TControl
-    # RoboCompGridPlanner.TPlan
-
-    ######################
-    # From the RoboCompJoystickAdapter you can use this types:
-    # RoboCompJoystickAdapter.AxisParams
-    # RoboCompJoystickAdapter.ButtonParams
-    # RoboCompJoystickAdapter.TData
 
 
