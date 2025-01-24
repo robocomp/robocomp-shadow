@@ -31,22 +31,45 @@ from sklearn.cluster import DBSCAN
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
-
-# If RoboComp was compiled with Python bindings you can use InnerModel in Python
-# import librobocomp_qmat
-# import librobocomp_osgviewer
-# import librobocomp_innermodel
-
-
 class SpecificWorker(GenericWorker):
+
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 30
+
+        # Control
+        self.adv = 0.0
+        self.side = 0.0
+        self.rot = 0.0
+
+        self.adv_j = 0.0
+        self.side_j = 0.0
+        self.rot_j = 0.0
+
+        # Animation
+        self.fig, self.ax = None, None
+        self.scatter = None
+        self.robot_rect = None
+        self.arrows = []
+
+        # Datos inicializados
+        self.pcd_np = np.array([])
+        self.labels = np.array([])
+        self.clusters = []
+        self.repulsion = (0, 0)
+        self.speed_line = np.array([])
+        self.speed_r = (0, 0, 0)
+        self.speed = (0, 0, 0)
+
+        # Configurar la interfaz gráfica
+        self.init_plot()
+
         if startup_check:
             self.startup_check()
         else:
@@ -58,19 +81,13 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
 
-        self.adv = 0.0
-        self.side = 0.0
-        self.rot = 0.0
-	
-        self.adv_j = 0.0
-        self.side_j = 0.0
-        self.rot_j = 0.0
-
         return True
-
 
     @QtCore.Slot()
     def compute(self):
+        # Initialize repulsion
+        self.repulsion = np.array([0.0, 0.0])
+        self.speed_line = np.array([[0, 0], [0, 0]])
 
         # Check if joystick data is available
         if self.adv_j != 0.0 or self.side_j != 0.0 or self.rot_j != 0.0:
@@ -79,24 +96,20 @@ class SpecificWorker(GenericWorker):
             self.rot = self.rot_j
             print("joystick")
             # Send command to robot
-            try:
-                self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
-            except Ice.Exception as e:
-                print("Error sending speed to robot", e)
-            return
+            # try:
+            #     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
+            # except Ice.Exception as e:
+            #     print("Error sending speed to robot", e)
+            # return
 
         t1 = time.time()
 
         try:
-            # Calculate de line given by the robot speed vector (adv, rot)
-            # Robot position
-            robot_position = np.array([0, 0])
-
             # Speed vector (adv, rot)
             dt = 1
             dy = (self.adv / 1000 * np.cos(self.rot) - self.side / 1000 * np.sin(self.rot)) * dt
             dx = (self.adv / 1000 * np.sin(self.rot) + self.side / 1000 * np.cos(self.rot)) * dt
-            speed = np.array([dx, dy])
+            self.speed = np.array([dx, dy])
 
             # build vector line
             d = 3
@@ -108,34 +121,39 @@ class SpecificWorker(GenericWorker):
             # Get Lidar data
             ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 3000, 2)
             # for ldata in ldata_: build a point cloud
-            pcd = o3d.geometry.PointCloud()
+            self.pcd = o3d.geometry.PointCloud()
+            # Print Ldata.points size
             for ldata in ldata_.points:
-                pcd.points.append([ldata.x / 1000, ldata.y / 1000, ldata.z / 1000])
+                self.pcd.points.append([ldata.x / 1000, ldata.y / 1000, ldata.z / 1000])
 
             # Voxelize the point cloud
-            pcd = pcd.voxel_down_sample(voxel_size=self.VOXEL_SIZE)
+            self.pcd = self.pcd.voxel_down_sample(voxel_size=self.VOXEL_SIZE)
 
             # DBSCAN clustering of point cloud
-            pcd_np = np.asarray(pcd.points)
-            clustering = DBSCAN(eps=0.7, min_samples=20).fit(pcd_np)
-            labels = clustering.labels_
 
-            clusters = []
+            self.pcd_np = np.asarray(self.pcd.points)
+            clustering = DBSCAN(eps=0.7, min_samples=20).fit(self.pcd_np)
+            self.labels = clustering.labels_
 
-            for i in range(max(labels)+1):
-                cluster = pcd_np[labels == i]
+            self.clusters = []
+
+            for i in range(max(self.labels) + 1):
+                cluster = self.pcd_np[self.labels == i]
                 centroid = np.mean(cluster, axis=0)
                 # compute radius
                 radius = np.max(np.linalg.norm(cluster - centroid, axis=1))
 
                 # If speed != 0
-                if np.linalg.norm(speed) > 0:
-                    v_dir = speed / np.linalg.norm(speed) * resolution
-                    speed_line = np.array([robot_position, robot_position + v_dir * N_points])
+                # if np.linalg.norm(self.speed) > 0:
+                if(np.linalg.norm(self.speed)>0):
+                    v_dir = self.speed / (np.linalg.norm(self.speed))* resolution
+                    speed_line = np.array([np.array([0, 0]), v_dir * N_points])
+
+
 
                     # TODO: One call to point_to_line
                     # Compute closest point from cluster to speed line
-                    closest_point = cluster[np.argmin([self.point_to_line_distance(point, speed_line[1], speed_line[0])[0] for point in cluster])]
+                    closest_point = cluster[np.argmin([self.point_to_line_distance(point, speed_line[-1], speed_line[0])[0] for point in cluster])]
                     dist, nearest = self.point_to_line_distance(closest_point, speed_line[1], speed_line[0])
 
                     #Sigmoide parameters
@@ -147,33 +165,33 @@ class SpecificWorker(GenericWorker):
                     front_th = 1.5 + abs(self.adv / 750)
 
 
-                    if dist < side_th and np.linalg.norm(nearest[:2]) < front_th:
-                        # Calcular los factores k1 y k2 usando funciones sigmoides
-                        k1 = self.sigmoid(dist, lateral_th)
-                        k2 = self.sigmoid(np.linalg.norm(nearest[:2]), advance_th)
+                    # if dist < side_th and np.linalg.norm(nearest[:2]) < front_th:
+                    # Calcular los factores k1 y k2 usando funciones sigmoides
+                    k1 = self.sigmoid(dist, lateral_th)
+                    k2 = self.sigmoid(np.linalg.norm(nearest[:2]), advance_th)
 
-                        # Calcular la repulsión optimizada
-                        repulsion = (nearest[:2] - closest_point[:2])
-                        repulsion = repulsion / np.linalg.norm(repulsion)
+                    # Calcular la repulsión optimizada
+                    repulsion = (nearest[:2] - closest_point[:2])
+                    repulsion = repulsion / np.linalg.norm(repulsion)
 
-                        # Escalar por el inverso de la distancia
-                        repulsion =  k1 * k2 * repulsion / (
-                                    dist + 1e-6)  # Avoid zero division
+                    # Escalar por el inverso de la distancia
+                    repulsion =  k1 * k2 * repulsion / (
+                                dist + 1e-6)  # Avoid zero division
 
-                        # Clip repulsion vector to MAX_REPULSION using clip function
-                        MAX_REPULSION = 1
-                        repulsion = np.clip(repulsion, -MAX_REPULSION, MAX_REPULSION)
+                    # Clip repulsion vector to MAX_REPULSION using clip function
+                    MAX_REPULSION = 1
+                    repulsion = np.clip(repulsion, -MAX_REPULSION, MAX_REPULSION)
 
-                        # Print repulsion vector
-                        print("Repulsion vector", repulsion)
+                    # Print repulsion vector
+                    print("Repulsion vector", repulsion)
 
-                        clusters.append((centroid, radius, closest_point[:2], nearest[:2], repulsion))
+                    self.clusters.append((centroid, radius, closest_point[:2], nearest[:2], repulsion))
 
 
             speed_r = [0.0,0.0]
-            if clusters:
+            if self.clusters:
                 # Compute sum of repulsion vectors
-                repulsion = np.sum([cluster[4] for cluster in clusters], axis=0)
+                self.repulsion = np.sum([cluster[4] for cluster in self.clusters], axis=0)
                 speed_r += repulsion
 
             print("Time to compute", time.time() - t1)
@@ -181,56 +199,20 @@ class SpecificWorker(GenericWorker):
             # self.omnirobot_proxy.setSpeedBase(self.adv, self.side, self.rot)
             # Get adv, side and rot from speed_r
 
-            self.adv = self.adv - speed[1]
+            self.adv = self.adv - self.speed[1]
             self.rot = self.rot
             self.side = speed_r[0] * 300
 
-            print("Speed", self.adv, self.side, self.rot)
             try:
                 self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
             except Ice.Exception as e:
                 print("Error sending speed to robot", e)
 
-
-
-        # ------------------- Plotting -------------------
-            if True: # TODO: Plotting variable and move plot to window
-                # Color the point cloud based on cluster labels
-                colors = plt.get_cmap("tab20")(labels / (max(labels) if max(labels) > 0 else 1))
-                pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-
-                #   draw in with matplotlib in a 2D plot window
-                plt.figure()
-                # fix axis to +- 5m
-                plt.xlim(-2.5, 2.5)
-                plt.ylim(-2, 2)
-
-                plt.scatter(pcd_np[:, 0], pcd_np[:, 1], c=labels, cmap='tab20')
-                # draw robot as red box with 0,5m side centered in the robot position
-                plt.gca().add_artist(plt.Rectangle((-0.25, -0.25), 0.5, 0.5, fill=False, color='red'))
-
-                if clusters:
-                #     Compute sum of repulsion vectors
-                    plt.arrow(0, 0, repulsion[0], repulsion[1], head_width=0.05, head_length=0.1, fc='r', ec='r')
-                    # Draw speed line
-                    plt.plot(speed_line[:, 0], speed_line[:, 1], color='blue')
-                    # draw clusters as circles with radius equal to the radius of the cluster
-                    for cluster in clusters:
-                        plt.gca().add_artist(plt.Circle(cluster[0][:2], cluster[1], fill=False, color='black'))
-                #         Draw closest point as a red dot
-                        plt.scatter(cluster[2][0], cluster[2][1], color='red')
-                #         Draw nearest point as a blue dot
-                        plt.scatter(cluster[3][0], cluster[3][1], color='blue')
-
-                #     draw speed_r as a red arrow
-                    plt.arrow(0, 0, speed_r[0], speed_r[1], head_width=0.2, head_length=0.2, fc='r', ec='r')
-                # draw robot speed using speed array
-                plt.arrow(0, 0, speed[0], speed[1], head_width=0.1, head_length=0.1, fc='orange', ec='g')
-            #     Draw plot in a window and close after 0.1s
-                plt.show()
-
         except Ice.Exception as e:
           print("Error reading Lidar",e)
+
+        # # ------------------- Plotting -------------------
+        self.update_plot()
 
         return True
 
@@ -258,6 +240,97 @@ class SpecificWorker(GenericWorker):
 
     def sigmoid(self, x, threshold):
         return 1 / (1 + np.exp(x - threshold))
+
+    def init_plot(self):
+        """Inicializa la figura de matplotlib dentro del entorno de Qt."""
+        self.plot_widget = QWidget()
+        self.layout = QVBoxLayout(self.plot_widget)
+
+        # Crear figura y canvas
+        self.fig = Figure()
+        self.canvas = FigureCanvas(self.fig)
+        self.layout.addWidget(self.canvas)
+
+        # Crear el eje
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_xlim(-5, 5)
+        self.ax.set_ylim(-4, 4)
+
+        # Elementos gráficos iniciales
+        self.scatter = self.ax.scatter([], [], cmap='tab20')
+        self.robot_rect = self.ax.add_patch(
+            plt.Rectangle((-0.25, -0.25), 0.5, 0.5, fill=False, color='red')
+        )
+
+        self.arrows = []
+
+        # Mostrar el widget
+        self.plot_widget.show()
+
+
+    def update_plot(self):
+        """Actualiza los elementos gráficos con los nuevos datos."""
+        # Limpiar flechas previas y elementos adicionales
+        for arrow in self.arrows:
+            arrow.remove()
+        self.arrows = []
+        self.ax.clear()  # Limpiar completamente los ejes
+
+        # Ajustar los límites del gráfico
+        self.ax.set_xlim(-4, 4)
+        self.ax.set_ylim(-3, 3)
+
+        # Comprobar si hay datos de puntos y etiquetas
+        if self.pcd_np.size > 0 and len(self.labels) > 0:
+
+            # Calcular colores para los puntos del Lidar
+            max_label = max(self.labels) if max(self.labels) > 0 else 1  # Asegurarse de que max_label no sea 0
+            colors = plt.get_cmap("tab20")(self.labels / max_label)  # Normalizar las etiquetas
+            self.ax.scatter(self.pcd_np[:, 0], self.pcd_np[:, 1], c=colors[:, :3])
+        else:
+            print("Advertencia: No hay datos disponibles para los puntos del Lidar o etiquetas.")
+
+        # Dibujar el robot como un rectángulo rojo
+        robot_rect = plt.Rectangle((-0.25, -0.25), 0.5, 0.5, fill=False, color='red')
+        self.ax.add_patch(robot_rect)
+
+        # Dibujar flecha de repulsión
+        if np.any(self.repulsion):
+            # Clear repulsion arrow
+
+            self.arrows.append(
+                self.ax.arrow(0, 0, self.repulsion[0], self.repulsion[1],
+                              head_width=0.05, head_length=0.1, fc='r', ec='r')
+            )
+
+        # Dibujar línea de velocidad
+        if self.speed_line.size > 0:
+            self.ax.plot(self.speed_line[:, 0], self.speed_line[:, 1], color='blue')
+
+        # Dibujar clusters como círculos
+        for cluster in self.clusters:
+            centroid, radius, closest_point, nearest_point, _ = cluster
+            circle = plt.Circle(centroid[:2], radius, fill=False, color='black')
+            self.ax.add_patch(circle)
+
+            # Dibujar puntos de interés en el cluster
+            self.ax.scatter(closest_point[0], closest_point[1], color='red', label='Closest Point')
+            self.ax.scatter(nearest_point[0], nearest_point[1], color='blue', label='Nearest Point')
+
+        # Dibujar flecha de velocidad del robot en repulsión
+        self.arrows.append(
+            self.ax.arrow(0, 0, self.speed_r[0], self.speed_r[1],
+                          head_width=0.2, head_length=0.2, fc='r', ec='r')
+        )
+
+        # Dibujar flecha de velocidad general del robot
+        self.arrows.append(
+            self.ax.arrow(0, 0, self.speed[0], self.speed[1],
+                          head_width=0.1, head_length=0.1, fc='orange', ec='g')
+        )
+
+        # Redibujar el canvas
+        self.canvas.draw()
 
     def startup_check(self):
         print(f"Testing RoboCompLidar3D.TPoint from ifaces.RoboCompLidar3D")
@@ -298,8 +371,6 @@ class SpecificWorker(GenericWorker):
         self.adv = 0.0
         self.side = 0.0
         self.rot = 0.0
-        # Set speed from joystick data to omnirobot
-
         # Take joystick data as an external. It comes in m/s, so we need to scale it to mm/s
         for axis in data.axes:
             if axis.name == "rotate":
@@ -310,7 +381,6 @@ class SpecificWorker(GenericWorker):
                 self.side_j = 0.0
             else:
                 print(f"[ JoystickAdapter ] Warning: Using a non-defined axes ({axis.name}).")
-
 
         pass
 
