@@ -3,4 +3,4 @@ PROJECT(  bumper_py )
 
 INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior GenericBase GridPlanner JoystickAdapter Lidar3D OmniRobot OmniRobot )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior GenericBase GridPlanner JoystickAdapter Lidar3D OmniRobot OmniRobot SegmentatorTrackingPub VisualElementsPub )

@@ -76,14 +76,25 @@ class SpecificWorker(GenericWorker):
         self.angle_th = np.radians(90)
         self.brake_dist = 0.3
 
+        self.target_pose = np.array([0, 0])
         # Configurar la interfaz gráfica
         self.init_plot()
+
+        # Send command to robot
+        try:
+            self.omnirobot_proxy.setSpeedBase(0.0, 0.0, 0.0)
+            print("BUMPER __DEL__: Stopping robot")
+        except Ice.Exception as e:
+            print("Error sending speed to robot", e)
+        """Destructor"""
 
         if startup_check:
             self.startup_check()
         else:
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
+
+
 
     def __del__(self):
         # Send command to robot
@@ -102,27 +113,28 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         print("---------------------------------------------------------------")
         # Initialize repulsion
+        self.speed = np.array([0.0, 0.0, 0.0])
         self.repulsion = np.array([0.0, 0.0])
         self.speed_line = np.array([[0, 0], [0, 0]])
 
         #TODO: Implement to override omnirobot with joystick
         # Check if joystick data is available
         # if self.adv_j != 0.0 or self.side_j != 0.0 or self.rot_j != 0.0:
-        self.adv = self.adv_j
-        self.side = self.side_j
-        self.rot = self.rot_j
-        # else:
-            # Send command to robot
-            # try:
-            #     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
-            # except Ice.Exception as e:
-            #     print("Error sending speed to robot", e)
-            # return
+        # self.adv = self.adv_j
+        # self.side = self.side_j
+        # self.rot = self.rot_j
+
+        # # else:
+        # try:
+        #     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
+        # except Ice.Exception as e:
+        #     print("Error sending speed to robot", e)
+        # # return
 
         t1 = time.time()
         ldata_ = None
         try:
-            ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 1800, 2)
+            ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 3000, 2)
         except Ice.Exception as e:
             print("Error reading Lidar, stopping robot", e)
             # Send stop command to robot
@@ -134,8 +146,13 @@ class SpecificWorker(GenericWorker):
 
 
         # TODO: Control ldata values
-        if len(ldata_.points) == 0:  # If ldata is not None
+        if len(ldata_.points) == None:  # If ldata is not None
             return
+        elif(len(ldata_.points) == 0): # If no closer lidar points.
+            try:
+                self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
+            except Ice.Exception as e:
+                print("Error sending speed to robot", e)
         else:
             # print("Lidar data received")
             try:
@@ -154,7 +171,7 @@ class SpecificWorker(GenericWorker):
                 # Build point cloud
                 self.pcd = o3d.geometry.PointCloud()
                 for ldata in ldata_.points:
-                    self.pcd.points.append([ldata.x / 1000, ldata.y / 1000, ldata.z / 1000])
+                    self.pcd.points.append([ldata.x / 1000, ldata.y / 1000, 0.0])
 
                 # Voxelize the point cloud
                 self.VOXEL_SIZE = 0.1
@@ -163,7 +180,7 @@ class SpecificWorker(GenericWorker):
 
                 # DBSCAN clustering of point cloud
                 self.pcd_np = np.asarray(self.pcd.points)
-                clustering = DBSCAN(eps=0.7, min_samples=1).fit(self.pcd_np)
+                clustering = DBSCAN(eps=0.3, min_samples=1).fit(self.pcd_np)
                 self.labels = clustering.labels_
 
                 self.clusters = []
@@ -185,6 +202,10 @@ class SpecificWorker(GenericWorker):
                         dist, nearest = self.point_to_line_distance(closest_point, speed_line[1], speed_line[0])
                         dist_to_nearest = np.linalg.norm(nearest[:2])
 
+                        dist_to_target = np.linalg.norm(centroid[:2]-self.target_pose)
+
+                        if (dist_to_target < 0.5):
+                            continue
                         # If distance is too large, ignore cluster
                         if dist > self.lateral_th * 1.5 or np.linalg.norm(nearest) > self.advance_th * 1.5:
                             cluster_repulsion = np.array([0, 0])
@@ -195,6 +216,7 @@ class SpecificWorker(GenericWorker):
                         k1 = self.sigmoid(dist, self.lateral_th, 2) # Lateral threshold
                         k2 = self.sigmoid(dist_to_nearest, self.advance_th,2) # Advance threshold
                         k3 = self.calculate_reduction_factor(closest_point,self.speed, self.angle_th, 2) # Angle threshold
+
 
                         # Distance to obstacles brake
                         if dist_to_nearest > 0:
@@ -244,13 +266,13 @@ class SpecificWorker(GenericWorker):
                     self.side = self.side + self.speed_r[0] * 1000
                     print("Speed + Repulsion", self.adv, self.side, self.rot)
 
-                # Send command to robot
+                # # Send command to robot
                 try:
                     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
                 except Ice.Exception as e:
                     print("Error sending speed to robot", e)
 
-                # print("Time to compute", time.time() - t1)
+                print("Time to compute", time.time() - t1)
 
             except Ice.Exception as e:
               print("Error reading Lidar",e)
@@ -265,6 +287,7 @@ class SpecificWorker(GenericWorker):
         self.pcd_np = np.array([])
         self.labels = np.array([])
         self.clusters = []
+        self.speed_r = [0.0,0.0]
 
         return True
 
@@ -395,6 +418,7 @@ class SpecificWorker(GenericWorker):
         if self.speed_line.size > 0:
             self.ax.plot(self.speed_line[:, 0], self.speed_line[:, 1], color='blue')
 
+        self.ax.add_patch(plt.Circle(self.target_pose, 0.1, fill=True, color='yellow'))
         # Dibujar clusters como círculos
         for cluster in self.clusters:
             centroid, radius, closest_point, nearest_point, _ = cluster
@@ -475,6 +499,47 @@ class SpecificWorker(GenericWorker):
                 print(f"[ JoystickAdapter ] Warning: Using a non-defined axes ({axis.name}).")
         pass
 
+
+#
+    # SUBSCRIPTION to setTrack method from SegmentatorTrackingPub interface
+    #
+    def SegmentatorTrackingPub_setTrack(self, target):
+        # print("/-----------------")
+        # print(target)
+        # print(target.attributes)
+        #
+        # print("/-----------------")
+
+
+        if target.type == 0:
+            x = float(target.attributes['x_pos'])
+            y = float(target.attributes['y_pos'])
+
+            self.target_pose = np.array([x,y]) / 1000
+
+            # Calcular la distancia al objetivo
+            distance = np.sqrt(x ** 2 + y ** 2)
+
+            # Calcular el ángulo al objetivo
+            target_angle = -np.arctan2(x, y)
+
+            if (distance > 800):
+                self.adv= np.clip(distance,-1250,1250)
+            else:
+                self.adv = 0.0
+            if abs(target_angle) < 0.1 :
+                self.rot = 0.0
+            else:
+                self.rot = np.clip(-target_angle, -0.9, 0.9)
+
+        else:
+            self.target_pose = np.array([0, 0])
+            self.adv = 0.0
+            self.rot = 0.0
+
+        self.side = 0.0
+        print("Target x,y, adv,rot")
+        pass
 
     # ===================================================================
     # ===================================================================
