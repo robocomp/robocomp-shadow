@@ -2,6 +2,8 @@ import "Lidar3D.idsl";
 import "GridPlanner.idsl";
 import "OmniRobot.idsl";
 import "JoystickAdapter.idsl";
+import "SegmentatorTrackingPub.idsl";
+
 
 Component bumper_py
 {
@@ -9,7 +11,7 @@ Component bumper_py
     {
 	    implements GridPlanner, OmniRobot;
         requires Lidar3D, OmniRobot;
-        subscribesTo JoystickAdapter;
+        subscribesTo JoystickAdapter, SegmentatorTrackingPub;
     };
     language python;
     gui Qt(QWidget);
