@@ -1,0 +1,11 @@
+import "WhisperStream.idsl";
+
+Component voice_command
+{
+    Communications
+    {
+        publishes WhisperStream;
+    };
+    language python;
+};
+

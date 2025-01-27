@@ -1,0 +1,11 @@
+import "Speech.idsl";
+
+Component tts_component
+{
+    Communications
+    {
+        implements Speech;
+    };
+    language python;
+};
+

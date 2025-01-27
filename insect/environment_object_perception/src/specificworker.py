@@ -163,7 +163,7 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
-            self.Period = 100 
+            self.Period = 50 
             self.thread_period = 50
             self.display = False
 
@@ -307,20 +307,14 @@ class SpecificWorker(GenericWorker):
             people_front, objects_front = self.get_segmentator_data(out_v8_front, color_front, depth_front)
             people_front = self.associate_orientation_with_segmentation(people_front, orientation_bboxes_front, orientations_front)
 
-            # print("People front", people_front)
-            # print("Objects front", objects_front)
-            # seg_img = out_v8_front[0].plot()
-            # cv2.imshow("seg_img", seg_img)
-            # cv2.waitKey(1)
-
-            # Fuse people and objects and equal it to self.objects_write
+            # # Fuse people and objects and equal it to self.objects_write
             self.objects = self.to_visualelements_interface(people_front, objects_front, alive_time)
-
-            # front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
             #
+            # # front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
+            # #
             # # Fuse front_objects and back_objects and equal it to self.objects_write
             self.visualelementspub_proxy.setVisualObjects(self.objects)
-            # # If display is enabled, show the tracking results on the image
+            # # # If display is enabled, show the tracking results on the image
             #
             if self.display:
                 img_front = self.display_data_tracks(color_front, self.objects.objects)
@@ -479,7 +473,8 @@ class SpecificWorker(GenericWorker):
     def inference_over_image(self, img0, img_ori):
         # Make inference with both models
         orientation_bboxes, orientations = self.get_orientation_data(img_ori, img0)
-        out_v8 = self.v8_model.predict(img0, show_conf=True)
+        # out_v8 = self.v8_model.predict(img0, show_conf=True)
+        out_v8 = self.v8_model.track(img0, tracker="bytetrack.yaml", persist=True) # Aditional parameters: conf=0.3, iou=0.5
         return out_v8, orientation_bboxes, orientations
 
     def to_visualelements_interface(self, people, objects, image_timestamp):
@@ -518,7 +513,7 @@ class SpecificWorker(GenericWorker):
             mask_points = ifaces.RoboCompLidar3D.TDataImage(XArray=people["masks"][i][:, 0].tolist(),
                                                             YArray=people["masks"][i][:, 1].tolist(),
                                                             ZArray=people["masks"][i][:, 2].tolist())
-            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=people["classes"][i],
+            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=people["ids"][i], type=people["classes"][i],
                                                                attributes=generic_attrs, maskpoints=mask_points, image=image_data)
             total_objects.append(object_)
             object_counter += 1
@@ -539,7 +534,7 @@ class SpecificWorker(GenericWorker):
                                                             ZArray=objects["masks"][i][:, 2].tolist())
             #print("MASK POINTS", mask_points.XArray)
             # object_ = ifaces.RoboCompVisualElementsPub.TObject(id=int(track.track_id), type=track.clase, attributes=generic_attrs, image=self.mask_to_TImage(track.image, roi))
-            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=object_counter, type=objects["classes"][i],
+            object_ = ifaces.RoboCompVisualElementsPub.TObject(id=objects["ids"][i], type=objects["classes"][i],
                                                                attributes=generic_attrs, maskpoints=mask_points, image=image_data)
             total_objects.append(object_)
             object_counter += 1
@@ -617,14 +612,15 @@ class SpecificWorker(GenericWorker):
 
     def get_segmentator_data(self, results, color_image, depth_image):
         people = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
-                  "hashes": []}
+                  "hashes": [], "ids": []}
         objects = {"bboxes": [], "poses": [], "confidences": [], "masks": [], "classes": [], "orientations": [],
-                   "hashes": []}
+                   "hashes": [], "ids": []}
         roi_ysize, roi_xsize, _ = color_image.shape
         for result in results:
             if result.masks != None and result.boxes != None:
                 masks = result.masks.xy
                 boxes = result.boxes
+                track_ids = boxes.id.int().cpu().tolist()
                 if len(masks) == len(boxes):
                     for i in range(len(boxes)):
                         element_confidence = boxes[i].conf.cpu().numpy()[0]
@@ -632,6 +628,7 @@ class SpecificWorker(GenericWorker):
                         if element_confidence > 0.4:
                             element_class = boxes[i].cls.cpu().numpy().astype(int)[0]
                             element_bbox = boxes[i].xyxy.cpu().numpy().astype(int)[0]
+                            element_id = track_ids[i]
                             image_mask = np.zeros((roi_ysize, roi_xsize, 1), dtype=np.uint8)
                             act_mask = masks[i].astype(np.int32)
                             cv2.fillConvexPoly(image_mask, act_mask, (1, 1, 1))
@@ -652,6 +649,7 @@ class SpecificWorker(GenericWorker):
                                     people["confidences"].append(element_confidence)
                                     people["masks"].append(filtered_depth_mask)
                                     people["classes"].append(element_class)
+                                    people["ids"].append(element_id)
                                     # people["hashes"].append(element_hash)
                                 else:
                                     objects["bboxes"].append(element_bbox)
@@ -659,6 +657,7 @@ class SpecificWorker(GenericWorker):
                                     objects["confidences"].append(element_confidence)
                                     objects["masks"].append(filtered_depth_mask)
                                     objects["classes"].append(element_class)
+                                    objects["ids"].append(element_id)
                                     # objects["hashes"].append(element_hash)
 
         people["orientations"] = [-4] * len(people["bboxes"])

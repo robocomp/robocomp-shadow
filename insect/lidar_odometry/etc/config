@@ -4,7 +4,7 @@ CommonBehavior.Endpoints=tcp -p 10111
 LidarOdometry.Endpoints=tcp -p 12191
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11992    # to HELIOS
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990   # to HELIOS
 
 display = false
 lidar_name = helios

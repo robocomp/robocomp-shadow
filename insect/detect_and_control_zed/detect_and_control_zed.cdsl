@@ -1,0 +1,17 @@
+import "OmniRobot.idsl";
+import "Speech.idsl";
+import "WhisperStream.idsl";
+import "SegmentatorTrackingPub.idsl";
+import "GridPlanner.idsl";
+
+Component detect_and_control_zed
+{
+    Communications
+    {
+        requires OmniRobot, Speech, GridPlanner;
+        subscribesTo WhisperStream;
+        publishes SegmentatorTrackingPub;
+    };
+    language python;
+};
+

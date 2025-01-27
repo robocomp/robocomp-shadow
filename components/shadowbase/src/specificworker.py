@@ -112,7 +112,7 @@ class SpecificWorker(GenericWorker):
 
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.driver.show_params)
-            self.timer.start(1000)
+            #self.timer.start(1000)
 
         except Exception as e:
             print("Error reading config params or start motor")
@@ -140,17 +140,22 @@ class SpecificWorker(GenericWorker):
         if self.driver != None:
             if self.driver.get_enable() and self.driver.get_safety():
                 if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
+                    print(np.allclose(self.targetSpeed, 0, rtol=0.05))
+                    print(
+                        f"Modificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} ")
                     speeds = self.m_wheels@self.targetSpeed
-                    #print("mm/s",speeds)
+                    print(f"Velocidades de ruedas: {np.round(speeds, 5).tolist()}")
                     self.driver.set_speed(speeds)
+
                     self.oldTargetSpeed = np.copy(self.targetSpeed)
                     self.time_move = time.time()
-                    #print("Modificamos velocidades: ", self.oldTargetSpeed)
                 #si en un segundo no hay nuevo target se detiene
                 elif time.time() - self.time_move > 5:
                     print("No comand, Stoping ")
-                    self.OmniRobot_setSpeedBase(0,0,0)
+                    self.OmniRobot_setSpeedBase(0.0,0.0,0.0)
                     self.time_move = float("inf")
+                    #self.driver.disable_driver()
+                    #self.driver.enable_driver()
         return True
 
     def startup_check(self):
@@ -288,6 +293,7 @@ class SpecificWorker(GenericWorker):
                     if self.driver.get_safety():
                         self.OmniRobot_stopBase()
                     else:
+                        print("Unlock")
                         self.reset_emergency_stop()
                     self.joystickControl = False
             elif  b.name == "stop":
@@ -309,6 +315,7 @@ class SpecificWorker(GenericWorker):
             
             if self.joystickControl:
                 for a in  data.axes:
+                    print(a.name, a.value)
                     if a.name == "rotate":
                         self.setRot(a.value)
                     elif  a.name == "advance":
