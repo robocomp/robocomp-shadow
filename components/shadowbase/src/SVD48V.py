@@ -433,6 +433,8 @@ class SVD48V:
         print("Speed (m1, m2, m3, m4): ", self.get_speed())
         print("Current (m1, m2, m3, m4): ", self.get_current())
         print("Motor temperature: ", self.get_temperature())
+        print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
+        print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
         print("------------------------------")
 
     def update_parameter(self, period, register, tag):
@@ -552,7 +554,7 @@ class SVD48V:
         """
         self.rpm_max_speed = abs(int(max_speed * self.mms2rpm))
     
-    def set_speed(self, motor_speed):
+    def set_speed(self, motor_speed:np.array):
         """
         Set the speed of the motors. If the speed exceeds the maximum, 
         all speeds are reduced proportionally.
@@ -565,7 +567,7 @@ class SVD48V:
         """
         if self.safety:
             ret = 0
-            rpm = np.array(motor_speed, dtype=float) * self.mms2rpm
+            rpm = motor_speed * self.mms2rpm
             max_rpm = np.max(np.abs(rpm))
 
             if max_rpm > self.rpm_max_speed:
@@ -573,8 +575,8 @@ class SVD48V:
                 rpm = (rpm / max_rpm) * self.rpm_max_speed
                 ret = -1
 
-            #print(f"MM/S {motor_speed}")
-            #print(f"RPM {rpm}")
+            #print(f"RPM {rpm.tolist()} || MM/S {motor_speed.tolist()}")
+
             for i in range(len(motor_speed) // 2):
                 self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[rpm[i * 2], rpm[i * 2 + 1]])
         else:
