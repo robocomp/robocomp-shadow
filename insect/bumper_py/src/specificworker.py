@@ -71,9 +71,11 @@ class SpecificWorker(GenericWorker):
         self.speed = (0, 0, 0)
 
         # Sigmoide parameters
-        self.lateral_th = 0.3
-        self.advance_th = 0.3
-        self.angle_th = np.radians(45)
+        self.lateral_th = 1
+        self.advance_th = 1.5
+        self.angle_th = np.radians(90)
+        self.brake_dist = 0.3
+
         # Configurar la interfaz gráfica
         self.init_plot()
 
@@ -93,11 +95,12 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
-
+        self.display = True
         return True
 
     @QtCore.Slot()
     def compute(self):
+        print("---------------------------------------------------------------")
         # Initialize repulsion
         self.repulsion = np.array([0.0, 0.0])
         self.speed_line = np.array([[0, 0], [0, 0]])
@@ -119,7 +122,7 @@ class SpecificWorker(GenericWorker):
         t1 = time.time()
         ldata_ = None
         try:
-            ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 3000, 2)
+            ldata_ = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 1800, 2)
         except Ice.Exception as e:
             print("Error reading Lidar, stopping robot", e)
             # Send stop command to robot
@@ -131,7 +134,7 @@ class SpecificWorker(GenericWorker):
 
 
         # TODO: Control ldata values
-        if not ldata_:  # If ldata is not None
+        if len(ldata_.points) == 0:  # If ldata is not None
             return
         else:
             # print("Lidar data received")
@@ -160,10 +163,11 @@ class SpecificWorker(GenericWorker):
 
                 # DBSCAN clustering of point cloud
                 self.pcd_np = np.asarray(self.pcd.points)
-                clustering = DBSCAN(eps=0.5, min_samples=1).fit(self.pcd_np)
+                clustering = DBSCAN(eps=0.7, min_samples=1).fit(self.pcd_np)
                 self.labels = clustering.labels_
 
                 self.clusters = []
+                k_brake = 1
                 for i in range(max(self.labels) + 1):
                     cluster = self.pcd_np[self.labels == i]
                     centroid = np.mean(cluster, axis=0)
@@ -179,29 +183,43 @@ class SpecificWorker(GenericWorker):
                         closest_point = cluster[np.argmin(
                             [self.point_to_line_distance(point, speed_line[-1], speed_line[0])[0] for point in cluster])]
                         dist, nearest = self.point_to_line_distance(closest_point, speed_line[1], speed_line[0])
-
+                        dist_to_nearest = np.linalg.norm(nearest[:2])
 
                         # If distance is too large, ignore cluster
-                        if dist > 0.5:
+                        if dist > self.lateral_th * 1.5 or np.linalg.norm(nearest) > self.advance_th * 1.5:
                             cluster_repulsion = np.array([0, 0])
                             self.clusters.append((centroid, radius, closest_point[:2], nearest[:2], cluster_repulsion))
                             continue
 
                         # Calcular los factores k1 y k2 usando funciones sigmoides
-                        k1 = self.sigmoid(dist, self.lateral_th) # Lateral threshold
-                        k2 = self.sigmoid(np.linalg.norm(nearest[:2]), self.advance_th) # Advance threshold
-                        k3 = self.calculate_reduction_factor(closest_point,self.speed, self.angle_th) # Angle threshold
+                        k1 = self.sigmoid(dist, self.lateral_th, 2) # Lateral threshold
+                        k2 = self.sigmoid(dist_to_nearest, self.advance_th,2) # Advance threshold
+                        k3 = self.calculate_reduction_factor(closest_point,self.speed, self.angle_th, 2) # Angle threshold
+
+                        # Distance to obstacles brake
+                        if dist_to_nearest > 0:
+                            k_ = (1 - (self.sigmoid(dist_to_nearest, self.brake_dist, 2)) * pow(k3,2))
+                            if k_ < k_brake :
+                                k_brake = k_
+                        print("dist_to nearest", dist_to_nearest)
+                        print("kS lateral, avance, angulo", k1, k2, k3, k_brake)
 
                         # Calcular la repulsión optimizada
                         cluster_repulsion = (nearest[:2] - closest_point[:2])
-                        cluster_repulsion = cluster_repulsion / np.linalg.norm(cluster_repulsion)
+                        cluster_repulsion = k1 * k2 * k3 * cluster_repulsion / (
+                                    dist + 1e-5)
+
+
+                        direction = closest_point[:2] - centroid[
+                                                        :2]  # Dirección desde el centroide hacia el closest_point
+                        sign = np.sign(np.dot(cluster_repulsion, direction))  # Verificar si están alineados
+                        cluster_repulsion *= sign  # Ajustar el signo si es necesario
 
                         # Scale
-                        cluster_repulsion =  k1 * k2 * k3 * cluster_repulsion / (
-                                    dist + 1e-6)  # Avoid zero division
+                        cluster_repulsion =  k1 * k2 * k3 * cluster_repulsion   # Avoid zero division
 
                         # Clip
-                        MAX_REPULSION = 0.6
+                        MAX_REPULSION = 1
                         cluster_repulsion = np.clip(cluster_repulsion, -MAX_REPULSION, MAX_REPULSION)
 
                         # Print repulsion vector
@@ -212,7 +230,7 @@ class SpecificWorker(GenericWorker):
                 # Compute speed vector given repulsion vectors
                 self.speed_r = [0.0,0.0]
                 if self.clusters:
-                    # Compute sum of repulsion vectors
+                    # # Compute sum of repulsion vectors
                     self.repulsion = np.sum([cluster[4] for cluster in self.clusters], axis=0)
                     self.speed_r += self.repulsion
 
@@ -220,10 +238,12 @@ class SpecificWorker(GenericWorker):
                     print("Speed", self.adv, self.side, self.rot)
 
                     # TODO: FIX
-                    self.adv = self.adv
+                    print("k_brake", k_brake)
+                    self.adv = self.adv * k_brake
                     self.rot = self.rot # np.arctan2(speed_r[1],speed_r[0])
                     self.side = self.side + self.speed_r[0] * 1000
                     print("Speed + Repulsion", self.adv, self.side, self.rot)
+
                 # Send command to robot
                 try:
                     self.omnirobot_proxy.setSpeedBase(self.side, self.adv, self.rot)
@@ -235,9 +255,10 @@ class SpecificWorker(GenericWorker):
             except Ice.Exception as e:
               print("Error reading Lidar",e)
 
-
+        # print("TIEMPO", time.time() - t1)
         # # ------------------- Plotting -------------------
-        self.update_plot()
+        if(self.display):
+            self.update_plot()
 
         # Clear values
         self.pcd = None
@@ -276,7 +297,7 @@ class SpecificWorker(GenericWorker):
 
         return distance, nearest
 
-    def calculate_reduction_factor(self, closest_point, speed, angulo_corte=np.radians(45)):
+    def calculate_reduction_factor(self, closest_point, speed, angulo_corte=np.radians(45), k=2):
         """
         Calcula el factor de reducción k basado en el ángulo entre closest_point y speed usando una función sigmoide.
 
@@ -298,12 +319,12 @@ class SpecificWorker(GenericWorker):
         angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
 
         # Calcular el factor de reducción k usando la función sigmoide existente
-        k = self.sigmoid(abs(angle), angulo_corte)
+        k = self.sigmoid(abs(angle), angulo_corte, k)
 
         return k
 
-    def sigmoid(self, x, threshold):
-        return 1 / (1 + np.exp(x - threshold))
+    def sigmoid(self, x, threshold, k=1):
+        return 1 / (1 + np.exp(k * (x - threshold)))
 
     # ===================================================================
     # ===================================================================
@@ -474,7 +495,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setPlan method from GridPlanner interface
     #
     def GridPlanner_setPlan(self, plan):
-    
+
         #
         # write your CODE here
         #
@@ -485,7 +506,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of correctOdometer method from OmniRobot interface
     #
     def OmniRobot_correctOdometer(self, x, z, alpha):
-    
+
         #
         # write your CODE here
         #
@@ -496,7 +517,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getBasePose method from OmniRobot interface
     #
     def OmniRobot_getBasePose(self):
-    
+
         #
         # write your CODE here
         #
@@ -505,7 +526,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getBaseState method from OmniRobot interface
     #
     def OmniRobot_getBaseState(self):
-    
+
         #
         # write your CODE here
         #
@@ -515,7 +536,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of resetOdometer method from OmniRobot interface
     #
     def OmniRobot_resetOdometer(self):
-    
+
         #
         # write your CODE here
         #
@@ -526,7 +547,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setOdometer method from OmniRobot interface
     #
     def OmniRobot_setOdometer(self, state):
-    
+
         #
         # write your CODE here
         #
@@ -537,7 +558,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of setOdometerPose method from OmniRobot interface
     #
     def OmniRobot_setOdometerPose(self, x, z, alpha):
-    
+
         #
         # write your CODE here
         #
@@ -560,7 +581,7 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of stopBase method from OmniRobot interface
     #
     def OmniRobot_stopBase(self):
-    
+
         #
         # write your CODE here
         #
