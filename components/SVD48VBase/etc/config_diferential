@@ -1,0 +1,30 @@
+# Endpoints for implements interfaces
+OmniRobot.Endpoints=tcp -p 10010
+DifferentialRobot.Endpoints=tcp -p 10004
+
+
+# Endpoints for subscriptions interfaces
+JoystickAdapterTopic.Endpoints=tcp -p 18896
+
+port=/dev/Driver_base		#Direcion de dispositivo conectado
+baseType=Differential    #Diferential/Omnidirectional
+polePairs=15                # Numero de polos del motor
+idDriver1=1				    #Direcion RS485 del driver 1
+maxLinSpeed=900		        #max velocidad eje x, z mm/s
+maxRotSpeed=2		        #max velocidad de rotacion rad/s
+maxCurrent=25	            #maxima corriente de la ruedas amperios
+maxAcceleration=500	        #Aceleracion mm/s
+maxDeceleration=1000	    #Deceleracion mm/s
+wheelRadius=100		        #Radio de las ruedas
+axesLength=500.0		    #Longitud entre ejes
+
+# This property is used by the clients to connect to IceStorm.
+TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+
+Ice.Warn.Connections=0
+Ice.Trace.Network=0
+Ice.Trace.Protocol=0
+Ice.MessageSizeMax=20004800
+
+
+

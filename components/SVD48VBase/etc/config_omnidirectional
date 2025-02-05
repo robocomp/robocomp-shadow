@@ -1,17 +1,20 @@
 # Endpoints for implements interfaces
+DifferentialRobot.Endpoints=tcp -p 10010
 OmniRobot.Endpoints=tcp -p 10004
 
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 18896
 
-port=/dev/Driver_base		#Direcion de dispositivo conectado
+port=/dev/Driver_base   #Direcion de dispositivo conectado
+baseType=Omnidirectional    #Diferential/Omnidirectional
+polePairs=10            # Numero de polos del motor
 idDriver1=1				#Direcion RS485 del driver 1
 idDriver2=2				#Direcion RS485 del driver 1
-maxLinSpeed=900		#max velocidad eje x, z mm/s
-maxRotSpeed=2		#max velocidad de rotacion rad/s
+maxLinSpeed=900		    #max velocidad eje x, z mm/s
+maxRotSpeed=2		    #max velocidad de rotacion rad/s
 maxCurrent=12	        #maxima corriente de la ruedas amperios
-maxAcceleration=350	#Aceleracion mm/s
-maxDeceleration=800	#Deceleracion mm/s
+maxAcceleration=350	    #Aceleracion mm/s
+maxDeceleration=1000	#Deceleracion mm/s
 wheelRadius=80.0		#Radio de las ruedas
 distAxes=270.0			#Distancias entre ejes
 axesLength=475.0		#Longitud entre ejes

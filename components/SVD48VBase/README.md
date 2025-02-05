@@ -1,9 +1,9 @@
-# shadowbase
+# SVD48VBase
 Intro to component here
 
 
 ## Configuration parameters
-As any other component, *shadowbase* needs a configuration file to start. In
+As any other component, *SVD48VBase* needs a configuration file to start. In
 ```
 etc/config
 ```
@@ -16,7 +16,7 @@ EXAMPLE HERE
 To avoid changing the *config* file in the repository, we can copy it to the component's home directory, so changes will remain untouched by future git pulls:
 
 ```
-cd <shadowbase's path> 
+cd <SVD48VBase's path> 
 ```
 ```
 cp etc/config config
@@ -25,5 +25,5 @@ cp etc/config config
 After editing the new config file we can run the component:
 
 ```
-bin/shadowbase config
+bin/SVD48VBase config
 ```
