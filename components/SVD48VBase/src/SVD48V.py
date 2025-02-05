@@ -40,7 +40,8 @@ DRIVER_REGISTERS = {
     "GET_CURRENT": bytearray({0x54, 0x14}),         # int16//CURRENT CURRENT
     "GET_MOTOR_TEMPERATURE": bytearray([0x54, 0x04]),# int16//MOTOR TEMPERATURE
     "GET_DRIVE_TEMPERATURE": bytearray([0x21, 0x35]),# int16//DRIVER TEMPERATURE
-    #dont work "MAX_SPEED": bytearray([0x50, 0x1C]),           # uint16//MAXIMUM SPEED
+    #dont work "MAX_SPEED": bytearray([0x50, 0x1C]), # uint16//MAXIMUM SPEED
+    "POLE_PAIRS": bytearray([0x50, 0x18]),          # uint16//NUMNER OF POLE PAIRS
     "MAX_CURRENT": bytearray([0x50, 0x20]),         # uint16//MAXIMUM CURRENT
     "DIRECTION": bytearray([0x50, 0x28]),           # uint16//MOTOR DIRECTION 0=NORMAL; 1=INVERT
     "MAX_ACCELERATION": bytearray([0x51, 0x08]),    # uint16//MAXIMUM ACCELERATION
@@ -65,13 +66,14 @@ class SVD48V:
         rpmMaxSpeed: The maximum speed in RPM.
     """
 
-    def __init__(self, port="/dev/ttyUSB0", IDs=[1,2], wheelRadius=6, maxSpeed=800, maxAcceleration=1000, maxDeceleration=1500, maxCurrent=6):
+    def __init__(self, port="/dev/ttyUSB0", IDs=[1,2], polePairs=10, wheelRadius=6, maxSpeed=800, maxAcceleration=1000, maxDeceleration=1500, maxCurrent=6):
         """
         Initializes an instance of the class.
 
         Args:
             port (str): The port to be used. Defaults to "/dev/ttyUSB0".
             IDs (list): A list containing the IDs. Defaults to [1,2].
+            polePairs(int): The number of motor pole pairs 
             wheelRadius (int): The radius of the wheel. Defaults to 6.
             maxSpeed (int): The maximum speed mm/s. Defaults to 800.
             maxAcceleration (int): The maximum acceleration mm/s2. Defaults to 1000.
@@ -137,6 +139,9 @@ class SVD48V:
             self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
             self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
             self.write_register(id, DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent, maxCurrent])
+            self.write_register(id,DRIVER_REGISTERS['POLE_PAIRS'],[polePairs, polePairs])
+            
+            
             self.enable_driver()
         
 
@@ -192,9 +197,11 @@ class SVD48V:
         if self.driver.isOpen():
             print("Starting motors")
             for id in self.ids:
-                self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
-                self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
-                self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
+                if 0 in self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False):
+                    print("start motor", id)
+                    self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
+                    self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
+                    self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
             if not self.self_resetting:
                 self.self_resetting = True
                 self.thSelfResetting = threading.Thread(target=self.still_alive,daemon=True)
@@ -274,6 +281,7 @@ class SVD48V:
                 #numbers attempt
                 for _ in range(NUM_ATTEMPT):
                     self.driver.flushInput()
+                    # print(f"send telegram {list(telegram)}")
                     self.driver.write(telegram) #Send telegram
                     self.driver.flush()
                     t1 = time.time()            #get time for MSL
@@ -283,6 +291,7 @@ class SVD48V:
                         reply = bytearray (self.driver.readline())#get telegram of reply
                         #Have telegram of reply?
                         if len(reply) > 1:
+                            #print(f"Reply telegram {list(reply)}")
                             #Have same number of action?
                             if reply[1] != CODE_TELEGRAM[action_code][0] :
                                 if reply[1] != CODE_TELEGRAM["ERROR_" + action_code][0]:
@@ -489,6 +498,15 @@ class SVD48V:
             The temperature of the motors.
         """
         return np.array(self.data["Temperature"])/-10
+    
+    def get_rpm(self):
+        """
+        Get the rmp of the motors.
+
+        Returns:
+            The rpm of the motors.
+        """
+        return np.array(self.data["Speed"])/10
 
     def get_speed(self):
         """
@@ -497,7 +515,9 @@ class SVD48V:
         Returns:
             The speed of the motors.
         """
-        return np.array(self.data["Speed"])/(self.mms2rpm*10)
+        return self.get_rpm()/self.mms2rpm
+    
+
     
     def get_current(self):
         """
@@ -553,6 +573,36 @@ class SVD48V:
             max_speed: The maximum speed to set in mm/s.
         """
         self.rpm_max_speed = abs(int(max_speed * self.mms2rpm))
+        
+    def set_rpm(self, motor_rpm:np.array):
+        """
+        Set the rpm of the motors. If the rpm exceeds the maximum, 
+        all rpms are reduced proportionally.
+
+        Args:
+            motor_rpm[(int), (int), (int), (int)]: The rpm to set for the four motors.
+
+        Returns:
+            -2 if emergency stop is activated, -1 if the rpm had to be adjusted due to exceeding the maximum RPM, 0 otherwise.
+        """
+        if self.safety:
+            ret = 0
+            max_rpm = np.max(np.abs(motor_rpm))
+
+            if max_rpm > self.rpm_max_speed:
+                print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
+                motor_rpm = (motor_rpm / max_rpm) * self.rpm_max_speed
+                ret = -1
+            motor_rpm = motor_rpm.astype(np.int8)
+            # print(f"RPM {rpm.tolist()} || MM/S {motor_rpm.tolist()}")
+
+            for i in range(len(motor_rpm) // 2):
+                self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[motor_rpm[i * 2], motor_rpm[i * 2 + 1]])
+        else:
+            ret = -2
+            print("Emergency stop is activated")
+        return ret
+        
     
     def set_speed(self, motor_speed:np.array):
         """
@@ -565,24 +615,7 @@ class SVD48V:
         Returns:
             -2 if emergency stop is activated, -1 if the speed had to be adjusted due to exceeding the maximum RPM, 0 otherwise.
         """
-        if self.safety:
-            ret = 0
-            rpm = motor_speed * self.mms2rpm
-            max_rpm = np.max(np.abs(rpm))
-
-            if max_rpm > self.rpm_max_speed:
-                print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
-                rpm = (rpm / max_rpm) * self.rpm_max_speed
-                ret = -1
-
-            #print(f"RPM {rpm.tolist()} || MM/S {motor_speed.tolist()}")
-
-            for i in range(len(motor_speed) // 2):
-                self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[rpm[i * 2], rpm[i * 2 + 1]])
-        else:
-            ret = -2
-            print("Emergency stop is activated")
-        return ret
+        return self.set_rpm(np.array(motor_speed, dtype=float) * self.mms2rpm)
     
     def reset_emergency_stop(self):
         """

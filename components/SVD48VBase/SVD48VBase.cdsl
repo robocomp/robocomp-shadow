@@ -1,11 +1,12 @@
 import "OmniRobot.idsl";
+import "DifferentialRobot.idsl";
 import "JoystickAdapter.idsl"; 
 
-Component shadowbase
+Component SVD48VBase
 {
 	Communications
 	{
-		implements OmniRobot;
+		implements OmniRobot, DifferentialRobot;
 		subscribesTo JoystickAdapter;
 	};
 	language python;

@@ -5,6 +5,8 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/DifferentialRobot.ice")
+import RoboCompDifferentialRobot
 Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
 import RoboCompGenericBase
 Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
@@ -49,6 +51,7 @@ class ButtonsList(list):
 
 setattr(RoboCompJoystickAdapter, "ButtonsList", ButtonsList)
 
+import differentialrobotI
 import omnirobotI
 import joystickadapterI
 
@@ -147,6 +150,7 @@ class Subscribes:
 class Implements:
     def __init__(self, ice_connector, default_handler):
         self.ice_connector = ice_connector
+        self.differentialrobot = self.create_adapter("DifferentialRobot", differentialrobotI.DifferentialRobotI(default_handler))
         self.omnirobot = self.create_adapter("OmniRobot", omnirobotI.OmniRobotI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
