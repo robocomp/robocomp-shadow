@@ -37,7 +37,9 @@ DRIVER_REGISTERS = {
     "GET_STATUS": bytearray([0x54, 0x00]),          # DRIVER STATUS 0=STOP; 1=RUN
     "SET_SPEED": bytearray([0x53, 0x04]),           # int16//TARGET SPEED
     "GET_SPEED": bytearray([0x54, 0x10]),           # int16//CURRENT SPEED
-    "GET_CURRENT": bytearray({0x54, 0x14}),         # int16//CURRENT CURRENT
+    "GET_CURRENT": bytearray([0x54, 0x14]),         # int16//CURRENT CURRENT
+    "GET_POSITION": bytearray([0x54, 0x18]),         # int32//CURRENT POSITION
+    "GET_ERROR": bytearray([0x54, 0x20]),           # int32//CURRENT ERROR
     "GET_MOTOR_TEMPERATURE": bytearray([0x54, 0x04]),# int16//MOTOR TEMPERATURE
     "GET_DRIVE_TEMPERATURE": bytearray([0x21, 0x35]),# int16//DRIVER TEMPERATURE
     #dont work "MAX_SPEED": bytearray([0x50, 0x1C]), # uint16//MAXIMUM SPEED
@@ -49,8 +51,27 @@ DRIVER_REGISTERS = {
     "CURVE_ACCELERATION": bytearray([0x51, 0x10]),  # uint16//S-CURVE ACCELERATION "Speed smoothing time S-type acceleration time"
     "ID": bytearray([0x30, 0x01]),                  # ID
     "MODE": bytearray([0x30, 0x08])                 # MODE
-}             #
-R_MODE = bytearray([0x30, 0x08]) 
+}        
+ERROR_CODES = {
+    0:"Abnormal current sampling",
+    1:"Abnormal overcurrent protection circuit",
+    2:"Abnormal drive motor cable",
+    3:"Bus voltage is too high or too low",
+    4:"Drive temperature detected abnormal often",
+    5:"Drive 12V abnorma",
+    6:"Drive 5V abnormal",
+    7:"Motor circuit open",
+    8:"Drive temperature is too high",
+    9:"Motor temperature is too high",
+    10:"Motor overcurrent protection",
+    11:"Motor overload protection",
+    12:"Overvoltage protection",
+    13:"Undervoltage protection",
+    14:"Encoder input abnormal",
+    15:"wrong hardware version"
+}
+
+
 ''''VARIABLES DE COMUNICACCIÓN'''
 MSL = 0.015 * 2                                  #Maximum Segment Lifetime             
 NUM_ATTEMPT = 3                                 #Número de intentos de la conexión con el driver
@@ -92,7 +113,6 @@ class SVD48V:
 
         self.accuracy_com = {"MSL" : 0.0, "CRC" : 0.0, "CODE" : 0.0, "OK" : 0.0}
         self.time_com = []
-        self.data = {'Speed' : [0.0, 0.0, 0.0], 'Status' : [0,0], 'Temperature' : [0,0,0,0], "Current": [0,0,0,0]}
 
         self.driver = None
         self.thSelfResetting = None
@@ -129,32 +149,22 @@ class SVD48V:
                     timeout += 1
             else:
                 sys.exit("Failed to open serial port "+ self.port +" with the SVD48V")
+
             if not self.check_connect():
                 self.driver.close()
                 self.driver = None
                 print("Failed to connect motor drivers, restarting...")
+                
 
         print("Starting SVD48V")
-        for id in self.ids:
-            self.write_register(id, DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration, self.rpm_max_acceleration])
-            self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration, self.rpm_max_deceleration])
-            self.write_register(id, DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent, maxCurrent])
-            self.write_register(id,DRIVER_REGISTERS['POLE_PAIRS'],[polePairs, polePairs])
-            
-            
-            self.enable_driver()
-        
 
+        self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration]*4)
+        self._set_motor_data(DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration]*4)
+        self._set_motor_data(DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent]*4)
+        self._set_motor_data(DRIVER_REGISTERS['POLE_PAIRS'], [polePairs]*4)
+            
+        self.enable_driver()
         print("Creating reading threads")
-        self.threads_alive = True
-        self.threads = [
-        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_STATUS"], "Status")),
-        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_SPEED"], "Speed")),
-        threading.Thread(daemon=True, target=self.update_parameter, args=(10, DRIVER_REGISTERS["GET_MOTOR_TEMPERATURE"], "Temperature")),
-        threading.Thread(daemon=True, target=self.update_parameter, args=(0.5, DRIVER_REGISTERS["GET_CURRENT"], "Current"))
-        ]
-        for thread in self.threads:
-            thread.start()
 
         self.show_params(True)
         time.sleep(0.5)
@@ -163,9 +173,8 @@ class SVD48V:
         
     
     def __del__(self):
-        
-        if self.driver is not None and self.threads_alive:
-            self.threads_alive = False
+    
+            self.self_resetting = False
             print("Turning off SVD48V")
             self.disable_driver()
 
@@ -175,19 +184,15 @@ class SVD48V:
 
             print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
             print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
-            for thread in self.threads:
-                thread.join(timeout=2)
+            self.thSelfResetting.join(timeout=2)
             print("SVD48V Deleted")
 
     def check_connect(self):
         """
         Check de conection motor driver.
+
         """
-        for id in self.ids:
-            status = self.read_register(id, DRIVER_REGISTERS['GET_STATUS'], False)
-            if status is None:
-                return False
-        return True
+        return not (None in self._get_motor_data( DRIVER_REGISTERS['GET_STATUS']))
 
 
     def enable_driver(self):
@@ -197,11 +202,11 @@ class SVD48V:
         if self.driver.isOpen():
             print("Starting motors")
             for id in self.ids:
-                if 0 in self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False):
+                if 0 in self._read_register(id, DRIVER_REGISTERS["GET_STATUS"]):
                     print("start motor", id)
-                    self.write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
-                    self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
-                    self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
+                    self._write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
+                    self._write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
+                    self._write_register(id, DRIVER_REGISTERS['SET_STATUS'], [1,1])
             if not self.self_resetting:
                 self.self_resetting = True
                 self.thSelfResetting = threading.Thread(target=self.still_alive,daemon=True)
@@ -216,21 +221,17 @@ class SVD48V:
         Disable the motor driver.
         """
         print("Stopping motors")
-        if self.thSelfResetting is not None:
-            self.self_resetting = False
-            self.thSelfResetting.join(timeout=2)
-
         # Stop the drivers with speed 0
-        for id in self.ids:
-            self.write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
-            self.write_register(id, DRIVER_REGISTERS['SET_STATUS'], [0,0])
-            # Confirm status
-            status = self.read_register(id, DRIVER_REGISTERS['GET_STATUS'], False)
-            if 1 in status:
-                print("Error when stopping the motors")
-        print("Motors stopped")
 
-    def generate_telegram(self, id=0xee, action_code="READ", add_register=DRIVER_REGISTERS["GET_STATUS"],single=False, data=None):
+        self._set_motor_data(DRIVER_REGISTERS['SET_SPEED'], [0]*4)
+        self._set_motor_data(DRIVER_REGISTERS['SET_STATUS'], [0]*4)
+        status = self._get_motor_data(DRIVER_REGISTERS['GET_STATUS'])
+        if 1 in status:
+            print("Error when stopping the motors")
+            return False
+        print("Motors stopped")
+        return True
+    def _generate_telegram(self, id, action_code, add_register, data=None, num_registers = 2):
         """
         Generate a telegram to be sent to the motor driver.
         
@@ -249,21 +250,21 @@ class SVD48V:
         telegram.extend(add_register)                          #Registers
 
         if action_code == "WRITE":                             #telegram write
-            if len(data) in [1, 2]:
+            if len(data) == num_registers:
                 telegram.extend([0, len(data), len(data) * 2]) #Length Registers
             else:
                 print("Missing or extra register data")
                 return None
             for item in data:
-                telegram.extend(self.short_to_2bytes(int(item)))#Set Data
+                telegram.extend(self._short_to_2bytes(int(item)))#Set Data
         else:                                                   #Telegram Read
-            telegram.extend([0, 1] if single else [0, 2])       #Length registers
-        telegram.extend(self.short_to_2bytes(self.calculate_crc(telegram))) 
+            telegram.extend([0, num_registers])       #Length registers
+        telegram.extend(self._short_to_2bytes(self._calculate_crc(telegram))) 
 
         return telegram
     
 
-    def process_telegram(self, telegram, action_code="READ"):
+    def _process_telegram(self, telegram, action_code="READ"):
         """
         Process/Send a telegram from the motor driver.
         
@@ -303,7 +304,7 @@ class SVD48V:
 
                             #Check CRC for telegram
                             crc_low, crc_high = reply.pop(), reply.pop()
-                            tel_crc_high, tel_crc_low = self.short_to_2bytes(self.calculate_crc(reply))
+                            tel_crc_high, tel_crc_low = self._short_to_2bytes(self._calculate_crc(reply))
                             if crc_high != tel_crc_high or crc_low != tel_crc_low:
                                 print(f"CRC FAILURE. RE-{action_code}")
                                 self.accuracy_com["CRC"] += 1
@@ -333,7 +334,7 @@ class SVD48V:
             raise
         return None
 
-    def read_register(self, id=0xee, add_register=DRIVER_REGISTERS["GET_STATUS"], single=False):
+    def _read_register(self, id=0xee, add_register=DRIVER_REGISTERS["GET_STATUS"], num_registers=2):
         """
         Read register from the motor driver.
 
@@ -346,20 +347,20 @@ class SVD48V:
             list: A list of the data from the register.
         """
         attempt = 0
-        telegram = self.generate_telegram(id, "READ",add_register, single)
+        telegram = self._generate_telegram(id, "READ",add_register, num_registers=num_registers)
         try:
-            while (data := self.process_telegram(telegram, "READ")) is None and attempt < 2:
+            while (data := self._process_telegram(telegram, "READ")) is None and attempt < 2:
                 print("Restarting Reading")
                 time.sleep(0.005)
                 attempt+=1
             return data
         except Exception as e:
-            print("######ERROR###### ", e)
+            print("######ERROR###### ",list(add_register), "\t", e)
             return None
     
         
         
-    def write_register(self, id=0xee, add_register=DRIVER_REGISTERS["SET_STATUS"], data_tuple=[0,0]):
+    def _write_register(self, id, add_register, data_tuple, num_registers=2):
         """
         Write to a register on the motor driver.
 
@@ -373,21 +374,21 @@ class SVD48V:
         """
 
         attempt = 0
-        telegram = self.generate_telegram(id, "WRITE", add_register,False, data_tuple)
+        telegram = self._generate_telegram(id, "WRITE", add_register, data_tuple, num_registers)
         if telegram is None:
             print("Wrong number of data items")
             return -2
         try:
-            while (data := self.process_telegram(telegram, "WRITE")) is None and attempt < 2:
+            while (data := self._process_telegram(telegram, "WRITE")) is None and attempt < 2:
                 print("Restarting Writing")
                 time.sleep(0.005)
                 attempt+=1
             return data
         except Exception as e:
-            print("######ERROR###### ", e)
+            print("######ERROR###### ",list(add_register), "\t", e)
             return None
 
-    def calculate_crc(self, telegram):
+    def _calculate_crc(self, telegram):
         """
         Calculate the Cyclic Redundancy Check (CRC) of a telegram.
 
@@ -408,7 +409,7 @@ class SVD48V:
                     crc_result = crc_result ^ 0xa001
         return crc_result
 
-    def short_to_2bytes(self, short):
+    def _short_to_2bytes(self, short):
         """
         Convert a short integer to a list of 2 bytes.
 
@@ -421,7 +422,10 @@ class SVD48V:
         low = int(short & 0x00FF)
         high = int((short & 0xFF00) >> 8)
         return high, low
-        
+    
+    def _2short_to_int(self, values):
+            return (int(values[0]) << 16) + int(values[1])
+             
 
     def show_params(self, advanced=False):
         """
@@ -438,29 +442,16 @@ class SVD48V:
             print("rpmMaxSpeed: ", self.rpm_max_speed)
             print("Drivers ID: ", self.ids)
             print("wheelRadius: ", self.wheel_radius)
-        print("Driver states: ", self.get_status())   
-        print("Speed (m1, m2, m3, m4): ", self.get_speed())
-        print("Current (m1, m2, m3, m4): ", self.get_current())
-        print("Motor temperature: ", self.get_temperature())
+        print("Driver states(m1...mn): ", np.round(self.get_status(), 0).tolist())   
+        print("Errors (m1...mn): ", self.get_error())
+        print("Speed (m1...mn): ", np.round(self.get_speed(), 4).tolist())
+        print("Current (m1...mn): ", np.round(self.get_current(), 4).tolist())
+        print("Position (m1...mn): ", np.round(self.get_position(), 4).tolist())
+        print("Motor temperature(m1...mn): ", np.round(self.get_temperature(), 4).tolist())
         print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
         print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
         print("------------------------------")
 
-    def update_parameter(self, period, register, tag):
-        """
-        Update a specific parameter in a given register.
-
-    Args:
-        period (int): The period to updating the parameter.
-        register (dict): The register that contains the parameter to update.
-        tag (str): The tag of the parameter to update in the register.
-        """
-        while self.threads_alive:
-            data = []
-            for id in self.ids:
-                data.extend(self.read_register(id, register, False) or [None, None])
-            self.data[tag] = data
-            time.sleep(period)
 
     def still_alive(self):
         """
@@ -469,18 +460,54 @@ class SVD48V:
         time.sleep(0.5)
         while self.self_resetting:
             if self.driver.isOpen():
-                for id in self.ids:
-                    #Confirmamos el estado
-                    status = self.read_register(id, DRIVER_REGISTERS["GET_STATUS"], False)
-                    if 0 in status:
-                        time.sleep(1)
-                        print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
-                        self.enable_driver()
+                status = self._get_motor_data(DRIVER_REGISTERS["GET_STATUS"])
+                #Cheack status
+                if 0 in status:
+                    time.sleep(1)
+                    print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
+                    self.enable_driver()
             else:
                 sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
             time.sleep(0.5)
         return 
 
+    def _get_motor_data(self, register_key: bytes, divisor: float = 1.0, num_registers=2) -> np.ndarray:
+        """
+        Retrieve motor data from the specified register.
+
+        Args:
+            register_key (bytes): The key identifying the register to read from.
+            divisor (float, optional): A value by which to divide the retrieved data. Defaults to 1.0.
+
+        Returns:
+            np.ndarray: An array of motor data scaled by the specified divisor. 
+                        Returns an array of the same shape as the number of motors, with None 
+                        values replaced if the read operation fails.
+        """
+        data = []
+        for id in self.ids:
+            data.extend(self._read_register(id, register_key, num_registers) or [-np.inf, -np.inf])
+        return np.array(data) / divisor
+
+    def _set_motor_data(self, register_key: bytes, value: list):
+        """
+        Set motor data to the specified register.
+
+        Args:
+            register_key (bytes): The key identifying the register to write to.
+            value (list): A list of values to set for each motor. The length must be twice the number of motors.
+
+        Raises:
+            AssertionError: If the length of the value list does not match twice the number of motors.
+
+        Returns:
+            None
+        """
+        assert len(value) >= len(self.ids) * 2, "Set motor data incorrectly. Expected length: {}".format(len(self.ids) * 2)
+        for i in range(len(self.ids)):
+            self._write_register(self.ids[i], register_key, [value[i * 2], value[i * 2 + 1]])
+
+    
     def get_status(self):
         """
         Get the status of the motor driver.
@@ -488,7 +515,7 @@ class SVD48V:
         Returns:
             The status of the motor driver.
         """
-        return self.data["Status"]
+        return self._get_motor_data(DRIVER_REGISTERS["GET_STATUS"])
 
     def get_temperature(self):
         """
@@ -497,16 +524,16 @@ class SVD48V:
         Returns:
             The temperature of the motors.
         """
-        return np.array(self.data["Temperature"])/-10
-    
+        return self._get_motor_data(DRIVER_REGISTERS["GET_MOTOR_TEMPERATURE"], divisor=-10)
+
     def get_rpm(self):
         """
-        Get the rmp of the motors.
+        Get the rpm of the motors.
 
         Returns:
             The rpm of the motors.
         """
-        return np.array(self.data["Speed"])/10
+        return self._get_motor_data(DRIVER_REGISTERS["GET_SPEED"], divisor=10)
 
     def get_speed(self):
         """
@@ -517,8 +544,6 @@ class SVD48V:
         """
         return self.get_rpm()/self.mms2rpm
     
-
-    
     def get_current(self):
         """
         Get the current of the motors.
@@ -526,7 +551,28 @@ class SVD48V:
         Returns:
             The current of the motors.
         """
-        return np.array(self.data["Current"])/10
+        return self._get_motor_data(DRIVER_REGISTERS["GET_CURRENT"], divisor=10)
+    
+    def get_position(self):
+        """
+        Get the position of the motors.
+
+        Returns:
+            The position of the motors.
+        """
+        position = self._get_motor_data(DRIVER_REGISTERS["GET_POSITION"], divisor=1, num_registers=4)
+        return np.array([self._2short_to_int(position[0:2]), self._2short_to_int(position[2:4])])/4096
+    def get_error(self):
+        """
+        Get the error of the motors.
+
+        Returns:
+            The error of the motors.
+        """
+        errors = self._get_motor_data(DRIVER_REGISTERS["GET_ERROR"], num_registers=4)
+        return [ERROR_CODES.get(self._2short_to_int(errors[0:2][::-1])), ERROR_CODES.get(self._2short_to_int(errors[2:4][::-1]))]
+
+    
     
     def get_safety(self):
         """
@@ -596,8 +642,7 @@ class SVD48V:
             motor_rpm = motor_rpm.astype(np.int8)
             # print(f"RPM {rpm.tolist()} || MM/S {motor_rpm.tolist()}")
 
-            for i in range(len(motor_rpm) // 2):
-                self.write_register(self.ids[i], DRIVER_REGISTERS["SET_SPEED"],[motor_rpm[i * 2], motor_rpm[i * 2 + 1]])
+            self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], motor_rpm)
         else:
             ret = -2
             print("Emergency stop is activated")
@@ -622,8 +667,7 @@ class SVD48V:
         Resets the emergency stop for the motor drivers.
         """
         print("RESET EMERGENCY STOP")
-        for id in self.ids:
-                self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'],[self.rpm_max_acceleration, self.rpm_max_acceleration])
+        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [rpm_max_deceleration]*4)        
         self.safety = True
 
     def emergency_stop(self):
@@ -637,7 +681,7 @@ class SVD48V:
         print("EMERGENCY STOP")
         self.safety = False
         acc_stop = self.mms2rpm*2000
-        for id in self.ids:
-            self.write_register(id, DRIVER_REGISTERS['MAX_DECELATION'], [acc_stop, acc_stop])
-            self.write_register(id, DRIVER_REGISTERS["SET_SPEED"], [0, 0])   
+
+        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [acc_stop]*4)
+        self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], [0]*4)
                 
