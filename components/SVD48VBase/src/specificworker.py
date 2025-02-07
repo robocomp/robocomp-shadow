@@ -130,6 +130,7 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             print("Error reading config params or start motor")
             print(e)
+            exit(-1)
         return True
 
     def setAdvx(self, val):
