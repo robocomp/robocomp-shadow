@@ -122,7 +122,7 @@ class SpecificWorker(GenericWorker):
 
             self.showParams = QTimer(self)
             self.showParams.timeout.connect(self.driver.show_params)
-            self.showParams.start(10000)
+            # self.showParams.start(1000)
             self.timer.start(self.Period)
             
             print("Base iniciada correctamente")
@@ -153,7 +153,7 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         if self.driver.get_enable() and self.driver.get_safety():
             if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
-                #print(f"Modificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} ")
+                print(f"Modificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} ")
                 if self.isOmni:
                     speeds = self.m_wheels@self.targetSpeed
                 else:
@@ -408,7 +408,7 @@ class SpecificWorker(GenericWorker):
             
         if self.joystickControl:
             for a in  data.axes:
-                # print(a.name, a.value)
+                print(a.name, a.value)
                 if a.name == "rotate":
                     self.setRot(a.value)
                 elif  a.name == "advance":
