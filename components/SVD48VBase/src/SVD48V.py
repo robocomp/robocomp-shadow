@@ -50,8 +50,12 @@ DRIVER_REGISTERS = {
     "MAX_DECELATION": bytearray([0x51, 0x0C]),      # uint16//MAXIMUM DECELERATION   
     "CURVE_ACCELERATION": bytearray([0x51, 0x10]),  # uint16//S-CURVE ACCELERATION "Speed smoothing time S-type acceleration time"
     "ID": bytearray([0x30, 0x01]),                  # ID
-    "MODE": bytearray([0x30, 0x08])                 # MODE
+    "COMUNICATION_TYPE": bytearray([0x30, 0x08]),                 # MODE
+    "MODE": bytearray([0x51, 0x00])                 # MODE
 }        
+# Invertir el diccionario
+INVERTED_DICT = {tuple(value): key for key, value in DRIVER_REGISTERS.items()}
+
 ERROR_CODES = {
     0:"Abnormal current sampling",
     1:"Abnormal overcurrent protection circuit",
@@ -157,14 +161,15 @@ class SVD48V:
                 
 
         print("Starting SVD48V")
-
-        self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration]*4)
-        self._set_motor_data(DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration]*4)
-        self._set_motor_data(DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent]*4)
-        self._set_motor_data(DRIVER_REGISTERS['POLE_PAIRS'], [polePairs]*4)
+        
+        self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], [self.rpm_max_acceleration]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['MAX_DECELATION'], [self.rpm_max_deceleration]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['MAX_CURRENT'], [maxCurrent]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['POLE_PAIRS'], [polePairs]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['MODE'], [0]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['DIRECTION'], [0, 1]*len(self.ids))
             
         self.enable_driver()
-        print("Creating reading threads")
 
         self.show_params(True)
         time.sleep(0.5)
@@ -203,6 +208,7 @@ class SVD48V:
             print("Starting motors")
             for id in self.ids:
                 if 0 in self._read_register(id, DRIVER_REGISTERS["GET_STATUS"]):
+                    # print("errorrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",self.get_error())
                     print("start motor", id)
                     self._write_register(id, DRIVER_REGISTERS["SET_STATUS"], [2,2])
                     self._write_register(id, DRIVER_REGISTERS['SET_SPEED'], [0,0])
@@ -222,9 +228,9 @@ class SVD48V:
         """
         print("Stopping motors")
         # Stop the drivers with speed 0
-
-        self._set_motor_data(DRIVER_REGISTERS['SET_SPEED'], [0]*4)
-        self._set_motor_data(DRIVER_REGISTERS['SET_STATUS'], [0]*4)
+        self.self_resetting = False
+        self._set_motor_data(DRIVER_REGISTERS['SET_SPEED'], [0]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS['SET_STATUS'], [0]*(len(self.ids)*2))
         status = self._get_motor_data(DRIVER_REGISTERS['GET_STATUS'])
         if 1 in status:
             print("Error when stopping the motors")
@@ -282,7 +288,7 @@ class SVD48V:
                 #numbers attempt
                 for _ in range(NUM_ATTEMPT):
                     self.driver.flushInput()
-                    # print(f"send telegram {list(telegram)}")
+                    print(f"send telegram {list(telegram)}")
                     self.driver.write(telegram) #Send telegram
                     self.driver.flush()
                     t1 = time.time()            #get time for MSL
@@ -292,7 +298,7 @@ class SVD48V:
                         reply = bytearray (self.driver.readline())#get telegram of reply
                         #Have telegram of reply?
                         if len(reply) > 1:
-                            #print(f"Reply telegram {list(reply)}")
+                            print(f"Reply telegram {list(reply)}")
                             #Have same number of action?
                             if reply[1] != CODE_TELEGRAM[action_code][0] :
                                 if reply[1] != CODE_TELEGRAM["ERROR_" + action_code][0]:
@@ -444,10 +450,11 @@ class SVD48V:
             print("wheelRadius: ", self.wheel_radius)
         print("Driver states(m1...mn): ", np.round(self.get_status(), 0).tolist())   
         print("Errors (m1...mn): ", self.get_error())
-        print("Speed (m1...mn): ", np.round(self.get_speed(), 4).tolist())
-        print("Current (m1...mn): ", np.round(self.get_current(), 4).tolist())
-        print("Position (m1...mn): ", np.round(self.get_position(), 4).tolist())
-        print("Motor temperature(m1...mn): ", np.round(self.get_temperature(), 4).tolist())
+        print("Speed rpm (m1...mn): ", np.round(self.get_rpm(), 4).tolist())
+        print("Speed mm/s (m1...mn): ", np.round(self.get_speed(), 4).tolist())
+        print("Current amp (m1...mn): ", np.round(self.get_current(), 4).tolist())
+        print("Position rad (m1...mn): ", np.round(self.get_position(), 4).tolist())
+        print("Motor temperature Cº(m1...mn): ", np.round(self.get_temperature(), 4).tolist())
         print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
         print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))
         print("------------------------------")
@@ -506,8 +513,16 @@ class SVD48V:
         assert len(value) >= len(self.ids) * 2, "Set motor data incorrectly. Expected length: {}".format(len(self.ids) * 2)
         for i in range(len(self.ids)):
             self._write_register(self.ids[i], register_key, [value[i * 2], value[i * 2 + 1]])
+        print(f"reg{INVERTED_DICT.get(tuple(register_key))},values{value}, Speed:{self.get_rpm().tolist()}," 
+              f"SET_SPEED {list(self._read_register(1, DRIVER_REGISTERS['SET_SPEED'], 2))}, "
+              f"mode sepeed {self._get_motor_data(DRIVER_REGISTERS['MODE'], divisor=1).tolist()}")
 
-    
+    def _get_error_codes(self, error):
+        error_codes = []
+        for bit in ERROR_CODES:
+            if error & (1 << bit):
+                error_codes.append(ERROR_CODES.get(bit))
+        return error_codes
     def get_status(self):
         """
         Get the status of the motor driver.
@@ -561,7 +576,7 @@ class SVD48V:
             The position of the motors.
         """
         position = self._get_motor_data(DRIVER_REGISTERS["GET_POSITION"], divisor=1, num_registers=4)
-        return np.array([self._2short_to_int(position[0:2]), self._2short_to_int(position[2:4])])/4096
+        return np.array([position[1::2]])/4096
     def get_error(self):
         """
         Get the error of the motors.
@@ -570,7 +585,8 @@ class SVD48V:
             The error of the motors.
         """
         errors = self._get_motor_data(DRIVER_REGISTERS["GET_ERROR"], num_registers=4)
-        return [ERROR_CODES.get(self._2short_to_int(errors[0:2][::-1])), ERROR_CODES.get(self._2short_to_int(errors[2:4][::-1]))]
+
+        return [self._get_error_codes(self._2short_to_int(errors[0:2][::1])), self._get_error_codes(self._2short_to_int(errors[2:4][::1]))]
 
     
     
@@ -639,8 +655,8 @@ class SVD48V:
                 print(f"WARNING: WHEEL SPEED LIMIT EXCEEDED {max_rpm} WHEN MAXIMUM IS {self.rpm_max_speed}")
                 motor_rpm = (motor_rpm / max_rpm) * self.rpm_max_speed
                 ret = -1
-            motor_rpm = motor_rpm.astype(np.int8)
-            # print(f"RPM {rpm.tolist()} || MM/S {motor_rpm.tolist()}")
+            motor_rpm = motor_rpm.astype(np.int16)
+            print(f"RPM {motor_rpm.tolist()}")
 
             self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], motor_rpm)
         else:
@@ -667,7 +683,7 @@ class SVD48V:
         Resets the emergency stop for the motor drivers.
         """
         print("RESET EMERGENCY STOP")
-        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [rpm_max_deceleration]*4)        
+        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [self.rpm_max_deceleration]*(len(self.ids)*2))        
         self.safety = True
 
     def emergency_stop(self):
@@ -682,6 +698,6 @@ class SVD48V:
         self.safety = False
         acc_stop = self.mms2rpm*2000
 
-        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [acc_stop]*4)
-        self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], [0]*4)
+        self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], [acc_stop]*(len(self.ids)*2))
+        self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], [0]*(len(self.ids)*2))
                 
