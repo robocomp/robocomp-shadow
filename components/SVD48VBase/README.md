@@ -1,6 +1,9 @@
 # SVD48VBase
 Intro to component here
 
+> [!CAUTION]
+> If the motor type has been changed, use the manufacturer's software to update the number of pole pairs and calibrate the encoder.
+
 
 ## Configuration parameters
 As any other component, *SVD48VBase* needs a configuration file to start. In
