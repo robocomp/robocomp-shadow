@@ -19,7 +19,6 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from multiprocessing.resource_sharer import stop
 import time
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
@@ -87,8 +86,8 @@ class SpecificWorker(GenericWorker):
             maxAcceleration = int(params["maxAcceleration"])
             maxDeceleration = int(params["maxDeceleration"])
             idDrivers = [int(params["idDriver1"])]
-            wheelRadius = float(params["wheelRadius"])
-            polePairs = int(params["polePairs"])
+            wheelRadius = int(params["wheelRadius"])
+            # polePairs = int(params["polePairs"])
             if baseType == "Omnidirectional":
                 # Omnidireccional params
                 self.isOmni=True
@@ -115,14 +114,14 @@ class SpecificWorker(GenericWorker):
             print(self.m_wheels)
 
 
-            self.driver = SVD48V.SVD48V(port=port, IDs=idDrivers, polePairs=polePairs, wheelRadius=wheelRadius, maxSpeed=maxWheelSpeed,
+            self.driver = SVD48V.SVD48V(port=port, IDs=idDrivers, wheelRadius=wheelRadius, maxSpeed=maxWheelSpeed,
                                         maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent)  
 
             assert self.driver.get_enable(), "NO se conecto al driver o fallo uno de ellos , cerrando programa"
 
             self.showParams = QTimer(self)
             self.showParams.timeout.connect(self.driver.show_params)
-            # self.showParams.start(1000)
+            #self.showParams.start(1000)
             self.timer.start(self.Period)
             
             print("Base iniciada correctamente")
@@ -153,7 +152,7 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         if self.driver.get_enable() and self.driver.get_safety():
             if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
-                print(f"Modificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} ")
+                print(f"\033[32mModificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} \033[0m")
                 if self.isOmni:
                     speeds = self.m_wheels@self.targetSpeed
                 else:
@@ -171,10 +170,14 @@ class SpecificWorker(GenericWorker):
             #si en un segundo no hay nuevo target se detiene
             elif time.time() - self.time_move > 5:
                 print("No comand, Stoping ")
-                self.OmniRobot_setSpeedBase(0.0,0.0,0.0)
-                self.time_move = float("inf")
-                self.driver.disable_driver()
-                self.driver.enable_driver()
+                self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
+                self.driver.set_speed([0]*4 if self.isOmni else [0]*2)
+                print("rpm",self.driver.get_rpm())
+                if np.all(np.isclose(a=self.driver.get_rpm(),b=0, atol=0.5)): 
+                    print("No comand, Stoped ")
+                    self.time_move = float("inf")
+                    self.driver.disable_driver()
+                    self.driver.enable_driver()
         return True
 
     def startup_check(self):
@@ -273,11 +276,9 @@ class SpecificWorker(GenericWorker):
     #
     def DifferentialRobot_stopBase(self):
         if not self.isOmni:
-            #
-            # write your CODE here
-            #
-            pass
-
+            self.time_emergency =time.time()
+            self.DifferentialRobot_setSpeedBase(0, 0)
+            self.driver.emergency_stop()
 
     #
     # IMPLEMENTATION of correctOdometer method from OmniRobot interface
@@ -366,8 +367,8 @@ class SpecificWorker(GenericWorker):
             self.driver.emergency_stop()
     
     def reset_emergency_stop(self):
-        if self.isOmni and time.time()-self.time_emergency>1:
-            self.OmniRobot_setSpeedBase(0, 0, 0)
+        if time.time()-self.time_emergency>1:
+            self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
             self.driver.reset_emergency_stop()
 
 
@@ -379,14 +380,13 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to sendData method from JoystickAdapter interface
     #
     def JoystickAdapter_sendData(self, data):    
-        # print(data)
+        #print(data)
         for b in data.buttons:
             if b.name == "block":
                 if b.step == 1:
                     if self.driver.get_safety():
-                        self.OmniRobot_stopBase()
+                        self.OmniRobot_stopBase() if self.isOmni else self.DifferentialRobot_stopBase()
                     else:
-                        print("Unlock")
                         self.reset_emergency_stop()
                     self.joystickControl = False
             elif  b.name == "stop":
@@ -401,14 +401,15 @@ class SpecificWorker(GenericWorker):
                 if b.step == 1:
                     self.joystickControl = not self.joystickControl
                     if not self.joystickControl:
-                        self.OmniRobot_setSpeedBase(0, 0, 0)
+                        self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
+
                     print("Joystick control: ", self.joystickControl)
             else:
                 pass#print(b.name, "PULASDOR NO AJUSTADO")
             
         if self.joystickControl:
             for a in  data.axes:
-                print(a.name, a.value)
+                #print(a.name, a.value)
                 if a.name == "rotate":
                     self.setRot(a.value)
                 elif  a.name == "advance":
