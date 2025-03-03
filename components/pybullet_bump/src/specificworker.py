@@ -50,11 +50,14 @@ class SpecificWorker(GenericWorker):
                                      cameraTargetPosition=[0, 0, 0.5])
 
         # Load floor in the simulation
-        self.plane = p.loadURDF("./URDFs/plane/plane.urdf")
+        self.plane = p.loadURDF("./URDFs/plane/plane.urdf", basePosition=[0, 0, 0])
 
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
-        # self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [0, 0, 0], flags=flags) TODO: Make sure the URDF is correct
+        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [0, 0, 0], flags=flags) #TODO: Make sure the URDF is correct
+
+        self.joints_name = self.get_joints_info(self.robot)
+        self.motors = ["frame_back_right2motor_back_right", "frame_back_left2motor_back_left", "frame_front_right2motor_front_right", "frame_front_left2motor_front_left"]
 
         if startup_check:
             self.startup_check()
@@ -76,7 +79,15 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        print('SpecificWorker.compute...')
+
+        # Set the velocity of the motors
+        vel = 0.5
+        for motor_name in self.motors:
+            if motor_name.__contains__("back"):
+                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=-vel)
+            else:
+                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=vel)
+
         # computeCODE
         # try:
         #   self.differentialrobot_proxy.setSpeedBase(100, 0)
@@ -97,6 +108,31 @@ class SpecificWorker(GenericWorker):
         QTimer.singleShot(200, QApplication.instance().quit)
 
 
+    def get_joints_info(self, robot_id):
+        """
+        Get joint names and IDs from a robot model
+        :param robot_id: ID of the robot model in the simulation
+        :return: Dictionary with joint names as keys and joint IDs as values
+        """
+        joint_name_to_id = {}
+        # Get number of joints in the model
+        num_joints = p.getNumJoints(robot_id)
+        print("Num joints:", num_joints)
 
+        # Populate the dictionary with joint names and IDs
+        for i in range(num_joints):
+            joint_info = p.getJointInfo(robot_id, i)
+            joint_name = joint_info[1].decode("utf-8")
+            print(joint_name)
+            joint_name_to_id[joint_name] = i
+            jid = joint_info[0]
+            jtype = joint_info[2]
+            if jtype == p.JOINT_REVOLUTE:
+                p.setJointMotorControl2(bodyUniqueId=robot_id,
+                                        jointIndex=jid,
+                                        controlMode=p.VELOCITY_CONTROL,
+                                        targetVelocity=0,
+                                        force=0)
+        return joint_name_to_id
 
 
