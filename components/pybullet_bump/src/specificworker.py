@@ -25,6 +25,7 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 import pybullet as p
+import locale
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -40,6 +41,8 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = 50
+
+        locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
 
         # Initialize PyBullet
         self.physicsClient = p.connect(p.GUI)
@@ -89,20 +92,19 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        try:
-            # Get the velocity of the wheels from the forward and angular velocity of the robot
-            wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
+        # Get the velocity of the wheels from the forward and angular velocity of the robot
+        wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
 
-            # Set the velocity of the motors
-            for motor_name in self.motors:
-                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=wheels_velocities[motor_name])
+        # Set the velocity of the motors
+        for motor_name in self.motors:
+            p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=wheels_velocities[motor_name])
 
-        except Exception as e:
-            print(e)
-
-        return True
+        # match state:
+        #     case
 
     def startup_check(self):
+        print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
+        test = ifaces.RoboCompOmniRobot.TMechParams()
         print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
         test = ifaces.RoboCompJoystickAdapter.AxisParams()
         print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
@@ -209,12 +211,34 @@ class SpecificWorker(GenericWorker):
                 if a.name == "rotate":
                     self.angular_velocity = a.value
                 elif a.name == "advance":
-                    self.forward_velocity = a.value * 0.001
+                    self.forward_velocity = a.value * 0.0003
                 else:
                     pass  # print(a.name, "JOYSTICK NO AJUSTADO")
+
+    # ===================================================================
+    # ===================================================================
+
+
+
+    ######################
+    # From the RoboCompOmniRobot you can call this methods:
+    # self.omnirobot_proxy.correctOdometer(...)
+    # self.omnirobot_proxy.getBasePose(...)
+    # self.omnirobot_proxy.getBaseState(...)
+    # self.omnirobot_proxy.resetOdometer(...)
+    # self.omnirobot_proxy.setOdometer(...)
+    # self.omnirobot_proxy.setOdometerPose(...)
+    # self.omnirobot_proxy.setSpeedBase(...)
+    # self.omnirobot_proxy.stopBase(...)
+
+    ######################
+    # From the RoboCompOmniRobot you can use this types:
+    # RoboCompOmniRobot.TMechParams
 
     ######################
     # From the RoboCompJoystickAdapter you can use this types:
     # RoboCompJoystickAdapter.AxisParams
     # RoboCompJoystickAdapter.ButtonParams
     # RoboCompJoystickAdapter.TData
+
+
