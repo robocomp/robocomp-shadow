@@ -1,10 +1,12 @@
 import "JoystickAdapter.idsl";
+import "OmniRobot.idsl";
 
 Component pybullet_dump
 {
     Communications
     {
         subscribesTo JoystickAdapter;
+        requires OmniRobot;
     };
     language python;
 

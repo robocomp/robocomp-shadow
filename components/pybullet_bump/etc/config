@@ -1,7 +1,8 @@
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 10000
 
-
+# Proxies for required interfaces
+OmniRobotProxy = omnirobot:tcp -h localhost -p 15452
 
 # This property is used by the clients to connect to IceStorm.
 TopicManager.Proxy=IceStorm/TopicManager:default -p 9999

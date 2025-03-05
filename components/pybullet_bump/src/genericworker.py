@@ -41,6 +41,7 @@ class GenericWorker(QtCore.QObject):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
+        self.omnirobot_proxy = mprx["OmniRobotProxy"]
 
         self.mutex = QtCore.QMutex()
         self.Period = 30
