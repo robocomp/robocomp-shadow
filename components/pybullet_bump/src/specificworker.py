@@ -72,6 +72,9 @@ class SpecificWorker(GenericWorker):
 
         self.joystickControl = True
 
+        self.state = "moving"
+        self.states = ["idle", "moving"]
+
         if startup_check:
             self.startup_check()
         else:
@@ -92,15 +95,23 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Get the velocity of the wheels from the forward and angular velocity of the robot
-        wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
+        match self.state:
+            case "idle":
+                pass
+            case "moving":
+                self.forward_velocity = 0.1
+                self.angular_velocity = 0
 
-        # Set the velocity of the motors
-        for motor_name in self.motors:
-            p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=wheels_velocities[motor_name])
+                self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
-        # match state:
-        #     case
+                # Get the velocity of the wheels from the forward and angular velocity of the robot
+                wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
+
+                # Set the velocity of the motors
+                for motor_name in self.motors:
+                    p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
+                                        targetVelocity=wheels_velocities[motor_name])
+
 
     def startup_check(self):
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
@@ -177,10 +188,10 @@ class SpecificWorker(GenericWorker):
         :return: Dictionary with the velocity of each wheel
         """
         wheels_velocity = {
-            "frame_front_left2motor_front_left": 2 * forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
-            "frame_front_right2motor_front_right": 2 * forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
-            "frame_back_left2motor_back_left": 2 * forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
-            "frame_back_right2motor_back_right": 2 * forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
+            "frame_front_left2motor_front_left": forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_front_right2motor_front_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_back_left2motor_back_left": forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_back_right2motor_back_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
         return wheels_velocity
 
 
