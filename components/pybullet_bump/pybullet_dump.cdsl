@@ -1,8 +1,10 @@
+import "JoystickAdapter.idsl";
+
 Component pybullet_dump
 {
     Communications
     {
-
+        subscribesTo JoystickAdapter;
     };
     language python;
 
