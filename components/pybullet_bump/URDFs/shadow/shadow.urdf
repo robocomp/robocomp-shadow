@@ -613,7 +613,7 @@
     <child
       link="motor_back_left" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
   </joint>
   <link
     name="frame_front_rigth">
@@ -817,6 +817,6 @@
     <child
       link="motor_back_right" />
     <axis
-      xyz="0 -1 0" />
+      xyz="0 1 0" />
   </joint>
 </robot>

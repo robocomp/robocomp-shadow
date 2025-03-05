@@ -39,7 +39,7 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 2000
+        self.Period = 50
 
         # Initialize PyBullet
         self.physicsClient = p.connect(p.GUI)
@@ -58,6 +58,16 @@ class SpecificWorker(GenericWorker):
 
         self.joints_name = self.get_joints_info(self.robot)
         self.motors = ["frame_back_right2motor_back_right", "frame_back_left2motor_back_left", "frame_front_right2motor_front_right", "frame_front_left2motor_front_left"]
+        self.wheels_radius = 0.1
+        self.distance_between_wheels = 0.44
+        self.distance_from_center_to_wheels = self.distance_between_wheels / 2
+
+        self.forward_velocity = 0
+        self.angular_velocity = 0
+
+        self.saved_state = p.saveState()
+
+        self.joystickControl = True
 
         if startup_check:
             self.startup_check()
@@ -79,32 +89,26 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
+        try:
+            # Get the velocity of the wheels from the forward and angular velocity of the robot
+            wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
 
-        # Set the velocity of the motors
-        vel = 0.5
-        for motor_name in self.motors:
-            if motor_name.__contains__("back"):
-                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=-vel)
-            else:
-                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=vel)
+            # Set the velocity of the motors
+            for motor_name in self.motors:
+                p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=wheels_velocities[motor_name])
 
-        # computeCODE
-        # try:
-        #   self.differentialrobot_proxy.setSpeedBase(100, 0)
-        # except Ice.Exception as e:
-        #   traceback.print_exc()
-        #   print(e)
-
-        # The API of python-innermodel is not exactly the same as the C++ version
-        # self.innermodel.updateTransformValues('head_rot_tilt_pose', 0, 0, 0, 1.3, 0, 0)
-        # z = librobocomp_qmat.QVec(3,0)
-        # r = self.innermodel.transform('rgbd', z, 'laser')
-        # r.printvector('d')
-        # print(r[0], r[1], r[2])
+        except Exception as e:
+            print(e)
 
         return True
 
     def startup_check(self):
+        print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.AxisParams()
+        print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.ButtonParams()
+        print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
 
@@ -123,7 +127,6 @@ class SpecificWorker(GenericWorker):
         for i in range(num_joints):
             joint_info = p.getJointInfo(robot_id, i)
             joint_name = joint_info[1].decode("utf-8")
-            print(joint_name)
             joint_name_to_id[joint_name] = i
             jid = joint_info[0]
             jtype = joint_info[2]
@@ -135,4 +138,83 @@ class SpecificWorker(GenericWorker):
                                         force=0)
         return joint_name_to_id
 
+    def get_forward_velocity(self):
+        """
+        Get the forward velocity of the robot
+        :return: Forward velocity
+        """
+        wheel_velocities = {}
+        for motor_name in self.motors:
+            wheel_velocities[motor_name] = p.getJointState(self.robot, self.joints_name[motor_name])[1]
+        forward_velocity = (wheel_velocities["frame_front_left2motor_front_left"] +
+                            wheel_velocities["frame_front_right2motor_front_right"] +
+                            wheel_velocities["frame_back_left2motor_back_left"] +
+                            wheel_velocities["frame_back_right2motor_back_right"]) * self.wheels_radius / 4
+        return forward_velocity
 
+    def get_angular_velocity(self):
+        """
+        Get the angular velocity of the robot
+        :return: Angular velocity
+        """
+        wheel_velocities = {}
+        for motor_name in self.motors:
+            wheel_velocities[motor_name] = p.getJointState(self.robot, self.joints_name[motor_name])[1]
+        angular_velocity = ((wheel_velocities["frame_front_right2motor_front_right"] +
+                            wheel_velocities["frame_back_right2motor_back_right"] -
+                            wheel_velocities["frame_front_left2motor_front_left"] -
+                            wheel_velocities["frame_back_left2motor_back_left"]) * self.wheels_radius /
+                            2 * self.distance_between_wheels)
+        return angular_velocity
+
+    def get_wheels_velocity_from_forward_velocity_and_angular_velocity(self, forward_velocity=0, angular_velocity=0):
+        """
+        Get the velocity of each wheel from the forward velocity of the robot
+        :param forward_velocity: Forward velocity of the robot
+        :param angular_velocity: Angular velocity of the robot
+        :return: Dictionary with the velocity of each wheel
+        """
+        wheels_velocity = {
+            "frame_front_left2motor_front_left": 2 * forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_front_right2motor_front_right": 2 * forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_back_left2motor_back_left": 2 * forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
+            "frame_back_right2motor_back_right": 2 * forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
+        return wheels_velocity
+
+
+    # =============== Methods for Component SubscribesTo ================
+    # ===================================================================
+
+    #
+    # SUBSCRIPTION to sendData method from JoystickAdapter interface
+    #
+    def JoystickAdapter_sendData(self, data):
+        for b in data.buttons:
+            if b.name == "block":
+                if b.step == 1:
+                    p.restoreState(self.saved_state)
+            if b.name == "joystick_control":
+                if b.step == 1:
+                    self.joystickControl = not self.joystickControl
+                    if not self.joystickControl:
+                        self.angular_velocity = 0
+                        self.forward_velocity = 0
+
+                    print("Joystick control: ", self.joystickControl)
+            else:
+                pass  # print(b.name, "PULASDOR NO AJUSTADO")
+
+        if self.joystickControl:
+            for a in data.axes:
+                if a.name == "rotate":
+                    self.angular_velocity = a.value
+                elif a.name == "advance":
+                    self.forward_velocity = a.value * 0.001
+                else:
+                    pass  # print(a.name, "JOYSTICK NO AJUSTADO")
+
+    ######################
+    # From the RoboCompJoystickAdapter you can use this types:
+    # RoboCompJoystickAdapter.AxisParams
+    # RoboCompJoystickAdapter.ButtonParams
+    # RoboCompJoystickAdapter.TData
