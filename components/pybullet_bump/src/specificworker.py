@@ -57,9 +57,12 @@ class SpecificWorker(GenericWorker):
 
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
-        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [0, 0, 0], flags=flags) #TODO: Make sure the URDF is correct
+        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [0, 0, 0], flags=flags)
+
+        self.bump = p.loadURDF("./URDFs/bump/bump_100x5.urdf", [1.8, 0, 0.01], flags=flags)
 
         self.joints_name = self.get_joints_info(self.robot)
+        self.links_name = self.get_link_info(self.robot)
         self.motors = ["frame_back_right2motor_back_right", "frame_back_left2motor_back_left", "frame_front_right2motor_front_right", "frame_front_left2motor_front_left"]
         self.wheels_radius = 0.1
         self.distance_between_wheels = 0.44
@@ -72,8 +75,8 @@ class SpecificWorker(GenericWorker):
 
         self.joystickControl = True
 
-        self.state = "moving"
-        self.states = ["idle", "moving"]
+        self.state = "bump"
+        self.states = ["idle", "moving", "bump"]
 
         if startup_check:
             self.startup_check()
@@ -99,7 +102,7 @@ class SpecificWorker(GenericWorker):
             case "idle":
                 pass
             case "moving":
-                self.forward_velocity = 0.1
+                self.forward_velocity = 0.3
                 self.angular_velocity = 0
 
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
@@ -111,6 +114,13 @@ class SpecificWorker(GenericWorker):
                 for motor_name in self.motors:
                     p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
                                         targetVelocity=wheels_velocities[motor_name])
+            case "bump":
+                print("Helios orientation:")
+                x, y, z = p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])
+                print("x:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[0])
+                print("y:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[1])
+                print("z:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[2])
+                pass
 
 
     def startup_check(self):
@@ -150,6 +160,24 @@ class SpecificWorker(GenericWorker):
                                         targetVelocity=0,
                                         force=0)
         return joint_name_to_id
+
+    def get_link_info(self, robot_id):
+        """
+        Get link names and IDs from a robot model
+        :param robot_id: ID of the robot model in the simulation
+        :return: Dictionary with link names as keys and link IDs as values
+        """
+        link_name_to_id = {}
+        # Get number of joints in the model
+        num_links = p.getNumJoints(robot_id)
+        print("Num links:", num_links)
+
+        # Populate the dictionary with link names and IDs
+        for i in range(num_links):
+            link_info = p.getJointInfo(robot_id, i)
+            link_name = link_info[12].decode("utf-8")
+            link_name_to_id[link_name] = i
+        return link_name_to_id
 
     def get_forward_velocity(self):
         """
