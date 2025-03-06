@@ -18,6 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
+import time
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
@@ -25,7 +26,10 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 import pybullet as p
+import numpy as np
 import locale
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -63,6 +67,10 @@ class SpecificWorker(GenericWorker):
 
         self.joints_name = self.get_joints_info(self.robot)
         self.links_name = self.get_link_info(self.robot)
+
+        print("Joints name:", self.joints_name)
+        print("Links name:", self.links_name)
+
         self.motors = ["frame_back_right2motor_back_right", "frame_back_left2motor_back_left", "frame_front_right2motor_front_right", "frame_front_left2motor_front_left"]
         self.wheels_radius = 0.1
         self.distance_between_wheels = 0.44
@@ -75,8 +83,17 @@ class SpecificWorker(GenericWorker):
 
         self.joystickControl = True
 
-        self.state = "bump"
+        self.state = "moving"
         self.states = ["idle", "moving", "bump"]
+
+        # Initialize IMU data
+        self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": []}
+        self.start_time = time.time()
+
+        # Initialize plot
+        self.fig, self.axs = plt.subplots(3, 1, figsize=(8, 6))
+        self.labels = ["X", "Y", "Z"]
+        self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=50)
 
         if startup_check:
             self.startup_check()
@@ -102,8 +119,8 @@ class SpecificWorker(GenericWorker):
             case "idle":
                 pass
             case "moving":
-                self.forward_velocity = 0.3
-                self.angular_velocity = 0
+                # self.forward_velocity = 0
+                # self.angular_velocity = 0
 
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
@@ -114,12 +131,23 @@ class SpecificWorker(GenericWorker):
                 for motor_name in self.motors:
                     p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
                                         targetVelocity=wheels_velocities[motor_name])
+
+                plt.show()
+
             case "bump":
-                print("Helios orientation:")
-                x, y, z = p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])
-                print("x:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[0])
-                print("y:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[1])
-                print("z:", p.getEulerFromQuaternion(p.getLinkState(self.robot, self.links_name["helios"])[1])[2])
+
+                # imu_data = self.get_imu_data(self.robot)
+                # output = (
+                #     f"\n--- IMU Data ---\n"
+                #     f"Linear Acceleration: {imu_data['lin_acc']}\n"
+                #     f"Angular Velocity   : {imu_data['ang_vel']}\n"
+                #     f"Orientation (Euler): Roll={roll:.2f}, Pitch={pitch:.2f}, Yaw={yaw:.2f}\n"
+                #     f"Orientation (Quat) : {imu_data['orientation_quat']}\n"
+                #     f"------------------"
+                # )
+                # print(output)
+
+                plt.show()
                 pass
 
 
@@ -221,6 +249,59 @@ class SpecificWorker(GenericWorker):
             "frame_back_left2motor_back_left": forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
             "frame_back_right2motor_back_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
         return wheels_velocity
+
+    def get_imu_data(self, body_id):
+        """
+        Get IMU data from a body in the simulation
+        :param body_id: ID of the body in the simulation
+        :return: Dictionary with IMU data
+        """
+        pos, orn = p.getBasePositionAndOrientation(body_id)
+        lin_vel, ang_vel = p.getBaseVelocity(body_id)
+        roll, pitch, yaw = p.getEulerFromQuaternion(orn)
+
+        self.imu_data["prev_lin_vel"] = self.imu_data.get("lin_vel", lin_vel)
+        lin_acc = np.array(lin_vel) - np.array(self.imu_data["prev_lin_vel"])
+
+        t = time.time() - self.start_time
+
+        self.imu_data["time"].append(t)
+        self.imu_data["lin_acc"].append(lin_acc.tolist())
+        self.imu_data["ang_vel"].append(ang_vel)
+        self.imu_data["orientation"].append((roll, pitch, yaw))
+
+    def update_plot(self, frame):
+        """
+        Update the plot with the latest IMU data
+        :param frame: Frame number
+        """
+        self.get_imu_data(self.robot)
+
+        t_vals = self.imu_data["time"][-50:]
+        lin_acc_vals = np.array(self.imu_data["lin_acc"][-50:])
+        ang_vel_vals = np.array(self.imu_data["ang_vel"][-50:])
+        orientation_vals = np.array(self.imu_data["orientation"][-50:])
+
+        self.axs[0].cla()
+        self.axs[1].cla()
+        self.axs[2].cla()
+
+        for i in range(3):
+            self.axs[0].plot(t_vals, lin_acc_vals[:, i], label=f"Acc {self.labels[i]}")
+        self.axs[0].set_title("Aceleración Lineal")
+        self.axs[0].legend()
+
+        for i in range(3):
+            self.axs[1].plot(t_vals, ang_vel_vals[:, i], label=f"Vel Ang {self.labels[i]}")
+        self.axs[1].set_title("Velocidad Angular")
+        self.axs[1].legend()
+
+        for i in range(3):
+            self.axs[2].plot(t_vals, orientation_vals[:, i], label=f"Orient {self.labels[i]}")
+        self.axs[2].set_title("Orientación (Roll, Pitch, Yaw)")
+        self.axs[2].legend()
+
+        plt.tight_layout()
 
 
     # =============== Methods for Component SubscribesTo ================
