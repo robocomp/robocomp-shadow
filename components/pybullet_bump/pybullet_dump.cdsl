@@ -9,6 +9,7 @@ Component pybullet_dump
         requires OmniRobot;
     };
     language python;
+    gui Qt(QWidget);
 
 };
 
