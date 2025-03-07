@@ -47,6 +47,7 @@ class GenericWorker(QtWidgets.QWidget):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
+        self.imu_proxy = mprx["IMUProxy"]
         self.omnirobot_proxy = mprx["OmniRobotProxy"]
 
         self.ui = Ui_guiDlg()

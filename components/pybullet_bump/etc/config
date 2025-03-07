@@ -2,6 +2,7 @@
 JoystickAdapterTopic.Endpoints=tcp -p 10000
 
 # Proxies for required interfaces
+IMUProxy = imu:tcp -h localhost -p 10007
 OmniRobotProxy = omnirobot:tcp -h localhost -p 10004
 
 # This property is used by the clients to connect to IceStorm.

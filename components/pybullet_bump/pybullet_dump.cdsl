@@ -1,12 +1,13 @@
 import "JoystickAdapter.idsl";
 import "OmniRobot.idsl";
+import "IMU.idsl";
 
 Component pybullet_dump
 {
     Communications
     {
         subscribesTo JoystickAdapter;
-        requires OmniRobot;
+        requires OmniRobot, IMU;
     };
     language python;
     gui Qt(QWidget);
