@@ -1,0 +1,15 @@
+import "Lidar3D.idsl";
+import "OmniRobot.idsl";
+import "Gridder.idsl";
+import "LidarOdometry.idsl";
+
+Component room_detector
+{
+    Communications
+    {
+        requires Lidar3D, OmniRobot, Gridder, LidarOdometry;
+    };
+    language Cpp11;
+    gui Qt(QWidget);
+};
+

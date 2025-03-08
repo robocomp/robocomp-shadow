@@ -1,0 +1,369 @@
+%! Author = pbustos
+%! Date = 22/02/25
+
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath, amssymb}
+% Document
+\begin{document}
+
+\begin{section}{Derivative of the middle error wrt to the point}
+
+    We define the interior cost function as
+    \begin{equation}
+        {\mathrm{in}}(p) = w_{\mathrm{in}}\, p_y^2,
+    \end{equation}
+
+    where the weight is given by
+
+    \begin{equation}
+        w_{\mathrm{in}} = s_0\,(1-s_1),
+    \end{equation}
+
+    with
+
+    \begin{equation}
+        s_0 = \operatorname{logistic}(\beta\, t), \quad s_1 = \operatorname{logistic}(\beta\,(t-1))
+    \end{equation}
+
+    and
+
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5.
+    \end{equation}
+
+    Our goal is to compute the gradient (Jacobian) of \(f_{\mathrm{in}}(p)\) with respect to the point
+
+    \begin{equation}
+        p = \begin{bmatrix} p_x \\ p_y \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Step 1: Apply the product rule.}
+
+    Since
+
+    \begin{equation}
+        {\mathrm{in}}(p) = w_{\mathrm{in}}\, p_y^2,
+    \end{equation}
+
+    its gradient is
+
+    \begin{equation}
+        \frac{\partial f_{\mathrm{in}}}{\partial p}
+        =\frac{\partial w_{\mathrm{in}}}{\partial p}\, p_y^2 + w_{\mathrm{in}}\, \frac{\partial (p_y^2)}{\partial p}.
+    \end{equation}
+
+    Note that \(w_{\mathrm{in}}\) depends only on \(p_x\) (via \(t\)), so we have
+
+    \begin{equation}
+        \frac{\partial w_{\mathrm{in}}}{\partial p} =
+        \begin{bmatrix} \frac{d w_{\mathrm{in}}}{d p_x} \\[1ex] 0 \end{bmatrix},
+    \end{equation}
+
+    and
+
+    \begin{equation}
+        \frac{\partial (p_y^2)}{\partial p} =
+        \begin{bmatrix} 0 \\[1ex] 2\, p_y \end{bmatrix}.
+    \end{equation}
+
+    Thus, writing the gradient as a row vector we obtain
+    \begin{equation}
+        \frac{\partial f_{\mathrm{in}}}{\partial p} =
+        \begin{bmatrix}
+            \frac{d w_{\mathrm{in}}}{d p_x}\, p_y^2 & \quad w_{\mathrm{in}}\,(2\,p_y)
+        \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Step 2: Compute \(\frac{d w_{\mathrm{in}}}{d p_x}\).}
+
+    Recall that
+    \begin{equation}
+        w_{\mathrm{in}} = s_0\,(1-s_1),
+    \end{equation}
+
+    with
+
+    \begin{equation}
+        s_0 = \operatorname{logistic}(\beta\, t), \quad s_1 = \operatorname{logistic}(\beta\,(t-1)),
+    \end{equation}
+
+    and
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5.
+    \end{equation}
+
+    Then,
+    \begin{equation}
+        \frac{d t}{d p_x} = \frac{1}{w}.
+    \end{equation}
+
+    The derivative of the logistic function is
+    \begin{equation}
+        \frac{d}{dx}\operatorname{logistic}(x) = \operatorname{logistic}(x)\Bigl(1-\operatorname{logistic}(x)\Bigr).
+    \end{equation}
+
+    Thus, by the chain rule:
+    \begin{equation}
+        \frac{d s_0}{d p_x} = d\operatorname{logistic}(\beta\,t)\,\beta\,\frac{1}{w},\quad
+        \frac{d s_1}{d p_x} = d\operatorname{logistic}(\beta\,(t-1))\,\beta\,\frac{1}{w}.
+    \end{equation}
+
+    Applying the product rule to \(w_{\mathrm{in}} = s_0(1-s_1)\) gives
+
+    \begin{equation}
+        \frac{d w_{\mathrm{in}}}{d p_x} = \frac{d s_0}{d p_x}(1-s_1) - s_0\,\frac{d s_1}{d p_x}.
+    \end{equation}
+
+    Substituting, we have
+
+    \begin{equation}
+        \frac{d w_{\mathrm{in}}}{d p_x} = \frac{\beta}{w}\Bigl[ d\operatorname{logistic}(\beta t)(1-s_1) - s_0\,d\operatorname{logistic}(\beta(t-1)) \Bigr].
+    \end{equation}
+
+    \textbf{Step 3: Combine the results.}
+
+    Therefore, the gradient of \(f_{\mathrm{in}}\) with respect to \(p\) is
+
+    \begin{equation}
+        \frac{\partial f_{\mathrm{in}}}{\partial p} =
+        \begin{bmatrix}
+            \displaystyle \frac{\beta\,p_y^2}{w}\Bigl[d\operatorname{logistic}(\beta t)(1-s_1) - s_0\,d\operatorname{logistic}(\beta(t-1))\Bigr] & \quad 2\,p_y\,w_{\mathrm{in}}
+        \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Final Answer:}
+
+    \begin{equation}
+        \boxed{
+            \frac{\partial f_{\mathrm{in}}}{\partial p} =
+            \begin{bmatrix}
+                \displaystyle \frac{\beta\,p_y^2}{w}\left[d\operatorname{logistic}(\beta t)(1-s_1) - s_0\,d\operatorname{logistic}(\beta(t-1))\right] & 2\,p_y\,w_{\mathrm{in}}
+            \end{bmatrix}\,,
+        }
+    \end{equation}
+
+    with
+
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5,\quad s_0 = \operatorname{logistic}(\beta t),\quad s_1 = \operatorname{logistic}(\beta(t-1)).
+    \end{equation}
+
+\end{section}
+
+\begin{section}{Derivative of the left error wrt to the point}
+
+    We define the “left” contribution as
+
+    \begin{equation}
+        f_{\mathrm{left}}(p) = w_{\mathrm{left}}\, d_{\mathrm{left}},
+    \end{equation}
+    where
+    \begin{equation}
+        w_{\mathrm{left}} = 1-s_0, \quad s_0 = \operatorname{logistic}(\beta\, t),
+    \end{equation}
+    and
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5,
+    \end{equation}
+    with \(w\) being the fridge width (for side 1, for example) and
+    \begin{equation}
+        d_{\mathrm{left}} = \|p - A\|^2,
+    \end{equation}
+    with
+    \begin{equation}
+        A = \left(-\frac{w}{2},\,0\right).
+    \end{equation}
+
+    Thus, writing \(p=(p_x,p_y)\) we have:
+    \begin{equation}
+        d_{\mathrm{left}} = \left(p_x + \frac{w}{2}\right)^2 + p_y^2.
+    \end{equation}
+
+    We now derive the gradient of \(f_{\mathrm{left}}(p)\) with respect to \(p\).
+
+    \textbf{Step 1:} Apply the product rule:
+    \begin{equation}
+        \frac{\partial f_{\mathrm{left}}}{\partial p} = \frac{\partial w_{\mathrm{left}}}{\partial p}\, d_{\mathrm{left}} + w_{\mathrm{left}}\, \frac{\partial d_{\mathrm{left}}}{\partial p}.
+    \end{equation}
+    Since \(w_{\mathrm{left}}\) depends only on \(p_x\) (via \(t\)), we have
+    \begin{equation}
+        \frac{\partial w_{\mathrm{left}}}{\partial p} =
+        \begin{bmatrix}
+            \frac{d w_{\mathrm{left}}}{d p_x} \\
+            0
+        \end{bmatrix},
+    \end{equation}
+    and
+    \begin{equation}
+        \frac{\partial (p_y^2)}{\partial p} =
+        \begin{bmatrix}
+            0 \\
+            2\, p_y
+        \end{bmatrix}.
+    \end{equation}
+    Thus, writing the gradient as a row vector,
+    \begin{equation}
+        \frac{\partial f_{\mathrm{left}}}{\partial p} =
+        \begin{bmatrix}
+            \frac{d w_{\mathrm{left}}}{d p_x}\, p_y^2 & w_{\mathrm{left}}\,(2\,p_y)
+        \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Step 2:} Compute \(\frac{d w_{\mathrm{left}}}{d p_x}\).
+
+    Recall that
+    \begin{equation}
+        w_{\mathrm{left}} = 1 - s_0,
+    \end{equation}
+    with
+    \begin{equation}
+        s_0 = \operatorname{logistic}(\beta\, t),
+    \end{equation}
+    and
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5.
+    \end{equation}
+    Then,
+    \begin{equation}
+        \frac{d t}{d p_x} = \frac{1}{w}.
+    \end{equation}
+    Since the derivative of the logistic function is
+    \begin{equation}
+        \frac{d}{dx}\operatorname{logistic}(x) = \operatorname{logistic}(x)\Bigl(1-\operatorname{logistic}(x)\Bigr),
+    \end{equation}
+    by the chain rule we have
+    \begin{equation}
+        \frac{d s_0}{d p_x} = \frac{d s_0}{d t}\frac{d t}{d p_x} = \operatorname{logistic}(\beta\,t)\Bigl(1-\operatorname{logistic}(\beta\,t)\Bigr)\beta\,\frac{1}{w}.
+    \end{equation}
+    Thus,
+    \begin{equation}
+        \frac{d w_{\mathrm{left}}}{d p_x} = - \frac{d s_0}{d p_x} = -\frac{\beta}{w}\, \operatorname{logistic}(\beta\,t)\Bigl(1-\operatorname{logistic}(\beta\,t)\Bigr).
+    \end{equation}
+
+    \textbf{Step 3:} Combine the results.
+
+    Therefore, the gradient of \(f_{\mathrm{left}}\) with respect to \(p\) is
+    \begin{equation}
+        \frac{\partial f_{\mathrm{left}}}{\partial p} =
+        \begin{bmatrix}
+            -\dfrac{\beta\, p_y^2}{w}\, \operatorname{logistic}(\beta\,t)\Bigl(1-\operatorname{logistic}(\beta\,t)\Bigr) & 2\,p_y\,(1-\operatorname{logistic}(\beta\,t))
+        \end{bmatrix}.
+    \end{equation}
+
+    \begin{equation}
+        \boxed
+        {
+            \frac{\partial f_{\mathrm{left}}}{\partial p} =
+                \begin{bmatrix}
+                    -\dfrac{\beta\, p_y^2}{w}\, s_0(1-s_0) & 2\,p_y\,(1-s_0)
+                \end{bmatrix}\,,
+        }
+      \quad \text{with} \quad t = \frac{p_x}{w}+0.5,\quad s_0 = \operatorname{logistic}(\beta\,t).
+    \end{equation}
+\end{section}
+
+\begin{section} {Derivative of the right error wrt the point}
+    We define the “right” contribution as
+    \begin{equation}
+        f_{\mathrm{right}}(p) = w_{\mathrm{right}}\, d_{\mathrm{right}},
+    \end{equation}
+    where the weight is given by
+    \begin{equation}
+        w_{\mathrm{right}} = s_1, \quad \text{with} \quad s_1 = \operatorname{logistic}\Bigl(\beta\,(t-1)\Bigr),
+    \end{equation}
+    and
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5,
+    \end{equation}
+    with \(w\) being the fridge width (for side 1, for example) and the right endpoint defined as
+    \begin{equation}
+        B = \left(\frac{w}{2},\,0\right).
+    \end{equation}
+    Thus, the candidate squared distance for the right term is
+    \begin{equation}
+        d_{\mathrm{right}} = \|p - B\|^2 = \Bigl(p_x - \frac{w}{2}\Bigr)^2 + p_y^2.
+    \end{equation}
+
+    The function \(f_{\mathrm{right}}\) is then
+    \begin{equation}
+        f_{\mathrm{right}}(p) = s_1\, d_{\mathrm{right}}.
+    \end{equation}
+
+    \textbf{Step 1: Compute the derivative of \(f_{\mathrm{right}}\) with respect to \(p\) using the product rule.}
+
+    We have
+    \begin{equation}
+        \frac{\partial f_{\mathrm{right}}}{\partial p} = \frac{\partial s_1}{\partial p}\, d_{\mathrm{right}} + s_1\, \frac{\partial d_{\mathrm{right}}}{\partial p}.
+    \end{equation}
+
+    \textbf{Step 2: Derivative of \(d_{\mathrm{right}}\) with respect to \(p\).}
+
+    Since
+    \begin{equation}
+        d_{\mathrm{right}} = \Bigl(p_x - \frac{w}{2}\Bigr)^2 + p_y^2,
+    \end{equation}
+    its partial derivatives are:
+    \begin{equation}
+        \frac{\partial d_{\mathrm{right}}}{\partial p_x} = 2\Bigl(p_x - \frac{w}{2}\Bigr),\quad
+        \frac{\partial d_{\mathrm{right}}}{\partial p_y} = 2\,p_y.
+    \end{equation}
+    Thus, in row-vector form,
+    \begin{equation}
+        \frac{\partial d_{\mathrm{right}}}{\partial p} = \begin{bmatrix} 2\left(p_x-\frac{w}{2}\right) & 2\,p_y \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Step 3: Derivative of \(s_1\) with respect to \(p\).}
+
+    The weight is defined as
+    \begin{equation}
+        s_1 = \operatorname{logistic}\Bigl(\beta\,(t-1)\Bigr),
+    \end{equation}
+    with
+    \begin{equation}
+        t = \frac{p_x}{w} + 0.5.
+    \end{equation}
+    Since \(t\) depends only on \(p_x\), we have:
+    \begin{equation}
+        \frac{d t}{d p_x} = \frac{1}{w}, \quad \frac{d t}{d p_y} = 0.
+    \end{equation}
+    The derivative of the logistic function is
+    \begin{equation}
+        \frac{d}{dx}\operatorname{logistic}(x) = \operatorname{logistic}(x)\Bigl(1-\operatorname{logistic}(x)\Bigr).
+    \end{equation}
+    Thus,
+    \begin{equation}
+        \frac{d s_1}{d p_x} = d\operatorname{logistic}\Bigl(\beta\,(t-1)\Bigr) \cdot \beta \cdot \frac{1}{w} = \frac{\beta}{w}\, s_1\,(1-s_1),
+    \end{equation}
+    and
+    \begin{equation}
+        \frac{\partial s_1}{\partial p_y} = 0.
+    \end{equation}
+    In row-vector form, the derivative of \(s_1\) with respect to \(p\) is
+    \begin{equation}
+        \frac{\partial s_1}{\partial p} = \begin{bmatrix} \frac{\beta}{w}\, s_1(1-s_1) & 0 \end{bmatrix}.
+    \end{equation}
+
+    \textbf{Step 4: Combine using the product rule.}
+
+    Thus,
+    \begin{equation}
+        \frac{\partial f_{\mathrm{right}}}{\partial p} =
+        \begin{bmatrix} \frac{\beta}{w}\, s_1(1-s_1) \, d_{\mathrm{right}} & 0 \end{bmatrix}
+        + s_1\, \begin{bmatrix} 2\left(p_x-\frac{w}{2}\right) & 2\,p_y \end{bmatrix}.
+    \end{equation}
+    That is,
+    \begin{equation}
+        \boxed{
+            \frac{\partial f_{\mathrm{right}}}{\partial p} =
+            \begin{bmatrix}
+                \frac{\beta}{w}\, s_1(1-s_1)\, d_{\mathrm{right}} + 2\, s_1\left(p_x-\frac{w}{2}\right) & 2\,s_1\,p_y
+            \end{bmatrix}\,.}
+    \end{equation}
+\end{section}
+
+
+\end{document}
