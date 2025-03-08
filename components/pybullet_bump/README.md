@@ -1,7 +1,6 @@
 # pybullet_dump
 Intro to component here
 
-
 ## Configuration parameters
 As any other component, *pybullet_dump* needs a configuration file to start. In
 ```

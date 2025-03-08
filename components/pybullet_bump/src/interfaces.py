@@ -5,8 +5,53 @@ from rich.console import Console, Text
 console = Console()
 
 
+Ice.loadSlice("-I ./src/ --all ./src/GenericBase.ice")
+import RoboCompGenericBase
+Ice.loadSlice("-I ./src/ --all ./src/IMU.ice")
+import RoboCompIMU
+Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
+import RoboCompJoystickAdapter
+Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
+import RoboCompOmniRobot
 
+class AxisList(list):
+    def __init__(self, iterable=list()):
+        super(AxisList, self).__init__(iterable)
 
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).insert(index, item)
+
+setattr(RoboCompJoystickAdapter, "AxisList", AxisList)
+class ButtonsList(list):
+    def __init__(self, iterable=list()):
+        super(ButtonsList, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).insert(index, item)
+
+setattr(RoboCompJoystickAdapter, "ButtonsList", ButtonsList)
+
+import joystickadapterI
 
 
 
@@ -46,6 +91,10 @@ class Requires:
         self.ice_connector = ice_connector
         self.mprx={}
 
+        self.IMU = self.create_proxy("IMUProxy", RoboCompIMU.IMUPrx)
+
+        self.OmniRobot = self.create_proxy("OmniRobotProxy", RoboCompOmniRobot.OmniRobotPrx)
+
     def get_proxies_map(self):
         return self.mprx
 
@@ -72,6 +121,8 @@ class Subscribes:
     def __init__(self, ice_connector, topic_manager, default_handler):
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
+
+        self.JoystickAdapter = self.create_adapter("JoystickAdapterTopic", joystickadapterI.JoystickAdapterI(default_handler))
 
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
@@ -113,7 +164,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0
