@@ -1,0 +1,572 @@
+%! Author = pbustos
+%! Date = 22/02/25
+
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath, amsfonts}
+\usepackage[a4paper, total={6.5in, 8in}]{geometry}
+\usepackage{amsfonts}
+\setlength{\parindent}{0pt}
+
+% Document
+\begin{document}
+
+\title{Derivatives of the log likelihood \textit{min\_dist\_to\_sides}}
+\maketitle
+
+    \section*{Loss Function: distance to tabletop top side}
+
+    In our 3D table detection problem, the table is modeled by a 9-dimensional parameter vector
+    \begin{equation}
+        \mathbf{v} = \begin{bmatrix} x \\ y \\ z \\ \alpha \\ \beta \\ \gamma \\ \text{w} \\ \text{d} \\ \text{h} \end{bmatrix},\label{eq:equation_1}
+    \end{equation}
+    where $x,y,z$ define the position of the table in the room frame, $\alpha,\beta,\gamma$ define the rotation of the table in the room frame, and $w,d,h$ define the width, depth, and height of the table respectively.
+    We want to compute the \textit{segment} distance of a point, given in the tabletop frame, to a specific side of the tabletop.
+    The \textit{segment} distance depends on the relative position of the point wrt the side:
+    if the point projects onto the side, the distance is the perpendicular projection;
+    if the point projects outside the table, the distance is the minimum of the distances to the two closest sides.
+    More formally, the differentiable version of the \textit{segment} distance is given by,
+
+    \begin{equation}
+        d = \left( w_{in} d_{in} + w_{left} d_{left} + w_{right} d_{right} \right),
+    \end{equation}
+
+    where the $d_{x}$ are the three possible cases and the $w_{x}$ are weights that depend on the result of the projection.
+    To discard points inside the tabletop, we apply a softplus gate (ReLU) to the signed distance to the side that makes zero all negative values.
+
+    \subsection*{1. Tabletop to top side Transformation}
+
+    Let the length of the current side be
+    \begin{equation}
+        \text{s} = \frac{\text{d}}{2}.
+    \end{equation}
+
+    We define the transformation from the top of the table to the current side as a \(\text{Pose3}\) object:
+
+    \begin{equation}
+        T_{t2s} = \text{Pose3}\Bigl(\mathbf{R}=\mathbf{I},\; \mathbf{t} = \begin{bmatrix} 0 \\ \text{s} \\ 0 \end{bmatrix}\Bigr),
+    \end{equation}
+
+    \subsection*{2. Transforming the Input Point}
+
+    The $SE(3)$ transformation from the tabletop frame to the top side frame is given by,
+
+    \begin{equation}
+        T = \begin{bmatrix} 1 & 0 & 0 & 0 \\ 0 & 1 & 0 & \text{d} \\ 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 1 \end{bmatrix}.
+    \end{equation}
+
+    Let \(p \in \mathbb{R}^3\) be the point (in the room frame) whose distance we wish to compute.
+    We transform \(p\) into the coordinate system of the corresponding side:
+
+    \begin{equation}
+        \text{ps} = T^{-1}(p) = \begin{bmatrix} ps_x \\ ps_y \\ ps_z \end{bmatrix} = \begin{bmatrix} 1 & 0 & 0 & 0 \\ 0 & 1 & 0 & -\text{d} \\ 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 1 \end{bmatrix} \begin{bmatrix} p_x \\ p_y \\ p_z \\ 1 \end{bmatrix} = \begin{bmatrix} p_x \\ p_y - d \\ p_z \\ 1 \end{bmatrix}
+    \end{equation}
+
+    We define $T_{t2s}$ as the object \textit{gtsam::Pose3(R, t)} and use its method \textit{Pose3::transformTo(p, $H_{ps}(3x6)$, $H_{pt}(3x3)$)} to convert the point \(p\) to the side frame.
+    The method provides the Jacobians with respect to the pose parameters and the input point \(p\).
+
+    \begin{equation}
+        T_{t2s} = \text{Pose3}\Bigl(\mathbf{R}=\mathbf{I},\; \mathbf{t} = \begin{bmatrix} 0 \\ \text{s} \\ 0 \end{bmatrix}\Bigr),
+    \end{equation}
+
+    The $3x3$ Jacobian wrt to the input point is given by:
+
+    \begin{equation}
+        H_{\text{pts}} = \begin{bmatrix} 1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1  \end{bmatrix}
+    \end{equation}
+
+    The $3x6$ Jacobian wrt to the table parameters is given by:
+
+    \begin{equation}
+        H_{\text{table}} = \begin{bmatrix} 1 & 0 & 0 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 & -1 & 0 \\ 0 & 0 & 1 & 0 & 0 & 0 \\ \end{bmatrix}
+    \end{equation}
+
+    The $-1$ element corresponds to the partial derivative of the transformed point's ( y )-coordinate with respect to the table's $d$ parameter. This reflects the negative translation along the y-axis in the transformation matrix.
+
+    Note: the other three sides will have a different transformation matrix.
+
+    \subsection*{2. ReLU on the y coordinate}
+
+    We now compute a ReLU function to check if the point is inside the table.
+    As the side's frames are defined to have the y-axis pointing outwards and the x-axis pointing right along the side, we use the \(y\)-coordinate for all sides.
+    If the $y$ is positive then the point is outside the tabletop:
+
+    \begin{equation}
+        \text{g} = \text{softplus}\Bigl(ps_y\Bigr),
+    \end{equation}
+
+    where \(\text{softplus}(x)=\ln\bigl(1+\exp(x)\bigr)\) is a smooth approximation of the ReLU function.
+    It is zero if $ps_y$ is negative (inside the table) and increases smoothly to $1$ as $ps_y$ increases.
+
+    Its derivative is the logistic function:
+
+    \begin{equation}
+        \frac{d}{dx}\,\text{softplus}(x) = \frac{1}{1+\exp(-x)}.
+    \end{equation}
+
+    The $g$ gate will be multiplied by the distance to the side to ensure that the distance is zero if the point is inside the table.
+
+    \subsection*{3. Segment distance}
+        We now compute the segment distance (SD) from the point to the side.
+        Let's define the side as a segment $AB$ with extremes in the top-left corner $A$ and the top-right corner $B$ of the side.
+        In the side frame, the segment is defined by the points:
+
+        \begin{equation}
+            A = \begin{bmatrix} -\text{s} \\ 0 \\ 0 \end{bmatrix},\quad
+            B = \begin{bmatrix} \text{s} \\ 0 \\ 0 \end{bmatrix}.
+        \end{equation}
+
+        as the X-axis is aligned with the segment.
+        The distance from the point to the segment is given by the projection of the point onto the segment:
+
+        \begin{equation}
+            t = \frac{ps_x}{(B_x - A_x)} + 0.5.
+        \end{equation}
+
+        The constant \(0.5\) is added to the projection to center it in the segment.
+        Now we check if the projection is inside the segment using a sigmoid function.
+        The sigmoid smooths the "saturation" of the projection on $[0, 1]$.
+        We use two variables $s$ and $s1$:
+        \begin{equation}
+            s0 = \text{logistic}(\beta t) \quad
+            s1 = \text{logistic}(\beta (t-1))
+        \end{equation}
+
+        $s0$ goes from $0$ to $1$ close to $t=0$
+        $s1$ goes from $0$ to $1$ close to $t=1$
+
+        and the logistic function is defined as:
+        \begin{equation}
+            \text{logistic}(x) = \frac{1}{1+\exp(-x)}.
+        \end{equation}
+
+        We compute now the soft weights for each region:
+       \begin{align*}
+            w_{in} &= s0 (1- s1) \\
+            w_{left} &= (1-s0) s1 \\
+            w_{right} &= s1
+       \end{align*}
+
+        And the squared distance to each segment is given by:
+        \begin{align*}
+            d_{in} &= ps{_y}^2 \\
+            d_{left} &= |ps - A|^2 \\
+            d_{right} &= |ps - B|^2
+        \end{align*}
+
+        The combined distance is given by:
+        \begin{equation}
+            d = w_{in} d_{in} + w_{left} d_{left} + w_{right} d_{right}
+        \end{equation}
+
+        We now apply the previously defined gate to $d$ to obtain the final distance:
+        \begin{equation}
+            fd = g * d
+        \end{equation}
+
+        \subsection*{4. Jacobian with respect to table parameters \(\mathbf{v}\)}
+
+            We need to compute the Jacobian $\frac{\partial fd}{\partial v(7)}$.
+            The derivative with respect to the point $\mathbf{p}$ will be addressed separately.
+
+            The relevant quantities are:
+
+            \begin{align}
+                ps &= t2s1.transformTo(\mathbf{p}) \\
+                h_{pose}(:,4) &= \text{y-component of h}_{pose} \\
+                t2s1 &= \text{gtsam::Pose3}(\text{gtsam::Rot3::Identity}(), \text{gtsam::Point3}(0.0, v(7)/2, 0.0)) \\
+                A &= (-v(7)/2, 0, 0) \\
+                B &= (v(7)/2, 0, 0) \\
+                t_1 &= \frac{ps_{x}}{B_x - A_x} + 0.5 \\
+                s_0 &= \text{logistic}(\beta t_1) \\
+                s_1 &= \text{logistic}(\beta (t_1 - 1)) \\
+                w_{in} &= s_0 (1 - s_1) \\
+                w_{left} &= (1 - s_0) \\
+                w_{right} &= s_1 \\
+                d_{in} &= ps_{y}^2 \\
+                d_{left} &= ||ps - A||^2 \\
+                d_{right} &= ||ps - B||^2 \\
+                d &= w_{in} d_{in} + w_{left} d_{left} + w_{right} d_{right} \\
+                g &= \text{softplus}(ps_{y}) \\
+                fd &= g \cdot d
+            \end{align}
+
+            Applying the chain rule:
+
+            \begin{equation}
+                \frac{\partial fd}{\partial v(7)} = g \cdot \frac{\partial d}{\partial v(7)} + d \cdot \frac{\partial g}{\partial v(7)}
+            \end{equation}
+
+            The second term can be computed as:
+
+            \begin{equation}
+                \frac{\partial g}{\partial v(7)} =  \frac{\partial softplus(ps_y)}{\partial ps_y} \frac{\partial ps_y}{\partial v(7)} = \text{logistic}(ps_y) [h_{pose}(:,4)]_y
+            \end{equation}
+
+            The Jacobian $\frac{\partial dist}{\partial v(7)}$ can be computed as the sum of the contributions from the three terms:
+
+            \begin{equation}
+                \frac{\partial d}{\partial v(7)} = \underbrace{ \frac{\partial (w_{in}d_{in}) }{\partial v(7)}}_{K} +
+                \underbrace{ \frac{\partial (w_{left}d_{left}) }{\partial v(7)}}_{L} +
+                \underbrace{ \frac{\partial (w_{right}d_{right}) }{\partial v(7)}}_{M}
+            \end{equation}
+
+            \subsubsection*{Term K: $\frac{\partial (w_{in} d_{in})}{\partial v(7)}$}
+
+            Applying the product rule:
+
+            \begin{equation}
+                \frac{\partial (w_{in} d_{in})}{\partial v(7)} = w_{in} \frac{\partial d_{in}}{\partial v(7)} + d_{in} \frac{\partial w_{in}}{\partial v(7)}
+            \end{equation}
+
+            Derivative $\frac{\partial d_{in}}{\partial v(7)}$:
+
+            Recall $d_{in} = ps_{y}^2$. The dependency on $v(7)$ is through $ps$.
+
+            \begin{equation}
+                \frac{\partial d_{in}}{\partial v(7)} = \frac{\partial d_{in}}{\partial ps} \frac{\partial ps}{\partial v(7)}
+            \end{equation}
+            \begin{equation}
+                \frac{\partial d_{in}}{\partial ps} = (0, 2ps_{y}, 0)^T
+            \end{equation}
+
+            Let $\mathbf{h}_{pose,v7}$ be the column of $H_{pose}$ (the Jacobian from `transformTo`) corresponding to the derivative with respect to $v(7)$.
+
+            \begin{equation}
+                \frac{\partial ps}{\partial v(7)} = \mathbf{h}_{pose,v7}
+            \end{equation}
+
+            Thus,
+
+            \begin{equation}
+                \frac{\partial d_{in}}{\partial v(7)} =  (0, 2ps_{y}, 0)^T \mathbf{h}_{pose,v7} = 2 ps_{y} [\mathbf{h}_{pose,v7}]_y
+            \end{equation}
+
+            Derivative $\frac{\partial w_{in}}{\partial v(7)}$:
+
+            $w_{in}$ depends on $v(7)$ through $s_0$, $s_1$, $t_1$, $ps_x$, $A_x$, and $B_x$.
+
+            \begin{equation}
+                \frac{\partial w_{in}}{\partial v(7)} = \frac{\partial w_{in}}{\partial s_0}\frac{\partial s_0}{\partial t_1}\frac{\partial t_1}{\partial v(7)}  + \frac{\partial w_{in}}{\partial s_1}\frac{\partial s_1}{\partial t_1}\frac{\partial t_1}{\partial v(7)}
+            \end{equation}
+
+            and,
+
+            \begin{equation}
+                \frac{\partial t_1}{\partial v(7)} = \frac{\partial t_1}{\partial ps_x}\frac{\partial ps_x}{\partial v(7)} + \frac{\partial t_1}{\partial A_x}\frac{\partial A_x}{\partial v(7)} + \frac{\partial t_1}{\partial B_x}\frac{\partial B_x}{\partial v(7)}
+            \end{equation}
+
+            Computing the derivatives:
+
+            \begin{align}
+                \frac{\partial w_{in}}{\partial s_0} &= 1 - s_1 \\
+                \frac{\partial w_{in}}{\partial s_1} &= -s_0 \\
+                \frac{\partial s_0}{\partial t_1} &= \beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \\
+                \frac{\partial s_1}{\partial t_1} &= \beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1))) \\
+                \frac{\partial t_1}{\partial ps_x} &= \frac{1}{B_x - A_x} = \frac{1}{v(7)} \\
+                \frac{\partial ps_x}{\partial v(7)}  &= [\mathbf{h}_{pose,v7}]_x \\
+                \frac{\partial t_1}{\partial A_x} &= - \frac{ps_x}{(B_x - A_x)^2}  = -\frac{ps_x}{v(7)^2}\\
+                \frac{\partial t_1}{\partial B_x} &=  \frac{ps_{x}}{(B_x - A_x)^2} = \frac{ps_x}{v(7)^2}\\
+                \frac{\partial A_x}{\partial v(7)} &= -1/2 \\
+                \frac{\partial B_x}{\partial v(7)} &= 1/2
+            \end{align}
+
+            Thus,
+
+            \begin{equation}
+                \frac{\partial t_1}{\partial v(7)} =  \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x -\frac{ps_{x}}{v(7)^2}(-1/2) +   \frac{ps_{x}}{v(7)^2}(1/2) =  \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2}
+            \end{equation}
+
+            and,
+
+            \begin{multline}
+                \frac{\partial w_{in}}{\partial v(7)} = \left[(1 - s_1)\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \right. \\
+                \left. - s_0\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1)))\right] \\
+                \left(\frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2}\right)
+            \end{multline}
+
+            Combining for Term K,
+
+            \begin{multline}
+                \frac{\partial (w_{in} d_{in})}{\partial v(7)} =  w_{in}  2 ps_{y} [\mathbf{h}_{pose,v7}]_y  \\
+                + d_{in} \left[(1 - s_1)\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \right. \\
+                \left. - s_0\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1)))\right] \\
+                \left(\frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2}\right)
+            \end{multline}
+
+            \subsubsection*{Term L: $\frac{\partial (w_{left} d_{left})}{\partial v(7)}$}
+
+                Applying the product rule:
+
+                \begin{equation}
+                    \frac{\partial (w_{left} d_{left})}{\partial v(7)} = w_{left} \frac{\partial d_{left}}{\partial v(7)} + d_{left} \frac{\partial w_{left}}{\partial v(7)}
+                \end{equation}
+
+                Derivative $\frac{\partial d_{left}}{\partial v(7)}$:
+                Recall $d_{left} = ||ps - A||^2$.
+
+                \begin{equation}
+                    \frac{\partial d_{left}}{\partial v(7)} = \frac{\partial d_{left}}{\partial ps} \frac{\partial ps}{\partial v(7)} + \frac{\partial d_{left}}{\partial A} \frac{\partial A}{\partial v(7)}
+                \end{equation}
+
+                \begin{align}
+                    \frac{\partial d_{left}}{\partial ps} &= 2(ps - A)^T \\
+                    \frac{\partial ps}{\partial v(7)} &= \mathbf{h}_{pose,v7} \\
+                    \frac{\partial d_{left}}{\partial A} &= -2(ps - A)^T \\
+                    \frac{\partial A}{\partial v(7)} &= (-1/2, 0, 0)^T
+                \end{align}
+
+                Therefore:
+
+                \begin{equation}
+                    \frac{\partial d_{left}}{\partial v(7)} = 2(ps - A)^T \mathbf{h}_{pose,v7}  -2(ps - A)^T (-1/2, 0, 0)^T  = 2 (ps - A)^T \mathbf{h}_{pose,v7}  + (ps_x - A_x)
+                \end{equation}
+
+                Derivative $\frac{\partial w_{left}}{\partial v(7)}$:
+
+                Recall $w_{left} = (1 - s_0)$.
+
+                \begin{equation}
+                    \frac{\partial w_{left}}{\partial v(7)} = \frac{\partial w_{left}}{\partial s_0} \frac{\partial s_0}{\partial t_1} \frac{\partial t_1}{\partial v(7)}
+                \end{equation}
+
+                \begin{align}
+                    \frac{\partial w_{left}}{\partial s_0} &= -1 \\
+                    \frac{\partial s_0}{\partial t_1} &= \beta \cdot \text{logistic}(\beta t_1) (1 - \text{logistic}(\beta t_1))\\
+                    \frac{\partial t_1}{\partial v(7)} &=  \frac{\partial t_1}{\partial ps_{x}} \frac{\partial ps_{x}}{\partial v(7)} + \frac{\partial t_1}{\partial A_{x}} \frac{\partial A_{x}}{\partial v(7)} +  \frac{\partial t_1}{\partial B_{x}} \frac{\partial B_{ x}}{\partial v(7)}
+                \end{align}
+
+                Using values calculated for Term K:
+
+                \begin{equation}
+                    \frac{\partial t_1}{\partial v(7)} =  \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2}
+                \end{equation}
+                \begin{equation}
+                    \frac{\partial w_{left}}{\partial v(7)} = -\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \left( \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2} \right)
+                \end{equation}
+
+                Combining for Term L:
+
+                \begin{multline}
+                    \frac{\partial (w_{left} d_{left})}{\partial v(7)} = w_{left} \left( 2 (ps - A)^T \mathbf{h}_{pose,v7}  + (ps_x - A_x) \right) \\ - d_{left}\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \left( \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2} \right)
+                \end{multline}
+
+            \subsubsection*{Term M: $\frac{\partial (w_{right} d_{right})}{\partial v(7)}$}
+
+                Applying the product rule:
+
+                \begin{equation}
+                    \frac{\partial (w_{right} d_{right})}{\partial v(7)} = w_{right} \frac{\partial d_{right}}{\partial v(7)} + d_{right} \frac{\partial w_{right}}{\partial v(7)}
+                \end{equation}
+
+                Derivative $\frac{\partial d_{right}}{\partial v(7)}$:
+                Recall $d_{right} = ||ps - B||^2$.
+
+                \begin{equation}
+                    \frac{\partial d_{right}}{\partial v(7)} = \frac{\partial d_{right}}{\partial ps} \frac{\partial ps}{\partial v(7)} + \frac{\partial d_{right}}{\partial B} \frac{\partial B}{\partial v(7)}
+                \end{equation}
+
+                \begin{align}
+                    \frac{\partial d_{right}}{\partial ps} &= 2(ps - B)^T \\
+                    \frac{\partial ps}{\partial v(7)} &= \mathbf{h}_{pose,v7} \\
+                    \frac{\partial d_{right}}{\partial B} &= -2(ps - B)^T \\
+                    \frac{\partial B}{\partial v(7)} &= (1/2, 0, 0)^T
+                \end{align}
+
+                Therefore:
+
+                \begin{equation}
+                    \frac{\partial d_{right}}{\partial v(7)} = 2(ps - B)^T \mathbf{h}_{pose,v7}  -2(ps - B)^T (1/2, 0, 0)^T =  2(ps - B)^T \mathbf{h}_{pose,v7}  - (ps_x - B_x)
+                \end{equation}
+
+                Derivative $\frac{\partial w_{right}}{\partial v(7)}$:
+                Recall $w_{right} = s_1$.
+
+                \begin{equation}
+                    \frac{\partial w_{right}}{\partial v(7)} = \frac{\partial w_{right}}{\partial s_1} \frac{\partial s_1}{\partial t_1} \frac{\partial t_1}{\partial v(7)}
+                \end{equation}
+
+                \begin{align}
+                    \frac{\partial w_{right}}{\partial s_1} &= 1 \\
+                    \frac{\partial s_1}{\partial t_1} &= \beta \cdot \text{logistic}(\beta (t_1 -1)) (1 - \text{logistic}(\beta (t_1-1)))
+                \end{align}
+
+                Using the value of $\frac{\partial t_1}{\partial v(7)}$ calculated before:
+
+                \begin{equation}
+                    \frac{\partial w_{right}}{\partial v(7)} = \beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1))) \left( \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2} \right)
+                \end{equation}
+
+                Combining for Term M:
+                \begin{multline}
+                    \frac{\partial (w_{right} d_{right})}{\partial v(7)} = w_{right} \left( 2(ps - B)^T \mathbf{h}_{pose,v7}  - (ps_x - B_x) \right) \\ + d_{right}\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1-1))) \left( \frac{1}{v(7)}[\mathbf{h}_{pose,v7}]_x + \frac{ps_{x}}{v(7)^2} \right)
+                \end{multline}
+
+        \subsection*{4. Jacobian with respect to table parameters: final step}
+            The aggregated K + L + M derivative gives,
+
+            \begin{equation}
+                \frac{\partial d}{\partial v(7)} = K + L + M
+            \end{equation}
+
+            and the final Jacobian can now be computed as a $1x6$ left-block matrix inside the $1x9$ matrix that the loss function returns:
+
+            \begin{equation}
+                \frac{\partial fd}{\partial v(7)} = g \cdot \underbrace{\frac{\partial d}{\partial v(7)}}_{1x6} + d \cdot \underbrace{\frac{\partial g}{\partial v(7)}}_{1x6}
+            \end{equation}
+
+
+        \subsection*{Jacobian with Respect to the Input Point \(p\) (H\(_2\))}
+
+            We now need to compute the Jacobian $\frac{\partial fd}{\partial \mathbf{p}}$.
+            Recall that:
+
+            \begin{equation}
+                fd = g * (w_{in} d_{in} + w_{left} d_{left} + w_{right} d_{right})
+            \end{equation}
+
+            The point $\mathbf{p}$ affects the $fd$ function only through the transformed point  $ps$.
+            Therefore, we can apply the chain rule:
+
+            \begin{equation}
+                \frac{\partial fd}{\partial p} = \frac{\partial fd}{\partial ps} \frac{\partial ps}{\partial p}
+            \end{equation}
+
+            Let's break this down into two parts:
+
+            \subsubsection*{Derivative $\frac{\partial ps}{\partial p}$}
+
+                We already know that $\frac{\partial ps}{\partial \mathbf{p}} = H_{point}$.
+
+            \subsubsection*{Derivative $\frac{\partial fd}{\partial ps}$}
+
+                Applying the product rule:
+
+                \begin{equation}
+                    \frac{\partial fd}{\partial ps} = \frac{\partial (g \cdot d)}{\partial ps} =  g \cdot \frac{\partial d}{\partial ps}  + d \cdot  \frac{\partial g}{\partial ps}
+                \end{equation}
+
+                \paragraph{Derivative $\frac{\partial d}{\partial ps}$:}
+
+                This is the derivative of the 'softmax(d)' function with respect to the transformed point `ps`.
+                We need to consider the contributions of all three terms ($d_{in}$, $d_{left}$, and $d_{right}$), as well as the weights.
+
+                \begin{equation}
+                    \frac{\partial dist}{\partial ps} = \frac{\partial (w_{in} d_{in})}{\partial ps} + \frac{\partial (w_{left} d_{left})}{\partial ps} + \frac{\partial (w_{right} d_{right})}{\partial ps}
+                \end{equation}
+
+                Applying the product rule to each term:
+
+                \begin{align}
+                    \frac{\partial (w_{in} d_{in})}{\partial ps} &= w_{in} \frac{\partial d_{in}}{\partial ps} + d_{in} \frac{\partial w_{in}}{\partial ps} \\
+                    \frac{\partial (w_{left} d_{left})}{\partial ps} &= w_{left} \frac{\partial d_{left}}{\partial ps} + d_{left} \frac{\partial w_{left}}{\partial ps} \\
+                    \frac{\partial (w_{right} d_{right})}{\partial ps} &= w_{right} \frac{\partial d_{right}}{\partial ps} + d_{right} \frac{\partial w_{right}}{\partial ps}
+                \end{align}
+
+
+                Now we need to compute the individual derivatives:
+
+                The derivative $\frac{\partial d_{in}}{\partial ps}$:
+                Recall $d_{in} = ps_y^2$.
+
+                \begin{equation}
+                    \frac{\partial d_{in}}{\partial ps} = \frac{\partial (ps_y^2)}{\partial ps} = (0, 2ps_y, 0)
+                \end{equation}
+
+                The derivative $\frac{\partial d_{left}}{\partial ps}$:
+                Recall $d_{left} = ||ps - A||^2$.
+
+                \begin{equation}
+                    \frac{\partial d_{left}}{\partial ps} = 2(ps - A)^T
+                \end{equation}
+
+                The derivative $\frac{\partial d_{right}}{\partial ps}$:
+                Recall $d_{right} = ||ps - B||^2$.
+
+                \begin{equation}
+                    \frac{\partial d_{right}}{\partial ps} = 2(ps - B)^T
+                \end{equation}
+
+                The derivative $\frac{\partial w_{in}}{\partial ps}$:  $w_{in}$ depends on $ps$ through $t_1$.
+
+                \begin{equation}
+                    \frac{\partial w_{in}}{\partial ps} = \frac{\partial w_{in}}{\partial s_0} \frac{\partial s_0}{\partial t_1} \frac{\partial t_1}{\partial ps} + \frac{\partial w_{in}}{\partial s_1} \frac{\partial s_1}{\partial t_1} \frac{\partial t_1}{\partial ps}
+                \end{equation}
+
+                \begin{equation}
+                    \frac{\partial t_1}{\partial ps} = \frac{\partial t_1}{\partial ps_x} \frac{\partial ps_x}{\partial ps} =  \frac{1}{B_x - A_x} (1, 0, 0) = \frac{1}{v(7)}(1,0,0)
+                \end{equation}
+
+                We already have $\frac{\partial w_{in}}{\partial s_0}$, $\frac{\partial w_{in}}{\partial s_1}$, $\frac{\partial s_0}{\partial t_1}$, and $\frac{\partial s_1}{\partial t_1}$ from the previous derivation with respect to $v(7)$.  Substituting:
+
+                \begin{equation}
+                    \begin{split}
+                    \frac{\partial w_{in}}{\partial ps} = &\left[(1 - s_1)\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \right. \\
+                    &\left. - s_0\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1)))\right] \\
+                    &\frac{1}{v(7)} (1, 0, 0)
+                    \end{split}
+                \end{equation}
+
+
+                The derivative $\frac{\partial w_{left}}{\partial ps}$: $w_{left}$ also depends on $ps$ through $t_1$.
+
+                \begin{equation}
+                    \frac{\partial w_{left}}{\partial ps} = \frac{\partial w_{left}}{\partial s_0} \frac{\partial s_0}{\partial t_1} \frac{\partial t_1}{\partial ps}
+                \end{equation}
+
+                Using the previously calculated values:
+                \begin{equation}
+                    \frac{\partial w_{left}}{\partial ps} = -\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1))  \frac{1}{v(7)} (1, 0, 0)
+                \end{equation}
+
+                The derivative $\frac{\partial w_{right}}{\partial ps}$: $w_{right}$ also depends on $ps$ through $t_1$.
+
+                \begin{equation}
+                    \frac{\partial w_{right}}{\partial ps} = \frac{\partial w_{right}}{\partial s_1} \frac{\partial s_1}{\partial t_1} \frac{\partial t_1}{\partial ps}
+                \end{equation}
+
+                Using the previously calculated values:
+
+                \begin{equation}
+                    \frac{\partial w_{right}}{\partial ps} =  \beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1))) \frac{1}{v(7)} (1, 0, 0)
+                \end{equation}
+
+                Combining Everything:
+
+                \begin{multline}
+                    \frac{\partial d}{\partial ps} = w_{in}(0, 2ps_y, 0) + d_{in}\left[(1 - s_1)\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \right. \\
+                    \left. - s_0\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1)))\right] \frac{1}{v(7)} (1, 0, 0) \\
+                    + w_{left}2(ps - A)^T + d_{left}\left[-\beta \cdot \text{logistic}(\beta t_1)(1 - \text{logistic}(\beta t_1)) \right. \\
+                    \left. \frac{1}{v(7)} (1, 0, 0)\right] \\
+                    + w_{right}2(ps - B)^T + d_{right}\left[\beta \cdot \text{logistic}(\beta (t_1 - 1))(1 - \text{logistic}(\beta (t_1 - 1))) \right. \\
+                    \left. \frac{1}{v(7)} (1, 0, 0)\right]
+                \end{multline}
+
+%                Finally, multiply by $H_{point}$ to get the Jacobian with respect to the original point $p$:
+%
+%                \begin{equation}
+%                    \frac{\partial d}{\partial p} = \frac{\partial d}{\partial ps} H_{point}
+%                \end{equation}
+
+                where $\frac{\partial d}{\partial ps}$ is given by the long expression above.
+
+            \subsubsection*{Derivative $\frac{\partial g}{\partial ps}$}
+
+                \begin{equation}
+                    \frac{\partial g}{\partial ps} = [0, \text{logistic}(ps_y), 0]
+                \end{equation}
+
+        \subsection*{Jacobian with Respect to the Input Point \(p\) (H\(_2\)): final step}
+        The final Jacobian $H2$ is a 1x3 matrix:
+
+        \begin{equation}
+            H2 = \frac{\partial fd}{\partial p} =
+                 \frac{\partial fd}{\partial ps}\frac{\partial ps}{\partial p} =
+                 g \underbrace{(\frac{\partial d}{\partial ps}}_{1x3} + d \underbrace{\frac{\partial g}{\partial ps}}_{1x3}) \underbrace{H_{point}}_{3x3}
+        \end{equation}
+
+
+\end{document}

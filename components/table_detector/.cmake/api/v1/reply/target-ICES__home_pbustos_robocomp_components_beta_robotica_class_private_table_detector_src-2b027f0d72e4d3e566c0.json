@@ -1,0 +1,43 @@
+{
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"ADD_CUSTOM_TARGET",
+			"ROBOCOMP_IDSL_TO_ICE"
+		],
+		"files" : 
+		[
+			"/home/robocomp/robocomp/cmake/robocomp.cmake",
+			"src/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 37,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 100,
+				"parent" : 1
+			}
+		]
+	},
+	"id" : "ICES__home_pbustos_robocomp_components_beta_robotica_class_private_table_detector_src::@145eef247bfb46b6828c",
+	"name" : "ICES__home_pbustos_robocomp_components_beta_robotica_class_private_table_detector_src",
+	"paths" : 
+	{
+		"build" : "src",
+		"source" : "src"
+	},
+	"sources" : [],
+	"type" : "UTILITY"
+}

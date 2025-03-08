@@ -1,0 +1,132 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-9f0334ec998d08e2d837.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"build" : "src",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-src-9056ee7c005696b534af.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1
+					],
+					"name" : "table_detector",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 1,
+					"id" : "ICES__home_pbustos_robocomp_components_beta_robotica_class_private_table_detector_src::@145eef247bfb46b6828c",
+					"jsonFile" : "target-ICES__home_pbustos_robocomp_components_beta_robotica_class_private_table_detector_src-2b027f0d72e4d3e566c0.json",
+					"name" : "ICES__home_pbustos_robocomp_components_beta_robotica_class_private_table_detector_src",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "pch::@145eef247bfb46b6828c",
+					"jsonFile" : "target-pch-faf7b2f82cb087144623.json",
+					"name" : "pch",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "pch_autogen::@145eef247bfb46b6828c",
+					"jsonFile" : "target-pch_autogen-138aac7ea9c42449db20.json",
+					"name" : "pch_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "pch_autogen_timestamp_deps::@145eef247bfb46b6828c",
+					"jsonFile" : "target-pch_autogen_timestamp_deps-d605c13565eae9680d5d.json",
+					"name" : "pch_autogen_timestamp_deps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "table_detector::@145eef247bfb46b6828c",
+					"jsonFile" : "target-table_detector-8e8cf8651092c3568383.json",
+					"name" : "table_detector",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "table_detector_autogen::@145eef247bfb46b6828c",
+					"jsonFile" : "target-table_detector_autogen-053c83ba625fc149222c.json",
+					"name" : "table_detector_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "table_detector_autogen_timestamp_deps::@145eef247bfb46b6828c",
+					"jsonFile" : "target-table_detector_autogen_timestamp_deps-166a61ce586817236352.json",
+					"name" : "table_detector_autogen_timestamp_deps",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/pbustos/robocomp/components/beta_robotica_class_private/table_detector",
+		"source" : "/home/pbustos/robocomp/components/beta_robotica_class_private/table_detector"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 7
+	}
+}

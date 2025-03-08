@@ -1,0 +1,62 @@
+# Sources set
+LIST(APPEND SOURCES
+  specificworker.cpp
+  specificmonitor.cpp
+  room_detector.cpp
+  room.cpp
+  dbscan.cpp
+  hungarian.cpp
+  $ENV{ROBOCOMP}/classes/qcustomplot/qcustomplot.cpp
+  actionable_origin.cpp
+  actionable_room.cpp
+  actionable_thing.cpp
+  optimiser.cpp
+  viewer3D.cpp
+
+)
+
+# Headers set
+LIST(APPEND HEADERS
+  specificworker.h
+  specificmonitor.h
+  room_detector.h
+  room.h
+  dbscan.h
+  viewer3D.h
+
+)
+
+# Include OpenCV
+INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
+
+# Find required packages
+find_package(MLPACK REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets PrintSupport 3DCore 3DExtras 3DRender)
+find_package(GTSAM CONFIG REQUIRED)
+
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 23)
+
+# Add compiler definitions
+add_definitions(-O0 -g -fmax-errors=1 -fno-char8_t -fopenmp -Wno-unused-function -Wno-cpp)
+
+# Add libraries
+LIST(APPEND LIBS ${LIBS} gomp mlpack gmp mpfr gtsam tbb Qt6::Core Qt6::Widgets Qt6::PrintSupport Qt6::3DCore Qt6::3DExtras Qt6::3DRender)
+
+# Add precompiled header
+set(PCH_HEADER pch.h)
+set(PCH_SOURCE pch.cpp)
+
+# Add the precompiled header to the target
+add_library(pch STATIC ${PCH_SOURCE})
+target_precompile_headers(pch PRIVATE ${PCH_HEADER})
+
+# Include OpenCV directories
+target_include_directories(pch PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+# Link OpenCV libraries
+target_link_libraries(pch PRIVATE ${OpenCV_LIBS})
+
+# Link Qt libraries
+target_link_libraries(pch PRIVATE ${LIBS})

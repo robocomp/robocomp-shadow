@@ -1,0 +1,403 @@
+%! Author = pbustos
+%! Date = 22/02/25
+
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath, amsfonts}
+\usepackage[a4paper, total={6.5in, 8in}]{geometry}
+\usepackage{amsfonts}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1em} % Adjust the length as needed
+
+% Document
+\begin{document}
+
+\title{Loss function: distance to the side of an orthohedron (object)}
+\maketitle
+
+    In our 3D object detection problem, the cuboid object is modeled by a 9-dimensional parameter vector
+    \begin{equation}
+        \mathbf{v} = \begin{bmatrix} x \\ y \\ z \\ \alpha \\ \beta \\ \gamma \\ \text{w} \\ \text{d} \\ \text{h} \end{bmatrix},\label{eq:equation_1}
+    \end{equation}
+
+    where $x,y,z$ define the position of the object in the room frame, $\alpha,\beta,\gamma$ define the rotation of the object in the room frame, and $w,d,h$ define the width, depth, and height of the table respectively.
+    The objective is to define a differentiable distance from a point $p$ with coordinates in the object frame, to one side (top) of the object.
+
+    Let the width of the orthohedron be \(\text{w}\), the depth \(\text{d}\) and the height \(\text{h}\).
+    We define the transformation from the center of the object to the top side with an \(\text{Pose3}\) object:
+
+    \begin{equation}
+        T_{t2s} = \text{Pose3}\Bigl(\mathbf{R}=\mathbf{I},\; \mathbf{t} = \begin{bmatrix} 0 \\  0 \\ \frac{h}{2} \end{bmatrix}\Bigr),
+    \end{equation}
+
+    and the transformed point $ps$,
+
+    \begin{equation}
+        ps = \text{Pose3::transformTo}(p,H_{ps}(3x6), H_{pt}(3x3)) = \begin{bmatrix} x \\ y \\ z \end{bmatrix} \in \mathbb{R}^3,
+    \end{equation}
+
+    The method provides the Jacobians with respect to the pose parameters and the input point \(p\).
+
+    We follow the same convention for all the sides of the orthohedron, where the normal vector points outwards in the positive $Z$ direction, the $X+$ direction is the width, and the $Y+$ direction is the depth.
+
+    \section*{Distance computation}
+
+    Let the top side of the object defined in the side coordinate system be given by the plane,
+    \begin{equation}
+        z = 0,
+    \end{equation}
+    with a rectangular boundary given by
+    \begin{equation}
+        \mathcal{R} = \{ (x,y,0) \mid -L_x \le x \le L_x,\; -L_y \le y \le L_y \}.
+    \end{equation}
+
+    where \(L_x = \frac{w}{2}\) and \(L_y = \frac{d}{2}\).
+
+    The orthogonal projection of Point $ps$ onto the plane is
+
+    \begin{equation}
+        p_{\text{proj}} = \begin{bmatrix} x \\ y \\ 0 \end{bmatrix}.
+    \end{equation}
+
+    We now analyse the two possible cases for the projection of \(p\) onto the face of the object: falling inside and falling outside the rectangle \(\mathcal{R}\).
+
+    \subsection*{Case 1: Projection Inside the Face}
+
+        If the projection lies inside the rectangle, i.e.,
+        \begin{equation}
+            |x| \le L_x \quad \text{and} \quad |y| \le L_y,
+        \end{equation}
+        then the closest point on the face is \(p_{\text{proj}}\) itself and the (squared) distance from \(p\) to the face is simply the squared perpendicular distance:
+        \begin{equation}
+            D^2(p) = z^2.
+        \end{equation}
+
+    \subsection*{Case 2: Projection Outside the Face}
+
+        If the projection lies outside \(\mathcal{R}\), then the closest point \(q\) on the rectangle is the one that minimizes the Euclidean distance to \(p_{\text{proj}}\). Define the distances along the \(x\) and \(y\) directions by
+        \begin{equation}
+            d_x = \max\{0,\, |x| - L_x\}, \qquad
+            d_y = \max\{0,\, |y| - L_y\}.
+        \end{equation}
+        Then, the squared distance from \(p\) to the face is given by
+        \begin{equation}
+            D^2(p) = z^2 + d_x^2 + d_y^2.
+        \end{equation}
+
+    \subsection*{Unified Formulation}
+
+        One can combine the two cases into a single expression:
+        \begin{equation}
+            D^2(p) = z^2 + \left[ \max\{0,\, |x| - L_x\} \right]^2 + \left[ \max\{0,\, |y| - L_y\} \right]^2.
+        \end{equation}
+
+    \subsection*{Smooth Approximation}
+
+        Since the \(\max\) function is not differentiable at zero, a smooth alternative is to use the softplus function to approximate the \(\max\) (or the ReLU). For example, define:
+        \begin{equation}
+            \text{softplus}(x) = \ln\left(1+\exp(x)\right),
+        \end{equation}
+
+        which approximates \(\max\{0,x\}\). Then, one can define smooth approximations of \(d_x\) and \(d_y\) by:
+
+        \begin{equation}
+            d_x \approx \text{softplus}(|x| - L_x), \qquad
+            d_y \approx \text{softplus}(|y| - L_y),
+        \end{equation}
+
+        The derivative of the softplus function is given by:
+        \begin{equation}
+            \text{softplus}'(x) = \frac{\exp(x)}{1+\exp(x)} = \frac{1}{1+\exp(-x)}.
+        \end{equation}
+
+        For the absolute value, we can use a \textit{softabs()} function defined as,
+        \begin{equation}
+            \text{softabs}(x) = \sqrt{x^2 + \epsilon}, \qquad \text{where } \epsilon \text{ is a small constant}.
+        \end{equation}
+
+        The derivative of the softabs function is given by:
+        \begin{equation}
+            \text{softabs}'(x) = \frac{x}{\sqrt{x^2 + \epsilon}}.
+        \end{equation}
+
+
+        The smooth squared distance becomes,
+
+        \begin{equation}
+            \boxed{D(p,v) = \approx z^2 + \underbrace{\text{softplus}(softabs(x) - L_x)^2}_{dx^2} + \underbrace{\text{softplus}(softabs(y) - L_y)^2}_{dy^2}}
+        \end{equation}
+
+
+
+
+\section*{Computation of the Jacobian of the distance wrt to the parameter vector $v$}
+
+        The derivative of the squared distance with respect to the parameter vector \(\mathbf{v}\) is given by:
+
+        \begin{equation}
+            \frac{\partial D}{\partial v} = \left[0,0,0,0,0,0, \frac{\partial D}{\partial w}, \frac{\partial D}{\partial d}, \frac{\partial D}{\partial h}\right]
+        \end{equation}
+
+        The derivatives with respect to the parameters $w,d,h$ are computed using the chain rule and the transformation matrix \(H_{pose}\).
+
+        We define the intermediate variables:
+        \begin{align}
+            dx^2 &= \left[\text{softplus}(\text{softabs}(ps_x) - L_x)\right]^2,\\
+            u^2 &= [softplus(v)]^2 \\
+            s &= \text{softabs}(ps_{x}) = \sqrt{ps_{x}^2 + \epsilon}, \\
+            v &= s - L_x, \\
+            ps_{x} &= H_{point}(0,:)\, p, \\
+            L_x &= \frac{width}{2} \\
+        \end{align}
+
+        \subsection*{Derivative of $D$ with respect to $w$}
+            The derivative of \(D\) with respect to \(w\) is given by:
+            \begin{equation}
+                \frac{\partial D}{\partial w} = \frac{\partial D}{\partial dx^2} \cdot \frac{\partial dx^2}{\partial w}
+            \end{equation}
+
+            Since only the \(dx^2\) term depends on \(w\), we can compute the derivative of \(D\) with respect to \(dx^2\) first:
+
+            \begin{equation}
+                \frac{\partial D}{\partial w} = \frac{\partial dx^2}{\partial w}
+            \end{equation}
+
+            Using the chain rule, we can express the derivative of \(dx^2\) with respect to \(w\) as:
+            \begin{equation}
+                \frac{\partial dx^2}{\partial w} = \frac{\partial dx^2}{\partial u} \cdot \frac{\partial u}{\partial v} \cdot \frac{\partial v}{\partial s} \cdot \frac{\partial s}{\partial ps_{x}} \cdot \frac{\partial ps_{x}}{\partial p} \cdot \frac{\partial p}{\partial w}
+            \end{equation}
+
+            where
+            \begin{align}
+                \frac{\partial p}{\partial w} &= \begin{bmatrix} 1 \\ 0 \\ 0 \end{bmatrix} \\
+                \frac{\partial ps_{x}}{\partial p_x} &= H_{point}(0,:) \\
+                \frac{\partial s}{\partial ps_{x}} &= \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}}\\
+                \frac{\partial v}{\partial s} &= 1\\
+                \frac{\partial u}{\partial v} &= \frac{1}{1 + e^{-(s - L_x)}}\\
+                \frac{\partial dx^2}{\partial u} &= 2\,\text{softplus}(s - L_x)\\
+            \end{align}
+
+            Multiplying all the factors, we have:
+            \begin{equation}
+                \frac{\partial D}{\partial w} = \frac{\partial dx^2}{\partial w} = 2\,\text{softplus}(s - L_x) \cdot \frac{1}{1 + e^{-(s - L_x)}} \cdot \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}} \cdot H_{point}(0,:) \cdot \begin{bmatrix} 1 \\ 0 \\ 0 \end{bmatrix}
+            \end{equation}
+
+
+    \subsection*{Derivative of $D$ with respect to $d$}
+        The derivative of \(D\) with respect to \(d\) is given by:
+        \begin{equation}
+            \frac{\partial D}{\partial d} = \frac{\partial D}{\partial dy^2} \cdot \frac{\partial dy^2}{\partial d}
+        \end{equation}
+
+        Since only the \(dy^2\) term depends on \(d\), we can compute the derivative of \(D\) with respect to \(dy^2\) first:
+
+        \begin{equation}
+            \frac{\partial D}{\partial d} = \frac{\partial dy^2}{\partial d}
+        \end{equation}
+
+        Using the chain rule, we can express the derivative of \(dy^2\) with respect to \(d\) as:
+
+        \begin{equation}
+            \frac{\partial dy^2}{\partial d} = \frac{\partial dy^2}{\partial u_y} \cdot \frac{\partial u_y}{\partial v_y} \cdot \frac{\partial v_y}{\partial s_y} \cdot \frac{\partial s_y}{\partial ps_{y}} \cdot \frac{\partial ps_{y}}{\partial p_y} \cdot \frac{\partial p_y}{\partial d}
+        \end{equation}
+
+        where
+        \begin{align}
+            \frac{\partial p}{\partial d} &= \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} \\
+            \frac{\partial ps_{y}}{\partial p_y} &= H_{point}(1,:)\\
+            \frac{\partial s_{y}}{\partial ps_{y}} &= \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}}\\
+            \frac{\partial v_{y}}{\partial s_{y}} &= 1\\
+            \frac{\partial u_{y}}{\partial v_{y}} &= \frac{1}{1 + e^{-(s - L_y)}}\\
+            \frac{\partial dy^2}{\partial u_y} &= 2\,\text{softplus}(s - L_y)\\
+        \end{align}
+
+        Multiplying all the factors, we have:
+        \begin{equation}
+            \frac{\partial D}{\partial d} = \frac{\partial D}{\partial dy^2}  = 2 \cdot
+                                            \text{softplus}(s - L_y) \cdot
+                                            \frac{1}{1 + e^{-(s - L_y)}} \cdot
+                                            \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}} \cdot
+                                            H_{point}(1,:) \cdot
+                                            \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix}
+        \end{equation}
+
+    \subsection*{Derivative of $D$ with respect to $h$}
+        The derivative of \(D\) with respect to \(h\) is given by:
+        \begin{equation}
+            \frac{\partial D}{\partial h} = \frac{\partial D}{\partial ps_{z}} \cdot \frac{\partial ps_{z}}{\partial h}
+        \end{equation}
+
+        Since $D = ps^2_z$ plus two other terms that not depend on h,
+
+        \begin{equation}
+            \frac{\partial D}{\partial h} = \frac{\partial ps^2_{z}}{\partial ps_z} \cdot  \frac{\partial ps_z}{\partial z} \cdot \frac{\partial p_z}{\partial h} = 2 \cdot ps_z \cdot H_{point}(2,:) \cdot \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}
+        \end{equation}
+
+    \subsubsection*{Final form of the Jacobian of D wrt v}
+        The final Jacobian of the distance with respect to \(v\) is given by:
+
+        \begin{equation}
+            \frac{\partial D}{\partial v} = \left[0,0,0,0,0,0, \frac{\partial D}{\partial w}, \frac{\partial D}{\partial d}, \frac{\partial D}{\partial h}\right]
+        \end{equation}
+
+        where
+
+        \begin{equation}
+            \begin{aligned}
+                \frac{\partial D}{\partial w} &= 2\,\text{softplus}(s_x - L_x) \cdot \frac{1}{1 + e^{-(s_x - L_x)}} \cdot \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}} \cdot H_{point}(0,:) \cdot \begin{bmatrix} 1 \\ 0 \\ 0 \end{bmatrix}\\
+                \frac{\partial D}{\partial d} &= 2\,\text{softplus}(s_y - L_y) \cdot \frac{1}{1 + e^{-(s_y - L_y)}} \cdot \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}} \cdot H_{point}(1,:) \cdot \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix}\\
+                \frac{\partial D}{\partial h} &= 2 \cdot ps_z \cdot H_{point}(2,:) \cdot \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}
+            \end{aligned}
+        \end{equation}
+
+    \section*{Derivatives with respect to the input point \(\mathbf{p}\)}
+
+        The derivative of the squared distance with respect to the input point \(\mathbf{p}\) is given by:
+
+        \begin{equation}
+            \frac{\partial D}{\partial p} = \left[\frac{\partial D}{\partial p_{x}}, \frac{\partial D}{\partial p_{y}}, \frac{\partial D}{\partial p_{z}}\right]
+        \end{equation}
+
+        and $D$ is defined as:
+
+        \begin{equation}
+            D = ps_{z}^2 + dx^2 + dy^2
+        \end{equation}
+
+        The intermediate variables are defined as:
+
+        \begin{align}
+            dx^2 &= \left[\text{softplus}(\text{softabs}(ps_x) - L_x)\right]^2,\\
+            u^2 &= [softplus(v)]^2 \\
+            s &= \text{softabs}(ps_{x}) = \sqrt{ps_{x}^2 + \epsilon}, \\
+            v &= s - L_x, \\
+            ps_{x} &= H_{point}(0,:)\, p, \\
+            L_x &= \frac{width}{2}.
+        \end{align}
+
+        \subsection*{Derivative of $D$ with respect to $p_x$}
+
+            The derivative of \(D\) with respect to \(p_x\) is given by:
+            \begin{equation}
+                \frac{\partial D}{\partial p_x} = \frac{\partial D}{\partial dx^2} \cdot \frac{\partial dx^2}{\partial p_x}
+            \end{equation}
+
+            and since only the \(dx^2\) term depends on \(p_x\), we can compute the derivative of \(D\) with respect to \(dx^2\) first:
+
+            \begin{equation}
+                \frac{\partial D}{\partial p_x} = \frac{\partial dx^2}{\partial p_x}
+            \end{equation}
+
+            Apply the chain rule:
+            
+            \begin{equation}
+                \frac{\partial dx^2}{\partial p_x}
+                = \frac{\partial dx^2}{\partial u}
+                \cdot \frac{\partial u}{\partial v}
+                \cdot \frac{\partial v}{\partial s}
+                \cdot \frac{\partial s}{\partial ps_{x}}
+                \cdot \frac{\partial ps_{x}}{\partial p_x}
+            \end{equation}
+            
+            We compute each term individually:
+
+            \begin{align}
+                \frac{\partial ps_{x}}{\partial p_x} &= H_{point}(0,0) \\
+                \frac{\partial s}{\partial ps_{x}} &= \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}}\\
+                \frac{\partial v}{\partial s} &= 1\\
+                \frac{\partial u}{\partial v} &= \frac{1}{1 + e^{-(s - L_x)}}\\
+                \frac{\partial dx^2}{\partial u} &= 2\,\text{softplus}(s - L_x)\\
+            \end{align}
+
+           \subsubsection*{Combining all derivatives}
+            
+                Combining these terms, the complete derivative of \(dx\) with respect to \(p_x\) is:
+
+                \begin{equation}
+                    \frac{\partial dx^2}{\partial p_x}
+                    = 2 \cdot \text{softplus}(s - L_x)
+                    \cdot \frac{1}{1 + e^{-(s - L_x)}}
+                    \cdot 1
+                    \cdot \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}}
+                    \cdot H_{point}(0,0)
+                \end{equation}
+
+        \subsection*{Derivative of $D$ with respect to $p_y$}
+
+            The derivative of \(D\) with respect to \(p_y\) is given by:
+            \begin{equation}
+                \frac{\partial D}{\partial p_y} = \frac{\partial D}{\partial dy^2} \cdot \frac{\partial dy^2}{\partial p_y}
+            \end{equation}
+            
+            and since only the \(dy^2\) term depends on \(p_y\), we can compute the derivative of \(D\) with respect to \(dy^2\) first:
+            
+            \begin{equation}
+                \frac{\partial D}{\partial p_y} = \frac{\partial dy^2}{\partial p_y}
+            \end{equation}
+            
+            Apply the chain rule:
+            
+            \begin{equation}
+                \frac{\partial dy^2}{\partial p_y}
+                = \frac{\partial dy^2}{\partial u}
+                \cdot \frac{\partial u}{\partial v}
+                \cdot \frac{\partial v}{\partial s}
+                \cdot \frac{\partial s}{\partial ps_{y}}
+                \cdot \frac{\partial ps_{y}}{\partial p_y}
+            \end{equation}
+            
+            We compute each term individually:
+            
+            \begin{align}
+                \frac{\partial ps_{y}}{\partial p} &= H_{point}(1,1) \\
+                \frac{\partial s}{\partial ps_{y}} &= \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}}\\
+                \frac{\partial v}{\partial s} &= 1\\
+                \frac{\partial u}{\partial v} &= \frac{1}{1 + e^{-(s - L_y)}}\\
+                \frac{\partial dy^2}{\partial u} &= 2\,\text{softplus}(s - L_{y}\\
+            \end{align}
+            
+            
+            \subsubsection*{Combining all derivatives}
+            
+            Combining these terms, the complete derivative of \(dy\) with respect to \(p_y\) is:
+            
+            \begin{equation}
+                \frac{\partial dy^2}{\partial p_y} = 2 \cdot
+                \text{softplus}(s - L_y)
+                \cdot \frac{1}{1 + e^{-(s - L_y)}}
+                \cdot 1
+                \cdot \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}}
+                \cdot H_{point}(1,1).
+            \end{equation}
+
+        \subsection*{Derivative of $D$ with respect to $p_z$}
+
+            The derivative of \(D\) with respect to \(p_z\) is given by:
+            \begin{equation}
+                \frac{\partial D}{\partial p_z} = \frac{\partial D}{\partial ps_{z}} \cdot \frac{\partial ps_{z}}{\partial p_z}
+            \end{equation}
+
+            and since only the \(ps_{z}\) term depends on \(p_z\), we can compute the derivative of \(D\) with the second factor only:
+
+            \begin{equation}
+                \frac{\partial D}{\partial p_z} = \frac{\partial ps_{z}}{\partial p_z} =  2\,ps_{z} \cdot H_{pose}(2,2)
+            \end{equation}
+
+        \subsection*{Final Jacobian of the distance with respect to \(p\)}
+        The final Jacobian  is given by:
+
+        \begin{equation}
+            \begin{aligned}
+                \frac{\partial D}{\partial p} &= \left[\frac{\partial D}{\partial p_{x}}, \frac{\partial D}{\partial p_{y}}, \frac{\partial D}{\partial p_{z}}\right] \\
+                &= \Bigg[
+                    2\,\text{softplus}(s_x - L_x) \cdot \frac{1}{1 + e^{-(s_x - L_x)}} \cdot \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}} \cdot H_{\text{point}}(0,0), \\
+                    &\quad\, 2\,\text{softplus}(s_y - L_y) \cdot \frac{1}{1 + e^{-(s_y - L_y)}} \cdot \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}} \cdot H_{\text{point}}(1,1), \\
+                    &\quad\, 2\,ps_{z} \cdot H_{\text{point}}(2,2)
+                    \Bigg]
+            \end{aligned}
+        \end{equation}
+
+\end{document}
