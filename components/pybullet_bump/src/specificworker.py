@@ -118,11 +118,11 @@ class SpecificWorker(GenericWorker):
         match self.state:
             case "idle":
                 pass
-            case "moving":
+            case "moving":      #move until a perceptive event occurs
                 # self.forward_velocity = 0
                 # self.angular_velocity = 0
-
-                self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
+                print("moving")
+                self.omnirobot_proxy.setSpeedBase(0, 1000, 0.0)
 
                 # Get the velocity of the wheels from the forward and angular velocity of the robot
                 wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
@@ -134,7 +134,7 @@ class SpecificWorker(GenericWorker):
 
                 plt.show()
 
-            case "bump":
+            case "bump":    # stop the robot and replay the trajectory in Pybullet until a match
 
                 # imu_data = self.get_imu_data(self.robot)
                 # output = (

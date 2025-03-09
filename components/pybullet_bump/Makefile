@@ -117,6 +117,19 @@ depend:
 .PHONY : depend
 
 #=============================================================================
+# Target rules for targets named ui_mainUI
+
+# Build rule for target.
+ui_mainUI: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 ui_mainUI
+.PHONY : ui_mainUI
+
+# fast build rule for target.
+ui_mainUI/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/ui_mainUI.dir/build.make CMakeFiles/ui_mainUI.dir/build
+.PHONY : ui_mainUI/fast
+
+#=============================================================================
 # Target rules for targets named ICES__home_pbustos_robocomp_components_robocomp-shadow_components_pybullet_bump_src
 
 # Build rule for target.
@@ -138,6 +151,7 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... ICES__home_pbustos_robocomp_components_robocomp-shadow_components_pybullet_bump_src"
+	@echo "... ui_mainUI"
 .PHONY : help
 
 

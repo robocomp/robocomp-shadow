@@ -1,5 +1,5 @@
 # Endpoints for subscriptions interfaces
-JoystickAdapterTopic.Endpoints=tcp -p 10000
+JoystickAdapterTopic.Endpoints=tcp -p 10071
 
 # Proxies for required interfaces
 IMUProxy = imu:tcp -h localhost -p 10007
