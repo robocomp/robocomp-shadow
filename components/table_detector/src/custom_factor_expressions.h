@@ -245,10 +245,12 @@ namespace factors
             // - The next 3 columns correspond to the rotation:
             H1->block<3,3>(0,3) = h_pose.block<3,3>(0,0); // rotation
             // - The last 3 columns (v(6:8)) remain zero.
+            //H1->setZero();
         }
         // If the Jacobian with respect to p is requested, it is assigned directly.
         if (H2)
-            *H2 = h_point;
+            //*H2 = h_point;
+            H2->setZero();
 
         return res;
     }
@@ -506,7 +508,13 @@ namespace factors
         const double dy = soft_max(sy - Ly, beta);
 
         const double dist = ps.z() * ps.z() + dx * dx + dy * dy;
-
+        // qInfo() << "Data: ";
+        // qInfo() << "    [" << p.x() << p.y() << p.z() << " : " << ps.x() << ps.y() << ps.z() << "]";
+        // qInfo() << "    dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
+        //              "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy << " Lx " << Lx << " Ly " << Ly;
+        qInfo() << "    v(0) " << v(0) << " v(1) " << v(1) << " v(2) " << v(2) << " v(3) " << v(3) <<
+                     " v(4) " << v(4) << " v(5) " << v(5) << " v(6) " << v(6) << " v(7) " << v(7) <<
+                     " v(8) " << v(8);
         if (H1)
         {
             const double d_dx2_dux = 2.0 * dx;
@@ -519,11 +527,9 @@ namespace factors
             const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * H_pose(0,3);
             const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * H_pose(1,4);
             const double d_D_d_h = 2.0 * ps.z() * H_pose(2, 5);
-            *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, 0.0;
-            qInfo() << "[" << p.x() << p.y() << p.z() << "--" << ps.x() << ps.y() << ps.z() << "] z_coor "
-                    << ps.z() << " dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
-                        "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy;
-            std::cout << *H1 << std::endl;
+            *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, d_D_d_h;
+
+            //std::cout << *H1 << std::endl;
 
         }
         if (H2) *H2 = gtsam::Matrix11::Zero();
@@ -532,11 +538,11 @@ namespace factors
             const auto d_D_d_px = 2.0 * soft_max(sx-Lx, beta) * soft_max_derivative(sx-Lx, beta) * soft_abs_derivative(ps.x(), gamma) * H_point(0, 0);
             const auto d_D_d_py = 2.0 * soft_max(sy-Ly, beta) * soft_max_derivative(sy-Ly, beta) * soft_abs_derivative(ps.y(), gamma) * H_point(1, 1);
             const auto d_D_d_pz = 2.0 * ps.z() * H_point(2, 2);
-            //H3->setZero();
+            H3->setZero();
             //*H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
-            *H3 << d_D_d_px, d_D_d_py, 0.0;
+            //*H3 << d_D_d_px, d_D_d_py, 0.0;
 
-            std::cout << *H3 << std::endl;
+            //std::cout << *H3 << std::endl;
             qInfo() << "---------------";
         }
         return dist;

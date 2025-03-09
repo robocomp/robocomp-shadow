@@ -238,14 +238,14 @@ void Viewer3D::createTableTransform()
     //////////////////////////////////////////////////////7
     void Viewer3D::add_lights()
     {
-        // auto *light = new Qt3DRender::QPointLight(m_rootEntity);
-        // light->setColor(Qt::white);
-        // light->setIntensity(50.f);
-        // auto *lightTransform = new Qt3DCore::QTransform(m_rootEntity);
-        // lightTransform->setTranslation(QVector3D(0, 5, 0)); // Position the light above the scene.
-        // // Add the light and its transform as components to the root entity
-        // m_rootEntity->addComponent(light);  // Corrected line
-        // m_rootEntity->addComponent(lightTransform);  // Corrected line
+        auto *light = new Qt3DRender::QPointLight(m_rootEntity);
+        light->setColor(Qt::white);
+        light->setIntensity(50.f);
+        auto *lightTransform = new Qt3DCore::QTransform(m_rootEntity);
+        lightTransform->setTranslation(QVector3D(0, -5, -2)); // Position the light above the scene.
+        // Add the light and its transform as components to the root entity
+        m_rootEntity->addComponent(light);  // Corrected line
+        m_rootEntity->addComponent(lightTransform);  // Corrected line
 
         auto *light2 = new Qt3DRender::QPointLight(m_rootEntity);
         light2->setColor(Qt::white);
@@ -275,7 +275,7 @@ void Viewer3D::createTableTransform()
         auto *directionalLight = new Qt3DRender::QDirectionalLight(m_rootEntity);
         directionalLight->setColor(Qt::white);
         directionalLight->setIntensity(550.f); // Adjust intensity as needed.
-        directionalLight->setWorldDirection(QVector3D(0, 0, 1)); // Direction from top down.
+        directionalLight->setWorldDirection(QVector3D(0, -1, 0)); // Direction from top down.
         auto *dlightTransform = new Qt3DCore::QTransform(m_rootEntity);
         dlightTransform->setTranslation(QVector3D(0, 5, 0)); // Position the light above the scene.
         // Add the directional light as a component to the root entity

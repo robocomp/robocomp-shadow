@@ -86,17 +86,20 @@ namespace rc
         //Create std::vector<Eigen::Vector3d> points_memory_fake
         std::vector<Eigen::Vector3d> points_memory_fake;
         //Add x,y,z points to points_memory_fake
-        points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 1, 0.7));
-        //points_memory_fake.emplace_back(Eigen::Vector3d(0, 1, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 1, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 2, 0.7));
-        //points_memory_fake.emplace_back(Eigen::Vector3d(0, 2, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 2, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(-1, 1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(1, 1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(-1, -1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(1, -1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, -1, 0.7));
+        // points_memory_fake.emplace_back(Eigen::Vector3d(0.5, -1, 0.7));
+        //points_memory_fake.emplace_back(Eigen::Vector3d(0, 0, 0.7));
 
 
         // add the points to the circular buffer and return a vector with the new points
         //const auto points_memory = add_new_points(residuals);
-        const auto points_memory = points_memory_fake;
+        const auto points_memory = generatePerimeterPoints(2, 2 ,0.7, 0., 0., 0.5);
 
         // compute the mass center of the points
         const Eigen::Vector3d mass_center = std::accumulate(points_memory.begin(), points_memory.end(), Eigen::Vector3d(0.0, 0.0, 0.0)) / static_cast<float>(points_memory.size());
@@ -157,7 +160,7 @@ namespace rc
         // Define a noise model for the points loss (e.g., isotropic noise)
         auto noise_model_height = gtsam::noiseModel::Isotropic::Sigma(1, params.HEIGHT_SIGMA);
 
-        auto factor_table_top_fit = [table_](const gtsam::Vector3 &p)->std::vector<gtsam::Double_>
+        auto factor_table_top_fit = [table_](const gtsam::Vector3 &p)-> gtsam::Double_
         {
             return {
                     gtsam::Double_(&factors::min_dist_to_side_top, table_, gtsam::Double_(1.0),
@@ -195,11 +198,7 @@ namespace rc
         /// Add custom expression factor for each liDAR point. The total weight should be normalized by the size of residual_points
         for (const auto &pp: residual_points)
         {
-            //graph.addExpressionFactor(factor_table_top_height(pp), 0.0, noise_model_height);  // measurement is zero since we want to minimize the distance
-
-
-            for (const auto exps = factor_table_top_fit(pp); const auto &exp: exps)
-                graph.addExpressionFactor(exp, 0.0, noise_model_points);
+            graph.addExpressionFactor(factor_table_top_fit(pp), 0.0, noise_model_points);  // measurement is zero since we want to minimize the distance
         }
         // stick_to_floor factor
         //graph.addExpressionFactor(gtsam::Double_(&factors::stick_to_floor, table_), 0.0, noise_model_height);
@@ -241,11 +240,11 @@ namespace rc
         /// ---------------- OPTIMIZATION ----------------------
         try
         {
-            //gtsam::GaussNewtonParams params_g;
+            //gtsam::GaussNewtonParams params;
             gtsam::LevenbergMarquardtParams params;
-            params.maxIterations = 100;  // Número máximo de iteraciones
-            params.absoluteErrorTol = 1e-5;  // Tolerancia de error absoluto
-            params.relativeErrorTol = 1e-5;  // Tolerancia de error relativo
+            //params.maxIterations = 100;  // Número máximo de iteraciones
+            params.absoluteErrorTol = 1e-9;  // Tolerancia de error absoluto
+            params.relativeErrorTol = 1e-9;  // Tolerancia de error relativo
             //params.verbosity = gtsam::NonlinearOptimizerParams::Verbosity::VALUES;  // Nivel de verbosidad
 
             gtsam::LevenbergMarquardtOptimizer optimizer(graph, initialEstimate, params);
