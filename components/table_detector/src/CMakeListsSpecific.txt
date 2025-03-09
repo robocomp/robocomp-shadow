@@ -12,7 +12,7 @@ LIST(APPEND SOURCES
   actionable_thing.cpp
   optimiser.cpp
   viewer3D.cpp
-
+  webots_camera_controller.cpp
 )
 
 # Headers set

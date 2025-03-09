@@ -22,6 +22,7 @@
 #include <Qt3DExtras/QTextureMaterial>
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DExtras/QConeMesh>
+#include "webots_camera_controller.h"
 
 namespace rc
 {
@@ -211,7 +212,7 @@ void Viewer3D::createTableTransform()
         tableMat->setDiffuse(QColor(QRgb(0xff0000)));
         m_tableEntity->addComponent(tableMat);
         m_tableTransform = new Qt3DCore::QTransform();
-        m_tableTransform->setTranslation(QVector3D(x, 0.0, -y));  //TODO: Check z
+        m_tableTransform->setTranslation(QVector3D(x, z, -y));
         m_tableTransform->setRotationY(qRadiansToDegrees(theta));  // Rotate the table if needed.
         m_tableEntity->addComponent(m_tableTransform);
     }
@@ -221,13 +222,13 @@ void Viewer3D::createTableTransform()
         auto table_params = inner_model->table->means;
         const double x = table_params(0);
         const double y = table_params(1);
-        //const double z = table_params(2);
+        const double z = table_params(2);
         const double theta = table_params(5);
         const double width = table_params(6);
         const double depth = table_params(7);
         const double height = table_params(8);
 
-        m_tableTransform->setTranslation(QVector3D(x, 0.0, -y));  //TODO: Check z
+        m_tableTransform->setTranslation(QVector3D(x, z, -y));
         m_tableTransform->setRotationY(qRadiansToDegrees(theta));  // Rotate the table if needed.
         auto r = m_tableEntity->componentsOfType<Qt3DExtras::QCuboidMesh>();  //TODO: save the pointer when creating the table
         r.first()->setXExtent(width);  // width
@@ -237,36 +238,46 @@ void Viewer3D::createTableTransform()
     //////////////////////////////////////////////////////7
     void Viewer3D::add_lights()
     {
-        auto *light = new Qt3DRender::QPointLight(m_rootEntity);
-        light->setColor(Qt::white);
-        light->setIntensity(5.0f);
-        auto *lightTransform = new Qt3DCore::QTransform(m_rootEntity);
-        lightTransform->setTranslation(QVector3D(0, 3, 0)); // Position the light above the scene.
+        // auto *light = new Qt3DRender::QPointLight(m_rootEntity);
+        // light->setColor(Qt::white);
+        // light->setIntensity(50.f);
+        // auto *lightTransform = new Qt3DCore::QTransform(m_rootEntity);
+        // lightTransform->setTranslation(QVector3D(0, 5, 0)); // Position the light above the scene.
+        // // Add the light and its transform as components to the root entity
+        // m_rootEntity->addComponent(light);  // Corrected line
+        // m_rootEntity->addComponent(lightTransform);  // Corrected line
+
+        auto *light2 = new Qt3DRender::QPointLight(m_rootEntity);
+        light2->setColor(Qt::white);
+        light2->setIntensity(500.f);
+        auto *lightTransform2 = new Qt3DCore::QTransform(m_rootEntity);
+        lightTransform2->setTranslation(QVector3D(0, 2, 0)); // Position the light above the scene. x, z, -y
         // Add the light and its transform as components to the root entity
-        m_rootEntity->addComponent(light);  // Corrected line
-        m_rootEntity->addComponent(lightTransform);  // Corrected line
+        m_rootEntity->addComponent(light2);  // Corrected line
+        m_rootEntity->addComponent(lightTransform2);  // Corrected line
+
 
         // --- Add a cone to visualize the point light ---
-        // auto *lightConeEntity = new Qt3DCore::QEntity(m_rootEntity);
-        // auto *lightConeMesh = new Qt3DExtras::QConeMesh();
-        // lightConeMesh->setTopRadius(0.2f); // Adjust size as needed
-        // lightConeMesh->setBottomRadius(0.0f);
-        // lightConeMesh->setLength(0.5f); // Adjust size as needed
-        // lightConeEntity->addComponent(lightConeMesh);
-        // auto *lightConeMaterial = new Qt3DExtras::QPhongMaterial();
-        // lightConeMaterial->setDiffuse(QColor(QRgb(0xffff00))); // Yellow color for the cone
-        // lightConeEntity->addComponent(lightConeMaterial);
-        // auto *lightConeTransform = new Qt3DCore::QTransform();
-        // lightConeTransform->setTranslation(lightTransform->translation()); // Same position as the light
-        // lightConeEntity->addComponent(lightConeTransform);
+        auto *lightConeEntity = new Qt3DCore::QEntity(m_rootEntity);
+        auto *lightConeMesh = new Qt3DExtras::QConeMesh();
+        lightConeMesh->setTopRadius(0.2f); // Adjust size as needed
+        lightConeMesh->setBottomRadius(0.0f);
+        lightConeMesh->setLength(0.5f); // Adjust size as needed
+        lightConeEntity->addComponent(lightConeMesh);
+        auto *lightConeMaterial = new Qt3DExtras::QPhongMaterial();
+        lightConeMaterial->setDiffuse(QColor(QRgb(0xffff00))); // Yellow color for the cone
+        lightConeEntity->addComponent(lightConeMaterial);
+        auto *lightConeTransform = new Qt3DCore::QTransform();
+        lightConeTransform->setTranslation(lightTransform2->translation()); // Same position as the light
+        lightConeEntity->addComponent(lightConeTransform);
 
         //--- Add a Directional Light ---
         auto *directionalLight = new Qt3DRender::QDirectionalLight(m_rootEntity);
         directionalLight->setColor(Qt::white);
-        directionalLight->setIntensity(5.5f); // Adjust intensity as needed.
-        directionalLight->setWorldDirection(QVector3D(0, -1, 0)); // Direction from top down.
+        directionalLight->setIntensity(550.f); // Adjust intensity as needed.
+        directionalLight->setWorldDirection(QVector3D(0, 0, 1)); // Direction from top down.
         auto *dlightTransform = new Qt3DCore::QTransform(m_rootEntity);
-        dlightTransform->setTranslation(QVector3D(0, 3, 0)); // Position the light above the scene.
+        dlightTransform->setTranslation(QVector3D(0, 5, 0)); // Position the light above the scene.
         // Add the directional light as a component to the root entity
         m_rootEntity->addComponent(directionalLight);
         m_rootEntity->addComponent(dlightTransform);
@@ -379,6 +390,7 @@ void Viewer3D::createTableTransform()
 
         // For camera controls
         const auto camController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
+        //const auto camController = new WebotsStyleCameraController(m_rootEntity);
         camController->setCamera(camera);
     }
 };  // namespace rc

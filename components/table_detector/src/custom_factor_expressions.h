@@ -11,16 +11,8 @@
 
 namespace factors
 {
-    inline double beta = 15.0;  // for the logistic
-    inline double gamma = 20.0; // for the ReLU
-
-    static gtsam::Vector2 project_pose(const gtsam::Vector2 &v, gtsam::OptionalJacobian<2, 2> H)
-    {
-        if (H)
-            *H = gtsam::Matrix22::Identity();
-//        std::cout << __FUNCTION__ << " Center: " << v.transpose() << std::endl;
-        return {v.x(), v.y()};
-    }
+    inline double beta = 4;  // for the relu
+    inline double gamma = 1; // for the softabs
 
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -111,35 +103,28 @@ namespace factors
     * @param x The input value.
     * @return The result of the softplus function.
     */
-     static double soft_max(double x)
+     static double soft_max(double x, double beta)
     {
-        return std::log1p(std::exp(x));  // Using log1p(exp(x)) is numerically more stable for small x.
+        if (x > 20.0)
+            return x; // For large x, softplus(x) ≈ x
+        return std::log1p(std::exp(beta*x));  // Using log1p(exp(x)) is numerically more stable for small x.
     }
 
-    /**
-     * @brief Computes the derivative of the softplus function.
-     *
-     * The derivative of the softplus function is given by:
-     *  softplus(x) = 1 / (1 + exp(-x))
-     *
-     * @param x The input value.
-     * @return The derivative of the softplus function.
-     */
-    static double soft_max_derivative(double x)
+    static double soft_max_derivative(double x, double beta)
     {
-        return 1.0 / (1.0 + std::exp(-x));
+        return beta / (1.0 + std::exp(-beta*x));
     }
 
-    static double soft_abs(double x)
+    static double soft_abs(double x, double gamma)
     {
         constexpr double eps = 1e-6;
-        return std::sqrt(x * x + eps);
+        return std::sqrt(gamma * gamma * x * x + eps);
     }
 
-    static double soft_abs_derivative(double x)
+    static double soft_abs_derivative(double x, double gamma)
     {
         constexpr double eps = 1e-6;
-        return x / std::sqrt(x * x + eps);
+        return (gamma*gamma*x) / std::sqrt(gamma * gamma * x * x + eps);
     }
 
     /**
@@ -482,6 +467,7 @@ namespace factors
 // //            std::cout << "H3: " << *H3 << std::endl;
 //         }
    //      return filtered_dist;
+        return{};
     };
 
      /**
@@ -503,23 +489,21 @@ namespace factors
                                      gtsam::OptionalJacobian<1, 3> H3)
     {
         // top side
-        double width = v(6);
-        double depth = v(7);
-        double height = v(8);
+        const double width = v(6);
+        const double depth = v(7);
+        const double height = v(8);
 
         gtsam::Matrix36 H_pose;
         gtsam::Matrix33 H_point;
-        auto t_top = gtsam::Pose3(gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, height / 2));
+        const auto t_top = gtsam::Pose3(gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, height / 2));
         gtsam::Vector3 ps = t_top.transformTo(p, H_pose, H_point);
 
         const double Lx = width / 2.0;
         const double Ly = depth / 2.0;
-
-        const double sx = soft_abs(ps.x());
-        const double sy = soft_abs(ps.y());
-
-        const double dx = soft_max(sx - Lx);
-        const double dy = soft_max(sy - Ly);
+        const double sx = soft_abs(ps.x(), gamma);
+        const double sy = soft_abs(ps.y(), gamma);
+        const double dx = soft_max(sx - Lx, beta);
+        const double dy = soft_max(sy - Ly, beta);
 
         const double dist = ps.z() * ps.z() + dx * dx + dy * dy;
 
@@ -527,31 +511,34 @@ namespace factors
         {
             const double d_dx2_dux = 2.0 * dx;
             const double d_dy2_duy = 2.0 * dy;
-            const double d_ux_d_vx = logistic(sx-Lx);
-            const double d_uy_d_vy = logistic(sy-Ly);
-            const double d_sx_d_px = soft_abs_derivative(ps.x());
-            const double d_sy_d_py = soft_abs_derivative(ps.y());
-            const gtsam::Vector3 hpt0 = H_point.block<3,1>(0,0);
-            const gtsam::Vector3 hpt1 = H_point.block<3,1>(0,1);
-            const gtsam::Vector3 hpt2 = H_point.block<3,1>(0,2);
-            const gtsam::Vector3 hpo0 = H_pose.block<3,1>(0,3);
-            const gtsam::Vector3 hpo1 = H_pose.block<3,1>(0,4);
-            const gtsam::Vector3 hpo2 = H_pose.block<3,1>(0,5);
+            const double d_ux_d_vx = soft_max_derivative(sx-Lx, beta);
+            const double d_uy_d_vy = soft_max_derivative(sy-Ly, beta);
+            const double d_sx_d_px = soft_abs_derivative(ps.x(), gamma);
+            const double d_sy_d_py = soft_abs_derivative(ps.y(), gamma);
             // Derivatives
-            const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * hpt0.dot(hpo0.transpose());
-            const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * hpt1.dot(hpo1.transpose());
-            const double d_D_d_h = 2.0 * ps.z() * hpt2.dot(hpo2.transpose());
-            *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, d_D_d_h;
+            const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * H_pose(0,3);
+            const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * H_pose(1,4);
+            const double d_D_d_h = 2.0 * ps.z() * H_pose(2, 5);
+            *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, 0.0;
+            qInfo() << "[" << p.x() << p.y() << p.z() << "--" << ps.x() << ps.y() << ps.z() << "] z_coor "
+                    << ps.z() << " dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
+                        "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy;
+            std::cout << *H1 << std::endl;
+
         }
         if (H2) *H2 = gtsam::Matrix11::Zero();
         if (H3)
         {
-            auto d_D_d_px = 2.0 * soft_max(sx-Lx) * logistic(sx-Lx) * soft_abs_derivative(ps.x()) * H_point(0, 0);
-            auto d_D_d_py = 2.0 * soft_max(sy-Ly) * logistic(sy-Ly) * soft_abs_derivative(ps.y()) * H_point(1, 1);
-            auto d_D_d_pz = 2.0 * ps.z() * H_point(2, 2);
-            *H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
-        }
+            const auto d_D_d_px = 2.0 * soft_max(sx-Lx, beta) * soft_max_derivative(sx-Lx, beta) * soft_abs_derivative(ps.x(), gamma) * H_point(0, 0);
+            const auto d_D_d_py = 2.0 * soft_max(sy-Ly, beta) * soft_max_derivative(sy-Ly, beta) * soft_abs_derivative(ps.y(), gamma) * H_point(1, 1);
+            const auto d_D_d_pz = 2.0 * ps.z() * H_point(2, 2);
+            //H3->setZero();
+            //*H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
+            *H3 << d_D_d_px, d_D_d_py, 0.0;
 
+            std::cout << *H3 << std::endl;
+            qInfo() << "---------------";
+        }
         return dist;
     };
 };

@@ -17,7 +17,7 @@
 #include <gtsam/base/Vector.h>
 #include <gtsam/slam/expressions.h>
 //#include <gtsam/nonlinear/expressions.h>
-
+#include <gtsam/nonlinear/GaussNewtonOptimizer.h>
 
 namespace rc
 {
@@ -47,7 +47,7 @@ namespace rc
         Eigen::Vector3d mass_center = std::accumulate(points_memory.begin(), points_memory.end(), Eigen::Vector3d(0.0, 0.0, 0.0)) / static_cast<float>(points_memory.size());
 
         // Add noise to the mass center z == rand uniform 0,25
-        mass_center.z() += 0.25 * (2.0 * static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 1.0);
+        //mass_center.z() += 0.25 * (2.0 * static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 1.0);
 
         //print mass_center values x, y, z
         std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z()  << std::endl;
@@ -57,7 +57,9 @@ namespace rc
 
         // augment the state vector
         inner_model->table = std::make_shared<rc::Table>();
-        inner_model->table->means = {mass_center.x(), mass_center.y(), mass_center.z(), params.INIT_ALPHA_VALUE, params.INIT_BETA_VALUE, params.INIT_GAMMA_VALUE, params.INIT_WIDTH_VALUE, params.INIT_WIDTH_VALUE, params.INIT_HEIGHT_VALUE};
+        inner_model->table->means = {mass_center.x(), mass_center.y(), mass_center.z()/2,
+                                        params.INIT_ALPHA_VALUE, params.INIT_BETA_VALUE, params.INIT_GAMMA_VALUE,
+                                        params.INIT_WIDTH_VALUE, params.INIT_WIDTH_VALUE, params.INIT_HEIGHT_VALUE};
 
         // Then minimise the sum of residual distances to their closest fridge side
         inner_model->table->means = factor_graph_expr_points_table_top(points_memory, inner_model->table->means, current_room, mass_center, scene);
@@ -71,7 +73,7 @@ namespace rc
                                          const rc::ActionableRoom &current_room,
                                          QGraphicsScene *scene)
     {
-        qInfo() << __FUNCTION__ << "------------------ project ---------------------";
+        //qInfo() << __FUNCTION__ << "------------------ project ---------------------";
         // remove from points all the points that are inside the rectangle: TO BE DONE
         LidarPoints filtered_points;
 
@@ -84,35 +86,33 @@ namespace rc
         //Create std::vector<Eigen::Vector3d> points_memory_fake
         std::vector<Eigen::Vector3d> points_memory_fake;
         //Add x,y,z points to points_memory_fake
-        points_memory_fake.emplace_back(Eigen::Vector3d(-1, 1, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(0, 1, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(1, 1, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(-1, 2, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(0, 2, 0.7));
-        points_memory_fake.emplace_back(Eigen::Vector3d(1, 2, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 1, 0.7));
+        //points_memory_fake.emplace_back(Eigen::Vector3d(0, 1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 2, 0.7));
+        //points_memory_fake.emplace_back(Eigen::Vector3d(0, 2, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 2, 0.7));
 
 
         // add the points to the circular buffer and return a vector with the new points
-        const auto points_memory = add_new_points(residuals);
+        //const auto points_memory = add_new_points(residuals);
+        const auto points_memory = points_memory_fake;
 
         // compute the mass center of the points
         const Eigen::Vector3d mass_center = std::accumulate(points_memory.begin(), points_memory.end(), Eigen::Vector3d(0.0, 0.0, 0.0)) / static_cast<float>(points_memory.size());
         draw_point(mass_center, scene);
         //Print mass_center x, y, z
-        std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z() << std::endl;
+        //std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z() << std::endl;
         // minimise the sum of residual distances to their closest table side
 
-        inner_model->table->means = factor_graph_expr_points_table_top(points_memory, inner_model->table->means, current_room, mass_center, scene);
+        static bool first_time = true;
+        if (first_time or reset_optimiser)
+        {
+            first_time = false;
+            inner_model->table->means = factor_graph_expr_points_table_top(points_memory, inner_model->table->means, current_room, mass_center, scene);
+        }
         draw_table(inner_model->table->means, Qt::red, scene);
         draw_residuals_in_room_frame(points_memory, scene);
-
-        // compute the projection of the residuals to the table
-        // for (const auto &p: residuals)
-        // {
-        //     // compute the projection of the point to the table
-        //     factors::
-        //     filtered_points.emplace_back(pp.x(), pp.y(), pp.z());
-        // }
 
         return filtered_points;
     }
@@ -241,6 +241,7 @@ namespace rc
         /// ---------------- OPTIMIZATION ----------------------
         try
         {
+            //gtsam::GaussNewtonParams params_g;
             gtsam::LevenbergMarquardtParams params;
             params.maxIterations = 100;  // Número máximo de iteraciones
             params.absoluteErrorTol = 1e-5;  // Tolerancia de error absoluto
@@ -248,6 +249,7 @@ namespace rc
             //params.verbosity = gtsam::NonlinearOptimizerParams::Verbosity::VALUES;  // Nivel de verbosidad
 
             gtsam::LevenbergMarquardtOptimizer optimizer(graph, initialEstimate, params);
+            //gtsam::GaussNewtonOptimizer optimizer(graph, initialEstimate);
 
             gtsam::Values result = optimizer.optimize();
             this->error = graph.error(result);
@@ -255,14 +257,14 @@ namespace rc
             std::cout << __FUNCTION__ << " Error initial: " << initialError << " - Final error: " << this->error << std::endl;
             std::cout << __FUNCTION__ << " Optimized table center: " << result.at<gtsam::Vector9>(tableKey).transpose() << std::endl;
 
-            gtsam::Marginals marginals(graph, result);
-            this->covariance = marginals.marginalCovariance(tableKey);
+            //gtsam::Marginals marginals(graph, result);
+            //this->covariance = marginals.marginalCovariance(tableKey);
             //std::cout << "covariance:\n " << covariance << std::endl;
             //Compute and print the covariance matrix determinant
             //            std::cout << __FUNCTION__ << " Covariance determinant: " << covariance.determinant() << std::endl;
             // Compute and print matrix trace
             //            std::cout << __FUNCTION__ << "Covariance trace: " << covariance.trace() << std::endl;
-            plotUncertaintyEllipses(covariance, result.at<gtsam::Vector9>(tableKey), scene);
+            //plotUncertaintyEllipses(covariance, result.at<gtsam::Vector9>(tableKey), scene);
 
             return result.at<gtsam::Vector9>(tableKey);
         }
@@ -484,7 +486,7 @@ namespace rc
         const double x = params(0) * 1000;
         const double y = params(1) * 1000;
 
-        qDebug() << __FUNCTION__<< " Table params: " << "cx " << x << " cy " << y << " theta " << theta << "width " << width << "depth " << depth;
+        //qDebug() << __FUNCTION__<< " Table params: " << "cx " << x << " cy " << y << " theta " << theta << "width " << width << "depth " << depth;
 
         // Generate QRect based on the table parameters
         const QRectF rect(-width/2, -depth/2, width, depth);

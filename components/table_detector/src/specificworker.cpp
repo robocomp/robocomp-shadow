@@ -290,7 +290,8 @@ void SpecificWorker::actionable_units(const LidarPoints &points, long lidar_time
         this->clean_buffer = false; // ui button
         emit updateTableTransform();  // signal a change in the fridge. Should depend on being real changes.
         plot_free_energy(act->get_error(), act->get_traza()*params.TRACE_SCALING_FACTOR);
-        std::cout << "Param in SpecificWorker: " << act->get_table().transpose() << std::endl;
+        //std::cout << "Param in SpecificWorker: " << act->get_table().transpose() << std::endl;
+        //std::cout << "Param in SpecificWorker: " << act->get_table().transpose() << std::endl;
         lcdNumber_cx_current->display(act->get_table().x());
         lcdNumber_cy_current->display(act->get_table().y());
         lcdNumber_cz_current->display(act->get_table().z());
@@ -322,6 +323,7 @@ void SpecificWorker::actionable_units(const LidarPoints &points, long lidar_time
         connect(pushButton_clean_buffer, &QPushButton::clicked, thing, &rc::ActionableThing::clean_buffer_slot);
         connect(slider_beta_cost, &QSlider::valueChanged, [this](auto v){ lcdNumber_beta->display(v);});
         connect(slider_beta_cost, &QSlider::valueChanged, thing, &rc::ActionableThing::change_beta_slot);
+        slider_beta_cost->setValue(rc::ActionableThing::params.INIT_BETA_SOFTMAX_VALUE);
         connect(slider_gamma_cost, &QSlider::valueChanged, [this](auto v){ lcdNumber_gamma->display(v);});
         connect(slider_gamma_cost, &QSlider::valueChanged, thing, &rc::ActionableThing::change_gamma_slot);
         connect(slider_width_prior, &QSlider::valueChanged, thing, &rc::ActionableThing::change_width_prior);

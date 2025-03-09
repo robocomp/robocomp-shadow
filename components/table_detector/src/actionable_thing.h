@@ -25,42 +25,31 @@ namespace rc
         public:
         struct Params
             {
-                double POINTS_SIGMA = 0.01;
+                double POINTS_SIGMA = 0.1;
                 double HEIGHT_SIGMA = 0.1;
                 double ADJ_SIGMA = 0.6;
                 double ALIGNMENT_SIGMA = 0.6;
                 double PRIOR_CX_SIGMA = 3;
                 double PRIOR_CY_SIGMA = 3;
                 double PRIOR_CZ_SIGMA = 3;
-                double PRIOR_ALPHA_SIGMA = 3;
-                double PRIOR_BETA_SIGMA = 3;
-                double PRIOR_GAMMA_SIGMA = 3;
-                double PRIOR_WIDTH_SIGMA = 0.1;
-                double PRIOR_DEPTH_SIGMA = 0.1;
-                double PRIOR_HEIGHT_SIGMA = 0.1;
+                double PRIOR_ALPHA_SIGMA = 0.1;
+                double PRIOR_BETA_SIGMA = 0.1;
+                double PRIOR_GAMMA_SIGMA = 0.1;
+                double PRIOR_WIDTH_SIGMA = 1;
+                double PRIOR_DEPTH_SIGMA = 1;
+                double PRIOR_HEIGHT_SIGMA = 1;
 
                 double INIT_ALPHA_VALUE = 0.0;
                 double INIT_BETA_VALUE = 0.0;
                 double INIT_GAMMA_VALUE = 0.0;
-                double INIT_WIDTH_VALUE = 1.0;
-                double INIT_DEPTH_VALUE = 1.0;
+                double INIT_WIDTH_VALUE = 0.5;
+                double INIT_DEPTH_VALUE = 0.5;
                 double INIT_HEIGHT_VALUE = 0.7;
+                double INIT_BETA_SOFTMAX_VALUE = 3.0;
             };
             explicit ActionableThing(const std::shared_ptr<rc::ActionablesData> &innermodel_, QObject* parent = nullptr);
             ~ActionableThing() = default;
 
-            void run(std::atomic<bool> &stop_flag)
-            {
-                while (stop_flag.load() == false)
-                {
-                    // wait for a current room
-                        // call project on existing models
-                        // check for residuals
-                            // call initialize
-                                // wait for low trace while doing affordances
-                            // add new model
-                }
-            }
             //////////////////////////////////////////////////////////
             bool initialize(const rc::ActionableRoom &best_actionable_room,
                             const std::vector<Eigen::Vector3d> residuals,
