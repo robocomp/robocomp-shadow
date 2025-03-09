@@ -1,6 +1,6 @@
 # Endpoints for implements interfaces
-GridPlanner.Endpoints=tcp -p 16804
-OmniRobot.Endpoints=tcp -p 10010
+
+OmniRobot.Endpoints=tcp -p 10004
 
 # Endpoints for subscriptions interfaces
 JoystickAdapterTopic.Endpoints=tcp -p 14232
