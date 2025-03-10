@@ -42,8 +42,8 @@ namespace rc
                 double INIT_ALPHA_VALUE = 0.0;
                 double INIT_BETA_VALUE = 0.0;
                 double INIT_GAMMA_VALUE = 0.0;
-                double INIT_WIDTH_VALUE = 1.7;
-                double INIT_DEPTH_VALUE = 1.7;
+                double INIT_WIDTH_VALUE = 0.5;
+                double INIT_DEPTH_VALUE = 0.5;
                 double INIT_HEIGHT_VALUE = 0.7;
                 double INIT_BETA_SOFTMAX_VALUE = 5.0;
             };
@@ -128,7 +128,7 @@ namespace rc
          std::tuple<Eigen::Matrix3d, Eigen::Vector3d> compute_covariance_matrix(const std::vector<Eigen::Vector3d> &points);
          std::tuple<Eigen::Matrix3d, Eigen::Vector3d, Eigen::Vector3d, Eigen::Matrix3d>
          compute_OBB(const std::vector<Eigen::Vector3d> &points);
-         std::vector<Eigen::Vector3d> generatePerimeterPoints(double width, double depth, double height, double centerX, double centerY, double distance);
+         std::vector<Eigen::Vector3d> generatePerimeterPoints(double width, double depth, double height, double centerX, double centerY, double distance, double ang);
     };
 } // rc
 

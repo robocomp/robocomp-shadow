@@ -45,21 +45,23 @@ namespace rc
         //qInfo() << __FILE__ << __FUNCTION__ << "In Initialize: points_memory set size: " << points_memory.size();
 
         Eigen::Vector3d mass_center = std::accumulate(points_memory.begin(), points_memory.end(), Eigen::Vector3d(0.0, 0.0, 0.0)) / static_cast<float>(points_memory.size());
+        draw_point(mass_center, scene);
 
         // Add noise to the mass center z == rand uniform 0,25
         //mass_center.z() += 0.25 * (2.0 * static_cast<float>(rand()) / static_cast<float>(RAND_MAX) - 1.0);
 
         //print mass_center values x, y, z
-        std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z()  << std::endl;
+        //std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z()  << std::endl;
 
-        // Draw centroid point
-        draw_point(mass_center, scene);
 
         // augment the state vector
         inner_model->table = std::make_shared<rc::Table>();
-        inner_model->table->means = {mass_center.x(), mass_center.y(), mass_center.z()/2,
-                                        params.INIT_ALPHA_VALUE, params.INIT_BETA_VALUE, params.INIT_GAMMA_VALUE,
-                                        params.INIT_WIDTH_VALUE, params.INIT_WIDTH_VALUE, params.INIT_HEIGHT_VALUE};
+         inner_model->table->means = {mass_center.x(), mass_center.y(), mass_center.z()/2,
+                                         params.INIT_ALPHA_VALUE, params.INIT_BETA_VALUE, params.INIT_GAMMA_VALUE,
+                                         params.INIT_WIDTH_VALUE, params.INIT_WIDTH_VALUE, params.INIT_HEIGHT_VALUE};
+        // inner_model->table->means = {0.5, 0.5, mass_center.z()/2,
+        //                                        params.INIT_ALPHA_VALUE, params.INIT_BETA_VALUE, params.INIT_GAMMA_VALUE,
+        //                                        params.INIT_WIDTH_VALUE, params.INIT_WIDTH_VALUE, params.INIT_HEIGHT_VALUE};
 
         // Then minimise the sum of residual distances to their closest fridge side
         inner_model->table->means = factor_graph_expr_points_table_top(points_memory, inner_model->table->means, current_room, mass_center, scene);
@@ -86,24 +88,25 @@ namespace rc
         //Create std::vector<Eigen::Vector3d> points_memory_fake
         std::vector<Eigen::Vector3d> points_memory_fake;
         //Add x,y,z points to points_memory_fake
-        // points_memory_fake.emplace_back(Eigen::Vector3d(-1, 1, 0.7));
-        // points_memory_fake.emplace_back(Eigen::Vector3d(1, 1, 0.7));
-        // points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 1, 0.7));
-        // points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 1, 0.7));
-        // points_memory_fake.emplace_back(Eigen::Vector3d(-1, -1, 0.7));
-        // points_memory_fake.emplace_back(Eigen::Vector3d(1, -1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(-1, 1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(1, 1, 0.7));
+        //points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, 1, 0.7));
+        //points_memory_fake.emplace_back(Eigen::Vector3d(0.5, 1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(-1, -1, 0.7));
+        points_memory_fake.emplace_back(Eigen::Vector3d(1, -1, 0.7));
         // points_memory_fake.emplace_back(Eigen::Vector3d(-0.5, -1, 0.7));
         // points_memory_fake.emplace_back(Eigen::Vector3d(0.5, -1, 0.7));
         //points_memory_fake.emplace_back(Eigen::Vector3d(0, 0, 0.7));
 
 
         // add the points to the circular buffer and return a vector with the new points
-        //const auto points_memory = add_new_points(residuals);
-        const auto points_memory = generatePerimeterPoints(2, 2 ,0.7, 0., 0., 0.5);
+        const auto points_memory = add_new_points(residuals);
+        //const auto points_memory = points_memory_fake;
+        //const auto points_memory = generatePerimeterPoints(1, 1.5 ,0.7, 0., 0., 0.1, 0.5);
 
         // compute the mass center of the points
         const Eigen::Vector3d mass_center = std::accumulate(points_memory.begin(), points_memory.end(), Eigen::Vector3d(0.0, 0.0, 0.0)) / static_cast<float>(points_memory.size());
-        draw_point(mass_center, scene);
+        //draw_point(mass_center, scene);
         //Print mass_center x, y, z
         //std::cout << __FUNCTION__ << " Mass center: " << mass_center.x() << " " << mass_center.y() << " " << mass_center.z() << std::endl;
         // minimise the sum of residual distances to their closest table side
@@ -111,11 +114,12 @@ namespace rc
         static bool first_time = true;
         if (first_time or reset_optimiser)
         {
-            first_time = false;
+            first_time = true;
             inner_model->table->means = factor_graph_expr_points_table_top(points_memory, inner_model->table->means, current_room, mass_center, scene);
+            draw_table(inner_model->table->means, Qt::red, scene);
+            draw_residuals_in_room_frame(points_memory, scene);
         }
-        draw_table(inner_model->table->means, Qt::red, scene);
-        draw_residuals_in_room_frame(points_memory, scene);
+
 
         return filtered_points;
     }
@@ -215,9 +219,6 @@ namespace rc
         gtsam::Values initialEstimate;
         auto initial_table_value = initial_table;   // from previous optimization
 
-        //Print initial table value
-        std::cout << __FUNCTION__ << " Initial table value: " << initial_table_value.transpose() << std::endl;
-
         if (reset_optimiser)    // if the UI buttom is clicked, add random noise to the initialFridge vector
         {
 //            // add random noise to the initialFridge vector
@@ -233,6 +234,9 @@ namespace rc
                                                  params.INIT_HEIGHT_VALUE + noise[8]);
             reset_optimiser = false;
         }
+        //Print initial table value
+        std::cout << __FUNCTION__ << " Initial table value: " << initial_table_value.transpose() << std::endl;
+
         initialEstimate.insert(tableKey, initial_table_value);
 
         double initialError = graph.error(initialEstimate);
@@ -327,25 +331,37 @@ namespace rc
         return points_memory_buffer;
     }
 
-    std::vector<Eigen::Vector3d> ActionableThing::generatePerimeterPoints(double width, double depth, double height, double centerX, double centerY, double distance) {
+
+    std::vector<Eigen::Vector3d> ActionableThing::generatePerimeterPoints(double width, double depth, double height, double centerX,
+                                                                          double centerY, double distance, double ang)
+    {
         std::vector<Eigen::Vector3d> perimeterPoints;
 
         // Calculate the number of points along each side
         int numPointsWidth = static_cast<int>(width / distance);
         int numPointsDepth = static_cast<int>(depth / distance);
 
+        // Rotation matrix
+        Eigen::Matrix2d rotation;
+        rotation << std::cos(ang), -std::sin(ang),
+                    std::sin(ang),  std::cos(ang);
+
         // Generate points along the width sides
         for (int i = 0; i <= numPointsWidth; ++i) {
             double x = centerX - width / 2 + i * distance;
-            perimeterPoints.emplace_back(x, centerY - depth / 2, height);
-            perimeterPoints.emplace_back(x, centerY + depth / 2, height);
+            Eigen::Vector2d point1 = rotation * Eigen::Vector2d(x, centerY - depth / 2);
+            Eigen::Vector2d point2 = rotation * Eigen::Vector2d(x, centerY + depth / 2);
+            perimeterPoints.emplace_back(point1.x(), point1.y(), height);
+            perimeterPoints.emplace_back(point2.x(), point2.y(), height);
         }
 
         // Generate points along the depth sides
         for (int i = 1; i < numPointsDepth; ++i) {
             double y = centerY - depth / 2 + i * distance;
-            perimeterPoints.emplace_back(centerX - width / 2, y, height);
-//            perimeterPoints.emplace_back(centerX + width / 2, y, height);
+            Eigen::Vector2d point1 = rotation * Eigen::Vector2d(centerX - width / 2, y);
+            Eigen::Vector2d point2 = rotation * Eigen::Vector2d(centerX + width / 2, y);
+            perimeterPoints.emplace_back(point1.x(), point1.y(), height);
+            perimeterPoints.emplace_back(point2.x(), point2.y(), height);
         }
 
         return perimeterPoints;

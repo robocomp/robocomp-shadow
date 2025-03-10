@@ -59,7 +59,7 @@
     The orthogonal projection of Point $ps$ onto the plane is
 
     \begin{equation}
-        p_{\text{proj}} = \begin{bmatrix} x \\ y \\ 0 \end{bmatrix}.
+        p_{\text{proj}} = \begin{bmatrix} ps_x \\ ps_y \\ 0 \end{bmatrix}.
     \end{equation}
 
     We now analyse the two possible cases for the projection of \(p\) onto the face of the object: falling inside and falling outside the rectangle \(\mathcal{R}\).
@@ -68,19 +68,19 @@
 
         If the projection lies inside the rectangle, i.e.,
         \begin{equation}
-            |x| \le L_x \quad \text{and} \quad |y| \le L_y,
+            |ps_x| \le L_x \quad \text{and} \quad |ps_y| \le L_y,
         \end{equation}
         then the closest point on the face is \(p_{\text{proj}}\) itself and the (squared) distance from \(p\) to the face is simply the squared perpendicular distance:
         \begin{equation}
-            D^2(p) = z^2.
+            D^2(p) = ps^2_z.
         \end{equation}
 
     \subsection*{Case 2: Projection Outside the Face}
 
         If the projection lies outside \(\mathcal{R}\), then the closest point \(q\) on the rectangle is the one that minimizes the Euclidean distance to \(p_{\text{proj}}\). Define the distances along the \(x\) and \(y\) directions by
         \begin{equation}
-            d_x = \max\{0,\, |x| - L_x\}, \qquad
-            d_y = \max\{0,\, |y| - L_y\}.
+            d_x = \max\{0,\, |ps_x| - L_x\}, \qquad
+            d_y = \max\{0,\, |ps_y| - L_y\}.
         \end{equation}
         Then, the squared distance from \(p\) to the face is given by
         \begin{equation}
@@ -91,7 +91,7 @@
 
         One can combine the two cases into a single expression:
         \begin{equation}
-            D^2(p) = z^2 + \left[ \max\{0,\, |x| - L_x\} \right]^2 + \left[ \max\{0,\, |y| - L_y\} \right]^2.
+            D^2(p) = z^2 + \left[ \max\{0,\, |ps_x| - L_x\} \right]^2 + \left[ \max\{0,\, |ps_y| - L_y\} \right]^2.
         \end{equation}
 
     \subsection*{Smooth Approximation}

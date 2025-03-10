@@ -11,7 +11,7 @@
 
 namespace factors
 {
-    inline double beta = 4;  // for the relu
+    inline double beta = 10;  // for the relu
     inline double gamma = 1; // for the softabs
 
 
@@ -249,8 +249,8 @@ namespace factors
         }
         // If the Jacobian with respect to p is requested, it is assigned directly.
         if (H2)
-            //*H2 = h_point;
-            H2->setZero();
+            *H2 = h_point;
+            //H2->setZero();
 
         return res;
     }
@@ -508,13 +508,7 @@ namespace factors
         const double dy = soft_max(sy - Ly, beta);
 
         const double dist = ps.z() * ps.z() + dx * dx + dy * dy;
-        // qInfo() << "Data: ";
-        // qInfo() << "    [" << p.x() << p.y() << p.z() << " : " << ps.x() << ps.y() << ps.z() << "]";
-        // qInfo() << "    dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
-        //              "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy << " Lx " << Lx << " Ly " << Ly;
-        qInfo() << "    v(0) " << v(0) << " v(1) " << v(1) << " v(2) " << v(2) << " v(3) " << v(3) <<
-                     " v(4) " << v(4) << " v(5) " << v(5) << " v(6) " << v(6) << " v(7) " << v(7) <<
-                     " v(8) " << v(8);
+
         if (H1)
         {
             const double d_dx2_dux = 2.0 * dx;
@@ -524,10 +518,28 @@ namespace factors
             const double d_sx_d_px = soft_abs_derivative(ps.x(), gamma);
             const double d_sy_d_py = soft_abs_derivative(ps.y(), gamma);
             // Derivatives
-            const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * H_pose(0,3);
-            const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * H_pose(1,4);
+            //const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * H_pose(0,3);
+            const double d_D_d_w = -2.0 * soft_max(std::abs(ps.x()) - Lx, beta) * soft_max_derivative(std::abs(ps.x()) - Lx, beta);
+            //const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * H_pose(1,4);
+            const double d_D_d_d = -2.0 * soft_max(std::abs(ps.y()) - Ly, beta) * soft_max_derivative(std::abs(ps.y()) - Ly, beta);
             const double d_D_d_h = 2.0 * ps.z() * H_pose(2, 5);
             *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, d_D_d_h;
+
+            double h6 = H1->block<1, 1>(0, 6)(0,0);
+            double h7 = H1->block<1, 1>(0, 7)(0,0);
+            if (h6<0 and h7>0 or h7<0 and h6>0)
+            {
+                qInfo() << "Data: ";
+                qInfo() << "    H1(6) " << h6 << " H1(7) " << h7;
+                qInfo() << "    [" << p.x() << p.y() << p.z() << " : " << ps.x() << ps.y() << ps.z() << "]";
+                qInfo() << "    dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
+                                "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy << " Lx " << Lx << " Ly " << Ly;
+                qInfo() << "    sx " << sx << " d_dx2_dux " << d_dx2_dux << " d_ux_d_vx " << d_ux_d_vx << " d_sx_d_px " << d_sx_d_px << " H_pose(0,3) " << H_pose(0,3);
+                qInfo() << "    sy " << sy << " d_dy2_duy " << d_dy2_duy << " d_uy_d_vy " << d_uy_d_vy << " d_sy_d_py " << d_sy_d_py << " H_pose(1,4) " << H_pose(1,4);
+            }
+            // qInfo() << "    v(0) " << v(0) << " v(1) " << v(1) << " v(2) " << v(2) << " v(3) " << v(3) <<
+            //              " v(4) " << v(4) << " v(5) " << v(5) << " v(6) " << v(6) << " v(7) " << v(7) <<
+            //              " v(8) " << v(8) ;
 
             //std::cout << *H1 << std::endl;
 
@@ -539,11 +551,11 @@ namespace factors
             const auto d_D_d_py = 2.0 * soft_max(sy-Ly, beta) * soft_max_derivative(sy-Ly, beta) * soft_abs_derivative(ps.y(), gamma) * H_point(1, 1);
             const auto d_D_d_pz = 2.0 * ps.z() * H_point(2, 2);
             H3->setZero();
-            //*H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
+            *H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
             //*H3 << d_D_d_px, d_D_d_py, 0.0;
 
             //std::cout << *H3 << std::endl;
-            qInfo() << "---------------";
+            //qInfo() << "---------------";
         }
         return dist;
     };
