@@ -160,33 +160,44 @@ class SpecificWorker(GenericWorker):
                 self.imu_data_inner = self.get_imu_data_inner(self.robot)
 
                 # print last elements of self.imu_data_inner and self.imu_data_webots
-                print(f"Pybullet: {self.imu_data_inner['lin_acc_x'][-1]}, Webots: {self.imu_data_webots['lin_acc_x'][-1]}")
-                print(f"Pybullet: {self.imu_data_inner['lin_acc_y'][-1]}, Webots: {self.imu_data_webots['lin_acc_y'][-1]}")
-                print(f"Pybullet: {self.imu_data_inner['lin_acc_z'][-1]}, Webots: {self.imu_data_webots['lin_acc_z'][-1]}")
+                #print(f"Pybullet: {self.imu_data_inner['lin_acc_x'][-1]}, Webots: {self.imu_data_webots['lin_acc_x'][-1]}")
+                #print(f"Pybullet: {self.imu_data_inner['lin_acc_y'][-1]}, Webots: {self.imu_data_webots['lin_acc_y'][-1]}")
+                #print(f"Pybullet: {self.imu_data_inner['lin_acc_z'][-1]}, Webots: {self.imu_data_webots['lin_acc_z'][-1]}")
 
-                # check if the difference is greater than a threshold
-                # print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
-                # if abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1]) > 0.1:
-                #     # stop the robots
-                #     webot_stop_robot()
-                #     inner_stop_robot()
-                #     self.state = "bump"
+                #check if the difference is greater than a threshold
+                print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
+                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
+                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
+
+                thres = 50
+                if abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1]) > thres \
+                        or abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1]) > thres \
+                        or abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_z'][-1]) > thres :
+                    # stop the robots
+                    print("Bump detected  -- STOPPING ROBOTS")
+                    self.webot_stop_robot()
+                    self.inner_stop_robot()
+                    self.state = "bump"
+                    pass
 
                 self.update_plot()
 
             case "bump":       # stop the robot and replay the trajectory in Pybullet until a match
 
-                # imu_data = self.get_imu_data(self.robot)
-                # output = (
-                #     f"\n--- IMU Data ---\n"
-                #     f"Linear Acceleration: {imu_data['lin_acc']}\n"
-                #     f"Angular Velocity   : {imu_data['ang_vel']}\n"
-                #     f"Orientation (Euler): Roll={roll:.2f}, Pitch={pitch:.2f}, Yaw={yaw:.2f}\n"
-                #     f"Orientation (Quat) : {imu_data['orientation_quat']}\n"
-                #     f"------------------"
-                # )
-                # print(output)
-                pass
+                # select a bump URDF
+                # create a range of positions for the bump close to the final position of the episode
+                # while not match:
+                    # send the robot in pybullet to the initial position of the episode
+                    # introduce the bump in the scene
+                    # set same velocity as recorded
+                    # read acceleration from PyBullet
+                    # check if the peak occurs at the same time mark than the registered in the episode
+                    # if match: exit the loop
+
+                # print a sentence with the cause of the accident
+                self.state = "idle"
+
+
 
     ###############################################################3
     def startup_check(self):
@@ -296,6 +307,22 @@ class SpecificWorker(GenericWorker):
             "frame_back_left2motor_back_left": forward_velocity / self.wheels_radius - self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius,
             "frame_back_right2motor_back_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
         return wheels_velocity
+
+    def webot_stop_robot(self):
+        """
+        Stop the robot in Webots
+        """
+        try:
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+        except Exception as e:
+            print(e)
+
+    def inner_stop_robot(self):
+        """
+        Stop the robot in PyBullet
+        """
+        for motor_name in self.motors:
+            p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL, targetVelocity=0)
 
     def get_imu_data_inner(self, body_id):
         """
