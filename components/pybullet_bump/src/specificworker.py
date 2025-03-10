@@ -29,7 +29,10 @@ import pybullet as p
 import numpy as np
 import locale
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+import matplotlib
+
+matplotlib.use("TkAgg")
+
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -40,11 +43,10 @@ console = Console(highlight=False)
 # import librobocomp_osgviewer
 # import librobocomp_innermodel
 
-
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 50
+        self.Period = 1
 
         locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
 
@@ -53,23 +55,20 @@ class SpecificWorker(GenericWorker):
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(1)
-        p.resetDebugVisualizerCamera(cameraDistance=1.5, cameraYaw=50, cameraPitch=-35,
-                                     cameraTargetPosition=[0, 0, 0.5])
+        p.resetDebugVisualizerCamera(cameraDistance=2.7, cameraYaw=0, cameraPitch=-15,
+                                     cameraTargetPosition=[-1.3, -0.5, 0.2])
 
         # Load floor in the simulation
         self.plane = p.loadURDF("./URDFs/plane/plane.urdf", basePosition=[0, 0, 0])
 
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
-        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [0, 0, 0], flags=flags)
+        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0], flags=flags)
 
-        self.bump = p.loadURDF("./URDFs/bump/bump_100x5.urdf", [1.8, 0, 0.01], flags=flags)
+        # self.bump = p.loadURDF("./URDFs/bump/bump_100x5.urdf", [0, -0.33, 0.001], flags=flags)
 
         self.joints_name = self.get_joints_info(self.robot)
         self.links_name = self.get_link_info(self.robot)
-
-        print("Joints name:", self.joints_name)
-        print("Links name:", self.links_name)
 
         self.motors = ["frame_back_right2motor_back_right", "frame_back_left2motor_back_left", "frame_front_right2motor_front_right", "frame_front_left2motor_front_left"]
         self.wheels_radius = 0.1
@@ -79,6 +78,8 @@ class SpecificWorker(GenericWorker):
         self.forward_velocity = 0
         self.angular_velocity = 0
 
+        self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
+
         self.saved_state = p.saveState()
 
         self.joystickControl = True
@@ -87,13 +88,31 @@ class SpecificWorker(GenericWorker):
         self.states = ["idle", "moving", "bump"]
 
         # Initialize IMU data
-        self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": []}
-        self.start_time = time.time()
+        # self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": [], "prev_lin_vel": np.zeros(3)}
+        self.imu_data = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3)}
+        self.imu_data["time"].append(0)
+        self.imu_data["lin_acc_x"].append(0)
+        self.imu_data["lin_acc_y"].append(0)
+        self.imu_data["lin_acc_z"].append(0)
+
+        # Initialize IMU data of webots
+        self.imu_data_webots = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": []}
+        self.imu_data_webots["time"].append(0)
+        self.imu_data_webots["lin_acc_x"].append(0)
+        self.imu_data_webots["lin_acc_y"].append(0)
+        self.imu_data_webots["lin_acc_z"].append(0)
 
         # Initialize plot
-        self.fig, self.axs = plt.subplots(3, 1, figsize=(8, 6))
-        self.labels = ["X", "Y", "Z"]
-        self.ani = animation.FuncAnimation(self.fig, self.update_plot, interval=50)
+        plt.ion()
+        self.fig, self.ax = plt.subplots(2, 1, figsize=(8, 10))
+
+        # self.plot_timer = QTimer()
+        # self.plot_timer.timeout.connect(self.update_plot)
+        # self.plot_timer.start(50)
+
+        self.update_plot(update_legend=True)
+
+        self.start_time = time.time()
 
         if startup_check:
             self.startup_check()
@@ -118,23 +137,33 @@ class SpecificWorker(GenericWorker):
         match self.state:
             case "idle":
                 pass
-            case "moving":      #move until a perceptive event occurs
-                # self.forward_velocity = 0
-                # self.angular_velocity = 0
-                print("moving")
-                self.omnirobot_proxy.setSpeedBase(0, 1000, 0.0)
+            case "moving":        #move until a perceptive event occurs
+
+                temp_data = self.imu_proxy.getAcceleration()
+                self.imu_data_webots["time"].append(time.time() - self.start_time)
+                self.imu_data_webots["lin_acc_x"].append(temp_data.XAcc)
+                self.imu_data_webots["lin_acc_y"].append(temp_data.YAcc)
+                self.imu_data_webots["lin_acc_z"].append(temp_data.ZAcc)
+
+                self.get_imu_data(self.robot)
+
+                self.forward_velocity = 0.2
+                self.angular_velocity = 0
+
+                self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
                 # Get the velocity of the wheels from the forward and angular velocity of the robot
-                wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(self.forward_velocity, self.angular_velocity)
+                wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(
+                    self.forward_velocity, self.angular_velocity)
 
                 # Set the velocity of the motors
                 for motor_name in self.motors:
                     p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
                                         targetVelocity=wheels_velocities[motor_name])
 
-                plt.show()
+                self.update_plot()
 
-            case "bump":    # stop the robot and replay the trajectory in Pybullet until a match
+            case "bump":       # stop the robot and replay the trajectory in Pybullet until a match
 
                 # imu_data = self.get_imu_data(self.robot)
                 # output = (
@@ -146,16 +175,25 @@ class SpecificWorker(GenericWorker):
                 #     f"------------------"
                 # )
                 # print(output)
-
-                plt.show()
                 pass
 
 
+
     def startup_check(self):
+        print(f"Testing RoboCompIMU.Acceleration from ifaces.RoboCompIMU")
+        test = ifaces.RoboCompIMU.Acceleration()
+        print(f"Testing RoboCompIMU.Gyroscope from ifaces.RoboCompIMU")
+        test = ifaces.RoboCompIMU.Gyroscope()
+        print(f"Testing RoboCompIMU.Magnetic from ifaces.RoboCompIMU")
+        test = ifaces.RoboCompIMU.Magnetic()
+        print(f"Testing RoboCompIMU.Orientation from ifaces.RoboCompIMU")
+        test = ifaces.RoboCompIMU.Orientation()
+        print(f"Testing RoboCompIMU.DataImu from ifaces.RoboCompIMU")
+        test = ifaces.RoboCompIMU.DataImu()
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
-        print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
-        test = ifaces.RoboCompJoystickAdapter.AxisParams()
+        print(f"Testing RoboCompJoystickAdapter.axisParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.axisParams()
         print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
         test = ifaces.RoboCompJoystickAdapter.ButtonParams()
         print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
@@ -172,7 +210,7 @@ class SpecificWorker(GenericWorker):
         joint_name_to_id = {}
         # Get number of joints in the model
         num_joints = p.getNumJoints(robot_id)
-        print("Num joints:", num_joints)
+        # print("Num joints:", num_joints)
 
         # Populate the dictionary with joint names and IDs
         for i in range(num_joints):
@@ -198,7 +236,7 @@ class SpecificWorker(GenericWorker):
         link_name_to_id = {}
         # Get number of joints in the model
         num_links = p.getNumJoints(robot_id)
-        print("Num links:", num_links)
+        # print("Num links:", num_links)
 
         # Populate the dictionary with link names and IDs
         for i in range(num_links):
@@ -259,49 +297,48 @@ class SpecificWorker(GenericWorker):
         pos, orn = p.getBasePositionAndOrientation(body_id)
         lin_vel, ang_vel = p.getBaseVelocity(body_id)
         roll, pitch, yaw = p.getEulerFromQuaternion(orn)
-
-        self.imu_data["prev_lin_vel"] = self.imu_data.get("lin_vel", lin_vel)
-        lin_acc = np.array(lin_vel) - np.array(self.imu_data["prev_lin_vel"])
-
+        prev_lin_vel = np.array(self.imu_data.get("prev_lin_vel"))
         t = time.time() - self.start_time
 
-        self.imu_data["time"].append(t)
-        self.imu_data["lin_acc"].append(lin_acc.tolist())
-        self.imu_data["ang_vel"].append(ang_vel)
-        self.imu_data["orientation"].append((roll, pitch, yaw))
+        self.imu_data["prev_lin_vel"] = lin_vel
 
-    def update_plot(self, frame):
+        timeStep = t - self.imu_data["time"][-1]
+
+        lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
+
+        # Store data
+        self.imu_data["time"].append(t)
+        self.imu_data["lin_acc_x"].append(lin_acc[0])
+        self.imu_data["lin_acc_y"].append(lin_acc[1])
+        self.imu_data["lin_acc_z"].append(lin_acc[2])
+        # self.imu_data["ang_vel"].append(ang_vel)
+        # self.imu_data["orientation"].append((roll, pitch, yaw))
+
+    def update_plot(self, update_legend=False):
         """
         Update the plot with the latest IMU data
-        :param frame: Frame number
         """
-        self.get_imu_data(self.robot)
+        self.ax[0].plot(self.imu_data["time"], self.imu_data["lin_acc_x"], label="Pybullet X", marker="o", color="blue")
+        self.ax[0].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_x"], label="Webots X", marker="s",
+                        color="red")
+        self.ax[0].set_ylabel("Acc X")
+        self.ax[0].set_title("Linear X Acceleration")
+        self.ax[0].set_ylim(-2, 2)
+        if update_legend: self.ax[0].legend()
+        self.ax[0].grid(True)
 
-        t_vals = self.imu_data["time"][-50:]
-        lin_acc_vals = np.array(self.imu_data["lin_acc"][-50:])
-        ang_vel_vals = np.array(self.imu_data["ang_vel"][-50:])
-        orientation_vals = np.array(self.imu_data["orientation"][-50:])
+        # Graficar eje Y
+        self.ax[1].plot(self.imu_data["time"], self.imu_data["lin_acc_y"], label="Pybullet Y", marker="o", color="green")
+        self.ax[1].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_y"], label="Webots Y", marker="s",
+                        color="orange")
+        self.ax[1].set_ylabel("Acc Y")
+        self.ax[1].set_title("Linear Y Acceleration")
+        self.ax[1].set_ylim(-2, 2)
+        if update_legend: self.ax[1].legend()
+        self.ax[1].grid(True)
 
-        self.axs[0].cla()
-        self.axs[1].cla()
-        self.axs[2].cla()
-
-        for i in range(3):
-            self.axs[0].plot(t_vals, lin_acc_vals[:, i], label=f"Acc {self.labels[i]}")
-        self.axs[0].set_title("Aceleración Lineal")
-        self.axs[0].legend()
-
-        for i in range(3):
-            self.axs[1].plot(t_vals, ang_vel_vals[:, i], label=f"Vel Ang {self.labels[i]}")
-        self.axs[1].set_title("Velocidad Angular")
-        self.axs[1].legend()
-
-        for i in range(3):
-            self.axs[2].plot(t_vals, orientation_vals[:, i], label=f"Orient {self.labels[i]}")
-        self.axs[2].set_title("Orientación (Roll, Pitch, Yaw)")
-        self.axs[2].legend()
-
-        plt.tight_layout()
+        # Pausar para visualizar la actualización
+        plt.pause(0.1)
 
 
     # =============== Methods for Component SubscribesTo ================
@@ -331,7 +368,7 @@ class SpecificWorker(GenericWorker):
                 if a.name == "rotate":
                     self.angular_velocity = a.value
                 elif a.name == "advance":
-                    self.forward_velocity = a.value * 0.0003
+                    self.forward_velocity = a.value * 0.001
                 else:
                     pass  # print(a.name, "JOYSTICK NO AJUSTADO")
 
@@ -339,6 +376,23 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
 
 
+
+    ######################
+    # From the RoboCompIMU you can call this methods:
+    # self.imu_proxy.getAcceleration(...)
+    # self.imu_proxy.getAngularVel(...)
+    # self.imu_proxy.getDataImu(...)
+    # self.imu_proxy.getMagneticFields(...)
+    # self.imu_proxy.getOrientation(...)
+    # self.imu_proxy.resetImu(...)
+
+    ######################
+    # From the RoboCompIMU you can use this types:
+    # RoboCompIMU.Acceleration
+    # RoboCompIMU.Gyroscope
+    # RoboCompIMU.Magnetic
+    # RoboCompIMU.Orientation
+    # RoboCompIMU.DataImu
 
     ######################
     # From the RoboCompOmniRobot you can call this methods:
@@ -357,7 +411,7 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompJoystickAdapter you can use this types:
-    # RoboCompJoystickAdapter.AxisParams
+    # RoboCompJoystickAdapter.axisParams
     # RoboCompJoystickAdapter.ButtonParams
     # RoboCompJoystickAdapter.TData
 
