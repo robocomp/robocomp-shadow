@@ -84,16 +84,16 @@ class SpecificWorker(GenericWorker):
 
         self.joystickControl = True
 
-        self.state = "moving"
-        self.states = ["idle", "moving", "bump"]
+        self.state = "idle"
+        self.states = ["idle", "start_moving", "moving", "bump"]
 
         # Initialize IMU data
         # self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": [], "prev_lin_vel": np.zeros(3)}
-        self.imu_data = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3)}
-        self.imu_data["time"].append(0)
-        self.imu_data["lin_acc_x"].append(0)
-        self.imu_data["lin_acc_y"].append(0)
-        self.imu_data["lin_acc_z"].append(0)
+        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3)}
+        self.imu_data_inner["time"].append(0)
+        self.imu_data_inner["lin_acc_x"].append(0)
+        self.imu_data_inner["lin_acc_y"].append(0)
+        self.imu_data_inner["lin_acc_z"].append(0)
 
         # Initialize IMU data of webots
         self.imu_data_webots = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": []}
@@ -131,35 +131,46 @@ class SpecificWorker(GenericWorker):
         #	print("Error reading config params")
         return True
 
-
     @QtCore.Slot()
     def compute(self):
         match self.state:
             case "idle":
-                pass
-            case "moving":        #move until a perceptive event occurs
-
-                temp_data = self.imu_proxy.getAcceleration()
-                self.imu_data_webots["time"].append(time.time() - self.start_time)
-                self.imu_data_webots["lin_acc_x"].append(temp_data.XAcc)
-                self.imu_data_webots["lin_acc_y"].append(temp_data.YAcc)
-                self.imu_data_webots["lin_acc_z"].append(temp_data.ZAcc)
-
-                self.get_imu_data(self.robot)
-
-                self.forward_velocity = 0.2
+                self.state = "start_moving"
+            case "start_moving":
+                # set webots robot speed
+                self.forward_velocity = 1.3
                 self.angular_velocity = 0
-
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
+                # set inner robot speed
                 # Get the velocity of the wheels from the forward and angular velocity of the robot
                 wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(
                     self.forward_velocity, self.angular_velocity)
-
-                # Set the velocity of the motors
                 for motor_name in self.motors:
                     p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
-                                        targetVelocity=wheels_velocities[motor_name])
+                                            targetVelocity=wheels_velocities[motor_name])
+                self.state = "moving"
+
+            case "moving":        #move until a perceptive event occurs
+
+                # read acceleration from Webots
+                self.imu_data_webots = self.get_imu_data_webots()
+
+                # read acceleration from PyBullet
+                self.imu_data_inner = self.get_imu_data_inner(self.robot)
+
+                # print last elements of self.imu_data_inner and self.imu_data_webots
+                print(f"Pybullet: {self.imu_data_inner['lin_acc_x'][-1]}, Webots: {self.imu_data_webots['lin_acc_x'][-1]}")
+                print(f"Pybullet: {self.imu_data_inner['lin_acc_y'][-1]}, Webots: {self.imu_data_webots['lin_acc_y'][-1]}")
+                print(f"Pybullet: {self.imu_data_inner['lin_acc_z'][-1]}, Webots: {self.imu_data_webots['lin_acc_z'][-1]}")
+
+                # check if the difference is greater than a threshold
+                # print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
+                # if abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1]) > 0.1:
+                #     # stop the robots
+                #     webot_stop_robot()
+                #     inner_stop_robot()
+                #     self.state = "bump"
 
                 self.update_plot()
 
@@ -177,8 +188,7 @@ class SpecificWorker(GenericWorker):
                 # print(output)
                 pass
 
-
-
+    ###############################################################3
     def startup_check(self):
         print(f"Testing RoboCompIMU.Acceleration from ifaces.RoboCompIMU")
         test = ifaces.RoboCompIMU.Acceleration()
@@ -199,7 +209,6 @@ class SpecificWorker(GenericWorker):
         print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
         test = ifaces.RoboCompJoystickAdapter.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
-
 
     def get_joints_info(self, robot_id):
         """
@@ -288,37 +297,55 @@ class SpecificWorker(GenericWorker):
             "frame_back_right2motor_back_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
         return wheels_velocity
 
-    def get_imu_data(self, body_id):
+    def get_imu_data_inner(self, body_id):
         """
-        Get IMU data from a body in the simulation
+        Get IMU data from a body in the PyBullet simulation
         :param body_id: ID of the body in the simulation
         :return: Dictionary with IMU data
         """
         pos, orn = p.getBasePositionAndOrientation(body_id)
         lin_vel, ang_vel = p.getBaseVelocity(body_id)
         roll, pitch, yaw = p.getEulerFromQuaternion(orn)
-        prev_lin_vel = np.array(self.imu_data.get("prev_lin_vel"))
+        prev_lin_vel = np.array(self.imu_data_inner.get("prev_lin_vel"))
         t = time.time() - self.start_time
 
-        self.imu_data["prev_lin_vel"] = lin_vel
+        self.imu_data_inner["prev_lin_vel"] = lin_vel
 
-        timeStep = t - self.imu_data["time"][-1]
+        timeStep = t - self.imu_data_inner["time"][-1]
 
         lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
 
         # Store data
-        self.imu_data["time"].append(t)
-        self.imu_data["lin_acc_x"].append(lin_acc[0])
-        self.imu_data["lin_acc_y"].append(lin_acc[1])
-        self.imu_data["lin_acc_z"].append(lin_acc[2])
+        self.imu_data_inner["time"].append(t)
+        self.imu_data_inner["lin_acc_x"].append(lin_acc[0])
+        self.imu_data_inner["lin_acc_y"].append(lin_acc[1])
+        self.imu_data_inner["lin_acc_z"].append(lin_acc[2])
         # self.imu_data["ang_vel"].append(ang_vel)
         # self.imu_data["orientation"].append((roll, pitch, yaw))
+
+        return self.imu_data_inner
+
+    def get_imu_data_webots(self):
+        try:
+            temp_data = self.imu_proxy.getAcceleration()
+            self.imu_data_webots["time"].append(time.time() - self.start_time)
+            self.imu_data_webots["lin_acc_x"].append(temp_data.XAcc)
+            self.imu_data_webots["lin_acc_y"].append(temp_data.YAcc)
+            self.imu_data_webots["lin_acc_z"].append(temp_data.ZAcc)
+            return self.imu_data_webots
+        except Exception as e:
+            print(e)
 
     def update_plot(self, update_legend=False):
         """
         Update the plot with the latest IMU data
         """
-        self.ax[0].plot(self.imu_data["time"], self.imu_data["lin_acc_x"], label="Pybullet X", marker="o", color="blue")
+
+        if self.imu_data_inner is None or self.imu_data_webots is None:
+            print("No IMU data")
+            return
+
+        self.ax[0].plot(self.imu_data_inner["time"], self.imu_data_inner["lin_acc_x"], label="Pybullet X", marker="o", color="blue")
         self.ax[0].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_x"], label="Webots X", marker="s",
                         color="red")
         self.ax[0].set_ylabel("Acc X")
@@ -328,7 +355,7 @@ class SpecificWorker(GenericWorker):
         self.ax[0].grid(True)
 
         # Graficar eje Y
-        self.ax[1].plot(self.imu_data["time"], self.imu_data["lin_acc_y"], label="Pybullet Y", marker="o", color="green")
+        self.ax[1].plot(self.imu_data_inner["time"], self.imu_data_inner["lin_acc_y"], label="Pybullet Y", marker="o", color="green")
         self.ax[1].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_y"], label="Webots Y", marker="s",
                         color="orange")
         self.ax[1].set_ylabel("Acc Y")
@@ -339,7 +366,6 @@ class SpecificWorker(GenericWorker):
 
         # Pausar para visualizar la actualización
         plt.pause(0.1)
-
 
     # =============== Methods for Component SubscribesTo ================
     # ===================================================================
