@@ -15,7 +15,8 @@
 % Document
 \begin{document}
 
-\title{Loss function: distance to the side of an orthohedron (object)}
+\title{The fridge conundrum: differentiable distance of a 3D point to one side of an orthohedron (object)}
+\author{Pablo Bustos}
 \maketitle
 
     In our 3D object detection problem, the cuboid object is modeled by a 9-dimensional parameter vector
@@ -24,7 +25,7 @@
     \end{equation}
 
     where $x,y,z$ define the position of the object in the room frame, $\alpha,\beta,\gamma$ define the rotation of the object in the room frame, and $w,d,h$ define the width, depth, and height of the table respectively.
-    The objective is to define a differentiable distance from a point $p$ with coordinates in the object frame, to one side (top) of the object.
+    The objective is to define a differentiable distance from a point $p$ with coordinates given in the object frame, to one side (top in this case) of the object.
 
     Let the width of the orthohedron be \(\text{w}\), the depth \(\text{d}\) and the height \(\text{h}\).
     We define the transformation from the center of the object to the top side with an \(\text{Pose3}\) object:
@@ -149,11 +150,10 @@
             u^2 &= [softplus(v)]^2 \\
             s &= \text{softabs}(ps_{x}) = \sqrt{ps_{x}^2 + \epsilon}, \\
             v &= s - L_x, \\
-            ps_{x} &= H_{point}(0,:)\, p, \\
             L_x &= \frac{width}{2} \\
         \end{align}
 
-        \subsection*{Derivative of $D$ with respect to $w$}
+        \subsection*{Derivative of $D$ with respect to $w = 2L_x$)}
             The derivative of \(D\) with respect to \(w\) is given by:
             \begin{equation}
                 \frac{\partial D}{\partial w} = \frac{\partial D}{\partial dx^2} \cdot \frac{\partial dx^2}{\partial w}
@@ -165,24 +165,21 @@
                 \frac{\partial D}{\partial w} = \frac{\partial dx^2}{\partial w}
             \end{equation}
 
-            Using the chain rule, we can express the derivative of \(dx^2\) with respect to \(w\) as:
+            Using the chain rule, we can express the derivative of \(dx^2\) with respect to \(w (L_x)\) as:
             \begin{equation}
-                \frac{\partial dx^2}{\partial w} = \frac{\partial dx^2}{\partial u} \cdot \frac{\partial u}{\partial v} \cdot \frac{\partial v}{\partial s} \cdot \frac{\partial s}{\partial ps_{x}} \cdot \frac{\partial ps_{x}}{\partial p} \cdot \frac{\partial p}{\partial w}
+                \frac{\partial dx^2}{\partial w} = \frac{\partial dx^2}{\partial u} \cdot \frac{\partial u}{\partial v} \cdot \frac{\partial v}{\partial Lx}
             \end{equation}
 
             where
             \begin{align}
-                \frac{\partial p}{\partial w} &= \begin{bmatrix} 1 \\ 0 \\ 0 \end{bmatrix} \\
-                \frac{\partial ps_{x}}{\partial p_x} &= H_{point}(0,:) \\
-                \frac{\partial s}{\partial ps_{x}} &= \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}}\\
-                \frac{\partial v}{\partial s} &= 1\\
+                \frac{\partial v}{\partial Lx} &= -1\\
                 \frac{\partial u}{\partial v} &= \frac{1}{1 + e^{-(s - L_x)}}\\
                 \frac{\partial dx^2}{\partial u} &= 2\,\text{softplus}(s - L_x)\\
             \end{align}
 
             Multiplying all the factors, we have:
             \begin{equation}
-                \frac{\partial D}{\partial w} = \frac{\partial dx^2}{\partial w} = 2\,\text{softplus}(s - L_x) \cdot \frac{1}{1 + e^{-(s - L_x)}} \cdot \frac{ps_{x}}{\sqrt{ps_{x}^2 + \epsilon}} \cdot H_{point}(0,:) \cdot \begin{bmatrix} 1 \\ 0 \\ 0 \end{bmatrix}
+                \frac{\partial D}{\partial w} = -\frac{\partial dx^2}{\partial w} = 2\,\text{softplus}(s - L_x) \cdot \frac{1}{1 + e^{-(s - L_x)}}
             \end{equation}
 
 
@@ -201,27 +198,21 @@
         Using the chain rule, we can express the derivative of \(dy^2\) with respect to \(d\) as:
 
         \begin{equation}
-            \frac{\partial dy^2}{\partial d} = \frac{\partial dy^2}{\partial u_y} \cdot \frac{\partial u_y}{\partial v_y} \cdot \frac{\partial v_y}{\partial s_y} \cdot \frac{\partial s_y}{\partial ps_{y}} \cdot \frac{\partial ps_{y}}{\partial p_y} \cdot \frac{\partial p_y}{\partial d}
+            \frac{\partial dy^2}{\partial d} = \frac{\partial dy^2}{\partial u_y} \cdot \frac{\partial u_y}{\partial v_y} \cdot \frac{\partial v_y}{\partial L_y}
         \end{equation}
 
         where
         \begin{align}
-            \frac{\partial p}{\partial d} &= \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} \\
-            \frac{\partial ps_{y}}{\partial p_y} &= H_{point}(1,:)\\
-            \frac{\partial s_{y}}{\partial ps_{y}} &= \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}}\\
-            \frac{\partial v_{y}}{\partial s_{y}} &= 1\\
+            \frac{\partial v_{y}}{\partial L_{y}} &= -1\\
             \frac{\partial u_{y}}{\partial v_{y}} &= \frac{1}{1 + e^{-(s - L_y)}}\\
             \frac{\partial dy^2}{\partial u_y} &= 2\,\text{softplus}(s - L_y)\\
         \end{align}
 
         Multiplying all the factors, we have:
         \begin{equation}
-            \frac{\partial D}{\partial d} = \frac{\partial D}{\partial dy^2}  = 2 \cdot
+            \frac{\partial D}{\partial d} = -\frac{\partial D}{\partial dy^2}  = 2 \cdot
                                             \text{softplus}(s - L_y) \cdot
                                             \frac{1}{1 + e^{-(s - L_y)}} \cdot
-                                            \frac{ps_{y}}{\sqrt{ps_{y}^2 + \epsilon}} \cdot
-                                            H_{point}(1,:) \cdot
-                                            \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix}
         \end{equation}
 
     \subsection*{Derivative of $D$ with respect to $h$}

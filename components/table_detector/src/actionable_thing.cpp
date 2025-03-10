@@ -155,25 +155,45 @@ namespace rc
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         /// FACTORS
         ///////////////////////////////////////////////////////////////////////////////////////////////////
-        auto factor_table_top_height = [table_](const gtsam::Vector3 &p)
-        {
-            return
-                    gtsam::Double_(&factors::dist2table_top, table_, gtsam::Point3_(&factors::table2top, table_, gtsam::Point3_ (&factors::room2table, table_, gtsam::Point3_(p))));
-        };
 
         // Define a noise model for the points loss (e.g., isotropic noise)
         auto noise_model_height = gtsam::noiseModel::Isotropic::Sigma(1, params.HEIGHT_SIGMA);
 
+        // cube sides are {top = 1, left = 3, right = 4, front = 5, back = 6}
         auto factor_table_top_fit = [table_](const gtsam::Vector3 &p)-> gtsam::Double_
         {
-            return {
-                    gtsam::Double_(&factors::min_dist_to_side_top, table_, gtsam::Double_(1.0),
-                            gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p)))};
+            return {gtsam::Double_(&factors::softmin,
+                            gtsam::Double_(&factors::min_dist_to_side_x, table_, gtsam::Double_(1.0),
+                                    gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p))),
+                            gtsam::Double_(&factors::min_dist_to_side_x, table_, gtsam::Double_(2.0),
+                                    gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p))),
+                            gtsam::Double_(&factors::min_dist_to_side_x, table_, gtsam::Double_(3.0),
+                                    gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p))),
+                            gtsam::Double_(&factors::min_dist_to_side_x, table_, gtsam::Double_(4.0),
+                                gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p)))
+                                )
+                    };
         };
 
+        // auto factor_table_top_fit = [table_](const gtsam::Vector3 &p)-> gtsam::Double_
+        // {
+        //     return {gtsam::Double_(
+        //                     gtsam::Double_(&factors::min_dist_to_side_x, table_, gtsam::Double_(1.0),
+        //                             gtsam::Point3_(&factors::room2table, table_, gtsam::Point3_(p))))
+        //             };
+        // };
 
         // Define a noise model for the points loss (e.g., isotropic noise)
         auto noise_model_points = gtsam::noiseModel::Isotropic::Sigma(1, params.POINTS_SIGMA);
+        // Define the Huber kernel (choose your parameter 'k')
+        double k = 1.0; // Threshold for Huber kernel
+        //auto huber_kernel = gtsam::noiseModel::mEstimator::Huber::Create(k);
+        auto dcs_kernel =   gtsam::noiseModel::mEstimator::DCS::Create(k);
+        //auto cauchy_kernel = gtsam::noiseModel::mEstimator::Cauchy::Create(k);
+        //auto geman_kernel = gtsam::noiseModel::mEstimator::GemanMcClure::Create(k);
+        //auto tukey_kernel = gtsam::noiseModel::mEstimator::Tukey::Create(k);
+        // Create the robust noise model
+        auto robust_noise_model_points = gtsam::noiseModel::Robust::Create(dcs_kernel, noise_model_points);
 
         ////////////////////////////////////////////////////////7
         /// Define the close_to_wall likelihood function
@@ -190,7 +210,6 @@ namespace rc
         ///////////////////////////////////////////////////////////////////
         /// Define the align_to_wall likelihood function
 
-
         ///////////////////////////////////////////////////////////////////
         // Create a Factor Graph
         //////////////////////////////////////////////////////////////////
@@ -202,10 +221,14 @@ namespace rc
         /// Add custom expression factor for each liDAR point. The total weight should be normalized by the size of residual_points
         for (const auto &pp: residual_points)
         {
-            graph.addExpressionFactor(factor_table_top_fit(pp), 0.0, noise_model_points);  // measurement is zero since we want to minimize the distance
+            graph.addExpressionFactor(factor_table_top_fit(pp), 0.0, noise_model_points);  // change to robust when tested
         }
         // stick_to_floor factor
-        //graph.addExpressionFactor(gtsam::Double_(&factors::stick_to_floor, table_), 0.0, noise_model_height);
+        graph.addExpressionFactor(gtsam::Double_(&factors::stick_to_floor, table_), 0.0, noise_model_height);
+
+        // not too big factor
+        auto noise_model_not_too_big = gtsam::noiseModel::Isotropic::Sigma(1, params.NOT_TOO_BIG_SIGMA);
+        graph.addExpressionFactor(gtsam::Double_(&factors::not_too_big, table_), 0.0, noise_model_not_too_big);
 
 //        /// Add custom expression factor for closest wall adjacency
 //        graph.addExpressionFactor(proj_adj_, 0.0, noise_model_adj);  // measurement is zero since we want to minimize the distance

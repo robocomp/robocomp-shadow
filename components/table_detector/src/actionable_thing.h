@@ -26,7 +26,8 @@ namespace rc
         struct Params
             {
                 double POINTS_SIGMA = 0.1;
-                double HEIGHT_SIGMA = 0.1;
+                double HEIGHT_SIGMA = 1.0;
+                double NOT_TOO_BIG_SIGMA = 0.5;
                 double ADJ_SIGMA = 0.6;
                 double ALIGNMENT_SIGMA = 0.6;
                 double PRIOR_CX_SIGMA = 3;
@@ -45,7 +46,7 @@ namespace rc
                 double INIT_WIDTH_VALUE = 0.5;
                 double INIT_DEPTH_VALUE = 0.5;
                 double INIT_HEIGHT_VALUE = 0.7;
-                double INIT_BETA_SOFTMAX_VALUE = 5.0;
+                double INIT_BETA_SOFTMAX_VALUE = 10.0;
             };
             explicit ActionableThing(const std::shared_ptr<rc::ActionablesData> &innermodel_, QObject* parent = nullptr);
             ~ActionableThing() = default;

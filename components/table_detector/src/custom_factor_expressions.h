@@ -187,26 +187,6 @@ namespace factors
         return numer / denom;
     }
 
-    static double dist2table_top(const gtsam::Vector9 &v, const gtsam::Vector3 &p,
-                                 gtsam::OptionalJacobian<1, 9> H1,
-                                 gtsam::OptionalJacobian<1, 3> H2)
-    {
-        // Distance from the point to the table top
-        const double distance = p.z()*p.z();
-
-        if (H1)
-        {
-            H1->setZero();
-            //H1->block<1, 3>(0, 2) << 0.0 , 0.0 , 2*v(2);
-        }
-        if (H2)
-        {
-            H2->setZero();
-            *H2 << 0.0 , 0.0, 2*p.z();
-        }
-
-        return distance;
-    };
 
     /**
      * \brief computes the min distance of the 4 fridge middle points to a room side given in params.
@@ -250,8 +230,6 @@ namespace factors
         // If the Jacobian with respect to p is requested, it is assigned directly.
         if (H2)
             *H2 = h_point;
-            //H2->setZero();
-
         return res;
     }
 
@@ -305,16 +283,31 @@ namespace factors
    */
     static double stick_to_floor(const gtsam::Vector9 &v, gtsam::OptionalJacobian<1, 9> H1)
     {
-        const auto bottom = gtsam::Vector3(v(0), v(1), -v(8)/2.0);
-        const double dist = bottom.z() * bottom.z();
+        // semi_height - center_height must be zero for the object to be on the floor
+        const double bottom_dist_to_floor = v(8)/2.0 - v(2);
 
         if (H1)
         {
             *H1 = gtsam::Matrix19::Zero();  // Initialize to zero (size 3x9)
-            H1->block<1, 1>(0, 2) << 2.0*bottom.z();  // translation
+            H1->block<1, 1>(0, 2) << -1;  // translation
+            H1->block<1, 1>(0, 8) << 0.5; // semi_height
+        }
+        return bottom_dist_to_floor;
+    }
+
+    static double not_too_big(const gtsam::Vector9 &v, gtsam::OptionalJacobian<1, 9> H1)
+    {
+        const double dist = v(6) * v(7);
+
+        if (H1)
+        {
+            *H1 = gtsam::Matrix19::Zero();  // Initialize to zero (size 3x9)
+            H1->block<1, 1>(0, 6) << v(7);
+            H1->block<1, 1>(0, 7) << v(6);
         }
         return dist;
     }
+
 
     /**
      * \brief If point is outside tabletop, computes the segment distance to the topside of the tabletop, otherwise returns 0.
@@ -329,11 +322,11 @@ namespace factors
      * \param H3 Optional Jacobian for the transformation with respect to the point.
      * \return The minimum distance to the sides of the table.
      */
-    static double min_dist_to_side_x(const gtsam::Vector9 &v, const double side, const gtsam::Vector3 &p,
-                                     gtsam::OptionalJacobian<1, 9> H1,
-                                     gtsam::OptionalJacobian<1, 1> H2,
-                                     gtsam::OptionalJacobian<1, 3> H3)
-    {
+    // static double min_dist_to_side_x(const gtsam::Vector9 &v, const double side, const gtsam::Vector3 &p,
+    //                                  gtsam::OptionalJacobian<1, 9> H1,
+    //                                  gtsam::OptionalJacobian<1, 1> H2,
+    //                                  gtsam::OptionalJacobian<1, 3> H3)
+    // {
 //         if (side < 0 or side > 4)
 //             throw std::invalid_argument("Invalid side value. It should be between 1 and 4.");
 //         if (v(6)==0 or v(7)==0)
@@ -469,8 +462,8 @@ namespace factors
 // //            std::cout << "H3: " << *H3 << std::endl;
 //         }
    //      return filtered_dist;
-        return{};
-    };
+ //       return{};
+ //   };
 
      /**
      * \brief
@@ -485,23 +478,49 @@ namespace factors
      * \param H3 Optional Jacobian for the transformation with respect to the point.
      * \return The minimum distance to the sides of the table.
      */
-    static double min_dist_to_side_top(const gtsam::Vector9 &v, const double side, const gtsam::Vector3 &p,
+    static double min_dist_to_side_x(const gtsam::Vector9 &v, const double side, const gtsam::Vector3 &p,
                                      gtsam::OptionalJacobian<1, 9> H1,
                                      gtsam::OptionalJacobian<1, 1> H2,
                                      gtsam::OptionalJacobian<1, 3> H3)
     {
-        // top side
+        // x side
         const double width = v(6);
         const double depth = v(7);
         const double height = v(8);
 
+        double Lx;
+        double Ly;
+        gtsam::Pose3 t_top;
+        switch (static_cast<int>(side))
+        {
+            case 1: // top
+                t_top = gtsam::Pose3(gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, height / 2));
+                Lx = width / 2.0;
+                Ly = depth / 2.0;
+                break;
+            case 2: // left
+                t_top = gtsam::Pose3(gtsam::Rot3::Ry(-M_PI/2.0), gtsam::Point3(0.0, 0.0, width / 2));
+                Lx = depth / 2.0;
+                Ly = height / 2.0;
+                break;
+            case 3: // back
+                t_top = gtsam::Pose3(gtsam::Rot3::Rz(M_PI), gtsam::Point3(0.0, -depth/2.0, 0.0));
+                Lx = width / 2.0;
+                Ly = height / 2.0;
+            break;
+            case 4: // right
+                t_top = gtsam::Pose3(gtsam::Rot3::Ry(M_PI/2.0), gtsam::Point3(0.0, 0.0, width/2.0));
+                Lx = depth / 2.0;
+                Ly = height / 2.0;
+            break;
+            default:
+                throw std::invalid_argument("Invalid side value. It should be between 1 and 4.");
+        }
+
         gtsam::Matrix36 H_pose;
         gtsam::Matrix33 H_point;
-        const auto t_top = gtsam::Pose3(gtsam::Rot3::Identity(), gtsam::Point3(0.0, 0.0, height / 2));
         gtsam::Vector3 ps = t_top.transformTo(p, H_pose, H_point);
 
-        const double Lx = width / 2.0;
-        const double Ly = depth / 2.0;
         const double sx = soft_abs(ps.x(), gamma);
         const double sy = soft_abs(ps.y(), gamma);
         const double dx = soft_max(sx - Lx, beta);
@@ -511,32 +530,24 @@ namespace factors
 
         if (H1)
         {
-            const double d_dx2_dux = 2.0 * dx;
-            const double d_dy2_duy = 2.0 * dy;
-            const double d_ux_d_vx = soft_max_derivative(sx-Lx, beta);
-            const double d_uy_d_vy = soft_max_derivative(sy-Ly, beta);
-            const double d_sx_d_px = soft_abs_derivative(ps.x(), gamma);
-            const double d_sy_d_py = soft_abs_derivative(ps.y(), gamma);
             // Derivatives
-            //const double d_D_d_w = sx * d_dx2_dux * d_ux_d_vx * d_sx_d_px * H_pose(0,3);
-            const double d_D_d_w = -2.0 * soft_max(std::abs(ps.x()) - Lx, beta) * soft_max_derivative(std::abs(ps.x()) - Lx, beta);
-            //const double  d_D_d_d = sy * d_dy2_duy * d_uy_d_vy * d_sy_d_py * H_pose(1,4);
+            const double d_D_d_w = -2.0 * soft_max(std::abs(ps.x()) - Lx, beta) * soft_max_derivative(std::abs(ps.x()) - Lx, beta) ;
             const double d_D_d_d = -2.0 * soft_max(std::abs(ps.y()) - Ly, beta) * soft_max_derivative(std::abs(ps.y()) - Ly, beta);
             const double d_D_d_h = 2.0 * ps.z() * H_pose(2, 5);
             *H1 << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, d_D_d_w, d_D_d_d, d_D_d_h;
 
-            double h6 = H1->block<1, 1>(0, 6)(0,0);
-            double h7 = H1->block<1, 1>(0, 7)(0,0);
-            if (h6<0 and h7>0 or h7<0 and h6>0)
-            {
-                qInfo() << "Data: ";
-                qInfo() << "    H1(6) " << h6 << " H1(7) " << h7;
-                qInfo() << "    [" << p.x() << p.y() << p.z() << " : " << ps.x() << ps.y() << ps.z() << "]";
-                qInfo() << "    dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
-                                "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy << " Lx " << Lx << " Ly " << Ly;
-                qInfo() << "    sx " << sx << " d_dx2_dux " << d_dx2_dux << " d_ux_d_vx " << d_ux_d_vx << " d_sx_d_px " << d_sx_d_px << " H_pose(0,3) " << H_pose(0,3);
-                qInfo() << "    sy " << sy << " d_dy2_duy " << d_dy2_duy << " d_uy_d_vy " << d_uy_d_vy << " d_sy_d_py " << d_sy_d_py << " H_pose(1,4) " << H_pose(1,4);
-            }
+            // double h6 = H1->block<1, 1>(0, 6)(0,0);
+            // double h7 = H1->block<1, 1>(0, 7)(0,0);
+            // if (h6<0 and h7>0 or h7<0 and h6>0)
+            // {
+            //     qInfo() << "Data: ";
+            //     qInfo() << "    H1(6) " << h6 << " H1(7) " << h7;
+            //     qInfo() << "    [" << p.x() << p.y() << p.z() << " : " << ps.x() << ps.y() << ps.z() << "]";
+            //     qInfo() << "    dx " << dx << " dy " << dy << " dist" << dist << "inside " << (dx < 0 && dy < 0) <<
+            //                     "sx-lx " << sx-Lx << "sy-ly " << sy-Ly << "sx " << sx << "sy " << sy << " Lx " << Lx << " Ly " << Ly;
+            //     qInfo() << "    sx " << sx << " d_dx2_dux " << d_dx2_dux << " d_ux_d_vx " << d_ux_d_vx << " d_sx_d_px " << d_sx_d_px << " H_pose(0,3) " << H_pose(0,3);
+            //     qInfo() << "    sy " << sy << " d_dy2_duy " << d_dy2_duy << " d_uy_d_vy " << d_uy_d_vy << " d_sy_d_py " << d_sy_d_py << " H_pose(1,4) " << H_pose(1,4);
+            // }
             // qInfo() << "    v(0) " << v(0) << " v(1) " << v(1) << " v(2) " << v(2) << " v(3) " << v(3) <<
             //              " v(4) " << v(4) << " v(5) " << v(5) << " v(6) " << v(6) << " v(7) " << v(7) <<
             //              " v(8) " << v(8) ;
@@ -550,12 +561,7 @@ namespace factors
             const auto d_D_d_px = 2.0 * soft_max(sx-Lx, beta) * soft_max_derivative(sx-Lx, beta) * soft_abs_derivative(ps.x(), gamma) * H_point(0, 0);
             const auto d_D_d_py = 2.0 * soft_max(sy-Ly, beta) * soft_max_derivative(sy-Ly, beta) * soft_abs_derivative(ps.y(), gamma) * H_point(1, 1);
             const auto d_D_d_pz = 2.0 * ps.z() * H_point(2, 2);
-            H3->setZero();
             *H3 << d_D_d_px, d_D_d_py, d_D_d_pz;
-            //*H3 << d_D_d_px, d_D_d_py, 0.0;
-
-            //std::cout << *H3 << std::endl;
-            //qInfo() << "---------------";
         }
         return dist;
     };
