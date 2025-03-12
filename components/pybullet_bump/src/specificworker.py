@@ -33,7 +33,6 @@ import matplotlib
 
 matplotlib.use("TkAgg")
 
-
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
@@ -64,6 +63,7 @@ class SpecificWorker(GenericWorker):
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
         self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0.01], flags=flags)
+        time.sleep(2)
         self.init_pos, self.init_orn = p.getBasePositionAndOrientation(self.robot)
 
         self.saved_state = p.saveState()
@@ -87,11 +87,14 @@ class SpecificWorker(GenericWorker):
 
         self.joystickControl = True
 
+        # Set the state of the robot
         self.state = "start_moving"
         self.states = ["idle", "start_moving", "moving", "bump"]
+
+        # Variables for the bump simulation
         self.generate_bumps = True
         self.bump_path = "./URDFs/bump/bump_100x10cm.urdf"
-        self.number_of_bumps = 30
+        self.number_of_bumps = 300
         self.bumps_coordinates = []
         self.bumps_cont = 0
 
@@ -114,13 +117,17 @@ class SpecificWorker(GenericWorker):
         # Initialize plot
         plt.ion()
         self.fig, self.ax = plt.subplots(3, 1, figsize=(8, 10))
-
         self.plot_timer = QTimer()
         self.plot_timer.timeout.connect(self.update_plot)
         self.plot_timer.start(100)
-
         self.update_plot(update_legend=True)
 
+        # Variables for the temporal analysis
+        self.inner_cont = None
+        self.mean_period = None
+        self.use_mean_period = False
+
+        # Get the initial time to compute the time of the episode
         self.start_time = time.time()
 
         if startup_check:
@@ -148,7 +155,7 @@ class SpecificWorker(GenericWorker):
                 pass
             case "start_moving":
                 # set webots robot speed
-                self.forward_velocity = 0.7
+                self.forward_velocity = 0.5
                 self.angular_velocity = 0
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
@@ -177,11 +184,11 @@ class SpecificWorker(GenericWorker):
                 #check if the difference is greater than a threshold
                 print("Checking difference between Pybullet and Webots")
                 print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
-                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
-                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
+                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
+                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
 
                 thresh = 1
-                if abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1]) > thresh :
+                if self.imu_data_webots['lin_acc_y'][-1] > thresh :
                     # stop the robots
                     print("Bump detected  -- STOPPING ROBOTS")
                     self.webot_stop_robot()
@@ -190,7 +197,9 @@ class SpecificWorker(GenericWorker):
 
             case "bump_detected":       # stop the robot and replay the trajectory in Pybullet until a match
                 if self.bumps_cont == self.number_of_bumps:
-                    print("All bumps simulated")
+                    print("All bumps simulated. No match found")
+                    self.reset_world()
+                    self.inner_stop_robot()
                     self.state = "idle"
 
                 else:
@@ -201,8 +210,8 @@ class SpecificWorker(GenericWorker):
                     if self.generate_bumps:
                         print("Generating bumps")
                         last_coord = self.imu_data_inner["pos"][-1]
-                        bump_x = last_coord[0] + np.random.uniform(-1, 1, self.number_of_bumps)
-                        bump_y = last_coord[1] + np.random.uniform(-1, 1, self.number_of_bumps)
+                        bump_x = last_coord[0] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
+                        bump_y = last_coord[1] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
                         bump_z = np.full(self.number_of_bumps, 0.01)
                         self.bumps_coordinates = np.column_stack((bump_x, bump_y, bump_z))
                         self.generate_bumps = False
@@ -225,9 +234,21 @@ class SpecificWorker(GenericWorker):
                         p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
                                                 targetVelocity=wheels_velocities[motor_name])
 
+                    # stadistics from the episode
+                    print("Episode statistics")
+                    periods = self.imu_data_webots["time"]
+                    self.mean_period = np.mean(np.diff(periods))
+                    self.use_mean_period = True
+                    var = np.var(np.diff(periods))
+                    print(f"Mean period: {self.mean_period}, Variance: {var}")
+
+                    # setting the pybullet simulation velocity to the same as the recorded
+                    p.setTimeStep(self.mean_period)
+
+                    # self.state = "idle"
                     self.state = "simulate_bump"
                     self.inner_cont = 0
-                    self.timer.start(self.Period)
+                    self.timer.start(1)
 
                 # while not match:
                     # send the robot in pybullet to the initial position of the episode
@@ -246,21 +267,25 @@ class SpecificWorker(GenericWorker):
                 #check if the difference is greater than a threshold
                 self.inner_cont += 1
 
-                print("Checking difference between Pybullet and Webots")
-                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_y'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][-1])}")
-
-                thresh = 0.5
-                if abs(self.imu_data_inner['lin_acc_y'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][-1]) > thresh :
-                    # stop the robots
-                    print("Bump detected  -- STOPPING ROBOTS")
-                    self.webot_stop_robot()
+                if len(self.imu_data_inner['time']) > len(self.imu_data_webots['time']):
+                    print("Goood match")
+                    print("Bump coordinates: ", self.bumps_coordinates[self.bumps_cont - 1])
+                    self.reset_world()
                     self.inner_stop_robot()
-                    p.removeBody(self.bump)
-                    self.state = "bump_detected"
-                # if len(self.imu_data_inner['time']) > len(self.imu_data_webots['time']):
-                #     p.removeBody(self.bump)
-                #     print("Goood match")
-                #     self.state = "bump_detected"
+                    self.state = "idle"
+                else:
+                    print("###############################Checking difference between Pybullet and Webots ########################################")
+                    print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][self.inner_cont])}")
+                    print(f"Pybullet Acc Y: {self.imu_data_inner['lin_acc_z'][self.inner_cont]}, Webots Acc Y: {self.imu_data_webots['lin_acc_y'][self.inner_cont]}")
+
+                    p.stepSimulation()
+
+                    thresh = 1
+                    if abs(self.imu_data_inner['lin_acc_z'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][self.inner_cont]) > thresh :
+                        print("This bump is not the same as the one in the episode")
+                        self.inner_stop_robot()
+                        p.removeBody(self.bump)
+                        self.state = "bump_detected"
 
 
 
@@ -404,7 +429,10 @@ class SpecificWorker(GenericWorker):
 
         self.imu_data_inner["prev_lin_vel"] = lin_vel
 
-        timeStep = t - self.imu_data_inner["time"][-1]
+        if self.use_mean_period:
+            timeStep = self.mean_period
+        else :
+            timeStep = t - self.imu_data_inner["time"][-1]
 
         lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
 
@@ -435,6 +463,7 @@ class SpecificWorker(GenericWorker):
         Reset the PyBullet simulation world
         """
         p.resetBasePositionAndOrientation(self.robot, self.init_pos, self.init_orn)
+        time.sleep(0.1)
         self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
         self.imu_data_inner["time"].append(0)
         self.imu_data_inner["lin_acc_x"].append(0)
