@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<robot name="bump_100x5cm">
+    <link name="base_link">
+        <visual>
+            <geometry>
+                <mesh filename="Bump_100x5cm.stl" scale="1 1 1"/>
+            </geometry>
+            <material name="gray">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="Bump_100x5cm.stl" scale="1 1 1"/>
+            </geometry>
+        </collision>
+        <inertial>
+            <mass value="0"/>
+            <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+            <origin xyz="0 0 0"/>
+        </inertial>
+    </link>
+</robot>

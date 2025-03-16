@@ -33,7 +33,6 @@ import matplotlib
 
 matplotlib.use("TkAgg")
 
-
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
@@ -63,9 +62,15 @@ class SpecificWorker(GenericWorker):
 
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
-        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0], flags=flags)
+        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0.01], flags=flags)
+        time.sleep(2)
+        self.init_pos, self.init_orn = p.getBasePositionAndOrientation(self.robot)
 
-        # self.bump = p.loadURDF("./URDFs/bump/bump_100x5.urdf", [0, -0.33, 0.001], flags=flags)
+        self.saved_state = p.saveState()
+
+        # self.bump_100x5cm = p.loadURDF("./URDFs/bump/bump_100x5cm.urdf", [0, -0.33, 0.001], flags=flags)
+        # self.bump_1000x10cm = p.loadURDF("./URDFs/bump/bump_100x10cm.urdf", [0, -0.33, 0.001], flags=flags)
+        # self.cylinder_bump_10m = p.loadURDF("./URDFs/bump/cylinder_bump_10m.urdf", [0, -0.8, 0.001], p.getQuaternionFromEuler([0, 0, np.pi/2]), flags=flags)
 
         self.joints_name = self.get_joints_info(self.robot)
         self.links_name = self.get_link_info(self.robot)
@@ -80,23 +85,30 @@ class SpecificWorker(GenericWorker):
 
         self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
-        self.saved_state = p.saveState()
-
         self.joystickControl = True
 
-        self.state = "idle"
+        # Set the state of the robot
+        self.state = "start_moving"
         self.states = ["idle", "start_moving", "moving", "bump"]
+
+        # Variables for the bump simulation
+        self.generate_bumps = True
+        self.bump_path = "./URDFs/bump/bump_100x10cm.urdf"
+        self.number_of_bumps = 300
+        self.bumps_coordinates = []
+        self.bumps_cont = 0
 
         # Initialize IMU data
         # self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": [], "prev_lin_vel": np.zeros(3)}
-        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3)}
+        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
         self.imu_data_inner["time"].append(0)
         self.imu_data_inner["lin_acc_x"].append(0)
         self.imu_data_inner["lin_acc_y"].append(0)
         self.imu_data_inner["lin_acc_z"].append(0)
+        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
 
         # Initialize IMU data of webots
-        self.imu_data_webots = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": []}
+        self.imu_data_webots = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "pos": []}
         self.imu_data_webots["time"].append(0)
         self.imu_data_webots["lin_acc_x"].append(0)
         self.imu_data_webots["lin_acc_y"].append(0)
@@ -104,14 +116,18 @@ class SpecificWorker(GenericWorker):
 
         # Initialize plot
         plt.ion()
-        self.fig, self.ax = plt.subplots(2, 1, figsize=(8, 10))
-
-        # self.plot_timer = QTimer()
-        # self.plot_timer.timeout.connect(self.update_plot)
-        # self.plot_timer.start(50)
-
+        self.fig, self.ax = plt.subplots(3, 1, figsize=(8, 10))
+        self.plot_timer = QTimer()
+        self.plot_timer.timeout.connect(self.update_plot)
+        self.plot_timer.start(100)
         self.update_plot(update_legend=True)
 
+        # Variables for the temporal analysis
+        self.inner_cont = None
+        self.mean_period = None
+        self.use_mean_period = False
+
+        # Get the initial time to compute the time of the episode
         self.start_time = time.time()
 
         if startup_check:
@@ -135,10 +151,11 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         match self.state:
             case "idle":
-                self.state = "start_moving"
+                # self.state = "start_moving"
+                pass
             case "start_moving":
                 # set webots robot speed
-                self.forward_velocity = 1.3
+                self.forward_velocity = 0.5
                 self.angular_velocity = 0
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
 
@@ -165,27 +182,74 @@ class SpecificWorker(GenericWorker):
                 #print(f"Pybullet: {self.imu_data_inner['lin_acc_z'][-1]}, Webots: {self.imu_data_webots['lin_acc_z'][-1]}")
 
                 #check if the difference is greater than a threshold
+                print("Checking difference between Pybullet and Webots")
                 print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
-                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
-                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
+                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
+                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
 
-                thres = 50
-                if abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1]) > thres \
-                        or abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_y'][-1]) > thres \
-                        or abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_z'][-1]) > thres :
+                thresh = 1
+                if self.imu_data_webots['lin_acc_y'][-1] > thresh :
                     # stop the robots
                     print("Bump detected  -- STOPPING ROBOTS")
                     self.webot_stop_robot()
                     self.inner_stop_robot()
-                    self.state = "bump"
-                    pass
+                    self.state = "bump_detected"
 
-                self.update_plot()
+            case "bump_detected":       # stop the robot and replay the trajectory in Pybullet until a match
+                if self.bumps_cont == self.number_of_bumps:
+                    print("All bumps simulated. No match found")
+                    self.reset_world()
+                    self.inner_stop_robot()
+                    self.state = "idle"
 
-            case "bump":       # stop the robot and replay the trajectory in Pybullet until a match
+                else:
+                    self.timer.stop()
+                    self.plot_timer.stop()
 
-                # select a bump URDF
-                # create a range of positions for the bump close to the final position of the episode
+                    # create a range of positions for the bump close to the final position of the episode
+                    if self.generate_bumps:
+                        print("Generating bumps")
+                        last_coord = self.imu_data_inner["pos"][-1]
+                        bump_x = last_coord[0] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
+                        bump_y = last_coord[1] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
+                        bump_z = np.full(self.number_of_bumps, 0.01)
+                        self.bumps_coordinates = np.column_stack((bump_x, bump_y, bump_z))
+                        self.generate_bumps = False
+
+                    # reset the robot to the initial position of the episode
+                    print("Resetting robot to initial position")
+                    self.reset_world()
+
+                    # introduce the bump in the scene
+                    print("Introducing bump number ", self.bumps_cont)
+                    self.bump = p.loadURDF(self.bump_path, self.bumps_coordinates[self.bumps_cont], flags=p.URDF_USE_INERTIA_FROM_FILE)
+
+                    self.bumps_cont += 1
+
+                    # set inner robot speed
+                    # Get the velocity of the wheels from the forward and angular velocity of the robot
+                    wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(
+                        self.forward_velocity, self.angular_velocity)
+                    for motor_name in self.motors:
+                        p.setJointMotorControl2(self.robot, self.joints_name[motor_name], p.VELOCITY_CONTROL,
+                                                targetVelocity=wheels_velocities[motor_name])
+
+                    # stadistics from the episode
+                    print("Episode statistics")
+                    periods = self.imu_data_webots["time"]
+                    self.mean_period = np.mean(np.diff(periods))
+                    self.use_mean_period = True
+                    var = np.var(np.diff(periods))
+                    print(f"Mean period: {self.mean_period}, Variance: {var}")
+
+                    # setting the pybullet simulation velocity to the same as the recorded
+                    p.setTimeStep(self.mean_period)
+
+                    # self.state = "idle"
+                    self.state = "simulate_bump"
+                    self.inner_cont = 0
+                    self.timer.start(1)
+
                 # while not match:
                     # send the robot in pybullet to the initial position of the episode
                     # introduce the bump in the scene
@@ -195,7 +259,34 @@ class SpecificWorker(GenericWorker):
                     # if match: exit the loop
 
                 # print a sentence with the cause of the accident
-                self.state = "idle"
+
+            case "simulate_bump":
+                # read acceleration from PyBullet
+                self.imu_data_inner = self.get_imu_data_inner(self.robot)
+
+                #check if the difference is greater than a threshold
+                self.inner_cont += 1
+
+                if len(self.imu_data_inner['time']) > len(self.imu_data_webots['time']):
+                    print("Goood match")
+                    print("Bump coordinates: ", self.bumps_coordinates[self.bumps_cont - 1])
+                    self.reset_world()
+                    self.inner_stop_robot()
+                    self.state = "idle"
+                else:
+                    print("###############################Checking difference between Pybullet and Webots ########################################")
+                    print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][self.inner_cont])}")
+                    print(f"Pybullet Acc Y: {self.imu_data_inner['lin_acc_z'][self.inner_cont]}, Webots Acc Y: {self.imu_data_webots['lin_acc_y'][self.inner_cont]}")
+
+                    p.stepSimulation()
+
+                    thresh = 1
+                    if abs(self.imu_data_inner['lin_acc_z'][self.inner_cont] - self.imu_data_webots['lin_acc_y'][self.inner_cont]) > thresh :
+                        print("This bump is not the same as the one in the episode")
+                        self.inner_stop_robot()
+                        p.removeBody(self.bump)
+                        self.state = "bump_detected"
+
 
 
 
@@ -338,7 +429,10 @@ class SpecificWorker(GenericWorker):
 
         self.imu_data_inner["prev_lin_vel"] = lin_vel
 
-        timeStep = t - self.imu_data_inner["time"][-1]
+        if self.use_mean_period:
+            timeStep = self.mean_period
+        else :
+            timeStep = t - self.imu_data_inner["time"][-1]
 
         lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
 
@@ -347,6 +441,7 @@ class SpecificWorker(GenericWorker):
         self.imu_data_inner["lin_acc_x"].append(lin_acc[0])
         self.imu_data_inner["lin_acc_y"].append(lin_acc[1])
         self.imu_data_inner["lin_acc_z"].append(lin_acc[2])
+        self.imu_data_inner["pos"].append(pos)
         # self.imu_data["ang_vel"].append(ang_vel)
         # self.imu_data["orientation"].append((roll, pitch, yaw))
 
@@ -363,6 +458,19 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             print(e)
 
+    def reset_world(self):
+        """
+        Reset the PyBullet simulation world
+        """
+        p.resetBasePositionAndOrientation(self.robot, self.init_pos, self.init_orn)
+        time.sleep(0.1)
+        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
+        self.imu_data_inner["time"].append(0)
+        self.imu_data_inner["lin_acc_x"].append(0)
+        self.imu_data_inner["lin_acc_y"].append(0)
+        self.imu_data_inner["lin_acc_z"].append(0)
+        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
+
     def update_plot(self, update_legend=False):
         """
         Update the plot with the latest IMU data
@@ -372,27 +480,39 @@ class SpecificWorker(GenericWorker):
             print("No IMU data")
             return
 
+        # Graphing X axis
         self.ax[0].plot(self.imu_data_inner["time"], self.imu_data_inner["lin_acc_x"], label="Pybullet X", marker="o", color="blue")
         self.ax[0].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_x"], label="Webots X", marker="s",
                         color="red")
         self.ax[0].set_ylabel("Acc X")
         self.ax[0].set_title("Linear X Acceleration")
-        self.ax[0].set_ylim(-2, 2)
+        self.ax[0].set_ylim(-5, 5)
         if update_legend: self.ax[0].legend()
         self.ax[0].grid(True)
 
-        # Graficar eje Y
+        # Graphing Y axis
         self.ax[1].plot(self.imu_data_inner["time"], self.imu_data_inner["lin_acc_y"], label="Pybullet Y", marker="o", color="green")
         self.ax[1].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_y"], label="Webots Y", marker="s",
                         color="orange")
         self.ax[1].set_ylabel("Acc Y")
         self.ax[1].set_title("Linear Y Acceleration")
-        self.ax[1].set_ylim(-2, 2)
+        self.ax[1].set_ylim(-5, 5)
         if update_legend: self.ax[1].legend()
         self.ax[1].grid(True)
 
-        # Pausar para visualizar la actualización
+        # Graphing Z axis
+        self.ax[2].plot(self.imu_data_inner["time"], self.imu_data_inner["lin_acc_z"], label="Pybullet Z", marker="o", color="purple")
+        self.ax[2].plot(self.imu_data_webots["time"], self.imu_data_webots["lin_acc_z"], label="Webots Z", marker="s",
+                        color="black")
+        self.ax[2].set_ylabel("Acc Z")
+        self.ax[2].set_title("Linear Z Acceleration")
+        self.ax[2].set_ylim(-5, 5)
+        if update_legend: self.ax[2].legend()
+        self.ax[2].grid(True)
+
+        # Pause the plot for a short time to allow the plot to update
         plt.pause(0.1)
+
 
     # =============== Methods for Component SubscribesTo ================
     # ===================================================================
