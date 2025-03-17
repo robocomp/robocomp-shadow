@@ -28,7 +28,6 @@ def plot_pointclouds(real_pc):
 
     plt.show()
 
-
 def euler_to_rotation_matrix(a, b, c):
     """Convert Euler angles to a rotation matrix."""
     a, b, c = torch.tensor([a, b, c], dtype=torch.float32, device=device)
@@ -36,7 +35,6 @@ def euler_to_rotation_matrix(a, b, c):
     Ry = torch.tensor([[torch.cos(b), 0, torch.sin(b)], [0, 1, 0], [-torch.sin(b), 0, torch.cos(b)]], dtype=torch.float32, device=device)
     Rz = torch.tensor([[torch.cos(c), -torch.sin(c), 0], [torch.sin(c), torch.cos(c), 0], [0, 0, 1]], dtype=torch.float32, device=device)
     return Rz @ Ry @ Rx
-
 
 def compute_orthohedron(x, y, z, a, b, c, w, d, h):
     """
@@ -63,7 +61,6 @@ def compute_orthohedron(x, y, z, a, b, c, w, d, h):
 
     # Translate the corners
     return rotated_corners + translation
-
 
 def sample_points_on_edges(corners, num_samples=1000):
     """Generate a synthetic point cloud by sampling points from the fridge model."""

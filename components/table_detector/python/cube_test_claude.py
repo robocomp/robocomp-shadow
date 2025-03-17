@@ -104,7 +104,7 @@ def rasterize_and_recover_points(mesh_verts, mesh_faces, image_size=256, device=
     camera_R = torch.eye(3, dtype=torch.float32).unsqueeze(0).to(device)
     #R, T = look_at_view_transform(dist=3, elev=-45, azim=0, device=device)
     #T[:, 1] += 0.5
-    R = axis_angle_to_matrix(torch.tensor([1, 0, 0], dtype=torch.float32, device=device)* torch.pi).unsqueeze(0).to(device)
+    R = axis_angle_to_matrix(torch.tensor([0, 0, 0], dtype=torch.float32, device=device)* torch.pi).unsqueeze(0).to(device)
     T = torch.tensor([-1.5, -1.5, 3], dtype=torch.float32).unsqueeze(0).to(device)
     #R = look_at_rotation(T, at=((0, 0, 0),), up=((0, 1, 0),), device = 'cuda')
 
@@ -234,147 +234,7 @@ if __name__ == "__main__":
     camera_center = cameras.get_camera_center().squeeze(0).squeeze(0).squeeze(0).cpu().numpy()
     print(camera_center)
     plot_mesh_and_points(verts, faces, world_points.points_list()[0], camera_center)
+    torch.save(world_points.points_list()[0], "real_fridge_pointcloud.pt")
     print(f"Rendered depth shape: {depth.shape}")
     plt.show()
 
-#
-# def plot_mesh_and_points(verts, faces, points, camera_position, camera_direction, output_file="mesh_and_points.png"):
-#     """
-#     Plot the mesh, reconstructed points, and camera in the same 3D plot.
-#
-#     Args:
-#         verts: Mesh vertices (N, 3)
-#         faces: Mesh faces (F, 3)
-#         points: Reconstructed 3D points (M, 3)
-#         camera_position: Camera position (3,)
-#         camera_direction: Dictionary with camera direction vectors
-#         output_file: File to save the plot
-#     """
-#     # Convert to numpy for matplotlib
-#     if torch.is_tensor(verts):
-#         verts = verts.detach().cpu().numpy()
-#     if torch.is_tensor(faces):
-#         faces = faces.detach().cpu().numpy()
-#     if torch.is_tensor(points):
-#         points = points.detach().cpu().numpy()
-#
-#     # Create figure and 3D axis
-#     fig = plt.figure(figsize=(12, 10))
-#     ax = fig.add_subplot(111, projection='3d')
-#
-#     # Plot the mesh
-#     mesh_faces = []
-#     for face in faces:
-#         mesh_faces.append([verts[face[0]], verts[face[1]], verts[face[2]]])
-#
-#     mesh_collection = Poly3DCollection(mesh_faces, alpha=0.3, linewidths=0.5, edgecolors='black')
-#     mesh_collection.set_facecolor('cyan')
-#     ax.add_collection3d(mesh_collection)
-#
-#     # Plot the reconstructed points
-#     ax.scatter(points[:, 0], points[:, 1], points[:, 2], c='red', s=1, alpha=0.8, label='Reconstructed Points')
-#
-#     # Plot the camera position
-#     ax.scatter(camera_position[0], camera_position[1], camera_position[2],
-#                c='green', s=100, marker='^', label='Camera')
-#
-#     # Plot camera direction vectors
-#     colors = {'forward': 'blue', 'up': 'green', 'right': 'red'}
-#     for direction, endpoint in camera_direction.items():
-#         ax.plot([camera_position[0], endpoint[0]],
-#                 [camera_position[1], endpoint[1]],
-#                 [camera_position[2], endpoint[2]],
-#                 color=colors[direction], linewidth=2)
-#
-#         # Add text label for the direction
-#         text_pos = [(camera_position[0] + endpoint[0]) / 2,
-#                     (camera_position[1] + endpoint[1]) / 2,
-#                     (camera_position[2] + endpoint[2]) / 2]
-#         ax.text(text_pos[0], text_pos[1], text_pos[2], direction,
-#                 color=colors[direction], fontsize=10)
-#
-#     # Draw the camera frustum
-#     # We'll create a simple pyramid shape to represent the camera's view frustum
-#     frustum_scale = 0.3
-#     camera_fwd = camera_direction['forward'] - camera_position
-#     camera_up = camera_direction['up'] - camera_position
-#     camera_right = camera_direction['right'] - camera_position
-#
-#     # Normalize and scale
-#     camera_fwd = camera_fwd / np.linalg.norm(camera_fwd) * frustum_scale
-#     camera_up = camera_up / np.linalg.norm(camera_up) * frustum_scale * 0.8
-#     camera_right = camera_right / np.linalg.norm(camera_right) * frustum_scale * 0.8
-#
-#     # Calculate the corners of the frustum
-#     frustum_corners = [
-#         camera_position + camera_fwd + camera_up + camera_right,
-#         camera_position + camera_fwd + camera_up - camera_right,
-#         camera_position + camera_fwd - camera_up - camera_right,
-#         camera_position + camera_fwd - camera_up + camera_right
-#     ]
-#
-#     # Draw the frustum lines
-#     for corner in frustum_corners:
-#         ax.plot([camera_position[0], corner[0]],
-#                 [camera_position[1], corner[1]],
-#                 [camera_position[2], corner[2]],
-#                 'g-', alpha=0.5)
-#
-#     # Connect the corners to form the frustum
-#     for i in range(4):
-#         j = (i + 1) % 4
-#         ax.plot([frustum_corners[i][0], frustum_corners[j][0]],
-#                 [frustum_corners[i][1], frustum_corners[j][1]],
-#                 [frustum_corners[i][2], frustum_corners[j][2]],
-#                 'g-', alpha=0.5)
-#
-#     # Set labels and title
-#     ax.set_xlabel('X')
-#     ax.set_ylabel('Y')
-#     ax.set_zlabel('Z')
-#     ax.set_title('Mesh, Reconstructed 3D Points, and Camera')
-#
-#     # Set axis limits based on the mesh vertices
-#     max_range = np.array([
-#         verts[:, 0].max() - verts[:, 0].min(),
-#         verts[:, 1].max() - verts[:, 1].min(),
-#         verts[:, 2].max() - verts[:, 2].min()
-#     ]).max() / 2.0
-#
-#     mid_x = (verts[:, 0].max() + verts[:, 0].min()) * 0.5
-#     mid_y = (verts[:, 1].max() + verts[:, 1].min()) * 0.5
-#     mid_z = (verts[:, 2].max() + verts[:, 2].min()) * 0.5
-#
-#     ax.set_xlim(mid_x - max_range, mid_x + max_range)
-#     ax.set_ylim(mid_y - max_range, mid_y + max_range)
-#     ax.set_zlim(mid_z - max_range, mid_z + max_range)
-#
-#     # Add a legend
-#     ax.legend()
-#
-#     # Save the figure
-#     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-#     print(f"Plot saved to {output_file}")
-  # # Calculate camera direction vectors
-    # # For a perspective camera, we need to construct the viewing directions
-    # # We'll create direction vectors for the camera's coordinate system
-    # camera_position_np = cameras.T.squeeze(0).cpu().numpy()
-    #
-    # # The camera's coordinate system - default is looking along the -Z axis
-    # # with +Y up and +X right
-    # camera_direction = {
-    #     'forward': np.array([0, 0, 1]),  # -Z direction
-    #     'up': np.array([0, 1, 0]),  # +Y direction
-    #     'right': np.array([1, 0, 0])  # +X direction
-    # }
-    #
-    # # Apply the camera's rotation if needed
-    # R_np = R[0].cpu().numpy()
-    # camera_direction['forward'] = R_np @ camera_direction['forward']
-    # camera_direction['up'] = R_np @ camera_direction['up']
-    # camera_direction['right'] = R_np @ camera_direction['right']
-    #
-    # # Scale the direction vectors for visualization
-    # scale = 0.5
-    # for key in camera_direction:
-    #     camera_direction[key] = camera_position_np + scale * camera_direction[key]
