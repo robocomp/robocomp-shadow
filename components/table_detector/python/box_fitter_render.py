@@ -1,7 +1,7 @@
-from torch._lazy import closure
 
 try:
     import torch
+    from torch.autograd.functional import hessian
     import torch.nn as nn
     import torch.optim as optim
     from pytorch3d.loss import chamfer_distance, point_mesh_edge_distance, point_mesh_face_distance
@@ -284,13 +284,56 @@ class FridgeModel(nn.Module):
         print(" h: {:.4f}".format(fridge_model.h.grad.item()))
 
 ##########################################################
-def prior_size(w=0.6, d=0.6, h=1.8):
+def loss_wrapper(x,y,z,a,b,c,w,d,h):
+    loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
+    loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
+    loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
+    loss_4 = prior_on_floor(fridge_model)
+    loss_5 = prior_aligned(fridge_model)
+    print(loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5)
+    return loss_1 + loss_2 + loss_3 + 2*loss_4 + 2*loss_5
+
+def estimate_hessian(fridge: FridgeModel, real_pc: torch.Tensor):
+    """
+
+    """
+    verts_flat = mesh.verts_list()[0].view(-1)
+
+    # Compute the Hessian!
+
+    hessian_matrix = hessian(loss_wrapper, (fridge.x, fridge.y, fridge.z,
+                                                  fridge.a, fridge.b, fridge.c,
+                                                  fridge.w, fridge.d, fridge.h), create_graph=True)
+
+    #print(hessian_matrix.shape) # Output: torch.Size([12, 12]) - 4 vertices * 3 coordinates
+    print(hessian_matrix)
+
+    # --- Check for Positive Definiteness (Important!) ---
+    eigenvalues = torch.linalg.eigvalsh(hessian_matrix)
+    if torch.all(eigenvalues > 0):
+        print("Hessian is positive definite.")
+    else:
+        print("Hessian is NOT positive definite.")
+
+    # --- Optional: Calculate Covariance (if positive definite)---
+    try:
+        covariance_matrix = -torch.inverse(hessian_matrix)
+        print("Covariance Matrix:\n", covariance_matrix)
+    except RuntimeError as e:
+       print(f"Error calculating inverse (likely not positive definite): {e}")
+
+##########################################################
+def prior_size(fridge: FridgeModel, w=0.6, d=0.6, h=1.8):
     # Compute the difference between w,d,h and the prior values
     return torch.sum((fridge_model.w-w)**2 + (fridge_model.d-d)**2 + (fridge_model.h-h)**2)
 
-def prior_on_floor():
+def prior_on_floor(fridge: FridgeModel):
     # The height of the fridge (at center) has to be the semi-height of the fridge
-    return torch.sum((fridge_model.z - fridge_model.h/2)**2)
+    return torch.sum((fridge.z - fridge.h/2)**2)
+
+def prior_aligned(fridge: FridgeModel):
+    # The fridge is aligned with the room axis: a,b,c = 0
+    return torch.sum(fridge.a**2 + fridge.b**2 + fridge.c**2)
 ###########################################################
 if __name__ == "__main__":
 
@@ -304,7 +347,7 @@ if __name__ == "__main__":
     #fridge_model.params.register_hook(print_grad)
     optimizer = optim.SGD([
          {'params': [fridge_model.x, fridge_model.y, fridge_model.z], 'lr': 0.1, 'momentum': 0.6},  # Position
-         {'params': [fridge_model.a, fridge_model.b, fridge_model.c], 'lr': 0.00, 'momentum': 0.6},  # Rotation (higher LR)
+         {'params': [fridge_model.a, fridge_model.b, fridge_model.c], 'lr': 0.1, 'momentum': 0.6},  # Rotation (higher LR)
          {'params': [fridge_model.w, fridge_model.d, fridge_model.h], 'lr': 0.1, 'momentum': 0.6}  # Size
      ])
 
@@ -340,6 +383,8 @@ if __name__ == "__main__":
     # Optimize the Model
     # ===========================
     num_iterations = 2000
+    loss = mesh = None
+    loss_ant = 1000000
     for i in range(num_iterations):
         optimizer.zero_grad()
         mesh = fridge_model()
@@ -349,11 +394,10 @@ if __name__ == "__main__":
         #loss0, _ = chamfer_distance(Pointclouds([synthetic_pc]), Pointclouds([real_pc]))
         loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
         loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
-        # compute distance between w,d,h and 0.6, 0.6, 1.8
-        loss_3 = prior_size(0.6, 0.6, 1.8)
-        loss_4 = prior_on_floor()
-
-        loss = loss_2 + loss_3 + 2*loss_4
+        loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
+        loss_4 = prior_on_floor(fridge_model)
+        loss_5 = prior_aligned(fridge_model)
+        loss = loss_2 + loss_3 + 2*loss_4 + 2*loss_5
         loss.backward()
         optimizer.step()
 
@@ -361,14 +405,16 @@ if __name__ == "__main__":
             print(f"Iteration {i}: Loss = {loss.item()}")  # Check gradients
             plot_pointclouds(real_pc, None, fridge_model)
             fridge_model.print_params()
-
+            if abs(loss.item() - loss_ant) < 0.0001:
+                break
+            loss_ant = loss.item()
             #print("Gradients:", synthetic_pc.grad)
             #print(fridge_model.params.detach().cpu().numpy())
 
     print("Optimization complete.")
     plot_pointclouds(real_pc, None, fridge_model)
     fridge_model.print_params()
-
+    #estimate_hessian(fridge_model, real_pc)
     plt.show()
 
 
