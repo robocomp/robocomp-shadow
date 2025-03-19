@@ -89,7 +89,7 @@ class Cameras:
         self.device = device
         self.img_size = img_size
         R = axis_angle_to_matrix(torch.tensor([0, 1, 0], dtype=torch.float32, device=device) * -torch.pi/2.0).unsqueeze(0).to(device)
-        T = torch.tensor([-2.5, 1.5, 3], dtype=torch.float32).unsqueeze(0).to(device)
+        T = torch.tensor([-1.5, 0, 3], dtype=torch.float32).unsqueeze(0).to(device)
         self.py_cam = FoVPerspectiveCameras(fov=60.0, R=R, T=T, device=device)
 
 class Rasterizer:
@@ -283,15 +283,38 @@ class FridgeModel(nn.Module):
         print(" d: {:.4f}".format(fridge_model.d.grad.item()))
         print(" h: {:.4f}".format(fridge_model.h.grad.item()))
 
+#########################################################
+def get_visible_faces(mesh, rasterizer):
+    """
+    Get a mask of visible faces using rasterization.
+    Returns a set of face indices that are visible in the depth buffer.
+    """
+    fragments = rasterizer.rasterizer(mesh)  # Rasterize the mesh
+    visible_faces = fragments.pix_to_face[..., 0]  # Get face indices
+    visible_faces = visible_faces.unique()  # Get unique face indices
+    visible_faces = visible_faces[visible_faces >= 0]  # Remove -1 (background)
+
+    # Create a new mesh containing only the visible faces.
+    faces = mesh.faces_packed()  # Get all faces
+    verts = mesh.verts_packed()  # Get all vertices
+
+    # Select only the visible faces
+    visible_faces = faces[visible_faces]
+
+    # Create a new mesh with only visible faces
+    filtered_mesh = Meshes(verts=[verts], faces=[visible_faces])
+
+    return filtered_mesh
+
 ##########################################################
 def loss_wrapper(x,y,z,a,b,c,w,d,h):
-    loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
-    loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
-    loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
-    loss_4 = prior_on_floor(fridge_model)
-    loss_5 = prior_aligned(fridge_model)
-    print(loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5)
-    return loss_1 + loss_2 + loss_3 + 2*loss_4 + 2*loss_5
+ loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
+ loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
+ loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
+ loss_4 = prior_on_floor(fridge_model)
+ loss_5 = prior_aligned(fridge_model)
+ print(loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5)
+ return loss_1 + loss_2 + loss_3 + 2*loss_4 + 2*loss_5
 
 def estimate_hessian(fridge: FridgeModel, real_pc: torch.Tensor):
     """
@@ -340,7 +363,7 @@ if __name__ == "__main__":
     # ===========================
     # Optimization Setup
     # ===========================
-    init_params = [0.5, 0, 0.9, 0.0, 0.0, 0.0, 0.6, 0.6, 1.8]  # Initial guess
+    init_params = [0.5, 0, 0.9, 0.0, 0.1, 0.2, 0.5, 0.2, 1.8]  # Initial guess
     cam = Cameras(img_size=128, device="cuda")
     rasterizer = Rasterizer(cam, device="cuda")
     fridge_model = FridgeModel(init_params, cam, rasterizer, "cuda").to(device)
@@ -361,19 +384,19 @@ if __name__ == "__main__":
     plt.waitforbuttonpress()
     sol = iterative_closest_point(Pointclouds([synthetic_pc]), Pointclouds([real_pc]), max_iterations=1000)
     print("ICP:", sol.converged, sol.rmse.item())
-    if sol.converged:
-        fridge_model.x.data += sol.RTs.T[0, 0]
-        fridge_model.y.data += sol.RTs.T[0, 1]
-        fridge_model.z.data += sol.RTs.T[0, 2]
-        angles = matrix_to_euler_angles(sol.RTs.R, "XYZ")
-        fridge_model.a.data = torch.tensor(0.0, device="cuda") #angles[0, 0]
-        fridge_model.b.data = torch.tensor(0.0, device="cuda") #angles[0, 1]
-        fridge_model.c.data = torch.tensor(0.0, device="cuda") #angles[0, 2]
-        scale = sol.RTs.s
-        fridge_model.w.data *= scale[0]
-        fridge_model.d.data *= scale[0]
-        fridge_model.h.data *= scale[0]
-    plot_pointclouds(real_pc, sol.Xt.points_list()[0], fridge_model)
+    # if sol.converged:
+    #     fridge_model.x.data += sol.RTs.T[0, 0]
+    #     fridge_model.y.data += sol.RTs.T[0, 1]
+    #     fridge_model.z.data += sol.RTs.T[0, 2]
+    #     angles = matrix_to_euler_angles(sol.RTs.R, "XYZ")
+    #     fridge_model.a.data = torch.tensor(0.0, device="cuda") #angles[0, 0]
+    #     fridge_model.b.data = torch.tensor(0.0, device="cuda") #angles[0, 1]
+    #     fridge_model.c.data = torch.tensor(0.0, device="cuda") #angles[0, 2]
+    #     scale = sol.RTs.s
+    #     fridge_model.w.data *= scale[0]
+    #     fridge_model.d.data *= scale[0]
+    #     fridge_model.h.data *= scale[0]
+    #plot_pointclouds(real_pc, sol.Xt.points_list()[0], fridge_model)
     fridge_model.print_params()
     mesh = fridge_model.compute_orthohedron()
     print("Dist:", 0.5*point_mesh_face_distance(mesh, Pointclouds([real_pc]))+point_mesh_edge_distance(mesh, Pointclouds([real_pc])))
@@ -387,11 +410,8 @@ if __name__ == "__main__":
     loss_ant = 1000000
     for i in range(num_iterations):
         optimizer.zero_grad()
-        mesh = fridge_model()
-        #synthetic_pc = fridge_model.rasterize_visible_faces(mesh)
+        mesh = get_visible_faces(fridge_model(), rasterizer)
 
-        # Compute Chamfer Distance
-        #loss0, _ = chamfer_distance(Pointclouds([synthetic_pc]), Pointclouds([real_pc]))
         loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
         loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
         loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)

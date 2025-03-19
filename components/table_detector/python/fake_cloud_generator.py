@@ -107,7 +107,7 @@ def rasterize_and_recover_points(mesh_verts, mesh_faces, image_size=256, device=
     camera_R = torch.eye(3, dtype=torch.float32).unsqueeze(0).to(device)
     R = axis_angle_to_matrix(torch.tensor([0, 1, 0], dtype=torch.float32, device=device)* -torch.pi/2.0).unsqueeze(0).to(device)
     #R = axis_angle_to_matrix(torch.tensor([0, 0, 0], dtype=torch.float32, device=device) * torch.pi / 2.0).unsqueeze(0).to(device)
-    T = torch.tensor([-2.5, 1.5, 3], dtype=torch.float32).unsqueeze(0).to(device)
+    T = torch.tensor([-1.5, 0, 3], dtype=torch.float32).unsqueeze(0).to(device)
     #R = look_at_rotation(T, at=((0, 0, 0),), up=((0, 1, 0),), device = 'cuda')
 
     print("T", T)
