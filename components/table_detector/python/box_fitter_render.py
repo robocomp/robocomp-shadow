@@ -1,6 +1,8 @@
 
 try:
+    import time
     import torch
+    import numpy as np
     from torch.autograd.functional import hessian
     import torch.nn as nn
     import torch.optim as optim
@@ -17,10 +19,11 @@ try:
         RasterizationSettings,
         PointLights,
         look_at_view_transform, FoVPerspectiveCameras, look_at_rotation, TexturesVertex)
-    from pytorch3d.transforms import axis_angle_to_matrix, matrix_to_euler_angles, Transform3d
+    from pytorch3d.transforms import axis_angle_to_matrix, matrix_to_euler_angles, Transform3d, euler_angles_to_matrix
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    from torch.func import functional_call
 except ModuleNotFoundError as e:
     print("Required module not found. Ensure PyTorch and PyTorch3D are installed.")
     raise e
@@ -60,7 +63,7 @@ def plot_pointclouds(real_pc, synthetic_pc, model):
                    c='r', label='Synthetic Point Cloud', s=1)
 
     # Plot the model as a mesh
-    mesh = model.compute_orthohedron()
+    mesh = model()
     mesh_faces = []
     verts_list = mesh.verts_list()[0].cpu().detach().numpy()  # Move to CPU and convert to NumPy
     for face in mesh.faces_list()[0]:
@@ -89,7 +92,7 @@ class Cameras:
         self.device = device
         self.img_size = img_size
         R = axis_angle_to_matrix(torch.tensor([0, 1, 0], dtype=torch.float32, device=device) * -torch.pi/2.0).unsqueeze(0).to(device)
-        T = torch.tensor([-1.5, 0, 3], dtype=torch.float32).unsqueeze(0).to(device)
+        T = torch.tensor([-3, -1.2, 3], dtype=torch.float32).unsqueeze(0).to(device)
         self.py_cam = FoVPerspectiveCameras(fov=60.0, R=R, T=T, device=device)
 
 class Rasterizer:
@@ -103,10 +106,15 @@ class Rasterizer:
         )
         self.rasterizer = MeshRasterizer(cameras=cam.py_cam, raster_settings=self.raster_settings)
 
-# ===========================
+# =====================================================================================
 # Fridge Model
-# ===========================
+# ======================================================================================
 class FridgeModel(nn.Module):
+    '''
+    Diferentiable fridge Model with 9 parameters: x, y, z, a, b, c, w, d, h
+    It can render the fridge as a mesh or as sampled points seen from a camera.
+    '''
+
     def __init__(self, init_params, cam: Cameras, rasterizer: Rasterizer, device: str):
         super().__init__()
         self.cam = cam
@@ -114,27 +122,27 @@ class FridgeModel(nn.Module):
         self.device = device
 
         # Define each parameter separately as a trainable nn.Parameter
-        self.x = nn.Parameter(torch.tensor(init_params[0], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.y = nn.Parameter(torch.tensor(init_params[1], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.z = nn.Parameter(torch.tensor(init_params[2], dtype=torch.float32, requires_grad=True, device=self.device))
+        self.x = nn.Parameter(torch.tensor(init_params[0], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.y = nn.Parameter(torch.tensor(init_params[1], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.z = nn.Parameter(torch.tensor(init_params[2], dtype=torch.float64, requires_grad=True, device=self.device))
 
-        self.a = nn.Parameter(torch.tensor(init_params[3], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.b = nn.Parameter(torch.tensor(init_params[4], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.c = nn.Parameter(torch.tensor(init_params[5], dtype=torch.float32, requires_grad=True, device=self.device))
+        self.a = nn.Parameter(torch.tensor(init_params[3], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.b = nn.Parameter(torch.tensor(init_params[4], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.c = nn.Parameter(torch.tensor(init_params[5], dtype=torch.float64, requires_grad=True, device=self.device))
 
-        self.w = nn.Parameter(torch.tensor(init_params[6], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.d = nn.Parameter(torch.tensor(init_params[7], dtype=torch.float32, requires_grad=True, device=self.device))
-        self.h = nn.Parameter(torch.tensor(init_params[8], dtype=torch.float32, requires_grad=True, device=self.device))
+        self.w = nn.Parameter(torch.tensor(init_params[6], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.d = nn.Parameter(torch.tensor(init_params[7], dtype=torch.float64, requires_grad=True, device=self.device))
+        self.h = nn.Parameter(torch.tensor(init_params[8], dtype=torch.float64, requires_grad=True, device=self.device))
 
-    def forward(self):
-        mesh = self.compute_orthohedron()
-        #synthetic_pc = self.sample_surface_points(corners)
-        #synthetic_pc = self.rasterize_visible_faces(mesh)
-        return mesh
+        self.attributes = ['x', 'y', 'z', 'a', 'b', 'c', 'w', 'd', 'h'] # List of attributes for loop access
 
-    def compute_orthohedron(self) -> Meshes:
-        """Compute 3D corners of the oriented bounding box with proper gradient tracking."""
 
+    def forward(self) -> Meshes:
+        """
+            Compute a mesh from the 3D corners of the oriented bounding box
+        """
+
+        # nominal corners of the fridge
         base_corners = torch.stack([
             torch.tensor([-0.5, -0.5, -0.5], device=self.device),
             torch.tensor([0.5, -0.5, -0.5], device=self.device),
@@ -146,75 +154,48 @@ class FridgeModel(nn.Module):
             torch.tensor([-0.5, 0.5, 0.5], device=self.device)
         ])
 
-        R = self.euler_to_rotation_matrix(self.a, self.b, self.c)
-        #verts = (R @ base_corners.T).T + torch.stack([self.x, self.y, self.z])
-        t = t2 = Transform3d(device="cuda").scale(self.w, self.d, self.h).rotate(R).translate(self.x, self.y, self.z)
+        # nominal faces of the fridge
+        faces = torch.tensor([
+            [0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+            [2, 3, 7], [2, 7, 6], [0, 3, 7], [0, 7, 4], [1, 2, 6], [1, 6, 5]], dtype=torch.int32, device=device)
+
+        # Transform the corners to the current model scale, position and orientation
+        t = (Transform3d(device="cuda").scale(self.w, self.d, self.h)
+                                        .rotate(euler_angles_to_matrix(torch.stack([self.a, self.b, self.c]), "ZYX"))
+                                        .translate(self.x, self.y, self.z))
+
         verts = t.transform_points(base_corners)
 
-        faces = torch.tensor([
-            [0, 1, 2],
-            [0, 2, 3],
-            [4, 5, 6],
-            [4, 6, 7],
-            [0, 1, 5],
-            [0, 5, 4],
-            [2, 3, 7],
-            [2, 7, 6],
-            [0, 3, 7],
-            [0, 7, 4],
-            [1, 2, 6],
-            [1, 6, 5],
-        ], dtype=torch.int32, device=device)
-
         # Create a Meshes object
-        mesh = Meshes(
+        my_mesh = Meshes(
             verts=[verts],
             faces=[faces]
             #textures=textures
         )
-        return mesh
+        return my_mesh
 
-    def euler_to_rotation_matrix(self, a, b, c):
-        """Convert Euler angles to a rotation matrix while maintaining gradient flow."""
-        cos_a, sin_a = torch.cos(a), torch.sin(a)
-        cos_b, sin_b = torch.cos(b), torch.sin(b)
-        cos_c, sin_c = torch.cos(c), torch.sin(c)
+    def forward_visible_faces(self):
+        """
+        Get a mask of visible faces using rasterization.
+        Returns a set of face indices that are visible in the depth buffer.
+        """
+        my_mesh = self.forward()
+        fragments = self.rasterizer.rasterizer(my_mesh)  # Rasterize the mesh
+        visible_faces = fragments.pix_to_face[..., 0]  # Get face indices
+        visible_faces = visible_faces.unique()  # Get unique face indices
+        visible_faces = visible_faces[visible_faces >= 0]  # Remove -1 (background)
 
-        Rx = torch.stack([
-            torch.stack([torch.tensor(1.0, device=a.device), torch.tensor(0.0, device=a.device), torch.tensor(0.0, device=a.device)]),
-            torch.stack([torch.tensor(0.0, device=a.device), cos_a, -sin_a]),
-            torch.stack([torch.tensor(0.0, device=a.device), sin_a, cos_a])
-        ])
+        # Create a new mesh containing only the visible faces.
+        faces = my_mesh.faces_packed()  # Get all faces
+        verts = my_mesh.verts_packed()  # Get all vertices
 
-        Ry = torch.stack([
-            torch.stack([cos_b, torch.tensor(0.0, device=b.device), sin_b]),
-            torch.stack([torch.tensor(0.0, device=b.device), torch.tensor(1.0, device=b.device), torch.tensor(0.0, device=b.device)]),
-            torch.stack([-sin_b, torch.tensor(0.0, device=b.device), cos_b])
-        ])
+        # Select only the visible faces
+        visible_faces = faces[visible_faces]
 
-        Rz = torch.stack([
-            torch.stack([cos_c, -sin_c, torch.tensor(0.0, device=c.device)]),
-            torch.stack([sin_c, cos_c, torch.tensor(0.0, device=c.device)]),
-            torch.stack([torch.tensor(0.0, device=c.device), torch.tensor(0.0, device=c.device), torch.tensor(1.0, device=c.device)])
-        ])
+        # Create a new mesh with only visible faces
+        filtered_mesh = Meshes(verts=[verts], faces=[visible_faces])
 
-        return Rz @ Ry @ Rx  # Correct rotation order (Z-Y-X intrinsic)
-
-    def sample_surface_points(self, corners, num_samples=1000):
-        faces = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (0, 1, 2, 3), (4, 5, 6, 7)]
-        sampled_points = []
-        num_samples_per_face = num_samples // len(faces)
-        for face in faces:
-            p1, p2, p3, p4 = corners[face[0]], corners[face[1]], corners[face[2]], corners[face[3]]
-            u = torch.linspace(0, 1, int(num_samples_per_face**0.5), device=self.device)
-            v = torch.linspace(0, 1, int(num_samples_per_face**0.5), device=self.device)
-            grid_u, grid_v = torch.meshgrid(u, v, indexing='ij')
-            points = (1 - grid_u[:, :, None]) * (1 - grid_v[:, :, None]) * p1 + \
-                     grid_u[:, :, None] * (1 - grid_v[:, :, None]) * p2 + \
-                     grid_u[:, :, None] * grid_v[:, :, None] * p3 + \
-                     (1 - grid_u[:, :, None]) * grid_v[:, :, None] * p4
-            sampled_points.append(points.reshape(-1, 3))
-        return torch.cat(sampled_points, dim=0)
+        return filtered_mesh
 
     def rasterize_visible_faces(self, mesh: Meshes):
         """
@@ -261,91 +242,75 @@ class FridgeModel(nn.Module):
 
     def print_params(self):
         print("Model Parameters:")
-        print(" x: {:.4f}".format(fridge_model.x.item()))
-        print(" y: {:.4f}".format(fridge_model.y.item()))
-        print(" z: {:.4f}".format(fridge_model.z.item()))
-        print(" a: {:.4f}".format(fridge_model.a.item()))
-        print(" b: {:.4f}".format(fridge_model.b.item()))
-        print(" c: {:.4f}".format(fridge_model.c.item()))
-        print(" w: {:.4f}".format(fridge_model.w.item()))
-        print(" d: {:.4f}".format(fridge_model.d.item()))
-        print(" h: {:.4f}".format(fridge_model.h.item()))
+        for name, param in fridge_model.named_parameters():
+            print(f"    {name} value: {param.item()}")
 
     def print_grads(self):
         print("Gradients:")
-        print(" x: {:.4f}".format(fridge_model.x.grad.item()))
-        print(" y: {:.4f}".format(fridge_model.y.grad.item()))
-        print(" z: {:.4f}".format(fridge_model.z.grad.item()))
-        print(" a: {:.4f}".format(fridge_model.a.grad.item()))
-        print(" b: {:.4f}".format(fridge_model.b.grad.item()))
-        print(" c: {:.4f}".format(fridge_model.c.grad.item()))
-        print(" w: {:.4f}".format(fridge_model.w.grad.item()))
-        print(" d: {:.4f}".format(fridge_model.d.grad.item()))
-        print(" h: {:.4f}".format(fridge_model.h.grad.item()))
+        for name, param in fridge_model.named_parameters():
+            print(f"    {name} grad: {param.grad}")
 
-#########################################################
-def get_visible_faces(mesh, rasterizer):
-    """
-    Get a mask of visible faces using rasterization.
-    Returns a set of face indices that are visible in the depth buffer.
-    """
-    fragments = rasterizer.rasterizer(mesh)  # Rasterize the mesh
-    visible_faces = fragments.pix_to_face[..., 0]  # Get face indices
-    visible_faces = visible_faces.unique()  # Get unique face indices
-    visible_faces = visible_faces[visible_faces >= 0]  # Remove -1 (background)
-
-    # Create a new mesh containing only the visible faces.
-    faces = mesh.faces_packed()  # Get all faces
-    verts = mesh.verts_packed()  # Get all vertices
-
-    # Select only the visible faces
-    visible_faces = faces[visible_faces]
-
-    # Create a new mesh with only visible faces
-    filtered_mesh = Meshes(verts=[verts], faces=[visible_faces])
-
-    return filtered_mesh
 
 ##########################################################
-def loss_wrapper(x,y,z,a,b,c,w,d,h):
- loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
- loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
- loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
- loss_4 = prior_on_floor(fridge_model)
- loss_5 = prior_aligned(fridge_model)
- print(loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5)
- return loss_1 + loss_2 + loss_3 + 2*loss_4 + 2*loss_5
-
-def estimate_hessian(fridge: FridgeModel, real_pc: torch.Tensor):
+### Hessian
+##########################################################
+def compute_hessian_and_covariance(model, real_pc):
+    """
+    Computes the Hessian of the loss function and its inverse (covariance matrix).
     """
 
-    """
-    verts_flat = mesh.verts_list()[0].view(-1)
+    # Extract parameters as a tuple
+    optimized_params = tuple([
+        model.x, model.y, model.z,
+        model.a, model.b, model.c,
+        model.w, model.d, model.h
+    ])
 
-    # Compute the Hessian!
+    # Ensure parameters require gradients
+    for param in optimized_params:
+        param.requires_grad_(True)
 
-    hessian_matrix = hessian(loss_wrapper, (fridge.x, fridge.y, fridge.z,
-                                                  fridge.a, fridge.b, fridge.c,
-                                                  fridge.w, fridge.d, fridge.h), create_graph=True)
+    # Compute Hessian row by row
+    param_count = len(optimized_params)
+    hessian_matrix = torch.zeros((param_count, param_count), device=model.device, dtype=torch.float64)
 
-    #print(hessian_matrix.shape) # Output: torch.Size([12, 12]) - 4 vertices * 3 coordinates
-    print(hessian_matrix)
+    for i, param_i in enumerate(optimized_params):
+        grad_i = torch.autograd.grad(loss_function(real_pc, model), param_i, create_graph=True)[0]
+        for j, param_j in enumerate(optimized_params):
+            hess_ij = torch.autograd.grad(grad_i, param_j, retain_graph=True, allow_unused=True)[0]
+            if hess_ij is not None:
+                hessian_matrix[i, j] = hess_ij
 
-    # --- Check for Positive Definiteness (Important!) ---
-    eigenvalues = torch.linalg.eigvalsh(hessian_matrix)
-    if torch.all(eigenvalues > 0):
-        print("Hessian is positive definite.")
-    else:
-        print("Hessian is NOT positive definite.")
+    # Add small regularization to avoid singularity
+    hessian_matrix += 1e-6 * torch.eye(param_count, device=hessian_matrix.device)
 
-    # --- Optional: Calculate Covariance (if positive definite)---
+    # Compute covariance matrix (inverse of Hessian)
     try:
-        covariance_matrix = -torch.inverse(hessian_matrix)
-        print("Covariance Matrix:\n", covariance_matrix)
-    except RuntimeError as e:
-       print(f"Error calculating inverse (likely not positive definite): {e}")
+        covariance_matrix = torch.inverse(hessian_matrix)
+    except RuntimeError:
+        covariance_matrix = torch.zeros_like(hessian_matrix)
+        print("Warning: Hessian is singular, returning zero covariance.")
 
+    return hessian_matrix, covariance_matrix
 ##########################################################
+### losses
+##########################################################
+def loss_function(real_points, model):
+    """ Compute the loss for optimization """
+
+    # Compute mesh from updated model
+    my_mesh = model.forward_visible_faces()
+
+    # Compute loss terms
+    loss_1 = point_mesh_edge_distance(my_mesh, Pointclouds([real_points]))  # Edge distance
+    loss_2 = point_mesh_face_distance(my_mesh, Pointclouds([real_points]))  # Face distance
+    loss_3 = prior_size(model, 0.6, 0.6, 1.8)
+    loss_4 = prior_on_floor(model)
+    loss_5 = prior_aligned(model)
+
+    total_loss = loss_1 + loss_2 + loss_3 + 2 * loss_4 + loss_5
+    return total_loss
+
 def prior_size(fridge: FridgeModel, w=0.6, d=0.6, h=1.8):
     # Compute the difference between w,d,h and the prior values
     return torch.sum((fridge_model.w-w)**2 + (fridge_model.d-d)**2 + (fridge_model.h-h)**2)
@@ -357,49 +322,53 @@ def prior_on_floor(fridge: FridgeModel):
 def prior_aligned(fridge: FridgeModel):
     # The fridge is aligned with the room axis: a,b,c = 0
     return torch.sum(fridge.a**2 + fridge.b**2 + fridge.c**2)
+
 ###########################################################
 if __name__ == "__main__":
 
     # ===========================
     # Optimization Setup
     # ===========================
-    init_params = [0.5, 0, 0.9, 0.0, 0.1, 0.2, 0.5, 0.2, 1.8]  # Initial guess
+    init_params = [-0.3, 0.4, 0.9, 0.0, 0.0, 0.1, 0.5, 0.2, 1.8]  # Initial guess
     cam = Cameras(img_size=128, device="cuda")
     rasterizer = Rasterizer(cam, device="cuda")
     fridge_model = FridgeModel(init_params, cam, rasterizer, "cuda").to(device)
     #fridge_model.params.register_hook(print_grad)
     optimizer = optim.SGD([
-         {'params': [fridge_model.x, fridge_model.y, fridge_model.z], 'lr': 0.1, 'momentum': 0.6},  # Position
-         {'params': [fridge_model.a, fridge_model.b, fridge_model.c], 'lr': 0.1, 'momentum': 0.6},  # Rotation (higher LR)
-         {'params': [fridge_model.w, fridge_model.d, fridge_model.h], 'lr': 0.1, 'momentum': 0.6}  # Size
-     ])
+              {'params': [fridge_model.x, fridge_model.y, fridge_model.z], 'lr': 0.1, 'momentum': 0.6},  # Position
+              {'params': [fridge_model.a, fridge_model.b, fridge_model.c], 'lr': 0.01, 'momentum': 0.6},  # Rotation (higher LR)
+              {'params': [fridge_model.w, fridge_model.d, fridge_model.h], 'lr': 0.1, 'momentum': 0.6}  # Size
+          ])
 
+    ICP = False
 
-    #plot_pointclouds(real_pc, fridge_model(), fridge_model)
     # ===========================
     # Initialize the model using ICP
     # ===========================
-    synthetic_pc = fridge_model.rasterize_visible_faces(fridge_model())
-    plot_pointclouds(real_pc, synthetic_pc, fridge_model)
-    plt.waitforbuttonpress()
-    sol = iterative_closest_point(Pointclouds([synthetic_pc]), Pointclouds([real_pc]), max_iterations=1000)
-    print("ICP:", sol.converged, sol.rmse.item())
-    # if sol.converged:
-    #     fridge_model.x.data += sol.RTs.T[0, 0]
-    #     fridge_model.y.data += sol.RTs.T[0, 1]
-    #     fridge_model.z.data += sol.RTs.T[0, 2]
-    #     angles = matrix_to_euler_angles(sol.RTs.R, "XYZ")
-    #     fridge_model.a.data = torch.tensor(0.0, device="cuda") #angles[0, 0]
-    #     fridge_model.b.data = torch.tensor(0.0, device="cuda") #angles[0, 1]
-    #     fridge_model.c.data = torch.tensor(0.0, device="cuda") #angles[0, 2]
-    #     scale = sol.RTs.s
-    #     fridge_model.w.data *= scale[0]
-    #     fridge_model.d.data *= scale[0]
-    #     fridge_model.h.data *= scale[0]
-    #plot_pointclouds(real_pc, sol.Xt.points_list()[0], fridge_model)
+    if ICP:
+        synthetic_pc = fridge_model.rasterize_visible_faces(fridge_model())
+        plot_pointclouds(real_pc, synthetic_pc, fridge_model)
+        plt.waitforbuttonpress()
+        sol = iterative_closest_point(Pointclouds([synthetic_pc]), Pointclouds([real_pc]), max_iterations=1000)
+        print("ICP:", sol.converged, sol.rmse.item())
+        if sol.converged:
+            fridge_model.x.data += sol.RTs.T[0, 0]
+            fridge_model.y.data += sol.RTs.T[0, 1]
+            fridge_model.z.data += sol.RTs.T[0, 2]
+            angles = matrix_to_euler_angles(sol.RTs.R, "XYZ")
+            fridge_model.a.data = torch.tensor(0.0, device="cuda") #angles[0, 0]
+            fridge_model.b.data = torch.tensor(0.0, device="cuda") #angles[0, 1]
+            fridge_model.c.data = torch.tensor(0.0, device="cuda") #angles[0, 2]
+            scale = sol.RTs.s
+            fridge_model.w.data *= scale[0]
+            fridge_model.d.data *= scale[0]
+            fridge_model.h.data *= scale[0]
+            plot_pointclouds(real_pc, synthetic_pc, fridge_model)
+            fridge_model.print_params()
+            plt.waitforbuttonpress()
+
+    plot_pointclouds(real_pc, None, fridge_model)
     fridge_model.print_params()
-    mesh = fridge_model.compute_orthohedron()
-    print("Dist:", 0.5*point_mesh_face_distance(mesh, Pointclouds([real_pc]))+point_mesh_edge_distance(mesh, Pointclouds([real_pc])))
     plt.waitforbuttonpress()
 
     # ===========================
@@ -407,34 +376,45 @@ if __name__ == "__main__":
     # ===========================
     num_iterations = 2000
     loss = mesh = None
-    loss_ant = 1000000
+    loss_ant = float('inf')
+    now = time.time()
     for i in range(num_iterations):
         optimizer.zero_grad()
-        mesh = get_visible_faces(fridge_model(), rasterizer)
+        #mesh = fridge_model.forward_visible_faces()
+        # TODO: Only works for not accumulated LiDAR points. When the points are accumulated, the computation of visible faces is more complex
+        # visible_faces along the movement would have to be accumulated in a buffer.
 
-        loss_1 = point_mesh_edge_distance(mesh, Pointclouds([real_pc]))  # Edge distance
-        loss_2 = point_mesh_face_distance(mesh, Pointclouds([real_pc]))  # Face distance
-        loss_3 = prior_size(fridge_model, 0.6, 0.6, 1.8)
-        loss_4 = prior_on_floor(fridge_model)
-        loss_5 = prior_aligned(fridge_model)
-        loss = loss_2 + loss_3 + 2*loss_4 + 2*loss_5
+        loss = loss_function(real_pc, fridge_model)
         loss.backward()
         optimizer.step()
 
         if i % 100 == 0:
-            print(f"Iteration {i}: Loss = {loss.item()}")  # Check gradients
+            print(f"Iteration {i}: Loss = {loss.item():6f}")  # Check gradients
             plot_pointclouds(real_pc, None, fridge_model)
             fridge_model.print_params()
-            if abs(loss.item() - loss_ant) < 0.0001:
+            #fridge_model.print_grads()
+            if abs(loss.item() - loss_ant) < 0.00001:    # Convergence criterion
                 break
             loss_ant = loss.item()
-            #print("Gradients:", synthetic_pc.grad)
-            #print(fridge_model.params.detach().cpu().numpy())
+
 
     print("Optimization complete.")
     plot_pointclouds(real_pc, None, fridge_model)
     fridge_model.print_params()
-    #estimate_hessian(fridge_model, real_pc)
+    fridge_model.print_grads()
+    print(f"Elapsed time: {time.time() - now:.4f} seconds")
+    hess, cov = compute_hessian_and_covariance(fridge_model, real_pc)
+    print("Hessian Matrix:\n", hess)
+    # print covariance matrix as a 2D visible array of values with only 4 digital places.
+    np.set_printoptions(precision=2, suppress=True)
+    print("Covariance Matrix:\n", cov.cpu().numpy())
+
+    std_devs = torch.sqrt(torch.diag(cov))
+    print("Standard Deviations (Uncertainty) per Parameter:", std_devs.cpu().numpy())
+
+    eigvals, eigvecs = torch.linalg.eigh(hess)
+    print("Eigenvalues of Hessian:", eigvals.cpu().numpy())
+
     plt.show()
 
 
