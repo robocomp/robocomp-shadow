@@ -18,7 +18,7 @@ INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
 add_definitions(-g -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
 
-SET (LIBS ${LIBS}  dsr_api dsr_core dsr_gui  fastcdr fastrtps osgDB OpenThreads)
+SET (LIBS ${LIBS}  dsr_api dsr_core dsr_gui  fastcdr fastdds osgDB OpenThreads)
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 

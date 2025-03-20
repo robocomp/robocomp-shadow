@@ -1,0 +1,14 @@
+import "Lidar3D.idsl";
+
+Component fridge_concept_python
+{
+    Communications
+    {
+        requires Lidar3D;
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+
+};
+

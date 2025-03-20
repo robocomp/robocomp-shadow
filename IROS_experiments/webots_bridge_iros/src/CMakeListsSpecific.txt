@@ -19,7 +19,7 @@ add_definitions(-O3 -Wall -fmax-errors=1 -fno-char8_t -Wno-unknown-pragmas -I/us
 # Linking Gazebo libraries
 set(WEBOTS_HOME "/usr/local/webots")
 link_directories(${WEBOTS_HOME}/lib/controller)
-SET (LIBS ${LIBS} dsr_api dsr_core dsr_gui fastcdr fastrtps osgDB OpenThreads -L/usr/local/webots/lib/controller Controller CppController)
+SET (LIBS ${LIBS} dsr_api dsr_core dsr_gui fastcdr fastdds osgDB OpenThreads -L/usr/local/webots/lib/controller Controller CppController)
 include_directories(${WEBOTS_HOME}/include/controller/c ${WEBOTS_HOME}/include/controller/cpp)
 
 option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.6)
-PROJECT(  internal_representation )
+PROJECT(  fridge_concept_python )
 
 IF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
   MESSAGE(FATAL_ERROR "Couldn't find RoboComp in $ENV{ROBOCOMP}! Exiting...")

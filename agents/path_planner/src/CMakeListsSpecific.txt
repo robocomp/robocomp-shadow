@@ -17,6 +17,6 @@ SET ( HEADERS
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 add_definitions(-g  -fmax-errors=1 -std=c++2a -fno-char8_t)
-SET(SPECIFIC_LIBS dsr_core dsr_gui dsr_api fastcdr fastrtps osgDB fcl tbb Eigen3::Eigen)
+SET(SPECIFIC_LIBS dsr_core dsr_gui dsr_api fastcdr fastdds osgDB fcl tbb Eigen3::Eigen)
 
 

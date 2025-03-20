@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-PROJECT(  internal_representation )
+PROJECT(  fridge_concept_python )
 
 IF ( "$ENV{ROBOCOMP}" STREQUAL "")
   MESSAGE(WARNING "ROBOCOMP variable not set. Using the default value: /home/robocomp/robocomp")
@@ -21,3 +21,4 @@ MACRO( WRAP_PYTHON_UI )
     ADD_CUSTOM_TARGET(ui_${input_file} ALL DEPENDS src/ui_${input_file}.py )
   ENDFOREACH( input_file )
 ENDMACRO( WRAP_PYTHON_UI )
+WRAP_PYTHON_UI( mainUI )
