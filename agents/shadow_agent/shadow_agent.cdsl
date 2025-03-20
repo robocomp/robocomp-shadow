@@ -1,0 +1,14 @@
+import "FullPoseEstimationPub.idsl";
+
+Component shadow_agent
+{
+    Communications
+    {
+        subscribesTo FullPoseEstimationPub;
+    };
+    language Cpp11;
+    gui Qt(QMainWindow);
+    options dsr;
+
+};
+
