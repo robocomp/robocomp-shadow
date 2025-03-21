@@ -89,5 +89,5 @@ if __name__ == '__main__':
 
     interface_manager.set_default_hanlder(worker)
     signal.signal(signal.SIGINT, sigint_handler)
-    app.exec()
+    app.exec_()
     interface_manager.destroy()
