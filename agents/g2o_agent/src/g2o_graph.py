@@ -61,13 +61,13 @@ class G2OGraph:
         Add landmark to the graph
         '''
 
-
         # Check that the pose_id is of type VertexSE2
         if type(self.optimizer.vertex(pose_id)) != g2o.VertexSE2:
             raise ValueError("The pose_id that you have provided does not correspond to a VertexSE2")
 
         landmark_id = self.vertex_count
         v_pointxy = g2o.VertexPointXY()
+        print(nominal_corner[0], nominal_corner[1])
         v_pointxy.set_estimate(np.array([nominal_corner[0], nominal_corner[1]]))
         v_pointxy.set_id(landmark_id)
         v_pointxy.set_fixed(True)

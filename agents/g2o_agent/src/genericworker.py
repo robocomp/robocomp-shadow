@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide2 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore
 
 ROBOCOMP = ''
 try:
@@ -28,8 +28,8 @@ except KeyError:
     print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
     ROBOCOMP = '/opt/robocomp'
 
-Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
-import RoboCompCommonBehavior
+#Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
+#import RoboCompCommonBehavior
 
 
 try:
@@ -52,7 +52,7 @@ class GenericWorker(QtWidgets.QWidget):
         self.ui.setupUi(self)
         # self.show()
 
-        self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
+        self.mutex = QtCore.QMutex(QtCore.QMutex)
         self.Period = 30
         self.timer = QtCore.QTimer(self)
 

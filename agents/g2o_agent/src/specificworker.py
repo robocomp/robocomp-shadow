@@ -19,20 +19,16 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from PySide2.QtCore import QTimer, QMutex
-from PySide2.QtWidgets import QApplication
+from PySide6.QtCore import QTimer, QPointF
+from PySide6.QtGui import QPolygonF
 from rich.console import Console
 from genericworker import *
 from g2o_graph import G2OGraph
-from g2o_visualizer import G2OVisualizer
-import g2o
+import g2o  # DOES NOT WORK WITH NUMPY 2
 import numpy as np
 import interfaces as ifaces
 from collections import deque
-import time
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import threading
 import time
 import setproctitle
 from pydsr import *
@@ -263,7 +259,7 @@ class SpecificWorker(GenericWorker):
                 self.last_room_id = self.actual_room_id
             self.actual_room_id = room_node.attrs['room_id'].value
             # print("###########################################################")
-            # print("INITIALIZ>INDºG G2O GRAPH")
+            # print("INITIALIZING G2O GRAPH")
             # print("Room changed to", self.actual_room_id)
             # print("###########################################################")
             self.odometry_node_id = robot_node.id
@@ -301,7 +297,6 @@ class SpecificWorker(GenericWorker):
 
             # Calculate room center
             room_center /= 4
-
             # Get room_polygon shortest side # TODO: set security polygon as a parameter that depends on room dimensions
             room_poly_bounding = self.room_polygon.boundingRect()
             d = 350
@@ -312,7 +307,6 @@ class SpecificWorker(GenericWorker):
                 robot_point = QPointF(robot_tx, robot_ty)
                 if self.room_polygon.containsPoint(robot_point, Qt.OddEvenFill):
                     for i in range(4):
-
                         # Variables for security polygon
                         dir_vector = self.room_polygon.at(i) - room_center
                         dir_vector /= np.linalg.norm(np.array([dir_vector.x(), dir_vector.y()]))
@@ -328,6 +322,7 @@ class SpecificWorker(GenericWorker):
                                 # print("Landmark information:", landmark_information)
                                 if corner_tx != 0.0 or corner_ty != 0.0:
                                     # self.g2o.add_landmark(corner_tx, corner_ty, 0.1 * np.eye(2), pose_id=0)
+                                    print("corner i", corner_list[i], "corner edge measured", corner_edge_measured_rt.attrs['rt_translation'].value, "landmark info", landmark_information)
                                     self.g2o.add_nominal_corner(corner_list[i],
                                                               corner_edge_measured_rt.attrs['rt_translation'].value,
                                                               landmark_information, pose_id=0)
@@ -336,7 +331,6 @@ class SpecificWorker(GenericWorker):
                                 self.g2o.add_nominal_corner(corner_list[i],
                                                             None,
                                                             landmark_information, pose_id=0)
-
                     door_nodes = [node for node in self.g.get_nodes_by_type("door") if not "pre" in node.name and
                                   node.attrs["room_id"].value == self.actual_room_id]
                     # Iterate over door nodes
