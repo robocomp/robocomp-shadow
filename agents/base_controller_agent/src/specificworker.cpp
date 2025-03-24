@@ -25,53 +25,18 @@
 /**
 * \brief Default constructor
 */
-SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
+SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(configLoader, tprx)
 {
 	this->startup_check_flag = startup_check;
-	QLoggingCategory::setFilterRules("*.debug=false\n");
-}
-
-/**
-* \brief Default destructor
-*/
-SpecificWorker::~SpecificWorker()
-{
-	std::cout << "Destroying SpecificWorker" << std::endl;
-	//G->write_to_json_file("./"+agent_name+".json");
-	auto grid_nodes = G->get_nodes_by_type("grid");
-	for (auto grid : grid_nodes)
-		G->delete_node(grid);
-	G.reset();
-}
-
-bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
-{
-	try
-	{
-		agent_name = params.at("agent_name").value;
-		agent_id = stoi(params.at("agent_id").value);
-		tree_view = params.at("tree_view").value == "true";
-		graph_view = params.at("graph_view").value == "true";
-		qscene_2d_view = params.at("2d_view").value == "true";
-		osg_3d_view = params.at("3d_view").value == "true";
-	}
-	catch(const std::exception &e){ std::cout << e.what() << " Error reading params from config file" << std::endl;};
-	return true;
-}
-
-void SpecificWorker::initialize(int period)
-{
-	std::cout << "Initialize worker" << std::endl;
-	this->Period = period;
 	if(this->startup_check_flag)
 	{
 		this->startup_check();
 	}
 	else
 	{
-		// create graph
-		G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
-		std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;  
+		#ifdef HIBERNATION_ENABLED
+			hibernationChecker.start(500);
+		#endif
 
 		//dsr update signals
 		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
@@ -81,27 +46,6 @@ void SpecificWorker::initialize(int period)
 		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
-		// Graph viewer
-		using opts = DSR::DSRViewer::view;
-		int current_opts = 0;
-		opts main = opts::none;
-		if(tree_view)
-		    current_opts = current_opts | opts::tree;
-		if(graph_view)
-        {
-		    current_opts = current_opts | opts::graph;
-		    main = opts::graph;
-		}
-		if(qscene_2d_view)
-		    current_opts = current_opts | opts::scene;
-		if(osg_3d_view)
-		    current_opts = current_opts | opts::osg;
-		graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
-		setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-        // get pointer to 2D viewer
-        widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
-        widget_2d->set_draw_axis(true);
-
 		/***
 		Custom Widget
 		In addition to the predefined viewers, Graph Viewer allows you to add various widgets designed by the developer.
@@ -110,19 +54,88 @@ void SpecificWorker::initialize(int period)
 		The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 		***/
 
-        room_widget = new CustomWidget();
-   	    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
+		// Example statemachine:
+		/***
+		//Your definition for the statesmachine (if you dont want use a execute function, use nullptr)
+		states["CustomState"] = std::make_unique<GRAFCETStep>("CustomState", period,
+															std::bind(&SpecificWorker::customLoop, this),  // Cyclic function
+															std::bind(&SpecificWorker::customEnter, this), // On-enter function
+															std::bind(&SpecificWorker::customExit, this)); // On-exit function
 
-        // Lidar thread is created
-        read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
-        std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+		//Add your definition of transitions (addTransition(originOfSignal, signal, dstState))
+		states["CustomState"]->addTransition(states["CustomState"].get(), SIGNAL(entered()), states["OtherState"].get());
+		states["Compute"]->addTransition(this, SIGNAL(customSignal()), states["CustomState"].get()); //Define your signal in the .h file under the "Signals" section.
 
-        rt_api = G->get_rt_api();
-        inner_api = G->get_inner_eigen_api();
+		//Add your custom state
+		statemachine.addState(states["CustomState"].get());
+		***/
 
-        timer.start(Period);
+		statemachine.setChildMode(QState::ExclusiveStates);
+		statemachine.start();
+        QLoggingCategory::setFilterRules("*.debug=false\n");
+        if (auto error = statemachine.errorString(); error.length() > 0)
+        {
+			qWarning() << error;
+			throw error;
+		}
 	}
+}
+
+/**
+* \brief Default destructor
+*/
+SpecificWorker::~SpecificWorker()
+{
+	std::cout << "Destroying SpecificWorker" << std::endl;
+}
+
+void SpecificWorker::initialize()
+{
+
+    // Graph viewer
+    using opts = DSR::DSRViewer::view;
+    int current_opts = 0;
+    opts main = opts::none;
+    if(this->configLoader.get<bool>("ViewAgent.tree"))
+    {
+        current_opts = current_opts | opts::tree;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.graph"))
+    {
+        current_opts = current_opts | opts::graph;
+        main = opts::graph;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.2d"))
+    {
+        current_opts = current_opts | opts::scene;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.3d"))
+    {
+        current_opts = current_opts | opts::osg;
+    }
+
+    graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+    setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+    room_widget = new CustomWidget();
+    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
+
+    // get pointer to 2D viewer
+    widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(DSR::DSRViewer::view::scene));
+    if(widget_2d == nullptr)
+    {
+        std::cout << "Error getting 2D viewer" << std::endl;
+        throw std::runtime_error("Error getting 2D viewer");
+    }
+    widget_2d->scale(0.08, 0.08);
+
+    // Lidar thread
+    read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
+    std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
+
+	// Local apis
+    rt_api = G->get_rt_api();
+    inner_api = G->get_inner_eigen_api();
 }
 
 /// ProtoCODE
@@ -140,18 +153,12 @@ void SpecificWorker::initialize(int period)
 
 void SpecificWorker::compute()
 {
-
     /// read LiDAR
-    auto ldata = buffer_lidar_data.get_idemp();
+    const auto lidar_points = buffer_lidar_data.get_idemp();
+    draw_lidar_in_robot_frame(lidar_points, &widget_2d->scene, 50);
 
-    /// draw lidar in robot frame
-    draw_lidar_in_robot_frame(ldata, &widget_2d->scene, 50);
-
-
-    draw_robot_in_room(&room_widget->viewer->scene, ldata);
-
-    // check if there is a room with a current self pointing edge
-    //draw_room_frame(ldata, &room_widget->viewer->scene);  // draws lidar and robot in room frame
+    // draw robot and lidar in room frame
+    draw_room(&room_widget->viewer->scene, lidar_points);
 
     /// check if pushButton_stop is checked and stop robot and return if so
     if(room_widget->ui->pushButton_stop->isChecked())
@@ -159,7 +166,7 @@ void SpecificWorker::compute()
 
     /// check if there is a "has_intention" edge in G. If so get the intention edge
     DSR::Edge intention_edge;
-    if( auto intention_edge_ =  there_is_intention_edge_marked_as_active(); not intention_edge_.has_value() )
+    if(const auto intention_edge_ =  there_is_intention_edge_marked_as_active(); not intention_edge_.has_value() )
     {
         std::cout << __FUNCTION__ << " There is no intention edge. Returning." << std::endl;
         stop_robot();
@@ -167,10 +174,8 @@ void SpecificWorker::compute()
     }
     else intention_edge = intention_edge_.value();
 
-    // Print from and to nodes of the intention edge
-    std::cout << "Intention edge from: " << intention_edge.from() << intention_edge.to() << std::endl;
-
-    auto intention_status_ = G->get_attrib_by_name<state_att>(intention_edge);
+    /// check if there is a "state_att" attribute in the intention edge
+    const auto intention_status_ = G->get_attrib_by_name<state_att>(intention_edge);
     if(not intention_status_.has_value())
     {
         std::cout << __FUNCTION__ << " Error getting intention status. Returning." << std::endl;
@@ -181,22 +186,20 @@ void SpecificWorker::compute()
     /// Set string to set intention state
     std::string intention_state = "waiting";
 
-
     /// Check if there is final orientation and tolerance in the intention edge
-//    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
-//    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
-//        orientation = { orientation_.value().get()[0], orientation_.value().get()[1], orientation_.value().get()[2] };
-//
+    //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
+    //    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
+    //        orientation = { orientation_.value().get()[0], orientation_.value().get()[1], orientation_.value().get()[2] };
+    //
     /// Get translation vector from target node with offset applied to it
     Eigen::Vector3d vector_to_target = Eigen::Vector3d::Zero();
-    if(auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
+    if(const auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
     {
         qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning.";
         return;
     }
     else vector_to_target = vector_to_target_.value();
 
-    std::cout << __FUNCTION__ << "\n [" << vector_to_target << "]" << std::endl;
     draw_vector_to_target(vector_to_target, &widget_2d->scene );
 
     /// If robot is at target, stop
@@ -211,16 +214,12 @@ void SpecificWorker::compute()
     set_intention_edge_state(intention_edge, "in_progress");
 
     /// Check if the target position is in line of sight
-    if( line_of_sight(vector_to_target, ldata, &widget_2d->scene) )
+    if( line_of_sight(vector_to_target, lidar_points, &widget_2d->scene) )
     {
         auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
         move_robot(adv, side, rot);
         return;
     }
-
-
-
-
 
     /// not in line of sight
     // if there is a node of type ROOM and it has a self edge of type "current" in it
@@ -247,7 +246,7 @@ void SpecificWorker::compute()
 /////////////////////////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::read_lidar()
 {
-    auto wait_period = std::chrono::milliseconds (this->Period);
+    auto wait_period = std::chrono::milliseconds (this->getPeriod("Compute"));
     while(true)
     {
         try
@@ -329,7 +328,7 @@ void SpecificWorker::draw_lidar_in_robot_frame(const std::vector<Eigen::Vector3f
     // draw points
     for(const auto &i: iter::range(0, (int)data.size(), step))
     {
-        auto item = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
+        const auto item = scene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
         auto p = data[i];
         item->setPos(p.x(), p.y());
         items.push_back(item);
@@ -458,7 +457,7 @@ RoboCompGridPlanner::Points SpecificWorker::compute_line_of_sight_target(const E
     }
     return path;
 }
-void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const string &string)
+void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const std::string &string)
 {
     /// Set edge attribute state to string
     qInfo() << __FUNCTION__ << "Setting intention edge state to " << string.c_str();
@@ -469,14 +468,8 @@ void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const string &str
         std::cout << __FUNCTION__ << "Error setting intention edge state to " << string << std::endl;
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////
-int SpecificWorker::startup_check()
-{
-	std::cout << "Startup check" << std::endl;
-	QTimer::singleShot(200, qApp, SLOT(quit()));
-	return 0;
-}
 
-void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eigen::Vector3f> &lidar_data)
+void SpecificWorker::draw_room(QGraphicsScene *pScene, const std::vector<Eigen::Vector3f> &lidar_data) // points in robot frame
 {
     static bool drawn_room = false; // TODO: Probably needs to be reseted when room changes
     static std::vector<QGraphicsItem *> room;
@@ -484,7 +477,7 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
     for(const auto &i: items){ pScene->removeItem(i); delete i;}
     items.clear();
 
-// 2. check for current room
+    // check for current room
     auto current_edges = G->get_edges_by_type("current");
     if(current_edges.empty())
     {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
@@ -523,12 +516,21 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
         auto matrix_angles = rt_room_robot_.rotation().eulerAngles(0, 1, 2);
         room_widget->viewer->robot_poly()->setPos(matrix_translation.x(), matrix_translation.y());
         room_widget->viewer->robot_poly()->setRotation(qRadiansToDegrees(matrix_angles[2]));
+
+        /// Draw lidar data in room frame
+        for(const auto &i: iter::range(0, static_cast<int>(lidar_data.size()), 50))
+        {
+            // transform lidar data to room frame multiplying rt_room_robot by point with extended projective coordinate
+            auto p = rt_room_robot_ * Eigen::Vector4d(lidar_data[i].x(), lidar_data[i].y(), lidar_data[i].z(), 1);
+            auto item = pScene->addEllipse(-20, -20, 40, 40, QPen(QColor("green"), 20), QBrush(QColor("green")));
+            item->setPos(p.x(), p.y());
+            items.push_back(item);
+        }
     }
 
     /// Get doors from graph
-    auto door_nodes = G->get_nodes_by_type("door");
     /// Iterate over doors
-    for(const auto &door_node: door_nodes)
+    for(auto door_nodes = G->get_nodes_by_type("door"); const auto &door_node: door_nodes)
     {
         auto door_width_ = G->get_attrib_by_name<width_att>(door_node);
         if(not door_width_.has_value())
@@ -562,16 +564,55 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene, const vector<Eig
             items.push_back(pScene->addEllipse(door_peak_0.x()-30, door_peak_0.y()-30, 60, 60, QPen(QColor("red"), 30), QBrush(QColor("red"))));
             items.push_back(pScene->addEllipse(door_peak_1.x()-30, door_peak_1.y()-30, 60, 60, QPen(QColor("red"), 30), QBrush(QColor("red"))));
         }
-
-
-
     }
 }
 
+/////////////////////////////////////////////////
+int SpecificWorker::startup_check()
+{
+    std::cout << "Startup check" << std::endl;
+    QTimer::singleShot(200, qApp, SLOT(quit()));
+    return 0;
+}
 
+void SpecificWorker::emergency()
+{
+    std::cout << "Emergency worker" << std::endl;
+    //computeCODE
+    //
+    //if (SUCCESSFUL)
+    //  emmit goToRestore()
+}
 
+//Execute one when exiting to emergencyState
+void SpecificWorker::restore()
+{
+    std::cout << "Restore worker" << std::endl;
+    //computeCODE
+    //Restore emergency component
 
+}
 
+//////////////////////////////////////////////////////////////////////////
+//SUBSCRIPTION to newFullPose method from FullPoseEstimationPub interface
+//////////////////////////////////////////////////////////////////////////
+void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose)
+{
+    #ifdef HIBERNATION_ENABLED
+        hibernation = true;
+    #endif
+
+    auto robot_node = G->get_node(params.robot_name);
+    if(not robot_node.has_value())
+    {  qWarning() << "Robot node" << QString::fromStdString(params.robot_name) << "not found"; return; }
+
+    auto robot_node_value = robot_node.value();
+    G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node_value, (float)  pose.vx);
+    G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node_value, (float) pose.vy);
+    G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node_value, (float) pose.vrz);
+    G->add_or_modify_attrib_local<timestamp_alivetime_att>(robot_node_value, (uint64_t) pose.timestamp);
+    G->update_node(robot_node_value);
+}
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:

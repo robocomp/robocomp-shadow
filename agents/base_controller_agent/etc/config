@@ -1,18 +1,26 @@
-CommonBehavior.Endpoints=tcp -p 10000
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+# Endpoints for subscriptions interfaces
+Endpoints.FullPoseEstimationPubTopic = "tcp -p 9879"
 
 # Proxies for required interfaces
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
-GridPlannerProxy = gridplanner:tcp -h localhost -p 16804
+Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
+Proxies.GridPlanner = "gridplanner:tcp -h localhost -p 16804"
 
-agent_id = 666
-agent_name = base_controller_agent
-tree_view = false
-graph_view = true
-2d_view = true
-3d_view = false
-#Ice.MessageSizeMax=20004800
+Agent.id = 666
+Agent.name = "base_controller_agent"
+Agent.configFile = "shadow_scene.json"
 
-Ice.Warn.Connections=0
-Ice.Trace.Network=0
-Ice.Trace.Protocol=0
-Ice.MessageSizeMax=20004800
+ViewAgent.tree = false
+ViewAgent.graph = true
+ViewAgent.2d = true
+ViewAgent.3d = false
+
+Period.Compute = 100
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"

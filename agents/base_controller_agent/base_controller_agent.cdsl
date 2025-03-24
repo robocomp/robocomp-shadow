@@ -1,11 +1,13 @@
 import "Lidar3D.idsl";
 import "GridPlanner.idsl";
+import "FullPoseEstimationPub.idsl";
 
 Component base_controller_agent
 {
     Communications
     {
 	    requires Lidar3D, GridPlanner;
+	    subscribesTo FullPoseEstimationPub;
     };
     language Cpp11;
     gui Qt(QMainWindow);
