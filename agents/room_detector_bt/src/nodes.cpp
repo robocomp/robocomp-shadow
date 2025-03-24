@@ -48,11 +48,11 @@ namespace Nodes
             DSR::Node room_node = room_node_.value();
             if (auto has_intention_edge = G->get_edge(params.ROBOT_ID, room_node.id(), "has_intention"); has_intention_edge.has_value())
             {
-                std::cout << "Intention edge found" << std::endl;
+                //std::cout << __FUNCTION__ <<"Intention edge found" << std::endl;
 
                 if (auto active = G->get_attrib_by_name<active_att>(has_intention_edge.value()); active.has_value())
                 {
-                    std::cout << "Active:" << active.value() << std::endl;
+                    //std::cout << __FUNCTION__ << "Active:" << active.value() << std::endl;
                     if (!active.value())
                         if (auto state = G->get_attrib_by_name<state_att>(has_intention_edge.value()); state.has_value())
                         {
@@ -182,7 +182,7 @@ namespace Nodes
 
     BT::NodeStatus RoomStabilitation::onRunning()
     {
-        std::cout << this->name() << "onRunning" << std::endl;
+        //std::cout << this->name() << "onRunning" << std::endl;
         room_stabilitation();
         return BT::NodeStatus::RUNNING;
     }
@@ -200,8 +200,6 @@ namespace Nodes
 
                 if (auto active = G->get_attrib_by_name<active_att>(has_intention_edge.value()); active.has_value())
                 {
-                    std::cout << "Active:" << active.value() << std::endl;
-
                     if (auto state = G->get_attrib_by_name<state_att>(has_intention_edge.value()); state.has_value())
                     {
                         std::cout << "State:" << state.value() << std::endl;

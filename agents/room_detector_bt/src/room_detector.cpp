@@ -56,7 +56,7 @@ namespace rc
                         euc_distance_between_points(c3, c4)
                 };
                 // Ordenar las distancias de menor a mayor
-                std::sort(distances.begin(), distances.end());
+                std::ranges::sort(distances);
 
                 // Check if distances 0, 1; 2, 3; 4, 5 are the same considering a threshold
                 if (abs(distances[0] - distances[1]) > 100 or abs(distances[2] - distances[3]) > 100 or abs(distances[4] - distances[5]) > 100)
@@ -67,18 +67,17 @@ namespace rc
 //                    qInfo() << "Distances" << distance;
 
                 // Las dos distancias más pequeñas corresponden a los lados del rectángulo
-                float lado1 = distances[0];
-                float lado2 = distances[2];
+                const float lado1 = distances[0];
+                const float lado2 = distances[2];
 
 //                std::cout << "Lado1: " << lado1 << ". Lado2: " << lado2 << " ." << std::endl;
 
                 // El área del rectángulo es lado1 * lado2
-                float area = lado1 * lado2;
-                //print area
+//print area
 //                qInfo() << "Area" << area;
 
                 //if the area is smaller than the min area, update the min area and the corners
-                if(area < min_area)
+                if(float area = lado1 * lado2; area < min_area)
                 {
                     //print something
 //                    qInfo() << "Area menor pre comparar" << min_area;
@@ -164,7 +163,7 @@ namespace rc
     {
         std::vector<cv::Vec2f> floor_line_cv;
         for(const auto &p : floor_line_cart)
-                floor_line_cv.emplace_back(p.x(), p.y());
+            floor_line_cv.emplace_back(p.x(), p.y());
 
         cv::Mat lines;
         HoughLinesPointSet(floor_line_cv, lines,

@@ -58,15 +58,14 @@ void icp::align()
         for (auto source_iter = source_points_copy.begin(); source_iter != source_points_copy.end();)
         {
             double min_distance = std::numeric_limits<double>::max();
-            Eigen::Vector2d closest_point;
+            Eigen::Vector2d closest_point = *source_iter;
             auto target_iter = target_points_copy.begin();
             auto closest_target_iter = target_iter;
 
             // Encontrar el punto más cercano en el conjunto de puntos objetivo
             while (target_iter != target_points_copy.end())
             {
-                double d = (*source_iter - *target_iter).norm();
-                if (d < min_distance)
+                if (double d = (*source_iter - *target_iter).norm(); d < min_distance)
                 {
                     min_distance = d;
                     closest_point = *target_iter;
