@@ -1,0 +1,32 @@
+# Agents involved in the Frisge Conundrum scenario
+
+[[components]]
+name = "base_controller_agent"
+cwd = "~/robocomp/components/robocomp-shadow/agents/base_controller_agent"
+cmd = "cmake . && make -j32 && bin/base_controller_agent etc/config"
+
+[[components]]
+name = "g2o_agent"
+cwd = "~/robocomp/components/robocomp-shadow/agents/g2o_agent"
+cmd = "cmake . && make -j32 && src/g2o_agent.py etc/config"
+
+[[components]]
+name = "room_detector_bt"
+cwd = "~/robocomp/components/robocomp-shadow/agents/room_detector_bt"
+cmd = "cmake . && make -j32 && bin/room_detector_bt etc/config"
+
+[[components]]
+name = "scheduler"
+cwd = "~/robocomp/components/robocomp-shadow/agents/scheduler"
+cmd = "cmake . && make -j32 && bin/scheduler etc/config"
+
+[[components]]
+name = "long_term_spatial_memory_agent"
+cwd = "~/robocomp/components/robocomp-shadow/agents/long_term_spatial_memory_agent"
+cmd = "cmake . && make -j32 && src/long_term_spatial_memory_agent.py etc/config"
+
+[[components]]
+name = "fridge_concept"
+cwd = "~/robocomp/components/robocomp-shadow/agents/fridge_concept_python"
+cmd = "cmake . && make -j32 && src/fridge_concept etc/config"
+
