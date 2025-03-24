@@ -255,11 +255,11 @@ void SpecificWorker::read_lidar()
                                                                    params.MAX_LIDAR_LOW_RANGE,
                                                                    params.LIDAR_LOW_DECIMATION_FACTOR);
             // compute the period to read the lidar based on the current difference with the lidar period. Use a hysteresis of 2ms
-            if (wait_period > std::chrono::milliseconds((long) data.period + 2)) wait_period--;
-            else if (wait_period < std::chrono::milliseconds((long) data.period - 2)) wait_period++;
+            if (wait_period > std::chrono::milliseconds(static_cast<long>(data.period) + 2)) wait_period--;
+            else if (wait_period < std::chrono::milliseconds(static_cast<long>(data.period) - 2)) wait_period++;
             std::vector<Eigen::Vector3f> eig_data(data.points.size());
             for (const auto &[i, p]: data.points | iter::enumerate)
-                eig_data[i] = {p.x, p.y, p.z};
+                if (p.distance2d > 500) eig_data[i] = {p.x, p.y, p.z};
             buffer_lidar_data.put(std::move(eig_data));
         }
         catch (const Ice::Exception &e)
