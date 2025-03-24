@@ -64,7 +64,8 @@ void SpecificWorker::initialize(int period)
                 RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
                 enabled_lidar = true;
             }
-            catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
+            catch (const std::exception &e){std::cout << " In Initialize getting LiDAR " << e.what() << std::endl; return;}
+            sleep(1);
         }
         while(!enabled_camera)
         {
@@ -74,8 +75,9 @@ void SpecificWorker::initialize(int period)
                 MAX_WIDTH = cam_data.width;
                 MAX_HEIGHT = cam_data.height;
                 enabled_camera = true;
+                sleep(1);
             }
-            catch (const std::exception &e){std::cout << e.what() << std::endl; return;}
+            catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; return;}
         }
 
 		timer.start(Period);
@@ -100,7 +102,7 @@ void SpecificWorker::compute()
         lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
         lidar_queue.push(lidar_data);
     }
-    catch (const Ice::Exception &e){std::cout << e.what() << std::endl; return;}
+    catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
     // Get camera data
     try
@@ -108,7 +110,7 @@ void SpecificWorker::compute()
         cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
         camera_queue.push(cam_data);
     }
-    catch (const Ice::Exception &e){std::cout << e.what() << std::endl; return;}
+    catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
     // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
     int timestamp_diff = 999999999;
@@ -174,7 +176,7 @@ void SpecificWorker::compute()
 }
 
 int SpecificWorker::startup_check()
-{
+{bin
 	std::cout << "Startup check" << std::endl;
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
