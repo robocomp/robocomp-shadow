@@ -6,9 +6,9 @@ import itertools
 import matplotlib.pyplot as plt
 import spatialmath as sm
 import numpy as np
-from PySide2.QtGui import QPolygon
-from PySide2.QtCore import QPoint, QPointF, QLineF
-from PySide2.QtCore import Qt
+from PySide6.QtGui import QPolygon
+from PySide6.QtCore import QPoint, QPointF, QLineF
+from PySide6.QtCore import Qt
 import matplotlib.patches as patches
 
 

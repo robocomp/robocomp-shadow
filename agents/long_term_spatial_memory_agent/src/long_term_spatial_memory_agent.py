@@ -62,7 +62,7 @@ import signal
 from rich.console import Console
 console = Console()
 
-from PySide2 import QtWidgets
+from PySide6 import QtWidgets
 import interfaces
 from specificworker import *
 
