@@ -20,11 +20,9 @@
 #
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-from dsr_graphics_scene import DSRGraphicsScene
 console = Console(highlight=False)
 from pydsr import *
 from dsr_gui import DSRViewer, View
@@ -37,12 +35,13 @@ class SpecificWorker(GenericWorker):
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 66
         self.g = DSRGraph(0, "master_controller", self.agent_id)
-        self.graph_viewer = DSRViewer(self, self.g, View.graph, View.graph)
-        self.ui.setWindowTitle("master_controller -" + str(self.agent_id))
-        signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer .add_or_assign_node_slot)
-        signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer .add_or_assign_edge_slot)
-        signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer .del_node_slot)
-        signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer .del_edge_slot)
+        self.graph_viewer = DSRViewer(self, self.g, View.graph + View.scene, View.graph)
+        signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
+        signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
+        signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
+        signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
+        signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
+        signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -73,7 +72,6 @@ class SpecificWorker(GenericWorker):
         #	print("Error reading config params")
         return True
 
-
     @QtCore.Slot()
     def compute(self):
 
@@ -94,15 +92,15 @@ class SpecificWorker(GenericWorker):
         pass
 
     def delete_node(self, id: int):
-        console.print(f"DELETE NODE:: {id} ", style='green')
+        #console.print(f"DELETE NODE:: {id} ", style='green')
         pass
 
     def update_edge(self, fr: int, to: int, type: str):
-        console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        #console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
         pass
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
-        console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
+        #console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
         pass
 
     def delete_edge(self, fr: int, to: int, type: str):
