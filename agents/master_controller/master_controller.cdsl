@@ -1,0 +1,12 @@
+
+Component master_controller
+{
+    Communications
+    {
+    };
+    language python;
+    gui  Qt(QMainWindow);
+    options dsr;
+
+};
+
