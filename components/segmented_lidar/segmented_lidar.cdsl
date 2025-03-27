@@ -1,0 +1,17 @@
+import "Lidar3D.idsl";
+import "Lidar3DPub.idsl";
+import "Camera360RGBD.idsl";
+import "FullPoseEstimationPub.idsl";
+
+Component segmented_lidar
+{
+    Communications
+    {
+        implements Lidar3D;
+        requires Camera360RGBD;
+        publishes Lidar3DPub;
+        subscribesTo FullPoseEstimationPub;
+    };
+    language python;
+};
+

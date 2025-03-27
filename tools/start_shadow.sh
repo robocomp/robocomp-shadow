@@ -25,7 +25,7 @@ session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/shadow_agent etc/config"
+#qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/shadow_agent etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
 # CAMERA

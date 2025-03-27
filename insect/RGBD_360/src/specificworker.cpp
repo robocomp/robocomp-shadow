@@ -165,7 +165,7 @@ void SpecificWorker::compute()
         swap_mutex.lock();
             rgb_image.copyTo(rgb_frame_write);
             depth_image.copyTo(depth_frame_write);
-            // capture_time = chosen_rgb_data.alivetime;
+            capture_time = chosen_rgb_data.alivetime;
         swap_mutex.unlock();
 
         lidar_queue.clean_old(chosen_lidar);
@@ -176,7 +176,7 @@ void SpecificWorker::compute()
 }
 
 int SpecificWorker::startup_check()
-{bin
+{
 	std::cout << "Startup check" << std::endl;
 	QTimer::singleShot(200, qApp, SLOT(quit()));
 	return 0;
@@ -303,7 +303,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
         res.rgbcompressed = false;
         res.depthcompressed = false;
         res.period = fps.get_period();
-        res.alivetime = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
+        res.alivetime = capture_time;
 
         res.rgbchannels = rdst_rgb.channels();
         res.depthchannels = dst.channels();
