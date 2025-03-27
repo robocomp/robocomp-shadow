@@ -7,4 +7,4 @@ ENDIF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/robocomp.cmake )
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior  )
+ROBOCOMP_IDSL_TO_ICE( CommonBehavior Lidar3D )

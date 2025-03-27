@@ -1,3 +1,5 @@
+# Proxies for required interfaces
+Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
 
 id = 66
 

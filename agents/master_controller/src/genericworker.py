@@ -47,6 +47,8 @@ class GenericWorker(QtWidgets.QMainWindow):
     def __init__(self, mprx):
         super(GenericWorker, self).__init__()
 
+        self.lidar3d_proxy = mprx["Lidar3DProxy"]
+
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
         self.show()
@@ -58,6 +60,7 @@ class GenericWorker(QtWidgets.QMainWindow):
 
     @QtCore.Slot()
     def killYourSelf(self):
+        rDebug("Killing myself")
         self.kill.emit()
 
     # \brief Change compute period

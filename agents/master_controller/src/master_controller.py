@@ -60,15 +60,16 @@ import argparse
 import signal
 
 from rich.console import Console
-from PySide6 import QtWidgets, QtCore
+console = Console()
+
+from PySide6 import QtWidgets
 import interfaces
 from specificworker import *
-
-console = Console()
 
 #SIGNALS handler
 def sigint_handler(*args):
     QtCore.QCoreApplication.quit()
+
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)

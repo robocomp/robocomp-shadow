@@ -20,28 +20,42 @@
 #
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QColor, QPen
+from PySide6.QtWidgets import QGraphicsEllipseItem
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 console = Console(highlight=False)
 from pydsr import *
 from dsr_gui import DSRViewer, View
+from ui_masterUI import Ui_master
+from affordances import Affordances
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
+        self.lidar_draw_items = []    # to store the items to be drawn
         self.Period = 100
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 66
         self.g = DSRGraph(0, "master_controller", self.agent_id)
         self.graph_viewer = DSRViewer(self, self.g, View.graph + View.scene, View.graph)
+        self.graph_viewer.window.resize(1000, 600)
         signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
         signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
         signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
         signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
         signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
         signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
+
+        self.viewer_2d = self.graph_viewer.widgets_by_type[View.scene].widget
+        self.viewer_2d.scale(0.1, 0.1)
+
+        # custom widget: TODO: check this to simplify
+        self.affordance_viewer = Affordances(self.g)
+        self.master = self.graph_viewer.add_custom_widget_to_dock("Master", self.affordance_viewer)
+        self.affordance_viewer.populate()
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -63,20 +77,36 @@ class SpecificWorker(GenericWorker):
     def __del__(self):
         """Destructor"""
 
-
     def setParams(self, params):
-        # try:
-        #	self.innermodel = InnerModel(params["InnerModelPath"])
-        # except:
-        #	traceback.print_exc()
-        #	print("Error reading config params")
         return True
 
     @QtCore.Slot()
     def compute(self):
+        try:
+            lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 5000, 10)
+            self.draw_lidar_data_local(self.viewer_2d, lidar_data.points)
+        except Exception as e:
+            print(e)
 
-        return True
+    # =============== WORK  ================
+    def draw_lidar_data_local(self, viewer, points):
+        # Clear previous items
+        for item in self.lidar_draw_items:
+            viewer.scene.removeItem(item)
+            del item
+        self.lidar_draw_items.clear()
+        # Draw current Lidar points
+        color = QColor(0, 255, 0)
+        pen = QPen(color, 20)
+        for i in range(0, len(points)):
+            ellipse = QGraphicsEllipseItem(-20, -20, 40, 40)
+            ellipse.setPen(pen)
+            ellipse.setBrush(color)
+            ellipse.setPos(points[i].x, points[i].y)
+            viewer.scene.addItem(ellipse)
+            self.lidar_draw_items.append(ellipse)
 
+    # =============== AUX  ================
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
 

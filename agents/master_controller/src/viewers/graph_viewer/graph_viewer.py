@@ -12,12 +12,7 @@ class GraphViewer(AbstractGraphicViewer):
         super().__init__()
         self.G = G
         self.node_items = {}  # node_id: QGraphicsEllipseItem
-        #self.edge_items = {}  # (from, to, type): QGraphicsLineItem
-        #self.scale(1, -1)
-        self.mutex = QMutex()
         self.draw_entire_graph()
-
-
 
     def draw_entire_graph(self):
         for node in self.G.get_nodes():

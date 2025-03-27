@@ -1,8 +1,9 @@
-
+import "Lidar3D.idsl";
 Component master_controller
 {
     Communications
     {
+        requires Lidar3D;
     };
     language python;
     gui  Qt(QMainWindow);
