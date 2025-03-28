@@ -33,7 +33,7 @@ class GraphicsNode(QGraphicsEllipseItem):
         self.setPen(QPen(QColor("black"), 2))
 
         # Label
-        self.label = QGraphicsTextItem(node.type, self)
+        self.label = QGraphicsTextItem(node.name, self)
         self.label.setDefaultTextColor(Qt.black)
         self.label.setPos(radius, -radius)
 
@@ -49,10 +49,16 @@ class GraphicsNode(QGraphicsEllipseItem):
             return cp
         return default
 
+    def update_edge(self, to: int, type: str, attribute_names: [str]):
+        key = (self.node.id, to, type)
+        if key in self.connected_edges:
+            self.connected_edges[key].update_edge(attribute_names)
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange:
             # User is dragging → update visuals
             for edge in self.connected_edges.values():
+                print("moving", edge)
                 edge.update_position(self)
             self._being_dragged = True  # we're being dragged
         return super().itemChange(change, value)
@@ -63,6 +69,9 @@ class GraphicsNode(QGraphicsEllipseItem):
             action = QAction(f"{attr_name}: {attr.value}", menu)
             action.setEnabled(False)
             menu.addAction(action)
+        action = QAction(f"Edges: {len(self.node.edges)}", menu)
+        action.setEnabled(False)
+        menu.addAction(action)
         menu.exec(event.screenPos())
 
     def mouseReleaseEvent(self, event):

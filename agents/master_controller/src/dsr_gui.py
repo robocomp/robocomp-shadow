@@ -1,4 +1,6 @@
 import sys
+from typing import Any
+
 from PySide6.QtCore import QObject, QTimer, QElapsedTimer, Signal, QSettings
 from PySide6.QtGui import Qt, QAction
 from PySide6.QtWidgets import QWidget, QMenu, QMainWindow, QApplication, QDockWidget, QFileDialog, QPushButton
@@ -57,15 +59,15 @@ class DSRViewer(QObject):
         settings.setValue("pos", self.window.pos())
         settings.endGroup()
 
-    def get_widget_by_type(self, widget_type) -> QWidget:
+    def get_widget_by_type(self, widget_type) -> Any | None:
         if widget_type in self.widgets_by_type:
             return self.widgets_by_type[widget_type].widget
-        return None
+        else: return None
 
-    def get_widget_by_name(self, name) -> QWidget:
+    def get_widget_by_name(self, name) -> Any | None:
         if name in self.widgets:
             return self.widgets[name].widget
-        return None
+        else: return None
 
     def add_custom_widget_to_dock(self, name, custom_view):
         widget_c = WidgetContainer()

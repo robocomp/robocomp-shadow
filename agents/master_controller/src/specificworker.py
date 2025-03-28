@@ -134,5 +134,5 @@ class SpecificWorker(GenericWorker):
         pass
 
     def delete_edge(self, fr: int, to: int, type: str):
-        console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
+        console.print(f"DELETE EDGE: {fr} to {type}", style='green')
         pass
