@@ -33,8 +33,8 @@
 #include <fps/fps.h>
 #include <timer/timer.h>
 #include <Eigen/Eigen>
-#include <custom_widget.h>
-#include <ui_localUI.h>
+#include "custom_widget.h"
+#include "ui_localUI.h"
 
 class SpecificWorker : public GenericWorker
 {
