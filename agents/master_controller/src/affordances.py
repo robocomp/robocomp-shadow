@@ -23,15 +23,13 @@ class Affordances(QWidget, Ui_master):
         self.relevant_edges = set()
 
         # Connect to DSR graph signals
-        signals.connect(self.g, signals.UPDATE_NODE, self.on_graph_update_node)
+        #signals.connect(self.g, signals.UPDATE_NODE, self.on_graph_update_node)
         # signals.connect(self.g, signals.UPDATE_EDGE, self.on_graph_update_edge)
         # signals.connect(self.g, signals.DELETE_NODE, self.on_graph_update_node)
         # signals.connect(self.g, signals.DELETE_EDGE, self.on_graph_update_edge)
 
-        self.populate()
-
     def populate(self):
-        print("populating")
+        print("Affordances::populating")
         self.relevant_node_ids.clear()
         self.relevant_edges.clear()
 

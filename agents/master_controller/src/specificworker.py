@@ -25,11 +25,11 @@ from PySide6.QtWidgets import QGraphicsEllipseItem
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-console = Console(highlight=False)
 from pydsr import *
 from dsr_gui import DSRViewer, View
 from ui_masterUI import Ui_master
 from affordances import Affordances
+console = Console(highlight=False)
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
@@ -42,12 +42,6 @@ class SpecificWorker(GenericWorker):
         self.g = DSRGraph(0, "master_controller", self.agent_id)
         self.graph_viewer = DSRViewer(self, self.g, View.graph + View.scene, View.graph)
         self.graph_viewer.window.resize(1000, 600)
-        signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
-        signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
-        signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
-        signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
-        signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
-        signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
 
         self.viewer_2d = self.graph_viewer.widgets_by_type[View.scene].widget
         self.viewer_2d.scale(0.1, 0.1)
@@ -55,8 +49,12 @@ class SpecificWorker(GenericWorker):
         # custom widget: TODO: check this to simplify
         self.affordance_viewer = Affordances(self.g)
         self.master = self.graph_viewer.add_custom_widget_to_dock("Master", self.affordance_viewer)
+        self.graph_viewer.window.tabifyDockWidget(self.graph_viewer.docks["Master"], self.graph_viewer.docks["2D"])
+        self.graph_viewer.docks["Master"].raise_()  # Forzar que el dock "Master" tenga el foco
+        self.affordance_viewer.setFocus()
         self.affordance_viewer.populate()
 
+        # connect signals to slots
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
@@ -64,8 +62,19 @@ class SpecificWorker(GenericWorker):
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
             signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-            console.print("signals connected")
-        except RuntimeError as e:
+            console.print("SpecificWorker::signals connected")
+        except Exception as e:
+            print(e)
+
+        # connect graph signals to graph_viewer slots
+        try:
+            signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
+            signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
+            signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
+            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
+        except Exception as e:
             print(e)
 
         if startup_check:
@@ -134,5 +143,5 @@ class SpecificWorker(GenericWorker):
         pass
 
     def delete_edge(self, fr: int, to: int, type: str):
-        console.print(f"DELETE EDGE: {fr} to {type}", style='green')
+        #console.print(f"DELETE EDGE: {fr} to {type}", style='green')
         pass

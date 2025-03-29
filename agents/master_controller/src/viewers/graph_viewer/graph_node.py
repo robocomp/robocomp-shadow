@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem, QMenu
 from PySide6.QtGui import QColor, QBrush, QPen, QAction
 from PySide6.QtCore import Qt
+from taichi.examples.simulation.vortex_rings import new_pos
+
 
 class GraphicsNode(QGraphicsEllipseItem):
     def __init__(self, node, graph_ref, radius=10):
@@ -39,9 +41,6 @@ class GraphicsNode(QGraphicsEllipseItem):
 
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
 
-    def add_edge(self, key, edge_item):
-        self.connected_edges[key] = edge_item
-
     def remove_edge(self, key, default=None):
         if key in self.connected_edges:
             cp = self.connected_edges[key]
@@ -49,8 +48,8 @@ class GraphicsNode(QGraphicsEllipseItem):
             return cp
         return default
 
-    def update_edge(self, to: int, type: str, attribute_names: [str]):
-        key = (self.node.id, to, type)
+    def update_edge(self, to: int, mtype: str, attribute_names: [str]):
+        key = (self.node.id, to, mtype)
         if key in self.connected_edges:
             self.connected_edges[key].update_edge(attribute_names)
 
@@ -58,8 +57,7 @@ class GraphicsNode(QGraphicsEllipseItem):
         if change == QGraphicsItem.ItemPositionChange:
             # User is dragging → update visuals
             for edge in self.connected_edges.values():
-                print("moving", edge)
-                edge.update_position(self)
+                edge.update_position()
             self._being_dragged = True  # we're being dragged
         return super().itemChange(change, value)
 
@@ -81,4 +79,14 @@ class GraphicsNode(QGraphicsEllipseItem):
             self.node.attrs["pos_x"].value = new_pos.x()
             self.node.attrs["pos_y"].value = new_pos.y()
             self.graph.update_node(self.node)
+            # redraw edges
+            for edge in self.connected_edges.values():
+                edge.update_position()
         super().mouseReleaseEvent(event)
+
+    def mouseMoveEvent(self, event):
+        # Ensure edges are updated during dragging
+        for edge in self.connected_edges.values():
+            edge.update_position()
+        self.scene().update()  # force scene redraw during dragging
+        super().mouseMoveEvent(event)

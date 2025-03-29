@@ -1,35 +1,102 @@
 import math
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem, QMenu, QGraphicsItem, QGraphicsPolygonItem, QWidget, QHBoxLayout, QLabel, QComboBox, QWidgetAction
+from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform, QCursor
+from PySide6.QtCore import Qt, QPointF, Signal, QObject
+from PySide6.QtWidgets import QGraphicsTextItem, QMenu, QApplication
 
-from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem, QMenu, QGraphicsItem, QGraphicsPolygonItem
-from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform
-from PySide6.QtCore import Qt, QPointF
+class HoverableLabel(QGraphicsTextItem):
+    def __init__(self, gedge: 'GraphicsEdge'):
+        super().__init__(gedge)
+        self.gedge = gedge
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.PointingHandCursor)
 
+    def on_edge_updated(self):
+        # Update label properties on edge update as needed.
+        # For example, update the displayed text:
+        self.setPlainText(f"{self.gedge.mtype} updated")
+        
+    def hoverEnterEvent(self, event):
+        if self.gedge.mtype == "has_intention":
+            menu = QMenu()
+            edge = self.gedge.G.get_edge(self.gedge.source_node_id, self.gedge.target_node_id, self.gedge.mtype)
+            if edge:
+                for attr_name, attr in edge.attrs.items():
+                    if attr_name == "active":
+                        # Create widget with label + combo box
+                        widget = QWidget()
+                        layout = QHBoxLayout()
+                        layout.setContentsMargins(4, 2, 4, 2)
 
-class GraphicsEdge(QGraphicsPathItem):
-    def __init__(self, source_node_id: int, target_node_id: int, type: str, graph_ref: object, offset_index: int = 0):
+                        label = QLabel("active:")
+                        combo = QComboBox()
+                        combo.addItems(["true", "false"])
+                        combo.setCurrentText("true" if attr.value else "false")
+
+                        def handler(edge=edge, combo=combo):
+                            value = combo.currentText()
+                            edge.attrs["active"].value = True if value == "true" else False
+                            self.gedge.G.insert_or_assign_edge(edge)
+                            # TODO: change color of the edge
+
+                        print("attr", attr)
+                        combo.currentTextChanged.connect(lambda: handler(edge=edge, combo=combo))
+
+                        layout.addWidget(label)
+                        layout.addWidget(combo)
+                        widget.setLayout(layout)
+
+                        action = QWidgetAction(menu)
+                        action.setDefaultWidget(widget)
+                        menu.addAction(action)
+
+                    else:
+                        # Read-only fallback for other attributes
+                        action = QAction(f"{attr_name}: {attr.value}", menu)
+                        action.setEnabled(False)
+                        menu.addAction(action)
+
+            menu.exec(event.screenPos())
+        super().hoverEnterEvent(event)
+
+class GraphicsEdge(QObject, QGraphicsPathItem):
+    edgeUpdated = Signal()  # Define the signal as a class attribute
+
+    def __init__(self, source_node_id: int, target_node_id: int, mtype: str, graph_ref: object, offset_index: int = 0):
+        #initialize QObject and QGraphicsPathItem
         super().__init__()
+        QGraphicsPathItem.__init__(self)
+        self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.G = graph_ref
+        self.edge = self.G.get_edge(source_node_id, target_node_id, mtype)
         self.source_node_id = source_node_id
         self.target_node_id = target_node_id
-        self.type = type
-        self.key = (source_node_id, target_node_id, type)
+        self.mtype = mtype
+        self.key = (source_node_id, target_node_id, mtype)
         self.offset_index = offset_index
 
         self.setZValue(5)
-        self.setPen(QPen(self.edge_color(self.type), 2))
+        self.setPen(QPen(self.edge_color(self.mtype), 2))
 
         # Label
-        self.label = QGraphicsTextItem(type, self)
-        self.label.setDefaultTextColor(self.edge_color(self.type))
+        self.label = HoverableLabel(self)  # Use HoverableLabel instead of QGraphicsTextItem
+        self.label.setPlainText(self.mtype)
+        self.label.setDefaultTextColor(self.edge_color(self.mtype))
+        self.label.setAcceptHoverEvents(True)
+        self.label.installSceneEventFilter(self)
+        self.update_label_position()
+
+        # Connect signal so the label can update when the edge updates
+        #self.edgeUpdated.connect(self.label.on_edge_updated)
 
         # arrow
         self.arrow = QGraphicsPolygonItem(self)
-        self.arrow.setBrush(self.edge_color(self.type))
+        self.arrow.setBrush(self.edge_color(self.mtype))
         self.arrow.setZValue(6)  # above the edge path
 
         self.update_position()
 
-    def update_position(self, target_item=None):
+    def update_position(self):
         source = self.G.get_node(self.source_node_id)
         target = self.G.get_node(self.target_node_id)
         if not source or not target:
@@ -91,6 +158,14 @@ class GraphicsEdge(QGraphicsPathItem):
         path.quadTo(ctrl_x, ctrl_y, x2_adj, y2_adj)
         self.setPath(path)
 
+        # Update color if this is a has_intention edge
+        if self.mtype == "has_intention":
+            active = self.edge.attrs["active"].value if "active" in self.edge.attrs else False
+            color = QColor("green") if active else QColor("blue")
+            self.setPen(QPen(color, 2))
+            self.label.setDefaultTextColor(color)
+            self.arrow.setBrush(color)
+
         # Arrow placement at adjusted end
         angle = math.radians(-path.angleAtPercent(1.0))
         end_point = path.pointAtPercent(1.0)
@@ -135,18 +210,33 @@ class GraphicsEdge(QGraphicsPathItem):
         return color_map.get(edge_type, QColor("gray"))  # default fallback
 
     def update_edge(self, attribute_names: [str]):
-        edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.type)
-        if edge:
-            self.label.setPlainText(f"{self.type} ({len(attribute_names)})")
-            self.label.setDefaultTextColor(self.edge_color(self.type))
+        # TODO: is a persistent popup menu, update values
+        # ... update logic here if needed ...
+        self.edgeUpdated.emit()  # emit the signal to the HoverableLabel
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:
             menu = QMenu()
-            edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.type)
+            edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.mtype)
             if edge:
                 for attr_name, attr in edge.attrs.items():
                     action = QAction(f"{attr_name}: {attr.value}", menu)
                     action.setEnabled(False)
                     menu.addAction(action)
             menu.exec(event.screenPos())
+
+    def sceneEventFilter(self, watched: QGraphicsItem, event):
+        print("event", event.type())
+        if watched == self.label and event.type() == event.GraphicsSceneHoverEnter:
+            if self.mtype == "has_intention":
+                menu = QMenu()
+                edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.mtype)
+                if edge:
+                    for attr_name, attr in edge.attrs.items():
+                        action = QAction(f"{attr_name}: {attr.value}", menu)
+                        action.setEnabled(False)
+                        menu.addAction(action)
+                menu.exec(event.screenPos())
+            return True
+        return super().sceneEventFilter(watched, event)
+
