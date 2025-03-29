@@ -29,6 +29,7 @@ from pydsr import *
 from dsr_gui import DSRViewer, View
 from ui_masterUI import Ui_master
 from affordances import Affordances
+from PySide6 import QtCore, QtWidgets
 console = Console(highlight=False)
 
 class SpecificWorker(GenericWorker):
@@ -44,7 +45,6 @@ class SpecificWorker(GenericWorker):
         self.graph_viewer.window.resize(1000, 600)
 
         self.viewer_2d = self.graph_viewer.widgets_by_type[View.scene].widget
-        self.viewer_2d.scale(0.1, 0.1)
         self.graph_viewer.docks["2D"].setWindowTitle("Residuals")
 
         # custom widget: TODO: check this to simplify
@@ -66,16 +66,6 @@ class SpecificWorker(GenericWorker):
             console.print("SpecificWorker::signals connected")
         except Exception as e:
             print(e)
-
-        # try:
-        #     signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
-        #     signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
-        #     signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
-        #     signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
-        #     signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
-        #     signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
-        # except Exception as e:
-        #     print(e)
 
         if startup_check:
             self.startup_check()

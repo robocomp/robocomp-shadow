@@ -63,6 +63,17 @@ class Affordances(QWidget, Ui_master):
         self.model.blockSignals(False)
         self.tree.expandAll()
 
+    def createEdgeItem(self, e):
+        """Build a QStandardItem for 'has_affordance' or 'has_intention' edges."""
+        active = e.attrs["active"].value if "active" in e.attrs else False
+        state_value = e.attrs["state"].value if "state" in e.attrs else "undefined"
+        item = QStandardItem(f"→ {e.type} ➝ {state_value}")
+        item.setCheckable(True)
+        item.setCheckState(Qt.Checked if active else Qt.Unchecked)
+        item.setData((e.origin, e.destination, e.type), Qt.UserRole + 1)
+        item.setEditable(False)
+        return item
+
     def recursive_add_children(self, parent_node, parent_item):
         has_special = False
         special_parent = QStandardItem("Affordances / Intentions")
@@ -77,13 +88,8 @@ class Affordances(QWidget, Ui_master):
                     continue
                 self.relevant_edges.add((e.origin, e.destination, e.type))
                 self.relevant_node_ids.add(target_node.id)
-                active = e.attrs["active"].value if "active" in e.attrs else False
-                aff_item = QStandardItem(f"→ {e.type} ➝ {e.attrs['state'].value}")
-                aff_item.setCheckable(True)
-                aff_item.setCheckState(Qt.Checked if active else Qt.Unchecked)
-                aff_item.setData((e.origin, e.destination, e.type), Qt.UserRole + 1)
-                aff_item.setEditable(False)
-                special_parent.appendRow(aff_item)
+                edge_item = self.createEdgeItem(e)
+                special_parent.appendRow(edge_item)
                 has_special = True
 
         if has_special:
@@ -145,7 +151,7 @@ class Affordances(QWidget, Ui_master):
         edge_item = self.find_edge_item(fr, to, type)
         if edge_item:
             self.model.blockSignals(True)
-            self._internal_update = True
+            self._internal_update = True    # prevent recursive calls
             for attribute_name in attribute_names:
                 if attribute_name == "active":
                     if edge.attrs.__contains__("active"):

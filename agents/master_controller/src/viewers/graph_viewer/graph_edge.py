@@ -18,43 +18,7 @@ class HoverableLabel(QGraphicsTextItem):
         
     def hoverEnterEvent(self, event):
         if self.gedge.mtype == "has_intention":
-            menu = QMenu()
-            edge = self.gedge.g.get_edge(self.gedge.source_node_id, self.gedge.target_node_id, self.gedge.mtype)
-            if edge:
-                for attr_name, attr in edge.attrs.items():
-                    if attr_name == "active":
-                        # Create widget with label + combo box
-                        widget = QWidget()
-                        layout = QHBoxLayout()
-                        layout.setContentsMargins(4, 2, 4, 2)
-
-                        label = QLabel("active:")
-                        combo = QComboBox()
-                        combo.addItems(["true", "false"])
-                        combo.setCurrentText("true" if attr.value else "false")
-
-                        def handler(edge=edge, combo=combo):
-                            value = combo.currentText()
-                            edge.attrs["active"].value = True if value == "true" else False
-                            self.gedge.g.insert_or_assign_edge(edge)
-
-                        combo.currentTextChanged.connect(lambda: handler(edge=edge, combo=combo))
-
-                        layout.addWidget(label)
-                        layout.addWidget(combo)
-                        widget.setLayout(layout)
-
-                        action = QWidgetAction(menu)
-                        action.setDefaultWidget(widget)
-                        menu.addAction(action)
-
-                    else:
-                        # Read-only fallback for other attributes
-                        action = QAction(f"{attr_name}: {attr.value}", menu)
-                        action.setEnabled(False)
-                        menu.addAction(action)
-
-            menu.exec(event.screenPos())
+            self.gedge.showHasIntentionMenu(event.screenPos())
         super().hoverEnterEvent(event)
 
 class GraphicsEdge(QObject, QGraphicsPathItem):
@@ -179,7 +143,6 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
         transform.rotateRadians(angle)
         arrow_poly = transform.map(arrow_poly)
         self.arrow.setPolygon(arrow_poly)
-
         self.update_label_position()
 
     def update_label_position(self):
@@ -224,18 +187,50 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
                     menu.addAction(action)
             menu.exec(event.screenPos())
 
+    def showHasIntentionMenu(self, screen_pos):
+        """Open a QMenu for 'has_intention' edges to toggle attributes, etc."""
+        menu = QMenu()
+        edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
+        if edge:
+            for attr_name, attr in edge.attrs.items():
+                if attr_name == "active":
+                    # Create widget with label + combo box
+                    widget = QWidget()
+                    layout = QHBoxLayout()
+                    layout.setContentsMargins(4, 2, 4, 2)
+
+                    label = QLabel("active:")
+                    combo = QComboBox()
+                    combo.addItems(["true", "false"])
+                    combo.setCurrentText("true" if attr.value else "false")
+
+                    def handler(edge=edge, combo=combo):
+                        value = combo.currentText()
+                        edge.attrs["active"].value = True if value == "true" else False
+                        self.g.insert_or_assign_edge(edge)
+
+                    combo.currentTextChanged.connect(lambda: handler(edge=edge, combo=combo))
+
+                    layout.addWidget(label)
+                    layout.addWidget(combo)
+                    widget.setLayout(layout)
+
+                    action = QWidgetAction(menu)
+                    action.setDefaultWidget(widget)
+                    menu.addAction(action)
+
+                else:
+                    # Read-only fallback for other attributes
+                    action = QAction(f"{attr_name}: {attr.value}", menu)
+                    action.setEnabled(False)
+                    menu.addAction(action)
+
+        menu.exec(screen_pos)
+
     def sceneEventFilter(self, watched: QGraphicsItem, event):
         print("event", event.type())
         if watched == self.label and event.type() == event.GraphicsSceneHoverEnter:
             if self.mtype == "has_intention":
-                menu = QMenu()
-                edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
-                if edge:
-                    for attr_name, attr in edge.attrs.items():
-                        action = QAction(f"{attr_name}: {attr.value}", menu)
-                        action.setEnabled(False)
-                        menu.addAction(action)
-                menu.exec(event.screenPos())
+                self.showHasIntentionMenu(event.screenPos())
             return True
         return super().sceneEventFilter(watched, event)
-

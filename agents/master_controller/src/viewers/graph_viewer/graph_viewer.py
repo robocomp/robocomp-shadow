@@ -1,6 +1,6 @@
 import math
 from PySide6 import QtCore
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsTextItem, QMenu, QGraphicsPathItem
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsTextItem, QMenu, QGraphicsPathItem, QGraphicsView
 from PySide6.QtGui import QColor, QPen, QBrush, QAction, QTransform, QPainterPath
 from viewers._abstract_graphic_view import AbstractGraphicViewer
 from .graph_edge import GraphicsEdge
@@ -12,9 +12,13 @@ class GraphViewer(AbstractGraphicViewer):
         super().__init__()
         self.g = g
         self.node_items = {}  # node_id: QGraphicsEllipseItem
+        self._internal_update = False
         self.draw_entire_graph()
+        self.connectGraphSignals()
 
-        # connect graph signals to graph_viewer slots
+    def connectGraphSignals(self):
+        """Central place to connect all graph signals."""
+        from pydsr import signals
         try:
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node_slot)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge_slot)
@@ -100,5 +104,3 @@ class GraphViewer(AbstractGraphicViewer):
                 self.scene.removeItem(item)
         if to in self.node_items:
             self.node_items[to].remove_edge(key, None)
-
-
