@@ -45,6 +45,7 @@ class SpecificWorker(GenericWorker):
 
         self.viewer_2d = self.graph_viewer.widgets_by_type[View.scene].widget
         self.viewer_2d.scale(0.1, 0.1)
+        self.graph_viewer.docks["2D"].setWindowTitle("Residuals")
 
         # custom widget: TODO: check this to simplify
         self.affordance_viewer = Affordances(self.g)
@@ -66,16 +67,15 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             print(e)
 
-        # connect graph signals to graph_viewer slots
-        try:
-            signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
-            signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
-            signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
-        except Exception as e:
-            print(e)
+        # try:
+        #     signals.connect(self.g, signals.UPDATE_NODE, self.graph_viewer.main_widget.update_node_slot)
+        #     signals.connect(self.g, signals.UPDATE_EDGE, self.graph_viewer.main_widget.update_edge_slot)
+        #     signals.connect(self.g, signals.DELETE_NODE, self.graph_viewer.main_widget.delete_node_slot)
+        #     signals.connect(self.g, signals.DELETE_EDGE, self.graph_viewer.main_widget.delete_edge_slot)
+        #     signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.graph_viewer.main_widget.update_node_attrs_slot)
+        #     signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.graph_viewer.main_widget.update_edge_attrs_slot)
+        # except Exception as e:
+        #     print(e)
 
         if startup_check:
             self.startup_check()
@@ -93,11 +93,36 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         try:
             lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 5000, 10)
-            self.draw_lidar_data_local(self.viewer_2d, lidar_data.points)
         except Exception as e:
             print(e)
+        residuals = self.room_residuals(lidar_data.points)
+        residuals = self.fridge_residuals(lidar_data.points)
+
+        self.draw_lidar_data_local(self.viewer_2d, residuals)
 
     # =============== WORK  ================
+    def room_residuals(self, points: list):
+        # if room in Graph, get room
+        room = self.g.get_nodes_by_type("room")
+        if room:
+            # move points to room frame
+
+            # filter points close to the walls
+            # return residuals
+            pass
+        return points
+
+    def fridge_residuals(self, points):
+        # if fridge in Graph, get fridge
+        fridge = self.g.get_nodes_by_type("fridge")
+        if fridge:
+            # move points to fridge frame
+
+            # filter points close to the walls
+            # return residuals
+            pass
+        return points
+
     def draw_lidar_data_local(self, viewer, points):
         # Clear previous items
         for item in self.lidar_draw_items:

@@ -19,7 +19,7 @@ class HoverableLabel(QGraphicsTextItem):
     def hoverEnterEvent(self, event):
         if self.gedge.mtype == "has_intention":
             menu = QMenu()
-            edge = self.gedge.G.get_edge(self.gedge.source_node_id, self.gedge.target_node_id, self.gedge.mtype)
+            edge = self.gedge.g.get_edge(self.gedge.source_node_id, self.gedge.target_node_id, self.gedge.mtype)
             if edge:
                 for attr_name, attr in edge.attrs.items():
                     if attr_name == "active":
@@ -36,10 +36,8 @@ class HoverableLabel(QGraphicsTextItem):
                         def handler(edge=edge, combo=combo):
                             value = combo.currentText()
                             edge.attrs["active"].value = True if value == "true" else False
-                            self.gedge.G.insert_or_assign_edge(edge)
-                            # TODO: change color of the edge
+                            self.gedge.g.insert_or_assign_edge(edge)
 
-                        print("attr", attr)
                         combo.currentTextChanged.connect(lambda: handler(edge=edge, combo=combo))
 
                         layout.addWidget(label)
@@ -67,8 +65,7 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
         super().__init__()
         QGraphicsPathItem.__init__(self)
         self.setFlag(QGraphicsItem.ItemIsSelectable)
-        self.G = graph_ref
-        self.edge = self.G.get_edge(source_node_id, target_node_id, mtype)
+        self.g = graph_ref
         self.source_node_id = source_node_id
         self.target_node_id = target_node_id
         self.mtype = mtype
@@ -97,8 +94,8 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
         self.update_position()
 
     def update_position(self):
-        source = self.G.get_node(self.source_node_id)
-        target = self.G.get_node(self.target_node_id)
+        source = self.g.get_node(self.source_node_id)
+        target = self.g.get_node(self.target_node_id)
         if not source or not target:
             return
 
@@ -160,7 +157,8 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
 
         # Update color if this is a has_intention edge
         if self.mtype == "has_intention":
-            active = self.edge.attrs["active"].value if "active" in self.edge.attrs else False
+            edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
+            active = edge.attrs["active"].value if "active" in edge.attrs else False
             color = QColor("green") if active else QColor("blue")
             self.setPen(QPen(color, 2))
             self.label.setDefaultTextColor(color)
@@ -212,12 +210,13 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
     def update_edge(self, attribute_names: [str]):
         # TODO: is a persistent popup menu, update values
         # ... update logic here if needed ...
-        self.edgeUpdated.emit()  # emit the signal to the HoverableLabel
+        self.update_position()
+        #self.edgeUpdated.emit()  # emit the signal to the HoverableLabel
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:
             menu = QMenu()
-            edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.mtype)
+            edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
             if edge:
                 for attr_name, attr in edge.attrs.items():
                     action = QAction(f"{attr_name}: {attr.value}", menu)
@@ -230,7 +229,7 @@ class GraphicsEdge(QObject, QGraphicsPathItem):
         if watched == self.label and event.type() == event.GraphicsSceneHoverEnter:
             if self.mtype == "has_intention":
                 menu = QMenu()
-                edge = self.G.get_edge(self.source_node_id, self.target_node_id, self.mtype)
+                edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
                 if edge:
                     for attr_name, attr in edge.attrs.items():
                         action = QAction(f"{attr_name}: {attr.value}", menu)

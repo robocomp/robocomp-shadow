@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QPen, QBrush, QAction, QTransform, QPainterPat
 from viewers._abstract_graphic_view import AbstractGraphicViewer
 from .graph_edge import GraphicsEdge
 from .graph_node import GraphicsNode
+from pydsr import signals
 
 class GraphViewer(AbstractGraphicViewer):
     def __init__(self, g):
@@ -12,6 +13,17 @@ class GraphViewer(AbstractGraphicViewer):
         self.g = g
         self.node_items = {}  # node_id: QGraphicsEllipseItem
         self.draw_entire_graph()
+
+        # connect graph signals to graph_viewer slots
+        try:
+            signals.connect(self.g, signals.UPDATE_NODE, self.update_node_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge_slot)
+            signals.connect(self.g, signals.DELETE_NODE, self.delete_node_slot)
+            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge_slot)
+            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_attrs_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_attrs_slot)
+        except Exception as e:
+            print(e)
 
     def draw_entire_graph(self):
         # add nodes first

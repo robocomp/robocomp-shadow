@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 from pydsr import signals, Attribute
 from ui_masterUI import Ui_master
+from pydsr import signals
 
 class Affordances(QWidget, Ui_master):
     def __init__(self, g):
@@ -21,12 +22,18 @@ class Affordances(QWidget, Ui_master):
 
         self.relevant_node_ids = set()
         self.relevant_edges = set()
+        self._internal_update = False
 
         # Connect to DSR graph signals
-        #signals.connect(self.g, signals.UPDATE_NODE, self.on_graph_update_node)
-        # signals.connect(self.g, signals.UPDATE_EDGE, self.on_graph_update_edge)
-        # signals.connect(self.g, signals.DELETE_NODE, self.on_graph_update_node)
-        # signals.connect(self.g, signals.DELETE_EDGE, self.on_graph_update_edge)
+        try:
+            # signals.connect(self.g, signals.UPDATE_NODE, self.on_graph_update_node)
+            # signals.connect(self.g, signals.UPDATE_EDGE, self.on_graph_update_edge)
+            # signals.connect(self.g, signals.DELETE_NODE, self.on_graph_update_node)
+            # signals.connect(self.g, signals.DELETE_EDGE, self.on_graph_update_edge)
+            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.on_graph_update_node)
+            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.on_graph_update_edge_attrs)
+        except Exception as e:
+            print(e)
 
     def populate(self):
         print("Affordances::populating")
@@ -71,7 +78,7 @@ class Affordances(QWidget, Ui_master):
                 self.relevant_edges.add((e.origin, e.destination, e.type))
                 self.relevant_node_ids.add(target_node.id)
                 active = e.attrs["active"].value if "active" in e.attrs else False
-                aff_item = QStandardItem(f"→ {e.type} ➝ {target_node.name} ➝ {e.attrs['state'].value}")
+                aff_item = QStandardItem(f"→ {e.type} ➝ {e.attrs['state'].value}")
                 aff_item.setCheckable(True)
                 aff_item.setCheckState(Qt.Checked if active else Qt.Unchecked)
                 aff_item.setData((e.origin, e.destination, e.type), Qt.UserRole + 1)
@@ -97,7 +104,7 @@ class Affordances(QWidget, Ui_master):
 
     def create_node_item(self, node):
         item = QStandardItem(node.name)
-        item.setCheckable(True)
+        item.setCheckable(False)
         active = node.attrs["active"].value if "active" in node.attrs else False
         item.setCheckState(Qt.Checked if active else Qt.Unchecked)
         item.setData(node.id, Qt.UserRole + 1)
@@ -105,13 +112,15 @@ class Affordances(QWidget, Ui_master):
         return item
 
     def on_item_changed(self, item):
+        if self._internal_update:
+            return
+
         if item.parent() is None:
             node_id = item.data(Qt.UserRole + 1)
             active = item.checkState() == Qt.Checked
             node = self.g.get_node(node_id)
             if node:
-                self.g.add_or_modify_attrib_local_node(node_id, Attribute("active", active))
-                self.g.update_node(node)
+                self.g.insert_or_assign_node(node_id)
         else:
             edge_key = item.data(Qt.UserRole + 1)
             if edge_key:
@@ -119,29 +128,39 @@ class Affordances(QWidget, Ui_master):
                 edge = self.g.get_edge(fr, to, etype)
                 if edge:
                     active = item.checkState() == Qt.Checked
-                    self.g.add_or_modify_attrib_local_edge(fr, to, etype, Attribute("active", active))
-                    self.g.update_edge(fr, to, etype)
+                    if edge.attrs.__contains__("active"):
+                        edge.attrs["active"].value = active
+                    self.g.insert_or_assign_edge(edge)
 
     def on_graph_update_node(self, id: int, type: str):
-        if id not in self.relevant_node_ids:
-            self.populate() # only new node creations
+        # if id not in self.relevant_node_ids:
+        #     self.populate() # only new node creations
+        pass
 
     def on_graph_update_edge_attrs(self, fr: int, to: int, type: str, attribute_names: [str]):
-        key = (fr, to, type)
-        if key not in self.relevant_edges:
-            return
-
+        # We have to update only the "has_intention" and "has_affordance" edges' attributes
+        if type not in ["has_affordance", "has_intention"]:
+             return
         edge = self.g.get_edge(fr, to, type)
-        if edge is None or "active" not in edge.attrs:
-            return
+        edge_item = self.find_edge_item(fr, to, type)
+        if edge_item:
+            self.model.blockSignals(True)
+            self._internal_update = True
+            for attribute_name in attribute_names:
+                if attribute_name == "active":
+                    if edge.attrs.__contains__("active"):
+                        edge_item.setCheckState(Qt.Checked if edge.attrs["active"].value else Qt.Unchecked)
+                elif attribute_name == "state":
+                    if edge.attrs.__contains__("state"):
+                        state = edge_item.text().split("➝")[1].strip()
+                        edge_item.setText(f"→ {type} ➝ {to} ➝ {state}")
+            self.model.blockSignals(False)
+            # Force a dataChanged signal on edge_item to refresh the UI
+            idx = edge_item.index()
+            self.model.dataChanged.emit(idx, idx)
+            self._internal_update = False
 
-        active = edge.attrs["active"].value
-        state = edge.attrs["state"].value if "state" in edge.attrs else ""
-
-        target_node = self.g.get_node(to)
-        target_name = target_node.name if target_node else "unknown"
-
-        # Walk through the model to find and update the item
+    def find_edge_item(self, fr: int, to: int, mtype: str):
         for i in range(self.model.rowCount()):
             parent_item = self.model.item(i)
             for j in range(parent_item.rowCount()):
@@ -149,10 +168,6 @@ class Affordances(QWidget, Ui_master):
                 if child.text() == "Affordances / Intentions":
                     for k in range(child.rowCount()):
                         edge_item = child.child(k)
-                        if edge_item.data(Qt.UserRole + 1) == key:
-                            self.model.blockSignals(True)
-                            edge_item.setCheckState(Qt.Checked if active else Qt.Unchecked)
-                            edge_item.setText(f"→ {type} ➝ {target_name} ➝ {state}")
-                            self.model.blockSignals(False)
-                            return
-
+                        if edge_item.data(Qt.UserRole + 1) == (fr, to, mtype):
+                            return edge_item
+        return None
