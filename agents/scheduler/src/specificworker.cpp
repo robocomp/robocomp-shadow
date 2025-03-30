@@ -59,9 +59,6 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 //	catch(const std::exception &e) { qFatal("Error reading config params"); }
 
 
-
-
-
     try
     {
         agent_name = params.at("agent_name").value;

@@ -41,31 +41,40 @@ class SpecificWorker(GenericWorker):
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 66
         self.g = DSRGraph(0, "master_controller", self.agent_id)
-        self.graph_viewer = DSRViewer(self, self.g, View.graph + View.scene, View.graph)
-        self.graph_viewer.window.resize(1000, 600)
+        self.dsr_viewer = DSRViewer(self, self.g, View.graph + View.scene, View.graph)
+        self.dsr_viewer.window.resize(1000, 600)
 
-        self.viewer_2d = self.graph_viewer.widgets_by_type[View.scene].widget
-        self.graph_viewer.docks["2D"].setWindowTitle("Residuals")
-
-        # custom widget: TODO: check this to simplify
-        self.affordance_viewer = Affordances(self.g)
-        self.master = self.graph_viewer.add_custom_widget_to_dock("Master", self.affordance_viewer)
-        self.graph_viewer.window.tabifyDockWidget(self.graph_viewer.docks["Master"], self.graph_viewer.docks["2D"])
-        self.graph_viewer.docks["Master"].raise_()  # Forzar que el dock "Master" tenga el foco
-        self.affordance_viewer.setFocus()
-        self.affordance_viewer.populate()
-
-        # connect signals to slots
+        # connect signals to slots in graph viewer
+        graph_viewer = self.dsr_viewer.widgets_by_type[View.graph].widget
         try:
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
-            signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-            console.print("SpecificWorker::signals connected")
+            signals.connect(self.g, signals.UPDATE_NODE, graph_viewer.update_node_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE, graph_viewer.update_edge_slot)
+            signals.connect(self.g, signals.DELETE_NODE, graph_viewer.delete_node_slot)
+            signals.connect(self.g, signals.DELETE_EDGE, graph_viewer.delete_edge_slot)
+            signals.connect(self.g, signals.UPDATE_NODE_ATTR, graph_viewer.update_node_attrs_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, graph_viewer.update_edge_attrs_slot)
         except Exception as e:
             print(e)
+
+        self.viewer_2d = self.dsr_viewer.widgets_by_type[View.scene].widget
+        self.dsr_viewer.docks["2D"].setWindowTitle("Residuals")
+
+        # custom widget
+        self.affordance_viewer = Affordances(self.g)
+        self.master = self.dsr_viewer.add_custom_widget_to_dock("Master", self.affordance_viewer)
+        self.dsr_viewer.window.tabifyDockWidget(self.dsr_viewer.docks["Master"], self.dsr_viewer.docks["2D"])
+        self.dsr_viewer.docks["Master"].raise_()  # Forzar que el dock "Master" tenga el foco
+        self.affordance_viewer.setFocus()
+        self.affordance_viewer.populate()
+        self.affordance_viewer.tree.expandAll()
+        # connect signals to slots in affordance viewer
+        signals.connect(self.g, signals.UPDATE_NODE, self.affordance_viewer.on_graph_update_node)
+        signals.connect(self.g, signals.UPDATE_EDGE, self.affordance_viewer.on_graph_update_edge)
+        signals.connect(self.g, signals.DELETE_NODE, self.affordance_viewer.on_graph_delete_node)
+        signals.connect(self.g, signals.DELETE_EDGE, self.affordance_viewer.on_graph_delete_edge)
+        signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.affordance_viewer.on_graph_update_node_attrs)
+        signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.affordance_viewer.on_graph_update_edge_attrs)
+
 
         if startup_check:
             self.startup_check()
@@ -134,29 +143,30 @@ class SpecificWorker(GenericWorker):
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    # =============== DSR SLOTS  ================
-    # =============================================
-
-    def update_node_att(self, id: int, attribute_names: [str]):
-        #console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
-        pass
-
-    def update_node(self, id: int, type: str):
-        #console.print(f"UPDATE NODE: {id} {type}", style='green')
-        pass
-
-    def delete_node(self, id: int):
-        #console.print(f"DELETE NODE:: {id} ", style='green')
-        pass
-
-    def update_edge(self, fr: int, to: int, type: str):
-        #console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
-        pass
-
-    def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
-        #console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
-        pass
-
-    def delete_edge(self, fr: int, to: int, type: str):
-        #console.print(f"DELETE EDGE: {fr} to {type}", style='green')
-        pass
+    # # =============== DSR SLOTS  ================
+    # # =============================================
+    #
+    # def update_node_att(self, id: int, attribute_names: [str]):
+    #     #console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
+    #     pass
+    #
+    # def update_node(self, id: int, mtype: str):
+    #     #console.print(f"UPDATE NODE: {id} {mtype}", style='green')
+    #     pass
+    #
+    # def delete_node(self, id: int):
+    #     #console.print(f"DELETE NODE:: {id} ", style='green')
+    #     pass
+    #
+    # def update_edge(self, fr: int, to: int, mtype: str):
+    #     #console.print(f"UPDATE EDGE: {fr} to {mtype}", mtype, style='green')
+    #     pass
+    #
+    # def update_edge_att(self, fr: int, to: int, mtype: str, attribute_names: [str]):
+    #     # if "state" in attribute_names:
+    #     #     console.print(f"UPDATE EDGE ATT: {fr} to {mtype} {attribute_names}", style='green')
+    #     pass
+    #
+    # def delete_edge(self, fr: int, to: int, mtype: str):
+    #     #console.print(f"DELETE EDGE: {fr} to {mtype}", style='green')
+    #     pass

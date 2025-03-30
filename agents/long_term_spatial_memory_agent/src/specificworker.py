@@ -216,14 +216,14 @@ class SpecificWorker(GenericWorker):
                 print(e)
                 pass
 
-        try:
-            path_to_room_1 = self.long_term_graph.get_path_to_target("room_1")
-            # Print element names in the path
-            print("Path to room 1:")
-            for element in path_to_room_1:
-                print("-", self.long_term_graph.g.vs[element]["name"])
-        except Exception as e:
-            print(e)
+        # try:
+        #     path_to_room_1 = self.long_term_graph.get_path_to_target("room_1")
+        #     # Print element names in the path
+        #     print("Path to room 1:")
+        #     for element in path_to_room_1:
+        #         print("-", self.long_term_graph.g.vs[element]["name"])
+        # except Exception as e:
+        #     print(e)
 
         # Check igraph graph to check doors that are the same in the graph from different rooms
         self.check_igraph_similar_doors()

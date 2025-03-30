@@ -180,7 +180,19 @@ void SpecificWorker::compute()
     //auto current_room = room_detector.detect({lines[0]}, &widget_2d->scene, true);
 
     /// Check if any "current" edge exists
-    /// If the room is initialized and there are a current edge for a room, update the room and draw the nominal corners
+    /// If the room is initialized and there is a current edge for a room, update the room and draw the nominal corners
+    /// Check if has_intention edge attribute "state" is "completed"
+    // if (const auto intention_edges = G->get_edges_by_type("has_intention"); not intention_edges.empty())
+    //     if (const auto state = G->get_attrib_by_name<state_att>(intention_edges[0]); state.has_value())
+    //         if (state.value() == "completed")
+    //         {
+    //             std::cout << __FUNCTION__ << " Intention edge state is completed" << std::endl;
+    //             // create edge from room to room
+    //             auto room_node_ = G->get_node("room_measured");
+    //             G->insert_or_assign_edge();
+    //             this->update_room_valid = true;
+    //         }
+    ///
     if(const auto current_edges = G->get_edges_by_type("current"); this->update_room_valid and not current_edges.empty())
     {
         update_room();

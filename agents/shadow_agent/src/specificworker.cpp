@@ -87,8 +87,6 @@ void SpecificWorker::initialize()
     std::cout << "initialize worker" << std::endl;
     //initializeCODE
 
-    pose_buffer.set_capacity(20);
-
     /////////GET PARAMS, OPEND DEVICES....////////
     //int period = configLoader.get<int>("Period.Compute") //NOTE: If you want get period of compute use getPeriod("compute")
     //std::string device = configLoader.get<std::string>("Device.name") 
@@ -97,16 +95,13 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
-    if(not pose_buffer.empty())
+    if (auto pose_value_ = pose_buffer.try_get())
     {
-        RoboCompFullPoseEstimation::FullPoseEuler pose_value = pose_buffer.front();
-        pose_buffer.pop_front();
+        const auto& pose_value = pose_value_.value();
         auto robot_node = G->get_node("Shadow");
         if(not robot_node.has_value())
-        {
-            qWarning() << "Robot node not found";
-            return;
-        }
+        {  qWarning() << "Robot node not found"; return; }
+
         auto robot_node_value = robot_node.value();
         G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node_value, (float)  pose_value.vx);
         G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node_value, (float) pose_value.vy);
@@ -147,9 +142,7 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
 #ifdef HIBERNATION_ENABLED
 	hibernation = true;
 #endif
-    pose_buffer.push_back(pose);
-
-
+  	pose_buffer.put(std::move(pose));
 
 }
 

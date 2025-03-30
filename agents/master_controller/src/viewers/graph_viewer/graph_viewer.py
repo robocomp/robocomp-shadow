@@ -14,23 +14,10 @@ class GraphViewer(AbstractGraphicViewer):
         self.node_items = {}  # node_id: QGraphicsEllipseItem
         self._internal_update = False
         self.draw_entire_graph()
-        self.connectGraphSignals()
-
-    def connectGraphSignals(self):
-        """Central place to connect all graph signals."""
-        from pydsr import signals
-        try:
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge_slot)
-            signals.connect(self.g, signals.DELETE_NODE, self.delete_node_slot)
-            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge_slot)
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_attrs_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_attrs_slot)
-        except Exception as e:
-            print(e)
+        #self.connectGraphSignals()
 
     def draw_entire_graph(self):
-        # add nodes first
+        # add nodes
         for node in self.g.get_nodes():
             self._add_node(node)
         for node in self.g.get_nodes():
@@ -43,6 +30,9 @@ class GraphViewer(AbstractGraphicViewer):
         self.node_items[node.id] = circle
 
     def _add_edge(self, fr, to, mtype):
+        # Skip if already present
+        if (fr, to, mtype) in self.node_items[fr].connected_edges:
+             return
         existing_edges = [
             key for key in self.node_items[fr].connected_edges.keys()
             if key[0] == fr and key[1] == to
@@ -55,20 +45,14 @@ class GraphViewer(AbstractGraphicViewer):
         self.node_items[fr].connected_edges[graphics_edge.key] = graphics_edge
         self.node_items[to].connected_edges[graphics_edge.key] = graphics_edge
 
-    def _node_context_menu(self, event, node):
-        menu = QMenu()
-        for attr_name, attr in node.attrs.items():
-            action = QAction(f"{attr_name}: {attr.value}", menu)
-            action.setEnabled(False)
-            menu.addAction(action)
-        menu.exec(event.screenPos())
-
     ########################################################################
+    ###  DSR SIGNALS HANDLER
+    ########################################################################
+
     @QtCore.Slot()
     def update_node_slot(self, id: int, mtype: str):
         if not id in self.node_items.keys():
             self._add_node(self.g.get_node(id))
-
 
     def update_node_attrs_slot(self, id: int, attribute_names: [str]):
         if id in self.node_items.keys():
@@ -82,9 +66,11 @@ class GraphViewer(AbstractGraphicViewer):
                     edge.update_position()
 
     def update_edge_slot(self, fr: int, to: int, mtype: str):
-        if not fr in self.node_items.keys():
-            print("Adding node in update_edge_slot")
-            self._add_edge(fr, to, mtype)
+        if fr not in self.node_items:
+            self._add_node(self.g.get_node(fr))
+        if to not in self.node_items:
+            self._add_node(self.g.get_node(to))
+        self._add_edge(fr, to, mtype)
 
     def update_edge_attrs_slot(self, fr: int, to: int, mtype: str, attribute_names: [str]):
         if fr in self.node_items.keys():
@@ -96,7 +82,6 @@ class GraphViewer(AbstractGraphicViewer):
             self.scene.removeItem(item)
 
     def delete_edge_slot(self, fr: int, to: int, mtype: str):
-        print("delete_edge_slot in graph_viewer")
         key = (fr, to, mtype)
         if fr in self.node_items:
             item = self.node_items[fr].remove_edge(key, None)
@@ -104,3 +89,4 @@ class GraphViewer(AbstractGraphicViewer):
                 self.scene.removeItem(item)
         if to in self.node_items:
             self.node_items[to].remove_edge(key, None)
+
