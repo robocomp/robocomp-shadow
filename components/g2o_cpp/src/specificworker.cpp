@@ -75,7 +75,7 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     // Print alive message
-    std::cout << "Compute alive" << std::endl;
+    fps.print("FPS:", 3000);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////

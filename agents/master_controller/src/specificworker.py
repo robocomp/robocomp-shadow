@@ -47,12 +47,12 @@ class SpecificWorker(GenericWorker):
         # connect signals to slots in graph viewer
         graph_viewer = self.dsr_viewer.widgets_by_type[View.graph].widget
         try:
-            signals.connect(self.g, signals.UPDATE_NODE, graph_viewer.update_node_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE, graph_viewer.update_edge_slot)
+            signals.connect(self.g, signals.UPDATE_NODE, graph_viewer.add_or_assign_node_slot)
+            signals.connect(self.g, signals.UPDATE_EDGE, graph_viewer.add_or_assign_edge_slot)
             signals.connect(self.g, signals.DELETE_NODE, graph_viewer.delete_node_slot)
-            signals.connect(self.g, signals.DELETE_EDGE, graph_viewer.delete_edge_slot)
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, graph_viewer.update_node_attrs_slot)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, graph_viewer.update_edge_attrs_slot)
+            signals.connect(self.g, signals.DELETE_EDGE, graph_viewer.del_edge_slot)
+            #signals.connect(self.g, signals.UPDATE_NODE_ATTR, graph_viewer.update_node_attrs_slot)
+            #signals.connect(self.g, signals.UPDATE_EDGE_ATTR, graph_viewer.update_edge_attrs_slot)
         except Exception as e:
             print(e)
 
@@ -95,7 +95,7 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             print(e)
         residuals = self.room_residuals(lidar_data.points)
-        residuals = self.fridge_residuals(lidar_data.points)
+        #residuals = self.fridge_residuals(lidar_data.points)
 
         self.draw_lidar_data_local(self.viewer_2d, residuals)
 
@@ -104,7 +104,9 @@ class SpecificWorker(GenericWorker):
         # if room in Graph, get room
         room = self.g.get_nodes_by_type("room")
         if room:
-            # move points to room frame
+            # draw room
+
+            # move points to room frame using Pytorch3D
 
             # filter points close to the walls
             # return residuals
@@ -138,6 +140,8 @@ class SpecificWorker(GenericWorker):
             ellipse.setPos(points[i].x, points[i].y)
             viewer.scene.addItem(ellipse)
             self.lidar_draw_items.append(ellipse)
+
+
 
     # =============== AUX  ================
     def startup_check(self):

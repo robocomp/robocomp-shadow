@@ -144,6 +144,7 @@ void SpecificWorker::initialize(int period)
 }
 void SpecificWorker::compute()
 {
+    fps.print("FPS:", 3000);
     /// Check for new external target
     if(const auto plan = buffer_target.try_get(); plan.has_value())
     {
@@ -152,7 +153,8 @@ void SpecificWorker::compute()
         if(not plan->valid or plan->controls.empty())
         {
             move_robot(Target(), Target(), true);
-            qInfo() << "Invalid target. Stopping robot";
+            if (not plan->valid) qInfo() << "Not valid plan. Stopping robot";
+            if (plan->controls.empty()) qInfo() << "Empty plan. Stopping robot";
             target.active = false;
             return;
         }
@@ -160,7 +162,6 @@ void SpecificWorker::compute()
         if(params.DISPLAY) draw_target_original(target, false, 1);
     }
 
-    qInfo() << "-------------------------------------------------------------------";
     if(not params.REACTION)
     {
         move_robot(target, Target{.active=false});
@@ -168,7 +169,7 @@ void SpecificWorker::compute()
     }
 
     /// read LiDAR
-    auto res_ = buffer_lidar_data.try_get();
+    const auto res_ = buffer_lidar_data.try_get();
     if (res_.has_value() == false) {   /*qWarning() << "No data Lidar";*/ return; }
     auto ldata = res_.value();
     if(params.DISPLAY) draw_lidar(ldata.points);
@@ -213,7 +214,7 @@ void SpecificWorker::compute()
     robot_safe_band = adjust_band_size(robot_current_speed);
     edge_points = create_edge_points(robot_safe_band);
     if(params.DISPLAY) draw_robot_contour(robot_contour, robot_safe_band, &viewer->scene);
-    fps.print("FPS:", 3000);
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////

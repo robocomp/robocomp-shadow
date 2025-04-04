@@ -152,6 +152,7 @@ class DSRViewer(QObject):
                 self.widgets[widget_name] = widget_c
                 self.widgets_by_type[widget_type] = widget_c
                 self.__create_dock_and_menu(widget_name, viewer)
+
         if View.graph in self.widgets_by_type:
             new_action = QAction("Animation", self)
             new_action.setStatusTip("Toggle animation")

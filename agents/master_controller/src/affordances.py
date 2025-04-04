@@ -110,6 +110,7 @@ class Affordances(QWidget, Ui_master):
                 if not self.g.get_edge(node_id, node_id, "current"):
                     edge = Edge(node_id, node_id, "current", 66)  # TODO: hard
                     self.g.insert_or_assign_edge(edge)
+                item.setForeground(0, Qt.green if active else Qt.black)
             elif self.g.get_edge(node_id, node_id, "current"): # remove the "current" type edge from node_id to node_id
                 self.g.delete_edge(node_id, node_id, "current")
         else:
@@ -119,6 +120,8 @@ class Affordances(QWidget, Ui_master):
                 edge = self.g.get_edge(fr, to, etype)
                 if edge:
                     active = item.checkState(0) == Qt.Checked
+                    # set item text in green if active
+                    item.setForeground(0, Qt.green if active else Qt.black)
                     if edge.attrs.__contains__("active"):
                         edge.attrs["active"].value = active
                     self.g.insert_or_assign_edge(edge)
@@ -158,7 +161,7 @@ class Affordances(QWidget, Ui_master):
              return
         edge = self.g.get_edge(fr, to, mtype)
         edge_item = self.edge_item_map.get((fr, to, mtype), None)
-        print("Affordances::on_graph_update_edge_attrs", fr, to, mtype, attribute_names, edge_item)
+        #print("Affordances::on_graph_update_edge_attrs", fr, to, mtype, attribute_names, edge_item)
         if edge_item:
             self._internal_update = True    # prevent recursive calls
             for attribute_name in attribute_names:
@@ -181,14 +184,6 @@ class Affordances(QWidget, Ui_master):
 
     def on_graph_delete_node(self, id: int):
         print("Affordances::on_graph_delete_node", id)
-        for i in range(self.tree.topLevelItemCount()):
-            parent_item = self.tree.topLevelItem(i)
-            for j in range(parent_item.childCount()):
-                child = parent_item.child(j)
-                if child.data(0, Qt.UserRole + 1) == id:
-                    parent_item.removeChild(child)
-                    break
-        # remove the node from the relevant node ids
         self.relevant_node_ids.discard(id)
         if id in self.node_item_map:
             del self.node_item_map[id]

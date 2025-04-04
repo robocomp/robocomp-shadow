@@ -1,236 +1,147 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import math
-from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem, QMenu, QGraphicsItem, QGraphicsPolygonItem, QWidget, QHBoxLayout, QLabel, QComboBox, QWidgetAction
-from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform, QCursor
-from PySide6.QtCore import Qt, QPointF, Signal, QObject
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem, QMenu, QGraphicsItem, QGraphicsPolygonItem, QWidget, QHBoxLayout, QLabel, QComboBox, QWidgetAction, \
+    QGraphicsLineItem
+from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform, QCursor, QPainter
+from PySide6.QtCore import Qt, QPointF, Signal, QObject, QLineF, QRectF, QSizeF
 from PySide6.QtWidgets import QGraphicsTextItem, QMenu, QApplication
+from pydsr import signals
 
-class HoverableLabel(QGraphicsTextItem):
-    def __init__(self, gedge: 'GraphicsEdge'):
-        super().__init__(gedge)
-        self.gedge = gedge
-        self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.PointingHandCursor)
+if TYPE_CHECKING:
+    # Import GraphicsNode only for type checking to avoid import cycles.
+    from src.viewers.graph_viewer.graph_node import GraphicsNode
 
-    def on_edge_updated(self):
-        # Update label properties on edge update as needed.
-        # For example, update the displayed text:
-        self.setPlainText(f"{self.gedge.mtype} updated")
-        
-    def hoverEnterEvent(self, event):
-        if self.gedge.mtype == "has_intention":
-            self.gedge.showHasIntentionMenu(event.screenPos())
-        super().hoverEnterEvent(event)
+class GraphicsEdge(QObject, QGraphicsLineItem):
 
-class GraphicsEdge(QObject, QGraphicsPathItem):
-    edgeUpdated = Signal()  # Define the signal as a class attribute
-
-    def __init__(self, source_node_id: int, target_node_id: int, mtype: str, graph_ref: object, offset_index: int = 0):
+    def __init__(self, source_node: GraphicsNode, destination_node: GraphicsNode, edge_name: str):
         #initialize QObject and QGraphicsPathItem
         super().__init__()
-        QGraphicsPathItem.__init__(self)
-        self.setFlag(QGraphicsItem.ItemIsSelectable)
-        self.g = graph_ref
-        self.source_node_id = source_node_id
-        self.target_node_id = target_node_id
-        self.mtype = mtype
-        self.key = (source_node_id, target_node_id, mtype)
-        self.offset_index = offset_index
+        QGraphicsLineItem.__init__(self)
 
-        self.setZValue(5)
-        self.setPen(QPen(self.edge_color(self.mtype), 2))
+        self.arrow_size = 6
+        self.color = QColor("black")  # TODO: get from GraphColors
+        self.label = None
+        self.m_bend_factor = 0
+        self.line_width = 2
+        self.setZValue(-1)
+        self.setFlag(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemSendsGeometryChanges | QGraphicsItem.ItemUsesExtendedStyleOption)
+        self.tag = QGraphicsTextItem(edge_name, self)
+        self.tag.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
+        self.tag.installEventFilter(self)
+        self.setAcceptHoverEvents(True)
+        self.source_node = source_node
+        self.destination_node = destination_node
+        source_node.add_edge(self)
+        if source_node.id_in_graph != destination_node.id_in_graph:
+            destination_node.add_edge(self)
+        self.adjust()
 
-        # Label
-        self.label = HoverableLabel(self)  # Use HoverableLabel instead of QGraphicsTextItem
-        self.label.setPlainText(self.mtype)
-        self.label.setDefaultTextColor(self.edge_color(self.mtype))
-        self.label.setAcceptHoverEvents(True)
-        self.label.installSceneEventFilter(self)
-        self.update_label_position()
+    def adjust(self):
+        if self.source_node is None or self.destination_node is None:
+           return 
+        line = QLineF(self.mapFromItem(self.source_node, 0, 0), self.mapFromItem(self.destination_node, 0, 0))
 
-        # Connect signal so the label can update when the edge updates
-        #self.edgeUpdated.connect(self.label.on_edge_updated)
+        length = line.length()
+        self.prepareGeometryChange()
+        self.tag.setPos(line.center())
+        default_diameter = 20
+        default_radius = default_diameter * 2
+        print("length", length, "lin3e", line)
+        if length > default_diameter:
+            edge_offset = QPointF(line.dx() * default_radius / length, line.dy() * default_radius / length)
+            source_point = line.p1() + edge_offset
+            destination_point = line.p2() - edge_offset
+            self.setLine(QLineF(source_point, destination_point))
+        else:
+            self.setLine(line)
 
-        # arrow
-        self.arrow = QGraphicsPolygonItem(self)
-        self.arrow.setBrush(self.edge_color(self.mtype))
-        self.arrow.setZValue(6)  # above the edge path
+    def boundingRect(self) -> QRectF:
+        if not self.source_node or not self.destination_node:
+            return QRectF()
 
-        self.update_position()
+        extra = (1 + self.arrow_size) / 2.0
+        if self.source_node != self.destination_node:
+            return QRectF(self.line().p1(), QSizeF(self.line().p2().x() - self.line().p1().x(),
+                                                   self.line().p2().y() - self.line().p1().y())).normalized().adjusted(-extra, -extra, extra, extra)
+        else:
+            default_diameter = 20
+            default_radius = default_diameter * 2
+            return QRectF(self.line().p1().x() - default_radius * 2, self.line().p1().y(), default_radius * 2, default_radius * 2)
 
-    def update_position(self):
-        source = self.g.get_node(self.source_node_id)
-        target = self.g.get_node(self.target_node_id)
-        if not source or not target:
+    def paint(self, painter: QPainter, option: Qt.QStyleOptionsGraphicItem, widget: QWidget = None):
+        painter.save()
+        if self.source_node is None or self.destination_node is None:
+            print("GraphicsEdge::paint: source or destination is None")
             return
 
-        x1 = source.attrs["pos_x"].value
-        y1 = source.attrs["pos_y"].value
-        x2 = target.attrs["pos_x"].value
-        y2 = target.attrs["pos_y"].value
+        self.draw_arrows(painter)
+        self.draw_arc(painter)
+        painter.restore()
+        if self.source_node == self.destination_node:
+            self.setZValue(-10)
 
-        dx = x2 - x1
-        dy = y2 - y1
-        length = math.hypot(dx, dy)
+    def draw_line(self, painter: QPainter):
+        my_pen = self.pen()
+        my_pen.setColor(self.color)
+        painter.setPen(my_pen)
+        painter.setBrush(self.color)
+        painter.drawLine(self.line())
 
-        if length == 0:
-            return
+    def draw_arrows(self, painter: QPainter):
+        angle = math.atan2(-self.line().dy(), self.line().dx())
+        destArrowP1 = self.line().p2() + QPointF(math.sin(angle - math.pi / 3) * self.arrow_size,
+                                                 math.cos(angle - math.pi / 3) * self.arrow_size)
+        destArrowP2 = self.line().p2() + QPointF(math.sin(angle - math.pi + math.pi / 3) * self.arrow_size,
+                                                 math.cos(angle - math.pi + math.pi / 3) * self.arrow_size)
+        painter.setBrush(self.color)
+        painter.setPen(self.color)
+        painter.drawPolygon(QPolygonF([self.line().p2(), destArrowP1, destArrowP2]))
 
-        # Perpendicular offset
-        nx = -dy / length
-        ny = dx / length
-        spacing = 40  # curve separation
-        offset = (self.offset_index - 0.5) * spacing  # center the curves if 2+
+    def draw_arc(self, painter: QPainter):
+        if self.source_node != self.destination_node:
+            m_control_pos = QPointF((self.line().p1() + self.line().p2()) / 2.0)
+            t1 = QPointF(m_control_pos)
+            pos_factor = abs(self.m_bend_factor)
 
-        # Control point for quadratic Bézier
-        ctrl_x = (x1 + x2) / 2 + nx * offset
-        ctrl_y = (y1 + y2) / 2 + ny * offset
+            bend_direction = True
+            if self.m_bend_factor < 0:
+                bend_direction = not bend_direction
 
-        # Create the path
-        path = QPainterPath()
-        path.moveTo(x1, y1)
-        path.quadTo(ctrl_x, ctrl_y, x2, y2)
-        self.setPath(path)
+            f1 = QLineF(t1, self.line().p2())
+            f1.setAngle(f1.angle() + 90 if bend_direction else f1.angle() - 90)
+            f1.setLength(f1.length() * 0.2 * pos_factor)
 
-        # Arrow placement at the end
-        # Constants
-        node_radius = 20  # approximate visual radius of your node circle
-        arrow_size = 10
+            m_control_pos = f1.p2()
+            m_control_point = m_control_pos - (t1 - m_control_pos) * 0.33
 
-        # Adjust target point to stop early
-        path = QPainterPath()
-        path.moveTo(x1, y1)
+            path = QPainterPath()
+            path.moveTo(self.line().p1())
+            path.cubicTo(m_control_point, m_control_point, self.line().p2())
+            r = self.tag.boundingRect()
+            w = r.width()
+            h = r.height()
+            self.tag.setDefaultTextColor(self.color)
+            self.tag.setPos(m_control_point.x() - w / 2, m_control_point.y() - h / 2)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(self.color)
+            painter.drawPath(path)
+        else:
+            painter.setBrush(Qt.NoBrush)
+            default_diameter = 20
+            default_radius = default_diameter * 2
+            painter.drawEllipse(self.line().p1().x() - default_radius * 2, self.line().p1().y(), default_radius * 2, default_radius * 2)
 
-        # Curve control point (as before)
-        ctrl_x = (x1 + x2) / 2 + nx * offset
-        ctrl_y = (y1 + y2) / 2 + ny * offset
+    def set_bend_factor(self, factor: float):
+        """Set the bend factor for the edge. Positive values curve up, negative values curve down."""
+        self.m_bendFactor = factor
 
-        # Compute new target point (shrink the vector)
-        vec_x = x2 - x1
-        vec_y = y2 - y1
-        vec_len = math.hypot(vec_x, vec_y)
-        if vec_len == 0:
-            vec_len = 1  # avoid division by zero
-        shrink_distance = node_radius * 0.5  # or tweak to 15, 10, etc.
-        shrink_factor = (vec_len - shrink_distance) / vec_len
-        x2_adj = x1 + vec_x * shrink_factor
-        y2_adj = y1 + vec_y * shrink_factor
-
-        # Rebuild path with adjusted endpoint
-        path.quadTo(ctrl_x, ctrl_y, x2_adj, y2_adj)
-        self.setPath(path)
-
-        # Update color if this is a has_intention edge
-        if self.mtype == "has_intention":
-            edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
-            active = edge.attrs["active"].value if "active" in edge.attrs else False
-            color = QColor("green") if active else QColor("blue")
-            self.setPen(QPen(color, 2))
-            self.label.setDefaultTextColor(color)
-            self.arrow.setBrush(color)
-
-        # Arrow placement at adjusted end
-        angle = math.radians(-path.angleAtPercent(1.0))
-        end_point = path.pointAtPercent(1.0)
-
-        arrow_poly = QPolygonF([
-            QPointF(0, 0),
-            QPointF(-arrow_size, arrow_size / 2),
-            QPointF(-arrow_size, -arrow_size / 2),
-        ])
-
-        transform = QTransform()
-        transform.translate(end_point.x(), end_point.y())
-        transform.rotateRadians(angle)
-        arrow_poly = transform.map(arrow_poly)
-        self.arrow.setPolygon(arrow_poly)
-        self.update_label_position()
-
-    def update_label_position(self):
-        path = self.path()
-        percent = 0.5  # middle of the curve
-
-        pt = path.pointAtPercent(percent)
-        tangent = path.angleAtPercent(percent)
-        radians = math.radians(tangent + 90)  # perpendicular to tangent
-
-        offset_distance = 12  # pixels away from the curve
-        dx = math.cos(radians) * offset_distance
-        dy = -math.sin(radians) * offset_distance  # Qt y-axis is inverted
-
-        self.label.setPos(pt.x() + dx, pt.y() + dy)
-
-    def edge_color(self, edge_type: str) -> QColor:
-        # You can customize this as needed
-        color_map = {
-            "RT": QColor("purple"),
-            "has_intention": QColor("blue"),
-            "has_affordance": QColor("green"),
-            "current": QColor("orange"),
-            "parent": QColor("darkRed"),
-        }
-        return color_map.get(edge_type, QColor("gray"))  # default fallback
-
-    def update_edge(self, attribute_names: [str]):
-        # TODO: is a persistent popup menu, update values
-        # ... update logic here if needed ...
-        self.update_position()
-        #self.edgeUpdated.emit()  # emit the signal to the HoverableLabel
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.RightButton:
-            menu = QMenu()
-            edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
-            if edge:
-                for attr_name, attr in edge.attrs.items():
-                    action = QAction(f"{attr_name}: {attr.value}", menu)
-                    action.setEnabled(False)
-                    menu.addAction(action)
-            menu.exec(event.screenPos())
-
-    def showHasIntentionMenu(self, screen_pos):
-        """Open a QMenu for 'has_intention' edges to toggle attributes, etc."""
-        menu = QMenu()
-        edge = self.g.get_edge(self.source_node_id, self.target_node_id, self.mtype)
-        if edge:
-            for attr_name, attr in edge.attrs.items():
-                if attr_name == "active":
-                    # Create widget with label + combo box
-                    widget = QWidget()
-                    layout = QHBoxLayout()
-                    layout.setContentsMargins(4, 2, 4, 2)
-
-                    label = QLabel("active:")
-                    combo = QComboBox()
-                    combo.addItems(["true", "false"])
-                    combo.setCurrentText("true" if attr.value else "false")
-
-                    def handler(edge=edge, combo=combo):
-                        value = combo.currentText()
-                        edge.attrs["active"].value = True if value == "true" else False
-                        self.g.insert_or_assign_edge(edge)
-
-                    combo.currentTextChanged.connect(lambda: handler(edge=edge, combo=combo))
-
-                    layout.addWidget(label)
-                    layout.addWidget(combo)
-                    widget.setLayout(layout)
-
-                    action = QWidgetAction(menu)
-                    action.setDefaultWidget(widget)
-                    menu.addAction(action)
-
-                else:
-                    # Read-only fallback for other attributes
-                    action = QAction(f"{attr_name}: {attr.value}", menu)
-                    action.setEnabled(False)
-                    menu.addAction(action)
-
-        menu.exec(screen_pos)
-
-    def sceneEventFilter(self, watched: QGraphicsItem, event):
-        print("event", event.type())
-        if watched == self.label and event.type() == event.GraphicsSceneHoverEnter:
-            if self.mtype == "has_intention":
-                self.showHasIntentionMenu(event.screenPos())
-            return True
-        return super().sceneEventFilter(watched, event)
+    ###################################
+    # def update_edge_attr_slot(self, from_id: int, to_id: int, edge_type: str, att_name: list[str]):
+    #     if from_id != self.source_node.id_in_graph or to_id != self.destination_node.id_in_graph:
+    #         return
+    #     if "color" in att_name:
+    #         edge = self.source_node.graph_viewer.g.get_edge(from_id, to_id, self.tag.toPlainText())
+    #         if edge:
+    #             if edge.attrs.__contains__("color"):
+    #                 self.color = QColor(not edge.attrs["color"].value)
