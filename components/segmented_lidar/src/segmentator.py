@@ -2,13 +2,15 @@ import numpy as np
 from mmseg.apis import inference_model, init_model, show_result_pyplot, MMSegInferencer
 import time
 import cupy as cp
+import cv2
+from cupyx.scipy.ndimage import binary_dilation
 
 class Segmentator:
     def __init__(self):
 
         self.model = MMSegInferencer(model="maskformer_swin-t_upernet_8xb2-160k_ade20k-512x512", device="cuda")
         # Definir la paleta de colores para la segmentación semántica
-        self.color_palette = [
+        self.color_palette = np.array([
             [255, 0, 0],  # wall
             [128, 0, 0],  # building
             [0, 128, 0],  # sky
@@ -147,7 +149,7 @@ class Segmentator:
             [128, 192, 0],  # vase
             [0, 64, 128],  # traffic light
             [128, 64, 128],  # tray
-        ]
+        ])
 
         # Definir los labels y su inverso
         self.labels = {
@@ -302,7 +304,7 @@ class Segmentator:
             'clock': 148,
             'flag': 149
         }
-        self.inverted_labels = {v: k for k, v in self.labels.items()}
+
 
     def extract_points_and_labels_cupy(self, depth_image, segmented_img):
         """Extracts points, categories and labels from depth image and segmentation results using CuPy."""
@@ -315,7 +317,8 @@ class Segmentator:
         labels = segmented_img.reshape(-1, 1)  # (921600, 1)
 
         # Create valid mask (non-zero points)
-        valid_mask = cp.any(points != 0, axis=1)  # Find non-zero XYZ points
+        # valid_mask = cp.any(points != 0, axis=1)  # Find non-zero XYZ points
+        valid_mask = cp.any(points != 0, axis=1) & (labels.squeeze() != 255)
 
         # Apply mask
         filtered_points = points[valid_mask]  # Shape: (M, 3), M <= 921600
@@ -332,8 +335,58 @@ class Segmentator:
         segmented_image = cp.asarray(result.pred_sem_seg.data)  # Skip CPU transfer, directly to GPU
         if segmented_image.ndim == 3:
             segmented_image = segmented_image.squeeze(0)  # Now shape [H, W] on GPU
-        # segmented_image = result.pred_sem_seg.cpu().data.numpy()
-        # if segmented_image.ndim == 3:
-        #     segmented_image = segmented_image.squeeze(0)  # Now shape [H, W]
+        segmented_image = self.add_zero_borders_to_segmentation_gpu(segmented_image, 15)
         pointcloud = self.extract_points_and_labels_cupy(depth_frame, segmented_image)
-        return pointcloud
+        return pointcloud, segmented_image
+
+    def add_zero_borders_to_segmentation_gpu(self, mask_gpu, kernel_size=3):
+        """
+        Args:
+            mask: Máscara de segmentación (2D) en CPU (numpy.ndarray) o GPU (cupy.ndarray).
+            kernel_size: Tamaño del kernel para la operación morfológica (default=3).
+        Returns:
+            Máscara modificada con ceros en los bordes entre clases (en GPU como cupy.ndarray).
+        """
+        # Inicializar máscara de bordes en GPU
+        border_mask_gpu = cp.zeros_like(mask_gpu, dtype=bool)
+
+        # Estructura de conectividad (kernel de cruz para 4-vecinos)
+        kernel = cp.ones((kernel_size, kernel_size), dtype=bool)
+        if kernel_size == 3:
+            kernel[1, 1] = False  # Para conectividad 4-vecinos (cruz)
+
+        # Procesar cada clase única
+        unique_classes = cp.unique(mask_gpu)
+
+        for cls in unique_classes:
+            # Máscara binaria para la clase actual
+            class_mask = (mask_gpu == cls)
+
+            # Dilatación binaria en GPU
+            dilated = binary_dilation(class_mask, structure=kernel)
+
+            # Bordes externos de la clase
+            border_pixels = dilated & ~class_mask
+
+            # Acumular bordes
+            border_mask_gpu |= border_pixels
+
+        # Aplicar bordes a la máscara original
+        result_gpu = mask_gpu.copy()
+        result_gpu[border_mask_gpu] = 255
+
+        return result_gpu
+
+    def mask_to_color(self, mask):
+
+        # Inicializar la imagen en color
+        h, w = mask.shape
+        color_image = np.zeros((h, w, 3), dtype=np.uint8)
+
+        # Para cada categoría en la máscara, aplicar su color
+        for category in np.unique(mask):
+            print("Category: ", category)
+            if category >= len(self.color_palette):
+                continue
+            color_image[mask == category] = self.color_palette[category]
+        return color_image

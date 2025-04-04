@@ -87,7 +87,7 @@ class SpecificWorker(GenericWorker):
         if self.read_queue:
             start = time.time()
             rgb, depth, timestamp = self.read_queue.pop()
-            points = self.segmentator.process_frame(rgb, depth, timestamp)
+            points, mask = self.segmentator.process_frame(rgb, depth, timestamp)
             if self.integrate_odometry:
                 # # From self.odometry_queue, create a copy and search odometry values between now and image timestamp. Iterate in a reverse way until finding a timestamp lower than the image timestamp
                 odometry = cp.array(self.odometry_queue.copy())
@@ -96,6 +96,9 @@ class SpecificWorker(GenericWorker):
 
             lidar_data = self.to_lidar_data(points.get(), timestamp)
             self.lidar3dpub_proxy.pushLidarData(lidar_data)
+            # image = self.segmentator.mask_to_color(mask.get())
+            # cv2.imshow("Segmentation", image)
+            # cv2.waitKey(1)
             print(f"Total time: {time.time() - start}")
 
     def get_rgbd(self, camera_name: str, event: Event):
