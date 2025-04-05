@@ -70,7 +70,7 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 		//Add your custom state
 		statemachine.addState(states["CustomState"].get());
 		***/
-
+	    
 		statemachine.setChildMode(QState::ExclusiveStates);
 		statemachine.start();
         QLoggingCategory::setFilterRules("*.debug=false\n");
@@ -92,7 +92,6 @@ SpecificWorker::~SpecificWorker()
 
 void SpecificWorker::initialize()
 {
-
     // Graph viewer
     using opts = DSR::DSRViewer::view;
     int current_opts = 0;
@@ -117,17 +116,14 @@ void SpecificWorker::initialize()
 
     graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
     setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-    room_widget = new CustomWidget();
-    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
     // get pointer to 2D viewer
     widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(DSR::DSRViewer::view::scene));
-    if(widget_2d == nullptr)
-    {
-        std::cout << "Error getting 2D viewer" << std::endl;
-        throw std::runtime_error("Error getting 2D viewer");
-    }
+
+    room_widget = new CustomWidget();
+    widget_2d->set_draw_axis(true);
     widget_2d->scale(0.08, 0.08);
+    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
     // Lidar thread
     read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);

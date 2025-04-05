@@ -1,11 +1,14 @@
 import math
-
+import sys
+import random
 from LanguageSelector.gtk.GtkLanguageSelector import blockSignals
-from PySide6 import QtCore
+from PyQt6.QtWidgets import QMenu, QMessageBox
+from PySide6 import QtCore, QtGui
 from PySide6.QtCore import Qt
 from viewers._abstract_graphic_view import AbstractGraphicViewer
 from .graph_edge import GraphicsEdge
 from .graph_node import GraphicsNode
+from pydsr import signals
 
 class GraphViewer(AbstractGraphicViewer):
     def __init__(self, g):
@@ -18,7 +21,9 @@ class GraphViewer(AbstractGraphicViewer):
         self.create_graph()
         self.scene.setSceneRect(self.scene.itemsBoundingRect())
         self.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio )
-        #self.connectGraphSignals()
+        self.contextMenu = QMenu()
+        self.showMenu = self.contextMenu.addMenu("&Show:")
+        self.connect_graph_signals()
 
     def create_graph(self):
         self.blockSignals(True)
@@ -34,7 +39,15 @@ class GraphViewer(AbstractGraphicViewer):
                 self.add_or_assign_edge_slot(node.id, edge[0], edge[1])
         self.blockSignals(False)
 
-    #################################################################################
+    def connect_graph_signals(self):
+        signals.connect(self.g, signals.UPDATE_NODE, self.add_or_assign_node_slot)
+        signals.connect(self.g, signals.UPDATE_EDGE, self.add_or_assign_edge_slot)
+        signals.connect(self.g, signals.DELETE_NODE, self.del_node_slot)
+        signals.connect(self.g, signals.DELETE_EDGE, self.del_edge_slot)
+
+    ########################################################################
+    ###  DSR SIGNALS HANDLER
+    ########################################################################
     @QtCore.Slot()
     def add_or_assign_node_slot(self, node_id: int, mtype: str):
         node = self.g.get_node(node_id)
@@ -45,6 +58,7 @@ class GraphViewer(AbstractGraphicViewer):
                 gnode = GraphicsNode(self)
                 gnode.id_in_graph = node.id
                 gnode.set_type(mtype)
+                gnode.set_tag(node.name)
                 self.scene.addItem(gnode)
                 ## connect
                 self.gmap[node.id] = gnode
@@ -55,11 +69,15 @@ class GraphViewer(AbstractGraphicViewer):
                 gnode.set_type(mtype)
             else:
                 gnode = self.gmap[node.id]
-        if node.attrs.__contains__("pos_x") and node.attrs.__contains__("pos_y"):
-            px = node.attrs["pos_x"]
-            py = node.attrs["pos_y"]
-            if px is not None and py is not None:
-                gnode.setPos(float(px.value), float(py.value))
+        if node.attrs.__contains__("pos_x"):
+            px = node.attrs["pos_x"].value
+        else:
+            px = random.uniform(-300, 300)
+        if node.attrs.__contains__("pos_y"):
+           py = node.attrs["pos_y"].value
+        else:
+           py = random.uniform(-300, 300)
+        gnode.setPos(float(px), float(py))
 
         for edge in node.edges:
             key = (node.id, edge[0], edge[1])
@@ -68,85 +86,35 @@ class GraphViewer(AbstractGraphicViewer):
 
     def add_or_assign_edge_slot(self, fr: int, to: int, mtype: str):
         # Skip if already present
-        if fr is None or to is None:
-            print("Graph viewer: Error adding edge!", fr, to, mtype)
-            return
-
         key = (fr, to, mtype)
+        if key in self.gmap_edges.keys():
+            return
         try:
             if self.g.get_edge(fr, to, mtype):
                 if key not in self.gmap_edges.keys():
-                    print("Graph viewer: Adding edge", fr, to, mtype)
+                    #print("Graph viewer: edge accessed OK", fr, to, mtype)
                     source_node = self.gmap[fr]
+                    #print("Graph viewer: edge accessed 2 OK", fr, to, mtype)
                     destination_node = self.gmap[to]
+                    #print("Graph viewer: edge accessed 3 OK", fr, to, mtype)
                     item = GraphicsEdge(source_node, destination_node, mtype)
                     self.gmap_edges[key] = item
+                    #print("Graph viewer: edge accessed 4 OK", fr, to, mtype)
                     self.scene.addItem(item)
         except Exception as e:
-            print("Graph viewer: Exception in add_or_assign_edge", e)
-            # QMessageBox.critical(self, "Error", f"Graph viewer: Exception in add_or_assign_edge {e}")
-            return
+            print("Graph viewer: Exception in add_or_assign_edge", fr, to, mtype)
+            #QMessageBox.critical("Error", f"Graph viewer: Exception in add_or_assign_edge {e}")  # TODO: Fix this
 
-        #if (fr, to, mtype) in self.gmap[fr].connected_edges:
-        #     return
-        # count only outgoing edges
-        # existing_edges = [
-        #     key for key in self.gmap[fr].connected_edges.keys()
-        #     if key[0] == fr and key[1] == to
-        # ]
-        #print("Graph_viewer: add_edge", self.node_items, existing_edges, len(existing_edges), self.g.get_node(fr).name, self.g.get_node(to).name, mtype)
-        # offset_index = len(existing_edges)
-        #
-        # graphics_edge = GraphicsEdge(fr, to, mtype, self.g, offset_index)
-        # self.scene.addItem(graphics_edge)
-        #
-        # self.gmap[fr].connected_edges[graphics_edge.key] = graphics_edge
-        # self.gmap[to].connected_edges[graphics_edge.key] = graphics_edge
-
-    ########################################################################
-    ###  DSR SIGNALS HANDLER
-    ########################################################################
-
-    # @QtCore.Slot()
-    # def update_node_slot(self, id: int, mtype: str):
-    #     if not id in self.gmap.keys():
-    #         print("Graph viewer: Adding node", self.g.get_node(id).name)
-    #         self.add_or_assign_node_SLOT(self.g.get_node(id))
-    #
-    # def update_node_attrs_slot(self, id: int, attribute_names: [str]):
-    #     if id in self.gmap.keys():
-    #         gnode = self.gmap[id]
-    #         node = self.g.get_node(id)
-    #         if "pos_x" in attribute_names or "pos_y" in attribute_names:
-    #             x = float(node.attrs["pos_x"].value)
-    #             y = float(node.attrs["pos_y"].value)
-    #             gnode.setPos(x, y)
-    #             for edge in gnode.connected_edges.values():
-    #                 edge.update_position()
-    #
-    # def update_edge_slot(self, fr: int, to: int, mtype: str):
-    #     if mtype != "RT":
-    #         print("Graph viewer: update_edge", fr, to, mtype)
-    #     if fr in self.gmap.keys() and to in self.gmap.keys():
-    #         self.add_or_assign_edge_SLOT(fr, to, mtype)
-    #
-    # def update_edge_attrs_slot(self, fr: int, to: int, mtype: str, attribute_names: [str]):
-    #     if fr in self.gmap.keys():
-    #         self.gmap[fr].update_edge(to, mtype, attribute_names)
-
-    def delete_node_slot(self, nid: int):
-        print("Graph viewer: delete_node", nid)
-        if nid in self.gmap.keys():
-            item = self.gmap[nid]
-            if item:
-                for key in item.connected_edges.keys():
-                    print("Graph viewer: delete_edge", nid, key, item.connected_edges[key].mtype  )
-                    edge_item = item.connected_edges[key]
-                    self.scene.removeItem(edge_item)
-                for key in list(item.connected_edges.keys()):
-                    self.gmap[key[1]].connected_edges.pop(key, None)
+    def del_node_slot(self, id: int):
+        try:
+            # print(f"[SLOT] Delete node: {id}")
+            while id in self.gmap:
+                item = self.gmap[id]
                 self.scene.removeItem(item)
-                del self.gmap[nid]
+                del item
+                del self.gmap[id]
+        except Exception as e:
+            print(f"{e} Error {__name__}")
 
     def del_edge_slot(self, fr: int, to: int, mtype: str):
         key = (fr, to, mtype)
@@ -154,12 +122,12 @@ class GraphViewer(AbstractGraphicViewer):
             print("Graph viewer: In delete_edge_slot -> Edge not found", key)
             return
         try:
-            while len(self.gmap_edges[key]) > 0:
-                edge = self.gmap_edges[key].pop(0)
+            while key in self.gmap_edges:
+                edge = self.gmap_edges.pop(key)
                 if fr in self.gmap:
-                    self.gmap[fr].deleteEdge(edge)
+                    self.gmap[fr].delete_edge(edge)
                 if to in self.gmap:
-                    self.gmap[to].deleteEdge(edge)
+                    self.gmap[to].delete_edge(edge)
                 if edge:
                     self.scene.removeItem(edge)
                     del edge
@@ -168,11 +136,15 @@ class GraphViewer(AbstractGraphicViewer):
             # QMessageBox.critical(self, "Error", f"Graph viewer: Exception in del_edge_slot {e}")
             return
 
-        # if fr in self.gmap:
-        #     item = self.gmap[fr].remove_edge(key, None)
-        #     if item:
-        #         self.scene.removeItem(item)
-        # if to in self.gmap:
-        #     self.gmap[to].remove_edge(key, None)
+    ################## EVENTS ########################
+    def mousePressEvent(self, event):
+        item = self.scene.itemAt(self.mapToScene(event.pos()), QtGui.QTransform())
+        if item:
+            super().mousePressEvent(event)
+        elif event.button() == QtCore.Qt.RightButton:
+            self.showContextMenu(event)
+        else:
+            super().mousePressEvent(event)
 
-
+    def showContextMenu(self, event):
+      self.contextMenu.exec()

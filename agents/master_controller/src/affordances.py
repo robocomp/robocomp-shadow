@@ -1,198 +1,149 @@
-from PySide6.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtGui import QTextItem
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QWidget, QTreeWidget, QTreeWidgetItem, QCheckBox, QLineEdit, QSpinBox, QDoubleSpinBox, QLabel
 from pydsr import signals, Attribute
-from ui_masterUI import Ui_master
 from pydsr import signals, Edge
 
-class Affordances(QWidget, Ui_master):
+class Affordances(QTreeWidget):
     def __init__(self, g):
-        super(Affordances, self).__init__()
-        ui = Ui_master()
-        ui.setupUi(self)
+        super().__init__()
         self.g = g
-        self.tree = ui.treeWidget  # Ensure it's changed to a QTreeWidget in the .ui file
-        self.tree.setColumnCount(1)
-        self.tree.setHeaderLabel("Concepts and Affordances")
-        self.tree.itemChanged.connect(self.on_item_changed)
+        self.tree_map = {}
+        self.types_map = {}
+        self.setMinimumSize(400, 400)
+        self.setMouseTracking(True)
+        self.create_tree()
+        self.setColumnCount(3)
+        self.setHeaderLabels(["Concepts", "Affordances", "State"])
+        self.header().setDefaultSectionSize(200)
+        self.expandAll()
+        signals.connect(self.g, signals.UPDATE_NODE, self.add_or_assign_node_SLOT)
+        signals.connect(self.g, signals.DELETE_NODE, self.del_node_SLOT)
+        signals.connect(self.g, signals.DELETE_EDGE, self.del_edge_SLOT)
+        signals.connect(self.g,signals.UPDATE_EDGE_ATTR, self.update_edge_att_SLOT)
 
-        self.relevant_node_ids = set()
-        self.relevant_edges = set()
-        self._internal_update = False
-        self.node_item_map = {}
-        self.edge_item_map = {}
-
-    def connect_signals(self):
-        # Connect to DSR graph signals
+    def create_tree(self):
+        self.clear()
+        self.tree_map.clear()
+        self.types_map.clear()
         try:
-            signals.connect(self.g, signals.UPDATE_NODE, self.on_graph_update_node)
-            signals.connect(self.g, signals.UPDATE_EDGE, self.on_graph_update_edge)
-            signals.connect(self.g, signals.DELETE_NODE, self.on_graph_delete_node)
-            signals.connect(self.g, signals.DELETE_EDGE, self.on_graph_delete_edge)
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.on_graph_update_node)
-            signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.on_graph_update_edge_attrs)
+            for node in self.g.get_nodes():
+                if node.type not in ["root"]:
+                    self.add_or_assign_node_SLOT(node.id, node.type)
         except Exception as e:
-            print(e)
+            print("Affordances: Error creating tree:", e)
 
-    def populate(self):
-        self._internal_update = True
-        self.relevant_node_ids.clear()
-        self.relevant_edges.clear()
-        self.tree.clear()
+    #########################################################################
+    ###  DSR SIGNALS HANDLER
+    #########################################################################
+    def add_or_assign_node_SLOT(self, mid: int, mtype: str):
+        try:
+            node = self.g.get_node(mid)
+            if mid not in self.tree_map:
+                symbol_widget = self.types_map.get(mtype)
+                if not symbol_widget:
+                    # Create a new QTreeWidgetItem for the type if it doesn't exist
+                    symbol_widget = QTreeWidgetItem(self.invisibleRootItem())
+                    symbol_widget.setText(0, f"Type: {mtype}")
+                    self.types_map[mtype] = symbol_widget
+                # Create a new QTreeWidgetItem for the node
+                item = QTreeWidgetItem(symbol_widget)
+                #item.setText(0, f"{node.name}")
+                checkbox = QCheckBox(f"{node.name}")
+                self.setItemWidget(item, 0, checkbox)
+                checkbox.stateChanged.connect(lambda value, m_node=node: self.node_current_change_SLOT(value, m_node))
+                self.tree_map[mid] = item
+                self.create_columns_for_affordances(item, node)
 
-        root = self.g.get_node("root")
-        if root:
-            root_item = self.create_node_item(root)
-            self.tree.addTopLevelItem(root_item)
-            self.relevant_node_ids.add(root.id)
-            self.add_subtree(root, root_item)
+        except Exception as e:
+            print(f"Affordances: Error {e} in method {self.add_or_assign_node_SLOT.__name__} when adding node {mid} of type {mtype}")
 
-        self.tree.expandAll()
-        self._internal_update = False
+    def del_node_SLOT(self, id: int):
+        while id in self.tree_map:
+            item = self.tree_map[id]
+            self.invisibleRootItem().removeChild(item)
+            del item
+            del self.tree_map[id]
 
-    def add_subtree(self, parent_node, parent_item):
-        # Traverse edges of type "RT" to recurse on child nodes
-        for edge_tuple in parent_node.edges:
-            fr, to, etype = parent_node.id, edge_tuple[0], edge_tuple[1]
-            if etype == "RT":
-                child_node = self.g.get_node(to)
-                if child_node:
-                    self.relevant_node_ids.add(child_node.id)
-                    child_item = self.create_node_item(child_node)
-                    parent_item.addChild(child_item)
-                    self.add_subtree(child_node, child_item)
+    def update_edge_att_SLOT(self, fr: int, to: int, mtype: str, attribute_names: [str]):
+        if mtype != "RT":
+            print("Affordances: update_edge_att_SLOT", fr, to, mtype, attribute_names)
+        edge = self.g.get_edge(fr, to, mtype)
+        if edge is not None and mtype in ["has_affordance", "has_intention"]:
+           if fr in self.tree_map.keys():
+               parent = self.tree_map[fr]
+               if "state" in attribute_names:
+                   if edge.attrs.__contains__("state"):
+                       new_state = edge.attrs["state"].value
+                       self.itemWidget(parent,2).setText(f"{new_state}")
+                       if new_state == "waiting":
+                          self.itemWidget(parent, 2).setStyleSheet("color: blue;")
+                       elif new_state == "in_progress":
+                            self.itemWidget(parent, 2).setStyleSheet("color: orange;")
+                       elif new_state == "completed":
+                            self.itemWidget(parent, 2).setStyleSheet("color: green;")
+               if "active" in attribute_names:
+                      if edge.attrs.__contains__("active"):
+                        new_active = edge.attrs["active"].value
+                        self.itemWidget(parent,1).setChecked(new_active)
+                        self.itemWidget(parent, 1).setStyleSheet("color: green;") if new_active else self.itemWidget(parent,1).setStyleSheet("color: blue;")
 
-        # Handle "has_affordance" and "has_intention" at this level
-        special_parent = None
-        for edge_tuple in parent_node.edges:
-            fr, to, etype = parent_node.id, edge_tuple[0], edge_tuple[1]
-            if etype in ["has_affordance", "has_intention"]:
-                e = self.g.get_edge(fr, to, etype)
-                if e:
-                    if not special_parent:
-                        special_parent = QTreeWidgetItem(["Affordances / Intentions"])
-                        parent_item.addChild(special_parent)
-                    edge_item = self.create_edge_item(e)
-                    special_parent.addChild(edge_item)
+    def del_edge_SLOT(self, fr: int, to: int, mtype: str):
+        if mtype in ["has_affordance", "has_intention"]:
+            if fr in self.tree_map.keys():
+                parent = self.tree_map[fr]
+                self.removeItemWidget(parent, 1)  # Clear widget in column 1
+                self.removeItemWidget(parent, 2)  # Clear widget in column 2
 
-    def create_edge_item(self, e):
-        """Build a QTreeWidgetItem for 'has_affordance' or 'has_intention' edges."""
-        active = e.attrs["active"].value if "active" in e.attrs else False
-        state_value = e.attrs["state"].value if "state" in e.attrs else "undefined"
-        text = f"→ {e.type} ➝ {self.g.get_node(e.origin).name} ➝ {state_value}"
-        item = QTreeWidgetItem([text])
-        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        item.setCheckState(0, Qt.Checked if active else Qt.Unchecked)
-        item.setData(0, Qt.UserRole + 1, (e.origin, e.destination, e.type))
-        self.relevant_edges.add((e.origin, e.destination, e.type))
-        edge_key = (e.origin, e.destination, e.type)
-        self.edge_item_map[edge_key] = item
-        return item
-
-    def create_node_item(self, node):
-        item = QTreeWidgetItem([node.name])
-        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        active = node.attrs["active"].value if "active" in node.attrs else False
-        item.setCheckState(0, Qt.Checked if active else Qt.Unchecked)
-        item.setData(0, Qt.UserRole + 1, node.id)
-        self.node_item_map[node.id] = item
-        return item
-
-    def on_item_changed(self, item, column):
-        if self._internal_update:
-            return
-
-        data = item.data(0, Qt.UserRole + 1)
-        if isinstance(data, int):
-            node_id = data
-            active = item.checkState(0) == Qt.Checked
-            if active: # insert a "current" type edge from node_id to node_id
-                if not self.g.get_edge(node_id, node_id, "current"):
-                    edge = Edge(node_id, node_id, "current", 66)  # TODO: hard
-                    self.g.insert_or_assign_edge(edge)
-                item.setForeground(0, Qt.green if active else Qt.black)
-            elif self.g.get_edge(node_id, node_id, "current"): # remove the "current" type edge from node_id to node_id
-                self.g.delete_edge(node_id, node_id, "current")
-        else:
-            edge_key = data
-            if edge_key:
-                fr, to, etype = edge_key
-                edge = self.g.get_edge(fr, to, etype)
-                if edge:
-                    active = item.checkState(0) == Qt.Checked
-                    # set item text in green if active
-                    item.setForeground(0, Qt.green if active else Qt.black)
-                    if edge.attrs.__contains__("active"):
-                        edge.attrs["active"].value = active
-                    self.g.insert_or_assign_edge(edge)
-
-    ################################################################################
-    ### SLOTS from G
-    ################################################################################
-    def on_graph_update_node(self, id: int, mtype: str):
-        if id not in self.relevant_node_ids:
-            print("Affordances::on_graph_update_node", self.g.get_node(id).name, mtype)
-            self.populate() # only new node creations
+    ############# LOCAL SLOTS ######################
+    def node_change_SLOT(self, value, id, type, parent):
+        # sender = self.sender()
+        # if isinstance(sender, QCheckBox):
+        #     self.node_check_state_changed.emit(value, id, type, parent)
         pass
 
-    def on_graph_update_node_attrs(self, id: int, attribute_names: [str]):
-        if self._internal_update:
-            return
-        node = self.g.get_node(id)
-        if not node or id not in self.relevant_node_ids:
-            return
+    def create_columns_for_affordances(self, parent, node):
+        for edge in node.get_edges():
+            n = self.g.get_node(edge.destination)
+            if n is None:
+                self.g.delete_edge(edge.origin, edge.destination, edge.type)
+                print("Affordances: Dangling edge removed", edge.origin, edge.destination, edge.type)
+                continue
+            if edge.type == "has_affordance" or edge.type == "has_intention":
+                print("no deberaía de estar aqui", edge.type, edge.origin, self.g.get_node(edge.destination).name)
+                if  edge.attrs.__contains__("active"):
+                    val = edge.attrs['active'].value
+                    act = QCheckBox(f"{edge.type}")
+                    act.setChecked(val)
+                    act.setStyleSheet("color: green;") if val else act.setStyleSheet("color: blue;")
+                    self.setItemWidget(parent, 1, act)
+                    act.stateChanged.connect(lambda value, m_node=node, m_edge=edge: self.edge_active_state_change_SLOT(value, m_node, m_edge))
+                # add column 2 for state
+                if edge.attrs.__contains__("state"):
+                    state = edge.attrs['state'].value
+                    st = QLabel(str(state))
+                    if state == "waiting":
+                       st.setStyleSheet("color: blue;")
+                    elif state == "in_progress":
+                       st.setStyleSheet("color: orange;")
+                    elif state == "completed":
+                        st.setStyleSheet("color: green;")
+                    self.setItemWidget(parent, 2, st)
 
-        self._internal_update = True
-        node_item = self.find_node_item(id)
-        # if node_item:
-        #     # Update "active" in QTreeWidget if it's changed
-        #     if "active" in attribute_names and "active" in node.attrs:
-        #         node_item.setCheckState(0, Qt.Checked if node.attrs["active"].value else Qt.Unchecked )
-        #     # ...existing code for other attributes if needed...
-        self._internal_update = False
+    def edge_active_state_change_SLOT(self, value, node, edge):
+        e = self.g.get_edge(edge.origin, edge.destination, edge.type)
+        if e is not None:
+            v = True if value >0 else False
+            print(f"Active state changed to {v} for node {node.name} and edge {edge.type}")
+            e.attrs["active"] = Attribute(v)
+            res = self.g.insert_or_assign_edge(e)
+            if not res:
+                print(f"Affordances: Error updating edge {node.name} with edge {e.type}")
 
-    def find_node_item(self, node_id: int):
-        """Locate the QTreeWidgetItem corresponding to this node ID."""
-        return self.node_item_map.get(node_id, None)
-
-    def on_graph_update_edge_attrs(self, fr: int, to: int, mtype: str, attribute_names: [str]):
-        # We have to update only the "has_intention" and "has_affordance" edges' attributes
-        if mtype not in ["has_affordance", "has_intention"]:
-             return
-        edge = self.g.get_edge(fr, to, mtype)
-        edge_item = self.edge_item_map.get((fr, to, mtype), None)
-        #print("Affordances::on_graph_update_edge_attrs", fr, to, mtype, attribute_names, edge_item)
-        if edge_item:
-            self._internal_update = True    # prevent recursive calls
-            for attribute_name in attribute_names:
-                if attribute_name == "active":
-                    if edge.attrs.__contains__("active"):
-                        edge_item.setCheckState(0, Qt.Checked if edge.attrs["active"].value else Qt.Unchecked)
-                elif attribute_name == "state":
-                    if edge.attrs.__contains__("state"):
-                        print("State changed", edge.attrs["state"].value)
-                        state_value = edge.attrs["state"].value if "state" in edge.attrs else "undefined"
-                        edge_item.setText(0, f"→ {mtype} ➝ {self.g.get_node(edge.destination).name} ➝ {state_value}")
-            # Force a dataChanged signal on edge_item to refresh the UI
-            self._internal_update = False
-
-    def on_graph_update_edge(self, fr: int, to: int, mtype: str):
-        if mtype in ["has_intention", "has_affordance"]:
-            print("Affordances::on_graph_update_edge", self.g.get_node(fr).name, self.g.get_node(to).name, mtype)
-        if (fr, to, mtype) not in self.relevant_edges:
-            self.create_edge_item(self.g.get_edge(fr, to, mtype))
-
-    def on_graph_delete_node(self, id: int):
-        print("Affordances::on_graph_delete_node", id)
-        self.relevant_node_ids.discard(id)
-        if id in self.node_item_map:
-            del self.node_item_map[id]
-        self.populate()
-
-    def on_graph_delete_edge(self, fr: int, to: int, mtype: str):
-        print("Affordances::on_graph_delete_edge", fr, to, mtype)
-        # Remove the edge from the model
-        self.relevant_edges.discard((fr, to, mtype))
-        if (fr, to, mtype) in self.edge_item_map:
-            del self.edge_item_map[(fr, to, mtype)]
-
+    def node_current_change_SLOT(self, value, node):
+        v = True if value >0 else False
+        print(f" {node.name} changed to {v} for current")
+        edge = Edge(node.id, node.id, "current", self.g.get_agent_id())
+        res = self.g.insert_or_assign_edge(edge)
+        if not res:
+            print(f"Affordances: Error updating edge {node.name} with edge {e.type}")

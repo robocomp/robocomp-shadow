@@ -231,6 +231,7 @@ class FridgeModel(nn.Module):
         # Keep only unexplained points
         keep_mask = min_dists > threshold
         return points[keep_mask]
+
     def hessian_and_covariance(self, points: torch.Tensor)-> [torch.Tensor, torch.Tensor]:
         """
         Computes the Hessian of the loss function and its inverse (covariance matrix).

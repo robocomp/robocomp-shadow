@@ -2,30 +2,32 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import math
 from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem, QMenu, QGraphicsItem, QGraphicsPolygonItem, QWidget, QHBoxLayout, QLabel, QComboBox, QWidgetAction, \
-    QGraphicsLineItem
-from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform, QCursor, QPainter
-from PySide6.QtCore import Qt, QPointF, Signal, QObject, QLineF, QRectF, QSizeF
+    QGraphicsLineItem, QGraphicsSceneMouseEvent
+from PySide6.QtGui import QPen, QColor, QAction, QPainterPath, QPolygonF, QTransform, QCursor, QPainter, QKeyEvent
+from PySide6.QtCore import Qt, QPointF, Signal, QObject, QLineF, QRectF, QSizeF, QEvent
 from PySide6.QtWidgets import QGraphicsTextItem, QMenu, QApplication
 from pydsr import signals
-
 if TYPE_CHECKING:
     # Import GraphicsNode only for type checking to avoid import cycles.
     from src.viewers.graph_viewer.graph_node import GraphicsNode
+from viewers.graph_viewer.edge_colors import edge_colors
+from .graph_edge_widget import GraphEdgeWidget
 
 class GraphicsEdge(QObject, QGraphicsLineItem):
-
     def __init__(self, source_node: GraphicsNode, destination_node: GraphicsNode, edge_name: str):
-        #initialize QObject and QGraphicsPathItem
         super().__init__()
         QGraphicsLineItem.__init__(self)
-
+        self.setAcceptedMouseButtons(Qt.LeftButton | Qt.RightButton)  # TODO: NOT WORKING!!!
         self.arrow_size = 6
-        self.color = QColor("black")  # TODO: get from GraphColors
+        self.color = edge_colors[edge_name] if edge_colors[edge_name] else "coral"
         self.label = None
         self.m_bend_factor = 0
         self.line_width = 2
         self.setZValue(-1)
-        self.setFlag(QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemSendsGeometryChanges | QGraphicsItem.ItemUsesExtendedStyleOption)
+        flags = (QGraphicsItem.ItemIsSelectable |
+                 QGraphicsItem.ItemSendsGeometryChanges |
+                 QGraphicsItem.ItemUsesExtendedStyleOption)
+        self.setFlags(flags)
         self.tag = QGraphicsTextItem(edge_name, self)
         self.tag.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable)
         self.tag.installEventFilter(self)
@@ -36,25 +38,29 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
         if source_node.id_in_graph != destination_node.id_in_graph:
             destination_node.add_edge(self)
         self.adjust()
+        # Connect update signal to update node attributes
+        #signals.connect(self.source_node.graph_viewer.g, signals.UPDATE_EDGE_ATTR, self.update_edge_attr_slot)
 
-    def adjust(self):
+    def adjust(self, node: GraphicsEdge= None, pos: QPointF = None):
         if self.source_node is None or self.destination_node is None:
-           return 
-        line = QLineF(self.mapFromItem(self.source_node, 0, 0), self.mapFromItem(self.destination_node, 0, 0))
+            return
+
+        line = QLineF(self.mapFromItem(self.source_node, 0, 0),
+                      self.mapFromItem(self.destination_node, 0, 0))
 
         length = line.length()
         self.prepareGeometryChange()
-        self.tag.setPos(line.center())
-        default_diameter = 20
-        default_radius = default_diameter * 2
-        print("length", length, "lin3e", line)
-        if length > default_diameter:
-            edge_offset = QPointF(line.dx() * default_radius / length, line.dy() * default_radius / length)
-            source_point = line.p1() + edge_offset
-            destination_point = line.p2() - edge_offset
-            self.setLine(QLineF(source_point, destination_point))
+
+        node_radius = 10  # Matches C++ radius (20-diameter node implies radius=10)
+        if length > 2 * node_radius:
+            edge_offset = QPointF((line.dx() * node_radius) / length,
+                                  (line.dy() * node_radius) / length)
+            self.source_point = line.p1() + edge_offset
+            self.dest_point = line.p2() - edge_offset
         else:
-            self.setLine(line)
+            self.source_point = self.dest_point = line.p1()
+
+        self.setLine(QLineF(self.source_point, self.dest_point))
 
     def boundingRect(self) -> QRectF:
         if not self.source_node or not self.destination_node:
@@ -81,20 +87,13 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
         if self.source_node == self.destination_node:
             self.setZValue(-10)
 
-    def draw_line(self, painter: QPainter):
-        my_pen = self.pen()
-        my_pen.setColor(self.color)
-        painter.setPen(my_pen)
-        painter.setBrush(self.color)
-        painter.drawLine(self.line())
-
     def draw_arrows(self, painter: QPainter):
         angle = math.atan2(-self.line().dy(), self.line().dx())
         destArrowP1 = self.line().p2() + QPointF(math.sin(angle - math.pi / 3) * self.arrow_size,
                                                  math.cos(angle - math.pi / 3) * self.arrow_size)
         destArrowP2 = self.line().p2() + QPointF(math.sin(angle - math.pi + math.pi / 3) * self.arrow_size,
                                                  math.cos(angle - math.pi + math.pi / 3) * self.arrow_size)
-        painter.setBrush(self.color)
+        painter.setBrush(QColor(self.color))
         painter.setPen(self.color)
         painter.drawPolygon(QPolygonF([self.line().p2(), destArrowP1, destArrowP2]))
 
@@ -134,14 +133,46 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
 
     def set_bend_factor(self, factor: float):
         """Set the bend factor for the edge. Positive values curve up, negative values curve down."""
-        self.m_bendFactor = factor
+        self.m_bend_factor = factor
 
-    ###################################
-    # def update_edge_attr_slot(self, from_id: int, to_id: int, edge_type: str, att_name: list[str]):
-    #     if from_id != self.source_node.id_in_graph or to_id != self.destination_node.id_in_graph:
-    #         return
-    #     if "color" in att_name:
-    #         edge = self.source_node.graph_viewer.g.get_edge(from_id, to_id, self.tag.toPlainText())
-    #         if edge:
-    #             if edge.attrs.__contains__("color"):
-    #                 self.color = QColor(not edge.attrs["color"].value)
+    ######### EVENTS ################################################
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent):
+        print("GraphicsEdge::mouseDoubleClickEvent")
+        if event.button() == Qt.RightButton:
+            print(f"{__file__} {__name__} Edge from {self.source_node.id_in_graph} to {self.destination_node.id_in_graph} tag: {self.tag.toPlainText()}")
+            self.do_stuff = None
+            graph = self.source_node.graph_viewer.g
+            if self.tag.toPlainText() in ["RT", "looking-at"]:
+                #self.do_stuff = GraphEdgeRTWidget(graph, self.source_node.id_in_graph, self.destination_node.id_in_graph, self.tag.toPlainText())
+                pass
+            else:
+                self.do_stuff = GraphEdgeWidget(graph, self.source_node.id_in_graph, self.destination_node.id_in_graph, self.tag.toPlainText())
+            self.update()
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key_Escape:
+            if self.label is not None:
+                self.label.close()
+                del self.label
+                self.label = None
+
+    # def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+    #     if obj == self.tag:
+    #         if event.type() == QEvent.GraphicsSceneMouseDoubleClick:
+    #             mouse_event = event  # type: QGraphicsSceneMouseEvent
+    #             if mouse_event.button() == Qt.RightButton:
+    #                 self.mouse_double_clicked()
+    #             return True
+    #     return False
+
+    ################### SLOTS ################################
+    def update_edge_attr_slot(self, from_id: int, to_id: int, edge_type: str, att_name: list[str]):
+        if from_id != self.source_node.id_in_graph or to_id != self.destination_node.id_in_graph:
+            return
+        if "color" in att_name:
+            edge = self.source_node.graph_viewer.g.get_edge(from_id, to_id, self.tag.toPlainText())
+            if edge:
+                if edge.attrs.__contains__("color"):
+                    self.color = QColor(edge.attrs["color"].value)
+
