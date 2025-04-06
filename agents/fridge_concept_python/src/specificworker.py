@@ -65,15 +65,21 @@ class SpecificWorker(GenericWorker):
         o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
         self.vis = o3d.visualization.Visualizer()
         self.vis.create_window(window_name='Real-Time 3D Point Cloud', height=480, width=640)
-        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0, origin=[0, 0, 0])
+        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
         self.vis.add_geometry(axes)
 
         # Add a floor
         floor = o3d.geometry.TriangleMesh.create_box(width=10, height=10, depth=0.1)
         floor.translate([-5, -5, -0.1])  # Adjust position
-        floor.paint_uniform_color([0.8, 0.8, 0.8])  # Set color to light gray
+        floor.paint_uniform_color([1, 0.86, 0.58])  # Set color to light gray
         self.vis.add_geometry(floor)
 
+        # Load the Shadow .obj mesh
+        self.shadow_mesh = o3d.io.read_triangle_mesh("src/meshes/shadow.obj", print_progress=True)
+        self.shadow_mesh.paint_uniform_color([1, 0, 1])
+        self.vis.add_geometry(self.shadow_mesh)
+
+        #points
         self.pcd = o3d.geometry.PointCloud()
         points = np.random.rand(3, 3)
         self.pcd.points = o3d.utility.Vector3dVector(points)
@@ -106,7 +112,7 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
 
-        room_node, robot_node, robot_pose = self.check_robot_and_room_exist()
+        room_node, robot_node, robot_pose = self.check_robot_and_room_exist(self.shadow_mesh)
 
         # draw room mesh
         self.draw_room(room_node)
@@ -123,11 +129,12 @@ class SpecificWorker(GenericWorker):
             console.print("Not enough residuals", style='red')
             return
 
-        residuals = torch.tensor(np.array(residuals, dtype=np.float32), dtype=torch.float32, device="cuda") / 1000.0  # Convert to meters
+        residuals_r = torch.tensor(np.array(residuals, dtype=np.float32), dtype=torch.float32, device="cuda") / 1000.0  # Convert to meters
         if self.f is not None:
-            residuals = self.f.remove_explained_points(residuals, 0.1)
+            residuals_r = self.f.remove_explained_points(residuals_r, 0.1)
+            print("residuals", lidar_data.shape[0], residuals.shape[0], residuals_r.shape[0])
 
-        print("residuals", residuals.shape, "number of points:", residuals.shape[0])
+        #print("lidar", lidar_data.shape, "residuals", residuals.shape, "number of points:", residuals.shape[0])
         # Get fridges from graph
         # fridge_nodes = self.g.get_nodes_by_type("fridge")
         # if fridge_nodes:
@@ -138,23 +145,25 @@ class SpecificWorker(GenericWorker):
         #         console.print("Not enough residuals after projecting fridges", style='red')
         #         return
 
-        # generate clusters from residuals
-        #clusters = self.get_clusters(residuals, 500, 25)
-        #print("Cluster", clusters.shape)
-
         if self.f is None:
-            self.f = self.initialize_fridge(room_node, residuals)
+            # generate clusters from residuals
+            clusters = self.get_clusters(residuals_r.cpu().numpy(), 0.2, 25)
+            residuals = torch.tensor(np.array(clusters[0], dtype=np.float32), dtype=torch.float32, device="cuda")  # Convert to meters
+            self.f = self.initialize_fridge(room_node, robot_node, residuals)
 
-        self.draw_point_cloud(residuals)
+            # add fridge to graph
+
+        #print("residuals", residuals.shape, .shape)
+        self.draw_point_cloud(residuals_r)
 
     ##########################################################################################333
-    def check_robot_and_room_exist(self):
+    def check_robot_and_room_exist(self, shadow_mesh: o3d.geometry.TriangleMesh):
         if self.g.get_nodes_by_type("room") is None or self.g.get_node("Shadow") is None:
             console.print("Shadow or room node not found", style='red')
             return False
-        room_node = self.g.get_nodes_by_type("room")[0]
+        room_node = self.g.get_nodes_by_type("room")[0] #TODO: add current edge
         robot_node = self.g.get_node("Shadow")
-        return room_node, robot_node, self.read_robot_pose(room_node, robot_node)
+        return room_node, robot_node, self.read_robot_pose(room_node, robot_node, shadow_mesh)
 
     def read_lidar_helios(self):
         try:
@@ -179,11 +188,20 @@ class SpecificWorker(GenericWorker):
         # Get residuals unexplained by the room polygon
         return self.project_points_to_polygon(transformed_lidar_data, room_polygon, 200)
 
-    def read_robot_pose(self, room_node, robot_node):
+    def read_robot_pose(self, room_node: Node, robot_node: Node, shadow_mesh: o3d.geometry.TriangleMesh):
         robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
         robot_tx, robot_ty, robot_tz = robot_edge_rt.attrs['rt_translation'].value
         robot_rx, robot_ry, robot_rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
 
+        # move the shadow mesh to the robot position
+        shadow_mesh.translate([robot_tx/1000, robot_ty/1000, 0.5], relative=False)
+        #shadow_mesh.rotate(shadow_mesh.get_rotation_matrix_from_xyz((robot_rx, robot_ry, robot_rz)))
+        # Update the visualizer
+        self.vis.update_geometry(shadow_mesh)
+        self.vis.poll_events()
+        self.vis.update_renderer()
+
+        # self.vis.add_geometry(shadow_mesh)
         # Convert Euler angles (in radians) to a 3D rotation matrix
         def euler_to_rotation_matrix(rx, ry, rz):
             # Rotation around the X axis
@@ -282,9 +300,15 @@ class SpecificWorker(GenericWorker):
         # Return np.array in which each position is a np.array of the points of each cluster
         return np.array([points[labels == i] for i in range(max(labels) + 1)], dtype=object)
 
-    def initialize_fridge(self, room_node, points):
-        init_params = [-0.3, 0.4, 0.9, 0.0, 0.0, 0.1, 0.5, 0.2, 1.8]  # Initial guess
-        f = FridgeModel(init_params)
+    def initialize_fridge(self, room_node, robot_node, points: torch.Tensor):
+        # compute center of the cluster using torch
+        cx = torch.mean(points[:, 0])
+        cy = torch.mean(points[:, 1])
+        init_params = [cx, cy, 0.9, 0.0, 0.0, 0.0, 0.6, 0.6, 1.8]  # Initial guess
+        robot_edge_rt = self.rt_api.get_edge_RT(room_node, robot_node.id)
+        tx, ty, tz = robot_edge_rt.attrs['rt_translation'].value
+        rx, ry, rz = robot_edge_rt.attrs['rt_rotation_euler_xyz'].value
+        f = FridgeModel(init_params, robot_rot=[rx, ry, rz], robot_trans=[tx/1000.0, ty/1000.0, 1.2])
         f.print_params()
 
         optimizer = optim.Adam([
@@ -310,7 +334,7 @@ class SpecificWorker(GenericWorker):
 
         print("Optimization complete.")
         f.print_params()
-        f.print_grads()
+        #f.print_grads()
         print(f"Elapsed time: {time.time() - now:.4f} seconds")
 
         # I need now to draw the resulting fridge in the room
@@ -335,7 +359,8 @@ class SpecificWorker(GenericWorker):
         """
         # Concatenate all clusters
         #all_clusters = np.concatenate(clusters)
-        points = points.cpu().numpy()
+        if isinstance(points, torch.Tensor):
+            points = points.cpu().numpy()
         self.pcd.points = o3d.utility.Vector3dVector(points)
         colors = np.tile([0.0, 1.0, 0.0], (points.shape[0], 1))  # Green color for each point
         self.pcd.colors = o3d.utility.Vector3dVector(colors)

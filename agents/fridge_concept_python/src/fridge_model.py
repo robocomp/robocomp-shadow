@@ -1,17 +1,13 @@
-
 try:
     import time
     import torch
     import numpy as np
     from torch.autograd.functional import hessian
     import torch.nn as nn
-    #import torch.optim as optim
     from pytorch3d.loss.point_mesh_distance import _PointFaceDistance
     from pytorch3d.loss import chamfer_distance, point_mesh_edge_distance, point_mesh_face_distance
     from pytorch3d.structures import Pointclouds, Meshes
     from pytorch3d.ops import iterative_closest_point
-    #import matplotlib.pyplot as plt
-    #from mpl_toolkits.mplot3d import Axes3D
     from pytorch3d.renderer import (
         PerspectiveCameras,
         MeshRasterizer,
@@ -27,16 +23,24 @@ except ModuleNotFoundError as e:
     raise e
 
 class Cameras:
-    def __init__(self, img_size: int, device="cuda"):
-        self.device = device
-        self.img_size = img_size
-        R = axis_angle_to_matrix(torch.tensor([0, 1, 0], dtype=torch.float32, device=device) * -torch.pi/2.0).unsqueeze(0).to(device)
-        T = torch.tensor([-3, -1.2, 3], dtype=torch.float32).unsqueeze(0).to(device)
+    def __init__(self, robot_rot, robot_trans, device="cuda"):
+        # +X is right, +Y is up, +Z is forward
+        # we want to rotate the camera to look at the fridge. Room is +X right, +Y front, +Z up
+        # so we need the camera Z+ to be aligned with the robot Y+
+        # to do that rotate the camera by -90 degrees around the X axis
+        # and then rotate it by the robot rotation around the Y axis
+        # Step 1: Rotate by -90 degrees around the X-axis
+        R1 = axis_angle_to_matrix(torch.tensor([1, 0, 0], dtype=torch.float32, device=device) * -torch.pi / 2.0).unsqueeze(0).to(device)
+        # Step 2: Rotate by the robot's rz angle around the Z-axis
+        R2 = euler_angles_to_matrix(torch.tensor([0, 0, -robot_rot[2]], dtype=torch.float32, device=device).unsqueeze(0), convention="XYZ").to(device)
+        # Combine the rotations
+        R = torch.matmul(R2, R1)
+        #T = torch.tensor([-3, -1.2, 3], dtype=torch.float32).unsqueeze(0).to(device)
+        T = torch.tensor(robot_trans, dtype=torch.float32).unsqueeze(0).to(device)
         self.py_cam = FoVPerspectiveCameras(fov=60.0, R=R, T=T, device=device)
 
 class Rasterizer:
-    def __init__(self, cam: Cameras, device="cuda"):
-        self.device = device
+    def __init__(self, cam: Cameras):
         self.raster_settings = RasterizationSettings(
             image_size=128,
             blur_radius=0.0,
@@ -54,10 +58,10 @@ class FridgeModel(nn.Module):
     It can render the fridge as a mesh or as sampled points seen from a camera.
     '''
 
-    def __init__(self, init_params, device="cuda"):
+    def __init__(self, init_params, robot_rot, robot_trans, device="cuda"):
         super().__init__()
-        self.cam = Cameras(128, device=device)
-        self.rasterizer = Rasterizer(self.cam, device=device)
+        self.cam = Cameras(robot_rot, robot_trans, device)
+        self.rasterizer = Rasterizer(self.cam)
         self.device = device
 
         # Define each parameter separately as a trainable nn.Parameter
@@ -112,6 +116,7 @@ class FridgeModel(nn.Module):
             #textures=textures
         )
         return my_mesh
+
     def forward_visible_faces(self) -> Meshes:
         """
         Get a mask of visible faces using rasterization.
@@ -133,11 +138,11 @@ class FridgeModel(nn.Module):
         # Create a new mesh with only visible faces
         filtered_mesh = Meshes(verts=[verts], faces=[visible_faces])
         return filtered_mesh
+
     def rasterize_visible_faces(self):
         """
         Rasterize the visible faces of the mesh to a binary image.
         """
-
         # Rasterize the mesh
         my_mesh = self.forward()
         fragments = self.rasterizer.rasterizer(my_mesh)
@@ -176,6 +181,7 @@ class FridgeModel(nn.Module):
         w_points = self.cam.py_cam.unproject_points(points_ndc_batched, world_coordinates=True)
 
         return w_points.squeeze(0)
+
     def remove_explained_points(self, points: torch.Tensor, threshold: float = 0.01) -> torch.Tensor:
         """
         Removes points whose distance to any face in the mesh is less than the threshold.
@@ -212,7 +218,7 @@ class FridgeModel(nn.Module):
         inside = (u >= 0) & (v >= 0) & (w >= 0)  # (P, F)
 
         # Distance to plane of triangle
-        n = torch.cross(v0v1, v0v2)  # (F, 3)
+        n = torch.linalg.cross(v0v1, v0v2)  # (F, 3)
         n = n / (n.norm(dim=-1, keepdim=True) + 1e-8)
         plane_dists = torch.abs((pvec * n[None, :, :]).sum(-1))  # (P, F)
 
@@ -270,10 +276,12 @@ class FridgeModel(nn.Module):
             print("Warning: Hessian is singular, returning zero covariance.")
 
         return hessian_matrix, covariance_matrix
+
     def print_params(self):
         print("Model Parameters:")
         for name, param in self.named_parameters():
             print(f"    {name} value: {param.item()}")
+
     def print_grads(self):
         print("Gradients:")
         for name, param in self.named_parameters():
@@ -282,9 +290,8 @@ class FridgeModel(nn.Module):
     ##########################################################
     ### losses
     ##########################################################
-    def loss_function(self, real_points):
+    def loss_function(self, real_points: torch.Tensor):
         """ Compute the loss for optimization """
-
         # Compute mesh from updated model
         my_mesh = self.forward_visible_faces()
 
@@ -296,7 +303,7 @@ class FridgeModel(nn.Module):
         loss_5 = self.prior_aligned()
         loss_6 = self.prior_position_by_mass_center(real_points)
 
-        total_loss = loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2*loss_5 + 0.5*loss_6
+        total_loss = loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5 + 0.5 * loss_6
         return total_loss
 
     def prior_size(self, w=0.6, d=0.6, h=1.8):
@@ -313,15 +320,13 @@ class FridgeModel(nn.Module):
         # The fridge is aligned with the room axis: a,b,c = 0
         return torch.sum(self.a**2 + self.b**2 + self.c**2)
 
-    def prior_position_by_mass_center(self, points: torch.Tensor):
-        # compute the mass center of the point cloud
+    def prior_position_by_mass_center(self, points: torch.Tensor  )-> torch.Tensor:
+        """
+        Compute the prior on the position of the fridge based on the mass center of the points.
+        The mass center is computed as the mean of the points.
+        """
+        # Compute mass center
         mass_center = torch.mean(points, dim=0)
-        # displace the mass_center backwards by the prior width and depth of the fridge
-        x0 = mass_center[0]
-        y0 = mass_center[1]
-        return (self.x - x0)**2 + (self.y - y0)**2
-
-
-
-
-
+        # Compute distance to mass center
+        dist = torch.sqrt((self.x - mass_center[0])**2 + (self.y - mass_center[1])**2 + (self.z - mass_center[2])**2)
+        return dist
