@@ -1,0 +1,16 @@
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/list_install_components.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/install.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/install/local.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/CMakeFiles/install/strip.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/ICES__home_pbustos_robocomp_components_robocomp-shadow_insect_RGBD_360_Sync_src.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/RGBD_360.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/edit_cache.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/rebuild_cache.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/list_install_components.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/install.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/install/local.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/install/strip.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/RGBD_360_autogen_timestamp_deps.dir
+/home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug/src/CMakeFiles/RGBD_360_autogen.dir

@@ -1,0 +1,65 @@
+/home/pbustos/software/clion-2024.3.3/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "Unix Makefiles" -S /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync -B /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug
+CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value or use a ...<max> suffix to tell
+  CMake that the project does not need compatibility with older versions.
+
+
+-- The C compiler identification is GNU 11.4.0
+-- The CXX compiler identification is GNU 12.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+CMake Warning at src/CMakeLists.txt:4 (MESSAGE):
+  ROBOCOMP variable not set.  Using the default value:
+  /home/robocomp/robocomp
+
+
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HAVE_STDATOMIC
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE
+-- COMPILING WITH QT6
+-- Configuring for x86_64 architecture
+-- Found OpenGL: /usr/lib/x86_64-linux-gnu/libOpenGL.so
+-- Found WrapOpenGL: TRUE
+-- Found XKB: /usr/lib/x86_64-linux-gnu/libxkbcommon.so (found suitable version "1.4.0", minimum required is "0.5.0")
+-- Found WrapVulkanHeaders: /usr/include
+-- Found OpenCV: /usr (found suitable version "4.5.4", minimum required is "4")
+-- opencv_calib3dopencv_coreopencv_dnnopencv_features2dopencv_flannopencv_highguiopencv_imgcodecsopencv_imgprocopencv_mlopencv_objdetectopencv_photoopencv_stitchingopencv_videoopencv_videoioopencv_alphamatopencv_arucoopencv_barcodeopencv_bgsegmopencv_bioinspiredopencv_ccalibopencv_datasetsopencv_dnn_objdetectopencv_dnn_superresopencv_dpmopencv_faceopencv_freetypeopencv_fuzzyopencv_hdfopencv_hfsopencv_img_hashopencv_intensity_transformopencv_line_descriptoropencv_mccopencv_optflowopencv_phase_unwrappingopencv_plotopencv_qualityopencv_rapidopencv_regopencv_rgbdopencv_saliencyopencv_shapeopencv_stereoopencv_structured_lightopencv_superresopencv_surface_matchingopencv_textopencv_trackingopencv_videostabopencv_vizopencv_wechat_qrcodeopencv_ximgprocopencv_xobjdetectopencv_xphoto
+-- Ice version: 3.7.6
+-- Found the following Ice libraries:
+--   Ice++11 (required)
+--   IceStorm++11 (required)
+-- Found Ice: /usr/bin/slice2cpp (found version "3.7.6")
+-- RoboComp root is now set to /home/robocomp/robocomp//
+-- 
+-- Ice version: 3.7.6
+-- Found the following Ice libraries:
+--   Ice (required)
+--   IceStorm (required)
+-- The following Ice libraries were not found:
+--   IceUtil (optional)
+-- Found Ice: /usr/bin/slice2cpp (found version "3.7.6")
+-- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/CommonBehavior.ice from /home/robocomp/robocomp//interfaces/IDSLs/CommonBehavior.idsl
+-- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Camera360RGB.ice from /home/robocomp/robocomp//interfaces/IDSLs/Camera360RGB.idsl
+-- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Camera360RGBD.ice from /home/robocomp/robocomp//interfaces/IDSLs/Camera360RGBD.idsl
+-- BU Adding rule to generate /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Lidar3D.ice from /home/robocomp/robocomp//interfaces/IDSLs/Lidar3D.idsl
+-- BU ice=>h/cpp: Adding rule to generate CommonBehavior.h and CommonBehavior.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/CommonBehavior.ice
+-- BU ice=>h/cpp: Adding rule to generate Camera360RGB.h and Camera360RGB.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Camera360RGB.ice
+-- BU ice=>h/cpp: Adding rule to generate Camera360RGBD.h and Camera360RGBD.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Camera360RGBD.ice
+-- BU ice=>h/cpp: Adding rule to generate Lidar3D.h and Lidar3D.cpp from /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/src/Lidar3D.ice
+-- Configuring done (0.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/pbustos/robocomp/components/robocomp-shadow/insect/RGBD_360_Sync/cmake-build-debug
