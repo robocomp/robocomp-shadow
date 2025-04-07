@@ -110,10 +110,8 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
             f1 = QLineF(t1, self.line().p2())
             f1.setAngle(f1.angle() + 90 if bend_direction else f1.angle() - 90)
             f1.setLength(f1.length() * 0.2 * pos_factor)
-
             m_control_pos = f1.p2()
             m_control_point = m_control_pos - (t1 - m_control_pos) * 0.33
-
             path = QPainterPath()
             path.moveTo(self.line().p1())
             path.cubicTo(m_control_point, m_control_point, self.line().p2())
@@ -125,11 +123,11 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(self.color)
             painter.drawPath(path)
-        else:
+        else:   # Draw a circle
             painter.setBrush(Qt.NoBrush)
             default_diameter = 20
             default_radius = default_diameter * 2
-            painter.drawEllipse(self.line().p1().x() - default_radius * 2, self.line().p1().y(), default_radius * 2, default_radius * 2)
+            painter.drawEllipse(int(self.line().p1().x() - default_radius * 2), int(self.line().p1().y()), default_radius * 2, default_radius * 2)
 
     def set_bend_factor(self, factor: float):
         """Set the bend factor for the edge. Positive values curve up, negative values curve down."""

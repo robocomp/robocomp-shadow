@@ -21,7 +21,9 @@
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsEllipseItem
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsRectItem
+from pytorch3d.loss import point_mesh_face_distance
+from pytorch3d.structures import Meshes, Pointclouds
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -31,13 +33,19 @@ from ui_masterUI import Ui_master
 from affordances import Affordances
 from PySide6 import QtCore, QtWidgets
 import torch
+import numpy as np
 from pytorch3d.transforms import axis_angle_to_matrix, matrix_to_euler_angles, Transform3d, euler_angles_to_matrix
 console = Console(highlight=False)
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.lidar_draw_items = []    # to store the items to be drawn
+        self.room_draw_item = None
+        self.device = "cuda"
+        self.robot_name = "Shadow"
+        self.lidar_draw_local_points_items = []    # to store the items to be drawn
+        self.lidar_draw_residual_items = []
+        self.first_time = True
         self.Period = 100
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
@@ -54,6 +62,9 @@ class SpecificWorker(GenericWorker):
         self.master = self.dsr_viewer.add_custom_widget_to_dock("Master", self.affordance_viewer)
         self.dsr_viewer.window.tabifyDockWidget(self.dsr_viewer.docks["Master"], self.dsr_viewer.docks["2D"])
         self.dsr_viewer.docks["Master"].raise_()  # Forzar que el dock "Master" tenga el foco
+
+        self.rt_api = rt_api(self.g)
+        self.inner_api = inner_api(self.g)
 
         if startup_check:
             self.startup_check()
@@ -77,41 +88,71 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             print(e)
 
-        if self.there_is_room():
-            residuals = self.room_residuals(lidar_data.points)
-            #residuals = self.fridge_residuals(lidar_data.points)
+        ok, room, mesh = self.check_for_room()
+        if ok:
+            points_in_room = self.points_to_room_frame(mesh, room, lidar_data.points)    # return as ndarray
+            residuals = self.remove_explained_points(mesh, points_in_room, 0.1)
+            if len(residuals) > 0:
+                print("Residuals: ", len(residuals))
+            self.draw_room(self.viewer_2d, mesh)
             self.draw_residuals(self.viewer_2d, residuals)
         else:
             self.draw_lidar_data_local(self.viewer_2d, lidar_data.points)
 
     # =============== WORK  ================
-    def there_is_room(self):
+    def check_for_room(self) -> [bool, Node, Meshes]:
+        # TODO: skip if room is already created
         edges = self.g.get_edges_by_type("current")
         for e in edges:
             n = self.g.get_node(e.origin)
             if n is not None and e.origin == e.destination and n.type == "room":  # self current edge
-                return True
-        return False
+                return True, n, self.create_room_mesh(n)
+        return False, None, None
 
-    def room_residuals(self, points: list):
-        # draw room
-        self.draw_room()
+    def create_room_mesh(self, room: Node) -> Meshes:
+        # get room dimensions
+        sw = room.attrs["width"].value/2.0/1000.0 # mm to meters
+        sd = room.attrs["depth"].value/2.0/1000.0
+        h = 3 # TODO: get height from room
 
+        # nominal corners of the room
+        base_corners = torch.stack([
+            torch.tensor([-sw, -sd, 0.0], device=self.device),
+            torch.tensor([sw, -sd, 0.0], device=self.device),
+            torch.tensor([sw, sd, 0.0], device=self.device),
+            torch.tensor([-sw, sd, 0.0], device=self.device),
+            torch.tensor([-sw, -sd, 3], device=self.device),
+            torch.tensor([sw, -sd, 3], device=self.device),
+            torch.tensor([sw, sd, 3], device=self.device),
+            torch.tensor([-sw, sd, 3], device=self.device)
+        ])
+
+        # nominal faces of the room
+        faces = torch.tensor([
+            [0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+            [2, 3, 7], [2, 7, 6], [7, 3, 0], [4, 7, 0], [1, 2, 6], [1, 6, 5]], dtype=torch.int32, device=self.device)
+ 
+        return Meshes(verts=[base_corners], faces=[faces])
+    
+    def points_to_room_frame(self, mesh, room: Node, points: list) -> torch.Tensor:
         # move points to room frame using Pytorch3D
-        points_list = [[p.x, p.y, p.z] for p in points]
+        points_list = [[p.x/1000.0, p.y/1000.0, p.z/1000.0] for p in points]   # to meters # TODO: check Z
         # Convert the list to a PyTorch tensor
-        points_tensor = torch.tensor(points_list)
+        points_tensor = torch.tensor(points_list, device="cuda", dtype=torch.float32)
 
-        # Transform the corners to the current model scale, position and orientation
-        t = (Transform3d(device="cuda").scale(self.w, self.d, self.h)
-             .rotate(euler_angles_to_matrix(torch.stack([self.a, self.b, self.c]), "ZYX"))
-             .translate(self.x, self.y, self.z))
-        points_in_room = t.transform_points(points_list)
+        # get room position and orientation
+        w = room.attrs["width"].value # mm
+        d = room.attrs["depth"].value
+        angles = self.inner_api.get_euler_xyz_angles(room.name, self.robot_name)
+        x, y, z = self.inner_api.get_translation_vector(room.name, self.robot_name)
+        angles = torch.stack([torch.tensor(angle, device="cuda") for angle in angles])
+        angles[2] = -angles[2]  # invert yaw angle
+        # Transform the points to the room frame
+        t = (Transform3d(device="cuda")
+             .rotate(euler_angles_to_matrix(angles, "XYZ"))
+             .translate(x/1000.0, y/1000.0, z/1000.0))
 
-        # filter points close to the walls
-        residuals = self.remove_explained_points(points_in_room)
-
-        return residuals
+        return t.transform_points(points_tensor)
 
     def fridge_residuals(self, points):
         # if fridge in Graph, get fridge
@@ -124,29 +165,11 @@ class SpecificWorker(GenericWorker):
             pass
         return points
 
-    def draw_lidar_data_local(self, viewer, points):
-        # Clear previous items
-        for item in self.lidar_draw_items:
-            viewer.scene.removeItem(item)
-            del item
-        self.lidar_draw_items.clear()
-        # Draw current Lidar points
-        color = QColor(0, 255, 0)
-        pen = QPen(color, 20)
-        for i in range(0, len(points)):
-            ellipse = QGraphicsEllipseItem(-20, -20, 40, 40)
-            ellipse.setPen(pen)
-            ellipse.setBrush(color)
-            ellipse.setPos(points[i].x, points[i].y)
-            viewer.scene.addItem(ellipse)
-            self.lidar_draw_items.append(ellipse)
-
-    def remove_explained_points(self, points: torch.Tensor, threshold: float = 0.01) -> torch.Tensor:
+    def remove_explained_points(self, mesh: Meshes, points: torch.Tensor, threshold: float = 0.1) -> np.ndarray:
         """
         Removes points whose distance to any face in the mesh is less than the threshold.
         Returns the points not explained by the mesh (distance > threshold).
         """
-        mesh = self.forward()
         verts = mesh.verts_packed()  # (V, 3)
         faces = mesh.faces_packed()  # (F, 3)
         tris = verts[faces]  # (F, 3, 3)
@@ -177,7 +200,7 @@ class SpecificWorker(GenericWorker):
         inside = (u >= 0) & (v >= 0) & (w >= 0)  # (P, F)
 
         # Distance to plane of triangle
-        n = torch.cross(v0v1, v0v2)  # (F, 3)
+        n = torch.linalg.cross(v0v1, v0v2)  # (F, 3)
         n = n / (n.norm(dim=-1, keepdim=True) + 1e-8)
         plane_dists = torch.abs((pvec * n[None, :, :]).sum(-1))  # (P, F)
 
@@ -195,7 +218,64 @@ class SpecificWorker(GenericWorker):
 
         # Keep only unexplained points
         keep_mask = min_dists > threshold
-        return points[keep_mask]
+        return points[keep_mask].cpu().numpy()  # (N, 3)
+
+    # =============== DRAW  ============================================================
+    def draw_room(self, viewer, mesh: Node):
+        # Clear previous item
+        if self.room_draw_item is not None:
+            viewer.scene.removeItem(self.room_draw_item)
+            del self.room_draw_item
+
+        # get room position and orientation
+        #w = room.attrs["width"].value
+        #d = room.attrs["depth"].value
+        # get vertices from meshes
+        verts = mesh.verts_packed()
+        w = (verts[1][0] - verts[0][0])*1000
+        d = (verts[2][1] - verts[0][1])*1000
+
+        # draw the room as a rectangle
+        color = QColor("brown")
+        pen = QPen(color, 40)
+        rect = QGraphicsRectItem(-w / 2, -d / 2, w, d)
+        rect.setPen(pen)
+        viewer.scene.addItem(rect)
+        self.room_draw_item = rect
+
+        if self.first_time:
+            viewer.fitInView(self.viewer_2d.scene.itemsBoundingRect(), QtCore.Qt.KeepAspectRatio)
+            self.first_time = False
+
+    def draw_residuals(self, viewer, points: np.ndarray, color: str = "blue"):
+        # Clear previous items
+        for item in self.lidar_draw_residual_items:
+            viewer.scene.removeItem(item)
+            del item
+        self.lidar_draw_residual_items.clear()
+
+        pen = QPen(QColor(color), 20)
+        for point in points:
+            ellipse = QGraphicsEllipseItem(-20, -20, 40, 40)
+            ellipse.setPen(pen)
+            ellipse.setPos(point[0]*1000, point[1]*1000) # convert to mm
+            viewer.scene.addItem(ellipse)
+            self.lidar_draw_residual_items.append(ellipse)
+
+    def draw_lidar_data_local(self, viewer, points, color: str= "green"):
+        # Clear previous items
+        for item in self.lidar_draw_local_points_items:
+            viewer.scene.removeItem(item)
+            del item
+        self.lidar_draw_local_points_items.clear()
+        # Draw current Lidar points
+        pen = QPen(QColor(color), 20)
+        for i in range(0, len(points)):
+            ellipse = QGraphicsEllipseItem(-20, -20, 40, 40)
+            ellipse.setPen(pen)
+            ellipse.setPos(points[i].x, points[i].y)
+            viewer.scene.addItem(ellipse)
+            self.lidar_draw_local_points_items.append(ellipse)
 
     # =============== AUX  ================
     def startup_check(self):

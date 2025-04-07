@@ -4,7 +4,6 @@ try:
     import numpy as np
     from torch.autograd.functional import hessian
     import torch.nn as nn
-    from pytorch3d.loss.point_mesh_distance import _PointFaceDistance
     from pytorch3d.loss import chamfer_distance, point_mesh_edge_distance, point_mesh_face_distance
     from pytorch3d.structures import Pointclouds, Meshes
     from pytorch3d.ops import iterative_closest_point
@@ -184,59 +183,274 @@ class FridgeModel(nn.Module):
 
     def remove_explained_points(self, points: torch.Tensor, threshold: float = 0.01) -> torch.Tensor:
         """
-        Removes points whose distance to any face in the mesh is less than the threshold.
+        Removes points whose minimum distance to any face in the mesh is less than or equal to the threshold.
+        Uses geometrically correct point-to-triangle distance calculation, including edges.
         Returns the points not explained by the mesh (distance > threshold).
         """
-        mesh = self.forward()
-        verts = mesh.verts_packed()  # (V, 3)
-        faces = mesh.faces_packed()  # (F, 3)
-        tris = verts[faces]  # (F, 3, 3)
 
-        # Expand points to (P, F, 3) and tris to (P, F, 3, 3)
+        # Helper function for squared point-to-segment distance (vectorized)
+        def point_segment_distance_sq(
+                points: torch.Tensor, seg_start: torch.Tensor, seg_end: torch.Tensor, eps: float = 1e-8
+        ) -> torch.Tensor:
+            """
+            Computes squared Euclidean distance from points to line segments.
+            Args:
+                points: Points tensor, shape (..., P, 1, 3) or broadcasts.
+                seg_start: Segment start points, shape (..., 1, F, 3) or broadcasts.
+                seg_end: Segment end points, shape (..., 1, F, 3) or broadcasts.
+                eps: Small value for numerical stability.
+            Returns:
+                Squared distances, shape broadcastable from inputs, typically (..., P, F).
+            """
+            # Ensure broadcasting between points (P,1,3) and segments (1,F,3)
+            # Vector from segment start to points: results in shape (P, F, 3)
+            vec_ap = points - seg_start
+            # Vector defining the segment: results in shape (1, F, 3)
+            vec_ab = seg_end - seg_start
+
+            # Squared length of the segment vector
+            # Shape: (1, F)
+            ab_sq = (vec_ab * vec_ab).sum(-1)
+
+            # Project points onto the line defined by the segment
+            # t = dot(vec_ap, vec_ab) / dot(ab, ab)
+            # Element-wise product broadcasts (P, F, 3) * (1, F, 3) -> (P, F, 3)
+            # Sum over last dim -> Shape: (P, F)
+            ap_dot_ab = (vec_ap * vec_ab).sum(-1)
+
+            # Add epsilon to avoid division by zero for zero-length segments (degenerate edges)
+            # Division broadcasts (P, F) / (1, F) -> (P, F)
+            t = ap_dot_ab / (ab_sq + eps)
+
+            # Clamp t to the range [0, 1] to find the closest point on the segment
+            t_clamped = torch.clamp(t, 0.0, 1.0)  # Shape (P, F)
+
+            # Calculate the closest point on the segment: proj = A + t_clamped * AB
+            # Broadcasting: seg_start(1,F,3) + (t(P,F,1) * vec_ab(1,F,3) -> (P,F,3)) -> (P,F,3)
+            proj = seg_start + t_clamped.unsqueeze(-1) * vec_ab  # Shape (P, F, 3)
+
+            # Calculate the squared distance from the original points to the projection on the segment
+            # Broadcasting: points(P,1,3) - proj(P,F,3) -> (P,F,3) -> sum -> (P,F)
+            dist_sq = ((points - proj) ** 2).sum(-1)  # Shape (P, F)
+            return dist_sq
+
+        # --- 1. Mesh Data Preparation ---
+        mesh = self.forward_visible_faces()
+        verts = mesh.verts_packed()
+        faces = mesh.faces_packed()
+
+        # Handle empty mesh or points
+        if faces.numel() == 0 or verts.numel() == 0:
+            print("Warning: Mesh is empty, returning all input points.")
+            return points
+        if points.shape[0] == 0:
+            return points
+
+        tris = verts[faces]  # Shape: (F, 3, 3)
+
+        # --- 2. Prepare Tensors for Vectorized Computation ---
         P = points.shape[0]
         F = tris.shape[0]
-        points_exp = points[:, None, :].expand(P, F, 3)
-        v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]
+        # Expand points for broadcasting against faces. Shape: (P, 1, 3) -> (P, F, 3) below needs explicit broadcast
+        points_p_dim = points[:, None, :] # Shape (P, 1, 3)
+        # Vertices of triangles, shape (F, 3) -> needs broadcasting for P dimension
+        v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2] # Shapes (F, 3)
 
-        # Compute vectors
-        v0v1 = v1 - v0  # (F, 3)
-        v0v2 = v2 - v0  # (F, 3)
-        pvec = points_exp - v0  # (P, F, 3)
+        # --- 3. Barycentric Coordinates Calculation ---
+        # Edge vectors
+        v0v1 = v1 - v0 # Shape (F, 3)
+        v0v2 = v2 - v0 # Shape (F, 3)
+        # Vector from triangle origin (v0) to each point P
+        # Broadcasting: points (P, 1, 3) - v0 (1, F, 3) -> pvec (P, F, 3)
+        pvec = points_p_dim - v0[None, :, :] # Shape: (P, F, 3)
 
-        # Compute dot products
-        d00 = (v0v1 * v0v1).sum(-1)  # (F,)
-        d01 = (v0v1 * v0v2).sum(-1)
-        d11 = (v0v2 * v0v2).sum(-1)
-        d20 = (pvec * v0v1[None, :, :]).sum(-1)  # (P, F)
-        d21 = (pvec * v0v2[None, :, :]).sum(-1)  # (P, F)
+        # Dot products for barycentric coords
+        d00 = (v0v1 * v0v1).sum(-1) # Shape (F,)
+        d01 = (v0v1 * v0v2).sum(-1) # Shape (F,)
+        d11 = (v0v2 * v0v2).sum(-1) # Shape (F,)
+        # Broadcasting: pvec (P, F, 3) * v0v1/v0v2 (1, F, 3) -> sum -> (P, F)
+        d20 = (pvec * v0v1[None, :, :]).sum(-1) # Shape (P, F)
+        d21 = (pvec * v0v2[None, :, :]).sum(-1) # Shape (P, F)
 
-        denom = d00 * d11 - d01 * d01 + 1e-8  # (F,)
-        v = (d11 * d20 - d01 * d21) / denom  # (P, F)
-        w = (d00 * d21 - d01 * d20) / denom
-        u = 1.0 - v - w
+        # Denominator (related to squared area * 2)
+        denom = d00 * d11 - d01 * d01 # Shape (F,)
+        # Mask for degenerate triangles (denom is near zero)
+        degenerate_mask = torch.abs(denom) < 1e-8 # Shape (F,)
 
-        inside = (u >= 0) & (v >= 0) & (w >= 0)  # (P, F)
+        # Avoid division by zero for degenerate triangles
+        # The results for these triangles won't be used in the 'inside' case anyway.
+        denom_safe = torch.where(degenerate_mask, torch.ones_like(denom), denom)
 
-        # Distance to plane of triangle
-        n = torch.linalg.cross(v0v1, v0v2)  # (F, 3)
-        n = n / (n.norm(dim=-1, keepdim=True) + 1e-8)
-        plane_dists = torch.abs((pvec * n[None, :, :]).sum(-1))  # (P, F)
+        # Calculate barycentric coords v and w
+        v = (d11 * d20 - d01 * d21) / denom_safe # Shape (P, F)
+        w = (d00 * d21 - d01 * d20) / denom_safe # Shape (P, F)
+        u = 1.0 - v - w # Shape (P, F)
 
-        # Squared Euclidean distance to closest vertex if outside triangle
-        dist_v0 = ((points[:, None, :] - v0[None, :, :]) ** 2).sum(-1)
-        dist_v1 = ((points[:, None, :] - v1[None, :, :]) ** 2).sum(-1)
-        dist_v2 = ((points[:, None, :] - v2[None, :, :]) ** 2).sum(-1)
-        corner_dists = torch.min(torch.stack([dist_v0, dist_v1, dist_v2], dim=-1), dim=-1).values  # (P, F)
+        # Check if the projection is inside or on the boundary.
+        # Use a small tolerance (e.g., -1e-5) for numerical stability at edges/vertices.
+        # Exclude degenerate triangles from being 'inside'.
+        inside = ((u >= -1e-5) & (v >= -1e-5) & (w >= -1e-5) &
+                  (~degenerate_mask[None, :].expand(P, F))) # Shape (P, F)
 
-        # Use plane distance if inside triangle, corner distance otherwise
-        total_dists = torch.where(inside, plane_dists, torch.sqrt(corner_dists))  # (P, F)
+        # --- 4. Distance Calculation: Case 1 (Projection Inside Triangle) ---
+        # Calculate squared orthogonal distance to the triangle's plane.
+        n = torch.linalg.cross(v0v1, v0v2, dim=-1) # Shape (F, 3)
+        n_norm_sq = (n * n).sum(-1, keepdim=True) # Shape (F, 1)
+        # Project pvec onto normal n: dot(pvec, n)
+        pvec_dot_n = (pvec * n[None, :, :]).sum(-1) # Shape (P, F)
+        # Squared distance = (dot(pvec, n) / ||n||)^2 = dot(pvec, n)^2 / ||n||^2
+        # Avoid division by zero for degenerate triangles (where n_norm_sq is near zero)
+        plane_dists_sq = (pvec_dot_n ** 2) / (n_norm_sq.squeeze(-1)[None, :] + 1e-8) # Shape (P, F)
 
-        # Take min across triangles
-        min_dists, _ = total_dists.min(dim=1)  # (P,)
+        # --- 5. Distance Calculation: Case 2 (Projection Outside Triangle or Degenerate) ---
+        # Calculate the squared distance to the closest point on each of the three edges.
+        # We need to broadcast points (P,1,3) with segment starts/ends (1,F,3)
+        # The helper function handles the necessary broadcasting internally.
+        # We pass points_p_dim (P,1,3) and broadcasted v0/v1/v2 (1,F,3).
+        dist_sq_01 = point_segment_distance_sq(points_p_dim, v0[None,:,:], v1[None,:,:]) # Shape (P, F)
+        dist_sq_12 = point_segment_distance_sq(points_p_dim, v1[None,:,:], v2[None,:,:]) # Shape (P, F)
+        dist_sq_20 = point_segment_distance_sq(points_p_dim, v2[None,:,:], v0[None,:,:]) # Shape (P, F)
 
-        # Keep only unexplained points
-        keep_mask = min_dists > threshold
+        # Minimum squared distance to any of the three edges
+        min_edge_dist_sq = torch.min(torch.stack([dist_sq_01, dist_sq_12, dist_sq_20], dim=-1), dim=-1).values # Shape (P, F)
+
+        # --- 6. Combine Distances and Final Selection ---
+        # Select the appropriate squared distance based on the 'inside' mask.
+        # If 'inside', use the squared distance to the plane.
+        # Otherwise (outside or degenerate), use the minimum squared distance to an edge.
+        total_dists_sq = torch.where(inside, plane_dists_sq, min_edge_dist_sq) # Shape (P, F)
+
+        # Find the minimum squared distance from each point to ANY face component in the mesh.
+        min_dists_sq, _ = total_dists_sq.min(dim=1) # Shape (P,)
+
+        # --- 7. Filtering ---
+        # Calculate the actual distances and create the mask.
+        # Add clamp(min=0) before sqrt for robustness against tiny negative values due to precision.
+        min_dists = torch.sqrt(torch.clamp(min_dists_sq, min=0.0)) # Shape (P,)
+        keep_mask = min_dists > threshold # Shape (P,)
+
+        # Return the subset of points satisfying the condition.
         return points[keep_mask]
+
+    def remove_explained_points_2(self, points: torch.Tensor, threshold: float = 0.01) -> torch.Tensor:
+        """
+        Removes points whose distance to the closest face component (approximated)
+        in the mesh is less than or equal to the threshold.
+        Returns the points not explained by the mesh (distance > threshold).
+        NOTE: This implementation approximates distance for points outside the triangle projection
+              by using the distance to the nearest vertex, which may not be the true closest point
+              (which could be on an edge).
+        """
+        # --- 1. Mesh Data Preparation ---
+        # Geometry Reasoning: Access the fundamental geometric components of the mesh:
+        # vertices (points in 3D space) and faces (sets of 3 vertex indices defining triangles).
+        mesh = self.forward()  # Get the mesh object (assuming self.forward provides it)
+        verts = mesh.verts_packed()  # Get all vertex coordinates, shape (V, 3)
+        faces = mesh.faces_packed()  # Get all face indices, shape (F, 3)
+
+        # Geometry Reasoning: Create triangle primitives. Use the face indices to look up
+        # the actual 3D coordinates of the vertices for each triangle.
+        # tris now holds F triangles, each defined by the coordinates of its 3 vertices.
+        tris = verts[faces]  # Shape: (F, 3, 3) -> (NumFaces, VerticesPerFace, CoordsPerVertex)
+
+        # --- 2. Prepare Tensors for Vectorized Computation ---
+        # Geometry Reasoning: To efficiently calculate distances between each point and *every* triangle
+        # without explicit loops, we expand the points tensor. Each point is replicated F times.
+        # This allows direct vectorized operations between the i-th point and all F triangles.
+        P = points.shape[0]  # Number of input points
+        F = tris.shape[0]  # Number of faces (triangles) in the mesh
+        # Expand points from (P, 3) to (P, F, 3). The point `points[i]` is now present
+        # at `points_exp[i, j, :]` for all j from 0 to F-1.
+        points_exp = points[:, None, :].expand(P, F, 3)
+
+        # Geometry Reasoning: Extract the vertices of each triangle for easier access.
+        # v0, v1, v2 are the first, second, and third vertices of each triangle, respectively.
+        v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]  # Shape of each: (F, 3)
+
+        # --- 3. Barycentric Coordinates Calculation ---
+        # Geometry Reasoning: This section determines where the orthogonal projection of each point P
+        # onto the plane of each triangle lies relative to that triangle's boundaries.
+        # This is achieved by calculating barycentric coordinates (u, v, w).
+        # If u, v, w are all >= 0, the projection is inside or on the boundary of the triangle.
+
+        # Calculate the two edge vectors defining the basis of the triangle within its plane.
+        v0v1 = v1 - v0  # Vector from v0 to v1 for each triangle, shape (F, 3)
+        v0v2 = v2 - v0  # Vector from v0 to v2 for each triangle, shape (F, 3)
+
+        # Calculate the vector from the triangle's origin (v0) to each point P.
+        # Broadcasting occurs here: points_exp (P, F, 3) - v0[None, :, :] (1, F, 3) -> (P, F, 3)
+        pvec = points_exp - v0[None, :, :]  # Shape: (P, F, 3)
+
+        # Compute dot products needed for the barycentric coordinate formula.
+        # This is essentially solving the linear system `pvec_proj = v * v0v1 + w * v0v2` for v and w.
+        d00 = (v0v1 * v0v1).sum(-1)  # dot(v0v1, v0v1), shape (F,)
+        d01 = (v0v1 * v0v2).sum(-1)  # dot(v0v1, v0v2), shape (F,)
+        d11 = (v0v2 * v0v2).sum(-1)  # dot(v0v2, v0v2), shape (F,)
+        # dot(pvec, v0v1), requires broadcasting v0v1 from (F, 3) to (1, F, 3)
+        d20 = (pvec * v0v1[None, :, :]).sum(-1)  # Shape (P, F)
+        # dot(pvec, v0v2), requires broadcasting v0v2 from (F, 3) to (1, F, 3)
+        d21 = (pvec * v0v2[None, :, :]).sum(-1)  # Shape (P, F)
+
+        # Calculate the denominator for Cramer's rule (or equivalent solution method).
+        # This is related to the square of the triangle's area. Add epsilon for numerical stability.
+        denom = d00 * d11 - d01 * d01 + 1e-8  # Shape (F,)
+
+        # Solve for barycentric coordinates v and w.
+        # Broadcasting occurs: (F,) / (F,) applied element-wise across the P dimension.
+        v = (d11 * d20 - d01 * d21) / denom  # Shape (P, F)
+        w = (d00 * d21 - d01 * d20) / denom  # Shape (P, F)
+        # Calculate the third coordinate u using the property u + v + w = 1 (for the projection).
+        u = 1.0 - v - w  # Shape (P, F)
+
+        # Determine if the projection of the point lies inside or on the boundary of the triangle.
+        inside = (u >= 0) & (v >= 0) & (w >= 0)  # Shape (P, F) boolean mask
+
+        # --- 4. Distance Calculation: Case 1 (Projection Inside Triangle) ---
+        # Geometry Reasoning: If the point's projection is inside the triangle, the closest point
+        # on the infinite plane of the triangle *is* that projection. The distance is the
+        # orthogonal distance from the point to the plane.
+
+        # Calculate the normal vector of each triangle plane.
+        n = torch.linalg.cross(v0v1, v0v2, dim=-1)  # Shape (F, 3)
+        # Normalize the normal vectors (add epsilon for stability).
+        n = n / (torch.linalg.norm(n, dim=-1, keepdim=True) + 1e-8)  # Shape (F, 3)
+
+        # Calculate the orthogonal distance to the plane. Project pvec onto the unit normal n.
+        # The absolute value gives the distance. Requires broadcasting n.
+        plane_dists = torch.abs((pvec * n[None, :, :]).sum(-1))  # Shape (P, F)
+
+        # --- 5. Distance Calculation: Case 2 (Projection Outside Triangle - APPROXIMATION) ---
+        # Geometry Reasoning: If the point's projection is outside the triangle, the true closest
+        # point on the triangle lies on one of its edges or vertices. This implementation *approximates*
+        # this by finding the distance to the *nearest vertex* of the triangle. This is simpler
+        # but not always geometrically correct (the closest point could be on an edge).
+
+        # Calculate squared Euclidean distance from each point to each vertex of each triangle.
+        # Broadcasting: points(P, 1, 3) - v0(1, F, 3) -> (P, F, 3) -> sum -> (P, F)
+        dist_v0_sq = ((points[:, None, :] - v0[None, :, :]) ** 2).sum(-1)  # Shape (P, F)
+        dist_v1_sq = ((points[:, None, :] - v1[None, :, :]) ** 2).sum(-1)  # Shape (P, F)
+        dist_v2_sq = ((points[:, None, :] - v2[None, :, :]) ** 2).sum(-1)  # Shape (P, F)
+
+        # Find the minimum of the squared distances to the three vertices.
+        # Stack along a new dimension (-1) -> (P, F, 3) then take min along that dimension.
+        corner_dists_sq = torch.min(torch.stack([dist_v0_sq, dist_v1_sq, dist_v2_sq], dim=-1), dim=-1).values  # Shape (P, F)
+
+        # --- 6. Combine Distances and Final Selection ---
+        # Geometry Reasoning: Select the appropriate distance based on whether the projection was inside.
+        # If inside, use the orthogonal distance to the plane.
+        # If outside, use the (approximated) distance to the nearest corner vertex.
+        # Note: Need sqrt of corner_dists_sq here.
+        total_dists = torch.where(inside, plane_dists, torch.sqrt(corner_dists_sq))  # Shape (P, F)
+
+        # Geometry Reasoning: Find the minimum distance from each point to *any* of the F faces.
+        # We take the minimum value across the F dimension (dim=1).
+        min_dists, _ = total_dists.min(dim=1)  # Shape (P,) - min distance for each point
+
+        # --- 7. Filtering ---
+        # Geometry Reasoning: Keep only those points whose calculated minimum distance
+        # to the mesh surface (as computed/approximated above) is greater than the threshold.
+        keep_mask = min_dists > threshold  # Shape (P,) boolean mask
+        return points[keep_mask]  # Return the subset of points satisfying the condition.
 
     def hessian_and_covariance(self, points: torch.Tensor)-> [torch.Tensor, torch.Tensor]:
         """
@@ -301,9 +515,9 @@ class FridgeModel(nn.Module):
         loss_3 = self.prior_size(0.6, 0.6, 1.8)
         loss_4 = self.prior_on_floor()
         loss_5 = self.prior_aligned()
-        loss_6 = self.prior_position_by_mass_center(real_points)
+        #loss_6 = self.prior_position_by_mass_center(real_points)
 
-        total_loss = loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5 + 0.5 * loss_6
+        total_loss = loss_1 + loss_2 + loss_3 + 2 * loss_4 + 2 * loss_5 # + 0.5 * loss_6
         return total_loss
 
     def prior_size(self, w=0.6, d=0.6, h=1.8):

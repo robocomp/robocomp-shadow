@@ -39,6 +39,7 @@ from fridge_model import FridgeModel
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
+        self.residuals_ant = 0.0
         self.room_drawn = None  # flag to draw room only once
         self.f = None   # just one fridge
         self.Period = 100
@@ -88,8 +89,8 @@ class SpecificWorker(GenericWorker):
         self.vis.update_renderer()
 
         # Set up the camera
-        view_control = self.vis.get_view_control()
-        view_control.set_zoom(35)  # Adjust zoom level
+        self.view_control = self.vis.get_view_control()
+        self.view_control.set_zoom(35)  # Adjust zoom level
 
         if startup_check:
             self.startup_check()
@@ -122,17 +123,22 @@ class SpecificWorker(GenericWorker):
 
         # filter points by room polygon
         residuals = self.filter_points_by_room(room_node, robot_pose, lidar_data)
-        #print("residuals", residuals.shape, "number of points:", residuals.shape[0])
 
         MIN_RESIDUALS = 100
         if residuals.size < MIN_RESIDUALS:
             console.print("Not enough residuals", style='red')
             return
 
-        residuals_r = torch.tensor(np.array(residuals, dtype=np.float32), dtype=torch.float32, device="cuda") / 1000.0  # Convert to meters
+        residuals /= 1000.0  # Convert to meters
+        clusters = self.get_clusters(residuals, 0.2, 25)
+        residuals_filtered = torch.empty((0, 3), dtype=torch.float32, device="cuda")
+        residuals_clean = torch.tensor(np.array(clusters[0], dtype=np.float32), dtype=torch.float32, device="cuda")
+
+        # get fridge from graph
+
         if self.f is not None:
-            residuals_r = self.f.remove_explained_points(residuals_r, 0.1)
-            print("residuals", lidar_data.shape[0], residuals.shape[0], residuals_r.shape[0])
+            residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
+            print("residuals", lidar_data.shape[0], residuals.shape[0], residuals_clean.shape[0], residuals_filtered.shape[0] )
 
         #print("lidar", lidar_data.shape, "residuals", residuals.shape, "number of points:", residuals.shape[0])
         # Get fridges from graph
@@ -145,16 +151,36 @@ class SpecificWorker(GenericWorker):
         #         console.print("Not enough residuals after projecting fridges", style='red')
         #         return
 
-        if self.f is None:
-            # generate clusters from residuals
-            clusters = self.get_clusters(residuals_r.cpu().numpy(), 0.2, 25)
-            residuals = torch.tensor(np.array(clusters[0], dtype=np.float32), dtype=torch.float32, device="cuda")  # Convert to meters
-            self.f = self.initialize_fridge(room_node, robot_node, residuals)
+        if self.f is None or (self.residuals_ant - residuals_filtered.shape[0]) > 0:  # keeps going until residuals are not decreasing
+            self.f = self.initialize_fridge(room_node, robot_node, residuals_clean)
+            self.draw_fridge(self.f)
+            residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
+            self.residuals_ant = residuals_filtered.shape[0]
 
-            # add fridge to graph
+        # check that no improvement is done for 10 iterations in a row
+        if self.residuals_ant - residuals.shape[0] == 0:
+                self.derivative_counter += 1
+        else:
+                self.derivative_counter = 0
+
+        # wait a few loops and if derivative is 0 insert fridge in graph.
+        if self.derivative_counter > 10:
+                fridge_node = Node("fridge", self.g.get_agent_id())
+                self.g.add_node(fridge_node)
+
+                # add fridge to graph
+                fridge_edge = Edge(room_node.id, fridge_node.id, "has", robot_node.id)
+                self.g.insert_or_assign_edge(fridge_edge)
+
+                # add parameters to graph
+                for i, param in enumerate(self.f.params):
+                    fridge_edge.attrs[f"param_{i}"] = Attribute(param.item(), 66)
+                self.g.insert_or_assign_edge(fridge_edge)
+
+
 
         #print("residuals", residuals.shape, .shape)
-        self.draw_point_cloud(residuals_r)
+        self.draw_point_cloud(residuals_filtered)
 
     ##########################################################################################333
     def check_robot_and_room_exist(self, shadow_mesh: o3d.geometry.TriangleMesh):
@@ -338,7 +364,6 @@ class SpecificWorker(GenericWorker):
         print(f"Elapsed time: {time.time() - now:.4f} seconds")
 
         # I need now to draw the resulting fridge in the room
-        self.draw_fridge(f)
 
         # hess, cov = f.hessian_and_covariance(points)
         # np.set_printoptions(precision=2, suppress=True)
@@ -360,6 +385,8 @@ class SpecificWorker(GenericWorker):
         # Concatenate all clusters
         #all_clusters = np.concatenate(clusters)
         if isinstance(points, torch.Tensor):
+            if points.dim() == 3:
+                points = points.squeeze(0)
             points = points.cpu().numpy()
         self.pcd.points = o3d.utility.Vector3dVector(points)
         colors = np.tile([0.0, 1.0, 0.0], (points.shape[0], 1))  # Green color for each point
@@ -417,16 +444,20 @@ class SpecificWorker(GenericWorker):
         faces = mesh.faces_list()[0].detach().cpu().numpy()
 
         # Create Open3D mesh
-        o3d_mesh = o3d.geometry.TriangleMesh()
-        o3d_mesh.vertices = o3d.utility.Vector3dVector(verts)
-        o3d_mesh.triangles = o3d.utility.Vector3iVector(faces)
+        # remove existing mesh
+        if hasattr(self, 'o3d_mesh'):
+            self.vis.remove_geometry(self.o3d_mesh)
+
+        self.o3d_mesh = o3d.geometry.TriangleMesh()
+        self.o3d_mesh.vertices = o3d.utility.Vector3dVector(verts)
+        self.o3d_mesh.triangles = o3d.utility.Vector3iVector(faces)
 
         # Compute normals and apply color
-        o3d_mesh.compute_vertex_normals()
-        o3d_mesh.paint_uniform_color([0.0, 0.5, 1.0])  # Light blue fridge
+        self.o3d_mesh.compute_vertex_normals()
+        self.o3d_mesh.paint_uniform_color([0.0, 0.5, 1.0])  # Light blue fridge
 
         # Add to visualizer
-        self.vis.add_geometry(o3d_mesh)
+        self.vis.add_geometry(self.o3d_mesh)
         self.vis.poll_events()
         self.vis.update_renderer()
 

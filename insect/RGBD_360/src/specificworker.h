@@ -38,6 +38,7 @@
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
 #include <boost/circular_buffer.hpp>
+#include <multibuffer_sync/multibuffer_sync.h>
 
 using namespace std::chrono;
 
@@ -66,6 +67,10 @@ class SpecificWorker : public GenericWorker
         FixedSizeDeque<RoboCompLidar3D::TDataImage> lidar_queue{20};
         boost::circular_buffer<RoboCompCamera360RGB::TImage> b_camera_queue{20};
         boost::circular_buffer<RoboCompLidar3D::TDataImage> b_lidar_queue{20};
+        SyncBuffer<std::pair<RoboCompLidar3D::TDataImage, RoboCompLidar3D::TDataImage>,
+                   std::pair<RoboCompCamera360RGB::TImage, RoboCompCamera360RGB::TImage>> sync_buffer{50 /* buffer capacity */,
+                                                                                  10000.0 /* max allowed timestamp spread */,
+                                                                                                      100000.0 /* timeout */};
 
         cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
         bool startup_check_flag;

@@ -1,8 +1,7 @@
 import math
 import sys
 import random
-from LanguageSelector.gtk.GtkLanguageSelector import blockSignals
-from PyQt6.QtWidgets import QMenu, QMessageBox
+from PySide6.QtWidgets import QMenu, QMessageBox
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import Qt
 from viewers._abstract_graphic_view import AbstractGraphicViewer

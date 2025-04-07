@@ -1,8 +1,6 @@
-from PyQt5.QtGui import QTextItem
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QTreeWidget, QTreeWidgetItem, QCheckBox, QLineEdit, QSpinBox, QDoubleSpinBox, QLabel
-from pydsr import signals, Attribute
-from pydsr import signals, Edge
+from PySide6.QtWidgets import QWidget, QTreeWidget, QTreeWidgetItem, QCheckBox, QLabel
+from pydsr import signals, Attribute, Edge
 
 class Affordances(QTreeWidget):
     def __init__(self, g):
@@ -12,15 +10,16 @@ class Affordances(QTreeWidget):
         self.types_map = {}
         self.setMinimumSize(400, 400)
         self.setMouseTracking(True)
-        self.create_tree()
         self.setColumnCount(3)
         self.setHeaderLabels(["Concepts", "Affordances", "State"])
+        self.color_states = {"waiting": "blue", "in_progress": "orange", "completed": "green"}
         self.header().setDefaultSectionSize(200)
+        self.create_tree()
         self.expandAll()
         signals.connect(self.g, signals.UPDATE_NODE, self.add_or_assign_node_SLOT)
         signals.connect(self.g, signals.DELETE_NODE, self.del_node_SLOT)
         signals.connect(self.g, signals.DELETE_EDGE, self.del_edge_SLOT)
-        signals.connect(self.g,signals.UPDATE_EDGE_ATTR, self.update_edge_att_SLOT)
+        signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att_SLOT)
 
     def create_tree(self):
         self.clear()
@@ -51,57 +50,67 @@ class Affordances(QTreeWidget):
                 #item.setText(0, f"{node.name}")
                 checkbox = QCheckBox(f"{node.name}")
                 self.setItemWidget(item, 0, checkbox)
+                # try disconnect before connecting
+                try:
+                    checkbox.stateChanged.disconnect()
+                except TypeError:
+                    pass
                 checkbox.stateChanged.connect(lambda value, m_node=node: self.node_current_change_SLOT(value, m_node))
                 self.tree_map[mid] = item
+                # called for new nodes. Adds affordance and state columns
                 self.create_columns_for_affordances(item, node)
 
         except Exception as e:
             print(f"Affordances: Error {e} in method {self.add_or_assign_node_SLOT.__name__} when adding node {mid} of type {mtype}")
 
-    def del_node_SLOT(self, id: int):
-        while id in self.tree_map:
-            item = self.tree_map[id]
-            self.invisibleRootItem().removeChild(item)
-            del item
-            del self.tree_map[id]
-
     def update_edge_att_SLOT(self, fr: int, to: int, mtype: str, attribute_names: [str]):
-        if mtype != "RT":
-            print("Affordances: update_edge_att_SLOT", fr, to, mtype, attribute_names)
+        if mtype not in ["has_affordance", "has_intention"]:
+            return
         edge = self.g.get_edge(fr, to, mtype)
-        if edge is not None and mtype in ["has_affordance", "has_intention"]:
-           if fr in self.tree_map.keys():
-               parent = self.tree_map[fr]
-               if "state" in attribute_names:
-                   if edge.attrs.__contains__("state"):
-                       new_state = edge.attrs["state"].value
-                       self.itemWidget(parent,2).setText(f"{new_state}")
-                       if new_state == "waiting":
-                          self.itemWidget(parent, 2).setStyleSheet("color: blue;")
-                       elif new_state == "in_progress":
-                            self.itemWidget(parent, 2).setStyleSheet("color: orange;")
-                       elif new_state == "completed":
-                            self.itemWidget(parent, 2).setStyleSheet("color: green;")
-               if "active" in attribute_names:
-                      if edge.attrs.__contains__("active"):
-                        new_active = edge.attrs["active"].value
-                        self.itemWidget(parent,1).setChecked(new_active)
-                        self.itemWidget(parent, 1).setStyleSheet("color: green;") if new_active else self.itemWidget(parent,1).setStyleSheet("color: blue;")
+        if edge and fr in self.tree_map:
+            parent = self.tree_map[fr]
+            if "state" in attribute_names and "state" in edge.attrs:
+                new_state = edge.attrs["state"].value
+                self.itemWidget(parent, 2).setText(f"{new_state}")
+                self.itemWidget(parent, 2).setStyleSheet(f"color: {self.color_states};")
+            if "active" in attribute_names and "active" in edge.attrs:
+                new_active = edge.attrs["active"].value
+                self.itemWidget(parent, 1).setChecked(new_active)
+                self.itemWidget(parent, 1).setStyleSheet("color: green;" if new_active else "color: blue;")
+
+    def del_node_SLOT(self, id: int):
+        if id in self.tree_map:
+            item = self.tree_map.pop(id)
+            self.invisibleRootItem().removeChild(item)
 
     def del_edge_SLOT(self, fr: int, to: int, mtype: str):
-        if mtype in ["has_affordance", "has_intention"]:
-            if fr in self.tree_map.keys():
-                parent = self.tree_map[fr]
-                self.removeItemWidget(parent, 1)  # Clear widget in column 1
-                self.removeItemWidget(parent, 2)  # Clear widget in column 2
+        if mtype in ["has_affordance", "has_intention"] and fr in self.tree_map:
+            parent = self.tree_map[fr]
+            self.removeItemWidget(parent, 1)
+            self.removeItemWidget(parent, 2)
 
     ############# LOCAL SLOTS ######################
-    def node_change_SLOT(self, value, id, type, parent):
-        # sender = self.sender()
-        # if isinstance(sender, QCheckBox):
-        #     self.node_check_state_changed.emit(value, id, type, parent)
-        pass
+    def edge_active_state_change_SLOT(self, value, node, edge):
+        e = self.g.get_edge(edge.origin, edge.destination, edge.type)
+        if e:
+            e.attrs["active"] = Attribute(bool(value))
+            if not self.g.insert_or_assign_edge(e):
+                print(f"Affordances: Error updating edge {node.name} with edge {e.type}")
 
+    def node_current_change_SLOT(self, value, node):
+        v = True if value >0 else False
+        print(f"Affordances: {node.name} changed to {v} for current")
+        if value > 0:
+            edge = Edge(node.id, node.id, "current", self.g.get_agent_id())
+            res = self.g.insert_or_assign_edge(edge)
+            if not res:
+                print(f"Affordances: Error inserting edge {node.name} with edge {e.type}")
+        else:
+            res = self.g.delete_edge(node.id, node.id, "current")
+            if not res:
+                print(f"Affordances: Error deleting current edge {node.name}")
+
+    ############## LOCAL METHODS ##################################################
     def create_columns_for_affordances(self, parent, node):
         for edge in node.get_edges():
             n = self.g.get_node(edge.destination)
@@ -110,7 +119,6 @@ class Affordances(QTreeWidget):
                 print("Affordances: Dangling edge removed", edge.origin, edge.destination, edge.type)
                 continue
             if edge.type == "has_affordance" or edge.type == "has_intention":
-                print("no deberaía de estar aqui", edge.type, edge.origin, self.g.get_node(edge.destination).name)
                 if  edge.attrs.__contains__("active"):
                     val = edge.attrs['active'].value
                     act = QCheckBox(f"{edge.type}")
@@ -122,28 +130,5 @@ class Affordances(QTreeWidget):
                 if edge.attrs.__contains__("state"):
                     state = edge.attrs['state'].value
                     st = QLabel(str(state))
-                    if state == "waiting":
-                       st.setStyleSheet("color: blue;")
-                    elif state == "in_progress":
-                       st.setStyleSheet("color: orange;")
-                    elif state == "completed":
-                        st.setStyleSheet("color: green;")
+                    st.setStyleSheet(f"color: {self.color_states};")
                     self.setItemWidget(parent, 2, st)
-
-    def edge_active_state_change_SLOT(self, value, node, edge):
-        e = self.g.get_edge(edge.origin, edge.destination, edge.type)
-        if e is not None:
-            v = True if value >0 else False
-            print(f"Active state changed to {v} for node {node.name} and edge {edge.type}")
-            e.attrs["active"] = Attribute(v)
-            res = self.g.insert_or_assign_edge(e)
-            if not res:
-                print(f"Affordances: Error updating edge {node.name} with edge {e.type}")
-
-    def node_current_change_SLOT(self, value, node):
-        v = True if value >0 else False
-        print(f" {node.name} changed to {v} for current")
-        edge = Edge(node.id, node.id, "current", self.g.get_agent_id())
-        res = self.g.insert_or_assign_edge(edge)
-        if not res:
-            print(f"Affordances: Error updating edge {node.name} with edge {e.type}")
