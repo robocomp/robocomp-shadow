@@ -37,6 +37,7 @@
 #include <deque>
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
+#include <boost/circular_buffer.hpp>
 
 using namespace std::chrono;
 
@@ -63,6 +64,9 @@ class SpecificWorker : public GenericWorker
 
         FixedSizeDeque<RoboCompCamera360RGB::TImage> camera_queue{20};
         FixedSizeDeque<RoboCompLidar3D::TDataImage> lidar_queue{20};
+        boost::circular_buffer<RoboCompCamera360RGB::TImage> b_camera_queue{20};
+        boost::circular_buffer<RoboCompLidar3D::TDataImage> b_lidar_queue{20};
+
         cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
         bool startup_check_flag;
 

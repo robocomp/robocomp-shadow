@@ -46,7 +46,7 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
 void SpecificWorker::initialize(int period)
 {
 	std::cout << "Initialize worker" << std::endl;
-	this->Period = period;
+
 	if(this->startup_check_flag)
 	{
 		this->startup_check();
@@ -79,7 +79,7 @@ void SpecificWorker::initialize(int period)
             }
             catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; return;}
         }
-
+	    this->Period = 50;
 		timer.start(Period);
 	}
 }
@@ -100,7 +100,8 @@ void SpecificWorker::compute()
     try
     {
         lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
-        lidar_queue.push(lidar_data);
+        //lidar_queue.push(lidar_data);
+        b_lidar_queue.push_back(lidar_data);
     }
     catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
@@ -108,37 +109,58 @@ void SpecificWorker::compute()
     try
     {
         cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
-        camera_queue.push(cam_data);
+        //camera_queue.push(cam_data);
+        b_camera_queue.push_back(cam_data);
     }
     catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
     // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
-    int timestamp_diff = 999999999;
-    int chosen_rgb, chosen_lidar;
+    // int timestamp_diff = 999999999;
+    // int chosen_rgb, chosen_lidar;
+    // bool exists_data = false;
+    // for(const auto &[i, rgb] : b_camera_queue | iter::enumerate)
+    // {
+    //     for(const auto &[j, lidar] : b_lidar_queue | iter::enumerate)
+    //     {
+    //         int act_timestamp_diff = abs(rgb.alivetime - lidar.timestamp);
+    //
+    //         //std::cout << "timestamp diff: " << act_timestamp_diff << " Queue sizes:" << b_camera_queue.size() << "," << b_lidar_queue.size() <<  std::endl;
+    //         if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 300000)
+    //         {
+    //             timestamp_diff = act_timestamp_diff;
+    //             chosen_rgb = i;
+    //             chosen_lidar = j;
+    //             exists_data = true;
+    //             break;
+    //         }
+    //     }
+    //     if(exists_data){break;}
+    // }
+    int timestamp_diff = std::numeric_limits<int>::max();
+    size_t chosen_rgb = 0, chosen_lidar = 0;
     bool exists_data = false;
-    for(const auto &[i, rgb] : camera_queue | iter::enumerate)
-    {
-        for(const auto &[j, lidar] : lidar_queue | iter::enumerate)
-        {
-            int act_timestamp_diff = abs(rgb.alivetime - lidar.timestamp);
 
-            // std::cout << "timestamp diff: " << act_timestamp_diff << std::endl;
-            if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 300000)
+    for (const auto &[i, rgb] : b_camera_queue | iter::enumerate)
+    {
+        for (const auto &[j, lidar] : b_lidar_queue | iter::enumerate)
+        {
+            int act_timestamp_diff = std::abs(rgb.alivetime - lidar.timestamp);
+
+            if (act_timestamp_diff < timestamp_diff && act_timestamp_diff < 300000)
             {
                 timestamp_diff = act_timestamp_diff;
                 chosen_rgb = i;
                 chosen_lidar = j;
                 exists_data = true;
-                break;
             }
         }
-        if(exists_data){break;}
     }
-
     if(exists_data)
     {
-        RoboCompLidar3D::TDataImage chosen_lidar_data = lidar_queue.at(chosen_lidar);
-        RoboCompCamera360RGB::TImage chosen_rgb_data = camera_queue.at(chosen_rgb);
+        RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
+        RoboCompCamera360RGB::TImage chosen_rgb_data = b_camera_queue.at(chosen_rgb);
+
+        std::cout << "timestamp diff: " << chosen_lidar_data.timestamp - chosen_rgb_data.alivetime <<  std::endl;
 
         // Generate rgb image
         cv::Mat rgb_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_8UC3, &chosen_rgb_data.image[0]);
