@@ -70,7 +70,7 @@ class SpecificWorker(GenericWorker):
                                             name="rgb_read_queue", daemon=True)
             self.image_read_thread.start()
 
-            self.integrate_odometry = True
+            self.integrate_odometry = False
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -105,7 +105,13 @@ class SpecificWorker(GenericWorker):
         while not event.is_set():
             try:
                 image = self.camera360rgbd_proxy.getROI(-1,-1,-1,600,-1,600)
+                if image.width / image.height > 4:
+                    print("Wrong image aspect ratio")
+                    # event.wait(self.thread_period / 1000)
+                    continue
                 if image.alivetime == self.last_rgbd_timestamp_thread:
+                    print("No new image")
+                    # event.wait(self.thread_period / 1000)
                     continue
                 rgb_frame = np.frombuffer(image.rgb, dtype=np.uint8).reshape((image.height, image.width, 3))
                 depth_frame = cp.frombuffer(image.depth, dtype=cp.float32).reshape((image.height, image.width, 3))

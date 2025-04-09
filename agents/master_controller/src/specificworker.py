@@ -91,7 +91,7 @@ class SpecificWorker(GenericWorker):
         ok, room, mesh = self.check_for_room()
         if ok:
             points_in_room = self.points_to_room_frame(mesh, room, lidar_data.points)    # return as ndarray
-            residuals = self.remove_explained_points(mesh, points_in_room, 0.1)
+            residuals = self.remove_explained_points(mesh, points_in_room, 0.2)
             if len(residuals) > 0:
                 print("Residuals: ", len(residuals))
             self.draw_room(self.viewer_2d, mesh)

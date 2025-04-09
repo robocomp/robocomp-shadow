@@ -313,7 +313,9 @@ class SpecificWorker(GenericWorker):
             # # front_objects = self.to_visualelements_interface(tracks, alive_time, front_roi)
             # #
             # # Fuse front_objects and back_objects and equal it to self.objects_write
-            self.visualelementspub_proxy.setVisualObjects(self.objects)
+
+ #           self.visualelementspub_proxy.setVisualObjects(self.objects)
+
             # # # If display is enabled, show the tracking results on the image
             #
             if self.display:
@@ -400,6 +402,7 @@ class SpecificWorker(GenericWorker):
 
                     ### getROI(int cx, int cy, int sx, int sy, int roiwidth, introiheight);
                     image_front = self.camera360rgbd_proxy.getROI(960, 480, 960, 960, 960, 960)
+                    print(image_front.alivetime)
                     #image_front = self.camera360rgbd_proxy.getROI(960, 480, 1200, 480, 1200, 480)
                     roi_data_front = ifaces.RoboCompCamera360RGB.TRoi(xcenter=image_front.roi.xcenter, ycenter=image_front.roi.ycenter, xsize=image_front.roi.xsize, ysize=image_front.roi.ysize, finalxsize=image_front.roi.finalxsize, finalysize=image_front.roi.finalysize)
 

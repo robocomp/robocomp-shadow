@@ -47,14 +47,13 @@ class Affordances(QTreeWidget):
                     self.types_map[mtype] = symbol_widget
                 # Create a new QTreeWidgetItem for the node
                 item = QTreeWidgetItem(symbol_widget)
-                #item.setText(0, f"{node.name}")
                 checkbox = QCheckBox(f"{node.name}")
                 self.setItemWidget(item, 0, checkbox)
                 # try disconnect before connecting
-                try:
-                    checkbox.stateChanged.disconnect()
-                except TypeError:
-                    pass
+                # try:
+                #     checkbox.stateChanged.disconnect()
+                # except TypeError:
+                #     pass
                 checkbox.stateChanged.connect(lambda value, m_node=node: self.node_current_change_SLOT(value, m_node))
                 self.tree_map[mid] = item
                 # called for new nodes. Adds affordance and state columns
@@ -72,7 +71,7 @@ class Affordances(QTreeWidget):
             if "state" in attribute_names and "state" in edge.attrs:
                 new_state = edge.attrs["state"].value
                 self.itemWidget(parent, 2).setText(f"{new_state}")
-                self.itemWidget(parent, 2).setStyleSheet(f"color: {self.color_states};")
+                self.itemWidget(parent, 2).setStyleSheet(f"color: {self.color_states.get(new_state, 'black')};")
             if "active" in attribute_names and "active" in edge.attrs:
                 new_active = edge.attrs["active"].value
                 self.itemWidget(parent, 1).setChecked(new_active)
@@ -82,6 +81,7 @@ class Affordances(QTreeWidget):
         if id in self.tree_map:
             item = self.tree_map.pop(id)
             self.invisibleRootItem().removeChild(item)
+            del item
 
     def del_edge_SLOT(self, fr: int, to: int, mtype: str):
         if mtype in ["has_affordance", "has_intention"] and fr in self.tree_map:
@@ -104,7 +104,7 @@ class Affordances(QTreeWidget):
             edge = Edge(node.id, node.id, "current", self.g.get_agent_id())
             res = self.g.insert_or_assign_edge(edge)
             if not res:
-                print(f"Affordances: Error inserting edge {node.name} with edge {e.type}")
+                print(f"Affordances: Error inserting edge {node.name} with edge {edge.type}")
         else:
             res = self.g.delete_edge(node.id, node.id, "current")
             if not res:
