@@ -3,7 +3,7 @@ Intro to component here
 
 This component requires instaling mmseg:
 
-- pip3 install cupy
+- pip3 install cupy-cuda12x
 - pip3 install -U openmim
 - mim install mmengine
 - mim install mmcv==2.1.0
