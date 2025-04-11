@@ -8,6 +8,7 @@ This component requires instaling mmseg:
 - mim install mmengine
 - mim install mmcv==2.1.0
 - mim install mmdet==3.2.0
+- mim install mmsegmentation
 
 ## Configuration parameters
 As any other component, *segmented_lidar* needs a configuration file to start. In
