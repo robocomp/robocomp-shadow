@@ -32,8 +32,8 @@ class G2OVisualizer:
     def update_graph(self, optimizer, ground_truth=None, covariances=(False, None)):
         self.ax.clear()
         # Fijar límites de los ejes
-        self.ax.set_xlim([-4000, 4000])  # Por ejemplo, límites para el eje y de 0 a 10
-        self.ax.set_ylim([-4000, 4000])  # Por ejemplo, límites para el eje y de 0 a 10
+        self.ax.set_xlim([-8000, 8000])  # Por ejemplo, límites para el eje y de 0 a 10
+        self.ax.set_ylim([-8000, 8000])  # Por ejemplo, límites para el eje y de 0 a 10
         # Obtener los datos actualizados del optimizador
         edges = optimizer.optimizer.edges()
         vertices = optimizer.optimizer.vertices()
