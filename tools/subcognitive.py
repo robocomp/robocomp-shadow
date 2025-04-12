@@ -12,10 +12,24 @@ from rich.live import Live
 from rich import box
 import toml
 import argparse
+import threading
 
 parser = argparse.ArgumentParser(description="RoboComp subcognitive monitor")
 parser.add_argument("file_name", type=str, default="sub.toml", help="Path to TOML components file")
 args = parser.parse_args()
+
+def cpu_usage_bar(cpu_percent, width=10):
+    """Return a colored CPU usage bar."""
+    filled = int((cpu_percent / 100) * width)
+    empty = width - filled
+    if cpu_percent < 50:
+        color = "green"
+    elif cpu_percent < 80:
+        color = "yellow"
+    else:
+        color = "red"
+    bar = f"[{color}]" + ("█" * filled + "░" * empty) + "[/]"
+    return bar
 
 # Load components from TOML file
 def toml_loader():
@@ -70,7 +84,16 @@ def launch_process(command, cwd=None, name=None):
         stdout=stdout,
         stderr=stderr
     )
-    return proc, psutil.Process(proc.pid)
+    time.sleep(0.5)  # wait for child process to start
+    try:
+        children = psutil.Process(proc.pid).children()
+        if children:
+            ps_proc = children[0]  # use real process, not shell
+        else:
+            ps_proc = psutil.Process(proc.pid)
+    except Exception:
+        ps_proc = psutil.Process(proc.pid)
+    return proc, ps_proc
 
 components = toml_loader()
 print(components)
@@ -87,6 +110,8 @@ for comp in components:
         "ice_name": comp.get("ice_name"),
         "start_time": time.time()
     }
+
+
 
 #Monitor loop
 console = Console()
@@ -118,8 +143,8 @@ def build_table():
 
         # Resource usage
         try:
-            mem = info["psutil_proc"].memory_info().rss / (1024 ** 2)
-            cpu = info["psutil_proc"].cpu_percent(interval=0.1)
+            mem = info.get("mem_last", 0.0)
+            cpu = info.get("cpu_last", 0.0)
         except Exception:
             mem, cpu = 0, 0
 
@@ -128,10 +153,26 @@ def build_table():
             status,
             uptime_str,
             f"{mem:6.1f} MB",
-            f"{cpu:5.1f}%"
+            #f"{cpu:5.1f}%"
+            f"{cpu:5.1f}% {cpu_usage_bar(cpu)}"
         )
 
     return table
+
+def update_cpu_mem():
+    while True:
+        for info in processes.values():
+            try:
+                proc = info["psutil_proc"]
+                if proc.is_running():
+                    info["mem_last"] = proc.memory_info().rss / (1024 ** 2)
+                    info["cpu_last"] = proc.cpu_percent(interval=0.0)
+            except Exception:
+                info["mem_last"] = 0
+                info["cpu_last"] = 0
+        time.sleep(1)
+
+threading.Thread(target=update_cpu_mem, daemon=True).start()
 
 try:
     with Live(build_table(), refresh_per_second=1, console=console, screen=False) as live:
