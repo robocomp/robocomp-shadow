@@ -84,7 +84,7 @@ def launch_process(command, cwd=None, name=None):
         stdout=stdout,
         stderr=stderr
     )
-    time.sleep(0.5)  # wait for child process to start
+    time.sleep(0.3)  # wait for child process to start
     try:
         children = psutil.Process(proc.pid).children()
         if children:
@@ -111,8 +111,6 @@ for comp in components:
         "start_time": time.time()
     }
 
-
-
 #Monitor loop
 console = Console()
 def build_table():
@@ -127,15 +125,21 @@ def build_table():
         ice_name = info["ice_name"]
         status = "[yellow]⏳ Checking...[/yellow]"
 
-        # Ice ping
-        try:
-            if ice_name:
-                ping_proxy(ice_name)
-                status = "[green]✅ Alive[/green]"
-            else:
-                status = "[blue]⚠️ No ICE[/blue]"
-        except Exception:
-            status = "[red]❌ Down[/red]"
+        proc = info["process"]
+        running = proc.poll() is None
+
+        if running:
+            # Ice ping
+            try:
+                if ice_name:
+                    ping_proxy(ice_name)
+                    status = "[green]✅ Alive[/green]"
+                else:
+                    status = "[blue]⚠️ No ICE[/blue]"
+            except Exception:
+                status = "[red]❌ Down[/red]"
+        else:
+            status = "[red]❌ Stopped[/red]"
 
         # Uptime
         uptime = time.time() - info["start_time"]
@@ -185,3 +189,4 @@ except KeyboardInterrupt:
         info["process"].terminate()
     for info in processes.values():
         info["process"].wait()
+
