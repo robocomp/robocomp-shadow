@@ -1,3 +1,5 @@
+import sys
+
 try:
     import time
     import torch
@@ -235,7 +237,7 @@ class FridgeModel(nn.Module):
             return dist_sq
 
         # --- 1. Mesh Data Preparation ---
-        mesh = self.forward_visible_faces()
+        mesh = self.forward()
         verts = mesh.verts_packed()
         faces = mesh.faces_packed()
 
@@ -507,7 +509,10 @@ class FridgeModel(nn.Module):
     def loss_function(self, real_points: torch.Tensor):
         """ Compute the loss for optimization """
         # Compute mesh from updated model
-        my_mesh = self.forward_visible_faces()
+        my_mesh = self.forward()
+        if my_mesh.num_edges_per_mesh() is None:
+            print("Warning: Mesh is empty, returning zero loss.")
+            sys.exit()
 
         # Compute loss terms
         loss_1 = point_mesh_edge_distance(my_mesh, Pointclouds([real_points]))  # Edge distance

@@ -30,8 +30,10 @@ from shapely.geometry import Polygon, Point
 import open3d as o3d
 import torch
 import torch.optim as optim
-
+from collections import deque
+from pytorch3d.transforms import axis_angle_to_matrix, matrix_to_euler_angles, Transform3d, euler_angles_to_matrix
 console = Console(highlight=False)
+#from .segmentation_categories import categories_color, categories_label
 
 from pydsr import *
 from fridge_model import FridgeModel
@@ -39,25 +41,23 @@ from fridge_model import FridgeModel
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
+        self.act_segmented_pointcloud_timestamp = None
         self.residuals_ant = 0.0
         self.room_drawn = None  # flag to draw room only once
         self.f = None   # just one fridge
-        self.Period = 100
+
+        # --------------- Lidar PROCESSING --------------
+        self.read_deque = deque(maxlen=1)   # to move data from subscriber to compute
+        # Filter points categories self.categories_filter = [0, 1, 22, 8, 14] in labels
+        self.categories_filter = [0, 1, 3, 8, 14, 15, 50]
+        self.categories_labels = {"wall":0, "building":1,  "floor":3, "windowpane":8, "door":14, "table":15, "refrigerator":5}
+        self.voxel_size = 0.1
+        self.max_height = 3.0
+        self.min_height = 0.3
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 600
         self.g = DSRGraph(0, "pythonAgent", self.agent_id)
-
-        try:
-            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
-            # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
-            # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-            console.print("signals connected")
-        except RuntimeError as e:
-            print(e)
 
         self.rt_api = rt_api(self.g)
         self.inner_api = inner_api(self.g)
@@ -95,6 +95,7 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+            self.Period = 100
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -102,13 +103,7 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
-        # try:
-        #	self.innermodel = InnerModel(params["InnerModelPath"])
-        # except:
-        #	traceback.print_exc()
-        #	print("Error reading config params")
         return True
-
 
     @QtCore.Slot()
     def compute(self):
@@ -119,68 +114,59 @@ class SpecificWorker(GenericWorker):
         self.draw_room(room_node)
 
         # Get lidar data
-        timestamp, lidar_data = self.read_lidar_helios()
-
-        # filter points by room polygon
-        residuals = self.filter_points_by_room(room_node, robot_pose, lidar_data)
-
-        MIN_RESIDUALS = 100
-        if residuals.size < MIN_RESIDUALS:
-            console.print("Not enough residuals", style='red')
-            return
-
-        residuals /= 1000.0  # Convert to meters
-        clusters = self.get_clusters(residuals, 0.2, 25)
-        residuals_filtered = torch.empty((0, 3), dtype=torch.float32, device="cuda")
-        residuals_clean = torch.tensor(np.array(clusters[0], dtype=np.float32), dtype=torch.float32, device="cuda")
-
-        # get fridge from graph
-
-        if self.f is not None:
-            residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
-            print("residuals", lidar_data.shape[0], residuals.shape[0], residuals_clean.shape[0], residuals_filtered.shape[0] )
-
-        #print("lidar", lidar_data.shape, "residuals", residuals.shape, "number of points:", residuals.shape[0])
-        # Get fridges from graph
-        # fridge_nodes = self.g.get_nodes_by_type("fridge")
-        # if fridge_nodes:
-        #     for f in fridge_nodes:
-        #         model = FridgeModel(f)
-        #         residuals = model.project_points(residuals)
-        #     if residuals.size < MIN_RESIDUALS:
-        #         console.print("Not enough residuals after projecting fridges", style='red')
-        #         return
-
-        if self.f is None or (self.residuals_ant - residuals_filtered.shape[0]) > 0:  # keeps going until residuals are not decreasing
-            self.f = self.initialize_fridge(room_node, robot_node, residuals_clean)
-            self.draw_fridge(self.f)
-            residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
-            self.residuals_ant = residuals_filtered.shape[0]
-
-        # check that no improvement is done for 10 iterations in a row
-        if self.residuals_ant - residuals.shape[0] == 0:
-                self.derivative_counter += 1
-        else:
-                self.derivative_counter = 0
-
-        # wait a few loops and if derivative is 0 insert fridge in graph.
-        if self.derivative_counter > 10:
-                fridge_node = Node("fridge", self.g.get_agent_id())
-                self.g.add_node(fridge_node)
-
-                # add fridge to graph
-                fridge_edge = Edge(room_node.id, fridge_node.id, "has", robot_node.id)
-                self.g.insert_or_assign_edge(fridge_edge)
-
-                # add parameters to graph
-                for i, param in enumerate(self.f.params):
-                    fridge_edge.attrs[f"param_{i}"] = Attribute(param.item(), 66)
-                self.g.insert_or_assign_edge(fridge_edge)
+        #timestamp, lidar_data = self.read_lidar_helios()
+        if self.read_deque:
+            residuals = self.process_data_from_lidar([self.categories_labels["door"]])  # now in meters
+            room_residuals = self.points_to_room_frame(room_node, robot_node, residuals).cpu().numpy()  # Convert to meters
+            print(room_residuals.shape)
+            self.draw_point_cloud(room_residuals)
 
 
+            # filter points by room polygon
+            #residuals = self.filter_points_by_room(room_node, robot_pose, lidar_data)
 
-        #print("residuals", residuals.shape, .shape)
-        self.draw_point_cloud(residuals_filtered)
+            MIN_RESIDUALS = 100
+            if room_residuals.shape[0] < MIN_RESIDUALS:
+                console.print("Not enough residuals", style='red')
+                return
+
+            clusters = self.get_clusters(room_residuals, 0.2, 25)
+            residuals_filtered = torch.empty((0, 3), dtype=torch.float32, device="cuda")
+            residuals_clean = torch.tensor(np.array(clusters[0], dtype=np.float32), dtype=torch.float32, device="cuda")
+
+            # get fridge from graph
+            if self.f is not None:
+                residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
+                print("residuals", residuals.shape[0], residuals_clean.shape[0], residuals_filtered.shape[0] )
+
+            if self.f is None or (self.residuals_ant - residuals_filtered.shape[0]) > 0:  # keeps going until residuals are not decreasing
+                self.f = self.initialize_fridge(room_node, robot_node, residuals_clean)
+                self.draw_fridge(self.f)
+                residuals_filtered = self.f.remove_explained_points(residuals_clean, 0.15)
+                self.residuals_ant = residuals_filtered.shape[0]
+
+            # check that no improvement is done for 10 iterations in a row
+            if self.residuals_ant - residuals.shape[0] == 0:
+                    self.derivative_counter += 1
+            else:
+                    self.derivative_counter = 0
+
+            # wait a few loops and if derivative is 0 insert fridge in graph.
+            # if self.derivative_counter > 10:
+            #         fridge_node = Node("fridge", self.g.get_agent_id())
+            #         self.g.add_node(fridge_node)
+            #
+            #         # add fridge to graph
+            #         fridge_edge = Edge(room_node.id, fridge_node.id, "has", robot_node.id)
+            #         self.g.insert_or_assign_edge(fridge_edge)
+            #
+            #         # add parameters to graph
+            #         for i, param in enumerate(self.f.params):
+            #             fridge_edge.attrs[f"param_{i}"] = Attribute(param.item(), 66)
+            #         self.g.insert_or_assign_edge(fridge_edge)
+
+            #print("residuals", residuals.shape, .shape)
+            self.draw_point_cloud(residuals_filtered)
 
     ##########################################################################################333
     def check_robot_and_room_exist(self, shadow_mesh: o3d.geometry.TriangleMesh):
@@ -190,6 +176,20 @@ class SpecificWorker(GenericWorker):
         room_node = self.g.get_nodes_by_type("room")[0] #TODO: add current edge
         robot_node = self.g.get_node("Shadow")
         return room_node, robot_node, self.read_robot_pose(room_node, robot_node, shadow_mesh)
+
+    def process_data_from_lidar(self, categories_filter: list, accumulate=False) -> np.ndarray:
+        segmented_pointcloud = self.read_deque.pop()
+        self.act_segmented_pointcloud_timestamp = segmented_pointcloud.timestamp
+        category = np.array(segmented_pointcloud.CategoriesArray).flatten()
+        # Generate np.array from new_pc arrayX, arrayY, arrayZ
+        new_pc = np.column_stack(
+            [np.array(segmented_pointcloud.XArray), np.array(segmented_pointcloud.YArray),
+             np.array(segmented_pointcloud.ZArray)]) / 1000.0  # Convert to meters
+        # PC filter Category & height
+        height_mask = (new_pc[:, 2] < self.max_height) & (new_pc[:, 2] > self.min_height)
+        category_mask = np.isin(category, categories_filter)
+        new_pc = new_pc[category_mask & height_mask]
+        return np.asarray(new_pc)
 
     def read_lidar_helios(self):
         try:
@@ -254,20 +254,10 @@ class SpecificWorker(GenericWorker):
         # Create the 3D rotation matrix
         rotation = euler_to_rotation_matrix(robot_rx, robot_ry, robot_rz)
 
-        # Create the 3D translation matrix
-        translation = np.array([
-            [1, 0, 0, robot_tx],
-            [0, 1, 0, robot_ty],
-            [0, 0, 1, robot_tz],
-            [0, 0, 0, 1]
-        ])
-
         # Create the 3D rotation matrix in homogeneous coordinates
-        rotation_homogeneous = np.eye(4)
-        rotation_homogeneous[:3, :3] = rotation
-
-        # Combined transformation matrix (translation * rotation)
-        transformation_matrix = translation @ rotation_homogeneous
+        transformation_matrix = np.eye(4)
+        transformation_matrix[:3, :3] = rotation
+        transformation_matrix[3, :3] = [robot_tx/1000.0, robot_ty/1000.0, robot_tz/1000.0]  # Copy values to the fourt
         return transformation_matrix
 
     def generate_room_polygon(self, room_node):
@@ -286,21 +276,39 @@ class SpecificWorker(GenericWorker):
         ])
         return room_width, room_depth, room_polygon
 
-    def transform_to_room_frame(self, points: np.ndarray, transformation_matrix: np.ndarray) -> np.ndarray:
-        """
-        Transform LiDAR points using the robot's transformation matrix.
-        :param lidar_points: Nx3 array of LiDAR points.
-        :param transformation_matrix: 4x4 transformation matrix.
-        :return: Transformed LiDAR points.
-        """
-        # Convert LiDAR points to homogeneous coordinates
-        homogeneous_points = np.hstack((points, np.ones((points.shape[0], 1))))
+    def points_to_room_frame(self, room: Node, robot: Node, points: np.ndarray) -> torch.Tensor:
+        # Convert the list to a PyTorch tensor
+        points_tensor = torch.tensor(points, device="cuda", dtype=torch.float32)
 
-        # Apply transformation
-        transformed_points = (transformation_matrix @ homogeneous_points.T).T
+        # get room position and orientation
+        w = room.attrs["width"].value # mm
+        d = room.attrs["depth"].value
+        angles = self.inner_api.get_euler_xyz_angles(room.name, robot.name)
+        x, y, z = self.inner_api.get_translation_vector(room.name, robot.name)
+        angles = torch.stack([torch.tensor(angle, device="cuda") for angle in angles])
+        angles[2] = -angles[2]  # invert yaw angle
+        # Transform the points to the room frame
+        t = (Transform3d(device="cuda")
+             .rotate(euler_angles_to_matrix(angles, "XYZ"))
+             .translate(x/1000.0, y/1000.0, z/1000.0))
 
-        # Return only the x, y, z coordinates (discard the homogeneous coordinate)
-        return transformed_points[:, :3]
+        return t.transform_points(points_tensor)
+
+    # def transform_to_room_frame(self, points: np.ndarray, transformation_matrix: np.ndarray) -> np.ndarray:
+    #     """
+    #     Transform LiDAR points using the robot's transformation matrix.
+    #     :param lidar_points: Nx3 array of LiDAR points.
+    #     :param transformation_matrix: 4x4 transformation matrix.
+    #     :return: Transformed LiDAR points.
+    #     """
+    #     # Convert LiDAR points to homogeneous coordinates
+    #     homogeneous_points = np.hstack((points, np.ones((points.shape[0], 1))))
+    #
+    #     # Apply transformation
+    #     transformed_points = (transformation_matrix @ homogeneous_points.T).T
+    #
+    #     # Return only the x, y, z coordinates (discard the homogeneous coordinate)
+    #     return transformed_points[:, :3]
 
     def project_points_to_polygon(self, points: np.ndarray, polygon: Polygon, distance_threshold: float) -> np.ndarray:
         """
@@ -314,7 +322,7 @@ class SpecificWorker(GenericWorker):
 
         return np.array([point for point in points if polygon.exterior.distance(Point(point)) > distance_threshold])
 
-    def get_clusters(self, points: np.ndarray, distance_threshold: float, min_points: int) -> np.ndarray:
+    def get_clusters(self, points: np.ndarray, distance_threshold: float, min_points: int) -> np.ndarray:  #TODO: Try scikit DBSCAN
         # Step 3: Create an Open3D point cloud object
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points)
@@ -472,20 +480,18 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompLidar3D.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    ######################
-    # From the RoboCompLidar3D you can call this methods:
-    # self.lidar3d_proxy.getLidarData(...)
-    # self.lidar3d_proxy.getLidarDataArrayProyectedInImage(...)
-    # self.lidar3d_proxy.getLidarDataProyectedInImage(...)
-    # self.lidar3d_proxy.getLidarDataWithThreshold2d(...)
 
-    ######################
-    # From the RoboCompLidar3D you can use this types:
-    # RoboCompLidar3D.TPoint
-    # RoboCompLidar3D.TDataImage
-    # RoboCompLidar3D.TData
+    # ===============  SubscribesTo =====================================
+    # ===================================================================
 
+    #
+    # SUBSCRIPTION to pushLidarData method from Lidar3DPub interface
+    #
+    def Lidar3DPub_pushLidarData(self, lidarData):
+        self.read_deque.append(lidarData)
 
+    # ===================================================================
+    # ===================================================================
 
     # =============== DSR SLOTS  ================
     # =============================================

@@ -1,10 +1,12 @@
 import "Lidar3D.idsl";
+import "Lidar3DPub.idsl";
 
 Component fridge_concept_python
 {
     Communications
     {
         requires Lidar3D;
+        subscribesTo Lidar3DPub;
     };
     language python;
     gui Qt(QWidget);
