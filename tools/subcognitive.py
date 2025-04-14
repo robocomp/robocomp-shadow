@@ -13,10 +13,12 @@ from rich import box
 import toml
 import argparse
 import threading
+import pprint
 
 parser = argparse.ArgumentParser(description="RoboComp subcognitive monitor")
 parser.add_argument("file_name", type=str, default="sub.toml", help="Path to TOML components file")
 args = parser.parse_args()
+console = Console()
 
 def cpu_usage_bar(cpu_percent, width=10):
     """Return a colored CPU usage bar."""
@@ -96,7 +98,22 @@ def launch_process(command, cwd=None, name=None):
     return proc, ps_proc
 
 components = toml_loader()
-print(components)
+def print_components_table(components):
+    table = Table(title="🧠 Loaded Components", box=box.SIMPLE_HEAVY)
+    table.add_column("Name", style="bold cyan")
+    table.add_column("CWD", style="dim")
+    table.add_column("Command", style="magenta")
+
+    for comp in components:
+        table.add_row(
+            comp["name"],
+            comp.get("cwd", "-"),
+            comp.get("cmd", "-")
+        )
+
+    console.print(table)
+
+print_components_table(components)
 
 for comp in components:
     cwd = expand_path(comp.get("cwd"))
@@ -112,7 +129,6 @@ for comp in components:
     }
 
 #Monitor loop
-console = Console()
 def build_table():
     table = Table(title="🧠 RoboComp Component Monitor", box=box.SIMPLE_HEAVY)
     table.add_column("Name", style="bold cyan")
