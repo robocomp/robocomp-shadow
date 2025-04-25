@@ -161,7 +161,6 @@ class G2OGraph:
 
         trans0 = self.optimizer.vertex(pose_id).estimate()
         measurement = trans0 * relative_measurement
-        # print("Pose id", pose_id, "Trans0", trans0.translation(), "relative_measurement", relative_measurement, "measurement", measurement)
 
         if landmark_id is None:
             landmark_id = self.vertex_count
