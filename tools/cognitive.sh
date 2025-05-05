@@ -15,7 +15,7 @@ DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/base_controller_age
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/base_controller_agent etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
@@ -25,7 +25,7 @@ DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/g2o_agent"
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "src/g2o_agent.py etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
@@ -35,7 +35,7 @@ DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/room_detector_bt"
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/room_detector_bt etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
@@ -45,7 +45,7 @@ DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/master_controller"
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "src/master_controller etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
@@ -55,7 +55,7 @@ DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/fridge_concept_pyth
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "src/fridge_concept etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
