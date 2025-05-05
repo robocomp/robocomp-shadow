@@ -21,40 +21,31 @@
 import sys, Ice, os
 from PySide6 import QtWidgets, QtCore
 
-ROBOCOMP = ''
-try:
-    ROBOCOMP = os.environ['ROBOCOMP']
-except KeyError:
-    print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
-    ROBOCOMP = '/opt/robocomp'
-
-Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
-import RoboCompCommonBehavior
-
 
 try:
-    from ui_mainUI import *
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from src.ui_mainUI import *
 except:
     print("Can't import UI file. Did you run 'make'?")
     sys.exit(-1)
-
-
 
 class GenericWorker(QtWidgets.QWidget):
 
     kill = QtCore.Signal()
 
-    def __init__(self, mprx):
+    def __init__(self, mprx, configData):
         super(GenericWorker, self).__init__()
 
-        self.imu_proxy = mprx["IMUProxy"]
-        self.omnirobot_proxy = mprx["OmniRobotProxy"]
+        self.imu_proxy = mprx["IMU"]
+        self.omnirobot_proxy = mprx["OmniRobot"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
         self.show()
 
-        self.mutex = QtCore.QMutex()
+        self.configData = configData
+
         self.Period = 30
         self.timer = QtCore.QTimer(self)
 
