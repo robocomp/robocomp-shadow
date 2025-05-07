@@ -7,7 +7,27 @@ console = Console()
 
 Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
 import RoboCompLidar3D
+Ice.loadSlice("-I ./src/ --all ./src/Lidar3DPub.ice")
+import RoboCompLidar3DPub
 
+class TCategories(list):
+    def __init__(self, iterable=list()):
+        super(TCategories, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, int)
+        super(TCategories, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, int)
+        super(TCategories, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, int)
+        super(TCategories, self).insert(index, item)
+
+setattr(RoboCompLidar3D, "TCategories", TCategories)
 class TPoints(list):
     def __init__(self, iterable=list()):
         super(TPoints, self).__init__(iterable)
@@ -63,8 +83,7 @@ class TIntArray(list):
 
 setattr(RoboCompLidar3D, "TIntArray", TIntArray)
 
-
-
+import lidar3dpubI
 
 class Publishes:
     def __init__(self, ice_connector, topic_manager):
@@ -131,6 +150,8 @@ class Subscribes:
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
 
+        self.Lidar3DPub = self.create_adapter("Lidar3DPubTopic", lidar3dpubI.Lidar3DPubI(default_handler))
+
     def create_adapter(self, property_name, interface_handler):
         adapter = self.ice_connector.createObjectAdapter(property_name)
         handler = interface_handler
@@ -171,7 +192,7 @@ class InterfaceManager:
         # TODO: Make ice connector singleton
         self.ice_config_file = ice_config_file
         self.ice_connector = Ice.initialize(self.ice_config_file)
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager() if needs_rcnode else None
 
         self.status = 0

@@ -33,8 +33,6 @@ class QScene2dViewer(AbstractGraphicViewer):
         self.axis_y.setPen(QPen(QColor("blue")))
         self.axis_y.setBrush(QBrush(QColor("blue")))
         self.axis_y.setZValue(5000)
-
-
         self.set_draw_axis(True)
         self.draw_axis()
 

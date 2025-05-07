@@ -32,76 +32,79 @@
 //#define HIBERNATION_ENABLED
 
 #include <genericworker.h>
-#include <boost/circular_buffer.hpp>
-
+#include <doublebuffer/DoubleBuffer.h>
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
  */
 class SpecificWorker : public GenericWorker
 {
-Q_OBJECT
-public:
-    /**
-     * \brief Constructor for SpecificWorker.
-     * \param configLoader Configuration loader for the component.
-     * \param tprx Tuple of proxies required for the component.
-     * \param startup_check Indicates whether to perform startup checks.
-     */
-	SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check);
+	Q_OBJECT
+	public:
+	    /**
+	     * \brief Constructor for SpecificWorker.
+	     * \param configLoader Configuration loader for the component.
+	     * \param tprx Tuple of proxies required for the component.
+	     * \param startup_check Indicates whether to perform startup checks.
+	     */
+		SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check);
 
-	/**
-     * \brief Destructor for SpecificWorker.
-     */
-	~SpecificWorker();
+		/**
+	     * \brief Destructor for SpecificWorker.
+	     */
+		~SpecificWorker();
 
 
 
-	void FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose);
+		void FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose);
 
-public slots:
+	public slots:
 
-	/**
-	 * \brief Initializes the worker one time.
-	 */
-	void initialize();
+		/**
+		 * \brief Initializes the worker one time.
+		 */
+		void initialize();
 
-	/**
-	 * \brief Main compute loop of the worker.
-	 */
-	void compute();
+		/**
+		 * \brief Main compute loop of the worker.
+		 */
+		void compute();
 
-	/**
-	 * \brief Handles the emergency state loop.
-	 */
-	void emergency();
+		/**
+		 * \brief Handles the emergency state loop.
+		 */
+		void emergency();
 
-	/**
-	 * \brief Restores the component from an emergency state.
-	 */
-	void restore();
+		/**
+		 * \brief Restores the component from an emergency state.
+		 */
+		void restore();
 
-    /**
-     * \brief Performs startup checks for the component.
-     * \return An integer representing the result of the checks.
-     */
-	int startup_check();
+	    /**
+	     * \brief Performs startup checks for the component.
+	     * \return An integer representing the result of the checks.
+	     */
+		int startup_check();
 
-	void modify_node_slot(std::uint64_t, const std::string &type){};
-	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
-	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
-	void del_node_slot(std::uint64_t from){};     
-private:
-    boost::circular_buffer<RoboCompFullPoseEstimation::FullPoseEuler> pose_buffer;
-	/**
-     * \brief Flag indicating whether startup checks are enabled.
-     */
-	bool startup_check_flag;
+		void modify_node_slot(std::uint64_t, const std::string &type){};
+		void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
+		void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+		void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
+		void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+		void del_node_slot(std::uint64_t from){};
 
-signals:
-	//void customSignal();
+	private:
+		/**
+	     * \brief DoubleBuffer for movind data between threads.
+	     */
+		DoubleBuffer<RoboCompFullPoseEstimation::FullPoseEuler, RoboCompFullPoseEstimation::FullPoseEuler> pose_buffer;
+		/**
+	     * \brief Flag indicating whether startup checks are enabled.
+	     */
+		bool startup_check_flag;
+
+	signals:
+		//void customSignal();
 };
 
 #endif

@@ -42,6 +42,7 @@ class AbstractGraphicViewer(QGraphicsView, TcWidget):
         delta = self.mapToScene(view_pos) - self.mapToScene(self.viewport().rect().center())
         self.centerOn(scene_pos - delta)
 
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             # only pan if clicking on empty canvas

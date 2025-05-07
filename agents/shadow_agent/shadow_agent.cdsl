@@ -1,5 +1,6 @@
 import "FullPoseEstimationPub.idsl";
 
+
 Component shadow_agent
 {
     Communications

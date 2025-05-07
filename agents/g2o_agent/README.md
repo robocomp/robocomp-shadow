@@ -2,6 +2,8 @@
 - sudo apt-get install libsuitesparse-dev
 - Follow instructions in "Installation from source" section in https://github.com/miquelmassot/g2opy/tree/master
 
+ # DOES NOT WORK WITH NUMPY 2
+
 # g2o_agent
 Intro to component here
 

@@ -12,7 +12,10 @@ template <typename T>
 class FixedSizeDeque
 {
     public:
-        FixedSizeDeque(int size) : maxSize(size) {}
+        FixedSizeDeque(int size) : maxSize(size), i_deque(size)
+        {
+            std::cout << "FixedSizeDeque created with size " << i_deque.size() << std::endl;
+        }
 
         // Iterator
         using IQueue = std::deque<T>;

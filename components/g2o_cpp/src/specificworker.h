@@ -43,6 +43,7 @@
 #include "g2o/core/factory.h"
 #include <g2o/core/marginal_covariance_cholesky.h>
 #include <memory>
+#include <fps/fps.h>
 
 using namespace g2o;
 
@@ -74,6 +75,8 @@ class SpecificWorker : public GenericWorker
         };
         PARAMS parameters;
 
+        // fps
+        FPSCounter fps;
 
         // Create the optimizer
         g2o::SparseOptimizer optimizer;

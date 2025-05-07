@@ -187,7 +187,7 @@ void SpecificWorker::initialize(int period)
         // Eigen format
         OctaveFormat = Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ";\n", "", "", "[", "]");
         CommaInitFmt = Eigen::IOFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", ", ", "", "", " << ", ";");
-        hide();
+        //hide();
         this->Period = 100;
 		timer.start(Period);
 	}

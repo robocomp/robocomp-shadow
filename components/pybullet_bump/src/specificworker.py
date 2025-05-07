@@ -43,8 +43,8 @@ console = Console(highlight=False)
 # import librobocomp_innermodel
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
-        super(SpecificWorker, self).__init__(proxy_map)
+    def __init__(self, proxy_map, configData, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map, configData)
         self.Period = 1
 
         locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
@@ -58,11 +58,11 @@ class SpecificWorker(GenericWorker):
                                      cameraTargetPosition=[-1.3, -0.5, 0.2])
 
         # Load floor in the simulation
-        self.plane = p.loadURDF("./URDFs/plane/plane.urdf", basePosition=[0, 0, 0])
+        self.plane = p.loadURDF("../../etc/URDFs/plane/plane.urdf", basePosition=[0, 0, 0])
 
         # Load robot in the simulation
         flags = p.URDF_USE_INERTIA_FROM_FILE
-        self.robot = p.loadURDF("./URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0.01], flags=flags)
+        self.robot = p.loadURDF("../../etc/URDFs/shadow/shadow.urdf", [-3.7, -0.7, 0.01], flags=flags)
         time.sleep(2)
         self.init_pos, self.init_orn = p.getBasePositionAndOrientation(self.robot)
 
@@ -82,9 +82,10 @@ class SpecificWorker(GenericWorker):
 
         self.forward_velocity = 0
         self.angular_velocity = 0
-
-        self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
-
+        try:
+            self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
+        except Ice.ConnectionRefusedException:
+            pass
         self.joystickControl = True
 
         # Set the state of the robot
@@ -157,8 +158,10 @@ class SpecificWorker(GenericWorker):
                 # set webots robot speed
                 self.forward_velocity = 0.5
                 self.angular_velocity = 0
-                self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
-
+                try:
+                    self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
+                except Ice.ConnectionRefusedException:
+                    pass
                 # set inner robot speed
                 # Get the velocity of the wheels from the forward and angular velocity of the robot
                 wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(
@@ -304,8 +307,8 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompIMU.DataImu()
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
-        print(f"Testing RoboCompJoystickAdapter.axisParams from ifaces.RoboCompJoystickAdapter")
-        test = ifaces.RoboCompJoystickAdapter.axisParams()
+        print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
+        test = ifaces.RoboCompJoystickAdapter.AxisParams()
         print(f"Testing RoboCompJoystickAdapter.ButtonParams from ifaces.RoboCompJoystickAdapter")
         test = ifaces.RoboCompJoystickAdapter.ButtonParams()
         print(f"Testing RoboCompJoystickAdapter.TData from ifaces.RoboCompJoystickAdapter")
@@ -552,12 +555,12 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompIMU you can call this methods:
-    # self.imu_proxy.getAcceleration(...)
-    # self.imu_proxy.getAngularVel(...)
-    # self.imu_proxy.getDataImu(...)
-    # self.imu_proxy.getMagneticFields(...)
-    # self.imu_proxy.getOrientation(...)
-    # self.imu_proxy.resetImu(...)
+    # RoboCompIMU.Acceleration self.imu_proxy.getAcceleration()
+    # RoboCompIMU.Gyroscope self.imu_proxy.getAngularVel()
+    # RoboCompIMU.DataImu self.imu_proxy.getDataImu()
+    # RoboCompIMU.Magnetic self.imu_proxy.getMagneticFields()
+    # RoboCompIMU.Orientation self.imu_proxy.getOrientation()
+    # RoboCompIMU.void self.imu_proxy.resetImu()
 
     ######################
     # From the RoboCompIMU you can use this types:
@@ -569,14 +572,14 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompOmniRobot you can call this methods:
-    # self.omnirobot_proxy.correctOdometer(...)
-    # self.omnirobot_proxy.getBasePose(...)
-    # self.omnirobot_proxy.getBaseState(...)
-    # self.omnirobot_proxy.resetOdometer(...)
-    # self.omnirobot_proxy.setOdometer(...)
-    # self.omnirobot_proxy.setOdometerPose(...)
-    # self.omnirobot_proxy.setSpeedBase(...)
-    # self.omnirobot_proxy.stopBase(...)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.correctOdometer(int x, int z, float alpha)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.getBasePose(int x, int z, float alpha)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.getBaseState(RoboCompGenericBase.TBaseState state)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.resetOdometer()
+    # RoboCompOmniRobot.void self.omnirobot_proxy.setOdometer(RoboCompGenericBase.TBaseState state)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.setOdometerPose(int x, int z, float alpha)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.setSpeedBase(float advx, float advz, float rot)
+    # RoboCompOmniRobot.void self.omnirobot_proxy.stopBase()
 
     ######################
     # From the RoboCompOmniRobot you can use this types:
@@ -584,7 +587,7 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompJoystickAdapter you can use this types:
-    # RoboCompJoystickAdapter.axisParams
+    # RoboCompJoystickAdapter.AxisParams
     # RoboCompJoystickAdapter.ButtonParams
     # RoboCompJoystickAdapter.TData
 

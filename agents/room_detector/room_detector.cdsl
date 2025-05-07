@@ -1,0 +1,13 @@
+import "Lidar3DPub.idsl";
+
+Component room_detector
+{
+    Communications
+    {
+    	subscribesTo Lidar3DPub;
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+};
+

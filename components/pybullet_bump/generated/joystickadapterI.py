@@ -29,14 +29,15 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/JoystickAdapter.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/JoystickAdapter.ice")
 
 from RoboCompJoystickAdapter import *
 
 class JoystickAdapterI(JoystickAdapter):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def sendData(self, data, c):
-        return self.worker.JoystickAdapter_sendData(data)
+    def sendData(self, data, ):
+        return getattr(self.worker, f"JoystickAdapter{self.id}_sendData")(data)

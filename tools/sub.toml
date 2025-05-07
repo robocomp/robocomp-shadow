@@ -1,0 +1,53 @@
+[[components]]
+name = "bridge"
+cwd = "~/robocomp/components/webots-bridge"
+cmd = "bin/Webots2Robocomp etc/config"
+ice_name = "Webots2Robocomp:tcp -h localhost -p 10006"
+
+[[components]]
+name = "camera"
+cwd = "~/robocomp/components/robocomp-robolab/components/hardware/camera/ricoh_omni"
+cmd = "bin/RicohOmni etc/config_wb"
+ice_name = "Camera360RGB:tcp -h localhost -p 10097"
+
+[[components]]
+name = "helios"
+cwd = "~/robocomp/components/robocomp-robolab/components/hardware/laser/lidar3D"
+cmd = "bin/Lidar3D etc/config_helios_webots"
+ice_name = "Lidar3D:tcp -h localhost -p 10098"
+
+[[components]]
+name = "pearl"
+cwd = "~/robocomp/components/robocomp-robolab/components/hardware/laser/lidar3D"
+cmd = "bin/Lidar3D etc/config_pearl_webots"
+ice_name = "Lidar3D:tcp -h localhost -p 11990"
+
+[[components]]
+name = "rgbd"
+cwd = "~/robocomp/components/robocomp-shadow/insect/RGBD_360"
+cmd = "bin/RGBD_360 etc/config_wb"
+ice_name = "RGBD360:tcp -h localhost -p 11989"
+
+[[components]]
+name = "joy"
+cwd = "~/robocomp/components/robocomp-robolab/components/hardware/external_control/python_xbox_controller"
+cmd = "src/python_xbox_controller.py etc/config"
+ice_name = "Joystick:tcp -h localhost -p 10100"
+
+#[[components]]
+#name = "gridder"
+#cwd = "~/robocomp/components/robocomp-shadow/insect/gridder"
+#cmd = "bin/gridder etc/config_wb"
+#ice_name = "Gridder:tcp -h localhost -p 13541"
+
+[[components]]
+name = "bumper"
+cwd = "~/robocomp/components/robocomp-shadow/insect/bumper"
+cmd = "bin/bumper etc/config_wb"
+ice_name = "Bumper:tcp -h localhost -p 16804"
+
+[[components]]
+name = "g2o_cpp"
+cwd = "~/robocomp/components/robocomp-shadow/components/g2o_cpp"
+cmd = "bin/g2o_cpp etc/config"
+ice_name = "G2Ooptimizer:tcp -h localhost -p 11212"

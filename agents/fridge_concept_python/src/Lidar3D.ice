@@ -10,6 +10,7 @@
 #define ROBOCOMPLIDAR3D_ICE
 module RoboCompLidar3D
 {
+	sequence <int> TCategories;
 	struct TPoint
 	{
 		float x;
@@ -41,10 +42,20 @@ module RoboCompLidar3D
 		float period;
 		long timestamp;
 	};
+	struct TDataCategory
+	{
+		TFloatArray XArray;
+		TFloatArray YArray;
+		TFloatArray ZArray;
+		TCategories CategoriesArray;
+		float period;
+		long timestamp;
+	};
 	interface Lidar3D
 	{
 		TData getLidarData (string name, float start, float len, int decimationDegreeFactor);
 		TDataImage getLidarDataArrayProyectedInImage (string name);
+		TDataCategory getLidarDataByCategory (TCategories categories, long timestamp);
 		TData getLidarDataProyectedInImage (string name);
 		TData getLidarDataWithThreshold2d (string name, float distance, int decimationDegreeFactor);
 	};
