@@ -19,7 +19,6 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 import time
-from socket import send_fds
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
@@ -31,7 +30,6 @@ import numpy as np
 import locale
 import matplotlib.pyplot as plt
 import matplotlib
-import pandas as pd
 
 matplotlib.use("TkAgg")
 
@@ -47,7 +45,7 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 0
+        self.Period = 1
 
         locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
 
@@ -101,39 +99,28 @@ class SpecificWorker(GenericWorker):
         self.bumps_cont = 0
 
         # Initialize IMU data
-        self.imu_data_inner = {
-            "time": [0],
-            # Storing linear acceleration in x, y and z axis, and the previous linear velocity
-            "lin_acc_x": [0],
-            "lin_acc_y": [0],
-            "lin_acc_z": [0],
-            "prev_lin_vel": np.zeros(3),
-            # Storing the orientation of the robot in x, y and z axis
-            "yaw":       [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[0]],
-            "pitch":     [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[1]],
-            "roll":      [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[2]],
-        }
-
-        # Storing the position of the robot in x, y and z axis
-        self.robot_pos = [p.getBasePositionAndOrientation(self.robot)[0]]
+        # self.imu_data = {"time": [], "lin_acc": [], "ang_vel": [], "orientation": [], "prev_lin_vel": np.zeros(3)}
+        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
+        self.imu_data_inner["time"].append(0)
+        self.imu_data_inner["lin_acc_x"].append(0)
+        self.imu_data_inner["lin_acc_y"].append(0)
+        self.imu_data_inner["lin_acc_z"].append(0)
+        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
 
         # Initialize IMU data of webots
-        self.imu_data_webots = {"time":      [0],
-                                "lin_acc_x": [0],
-                                "lin_acc_y": [0],
-                                "lin_acc_z": [0],
-                                "yaw":       [0],
-                                "pitch":     [0],
-                                "roll":      [0],
-                                }
+        self.imu_data_webots = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "pos": []}
+        self.imu_data_webots["time"].append(0)
+        self.imu_data_webots["lin_acc_x"].append(0)
+        self.imu_data_webots["lin_acc_y"].append(0)
+        self.imu_data_webots["lin_acc_z"].append(0)
 
-        # # Initialize plot
-        # plt.ion()
-        # self.fig, self.ax = plt.subplots(6, 1, figsize=(8, 12))
-        # self.plot_timer = QTimer()
-        # self.plot_timer.timeout.connect(self.update_plot)
-        # self.plot_timer.start(500)
-        # self.update_plot(update_legend=True)
+        # Initialize plot
+        plt.ion()
+        self.fig, self.ax = plt.subplots(3, 1, figsize=(8, 10))
+        self.plot_timer = QTimer()
+        self.plot_timer.timeout.connect(self.update_plot)
+        self.plot_timer.start(100)
+        self.update_plot(update_legend=True)
 
         # Variables for the temporal analysis
         self.inner_cont = None
@@ -164,40 +151,13 @@ class SpecificWorker(GenericWorker):
     def compute(self):
         match self.state:
             case "idle":
+                # self.state = "start_moving"
                 pass
-
-            case "stoped":
-                df = self.write_csv_with_IMU_data("imu_data.csv")
-                pares = [
-                    ("yaw_inner", "yaw_real"),
-                    ("pitch_inner", "pitch_real"),
-                    ("roll_inner", "roll_real")
-                ]
-
-                fig, axes = plt.subplots(nrows=3, figsize=(14, 10))
-
-                # Graficar cada diferencia en su subplot
-                for i, (col1, col2) in enumerate(pares):
-                    diff = df[col1] - df[col2]
-                    axes[i].plot(diff)
-                    axes[i].set_title(f'{col1} - {col2}')
-                    axes[i].set_xlabel('Índice')
-                    axes[i].set_ylabel('Diferencia')
-                    axes[i].grid(True)
-
-                # Ajuste final
-                plt.tight_layout()
-                plt.show()
-
-                # self.update_plot(update_legend=True)
-                self.state = "idle"
-
             case "start_moving":
                 # set webots robot speed
                 self.forward_velocity = 0.5
                 self.angular_velocity = 0
                 self.omnirobot_proxy.setSpeedBase(0, self.forward_velocity * 1000, self.angular_velocity * 1000)
-                self.imu_data_webots = self.get_imu_data_webots()
 
                 # set inner robot speed
                 # Get the velocity of the wheels from the forward and angular velocity of the robot
@@ -222,26 +182,18 @@ class SpecificWorker(GenericWorker):
                 #print(f"Pybullet: {self.imu_data_inner['lin_acc_z'][-1]}, Webots: {self.imu_data_webots['lin_acc_z'][-1]}")
 
                 #check if the difference is greater than a threshold
-                # print("Checking difference between Pybullet and Webots")
-                # print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
-                # print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
-                # print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
-                #
-                #
-                # print(f"Diff yaw: {abs(self.imu_data_inner['yaw'][-1] - self.imu_data_webots['yaw'][-1])}")
-                # print(f"Diff pitch: {abs(self.imu_data_inner['pitch'][-1] - self.imu_data_webots['pitch'][-1])}")
-                # print(f"Diff roll: {abs(self.imu_data_inner['roll'][-1] - self.imu_data_webots['roll'][-1])}")
-                #
-                webots_shadow_pos = self.omnirobot_proxy.getBaseState()
-                # print(f"Webots shadow pos: {webots_shadow_pos.x}")
+                print("Checking difference between Pybullet and Webots")
+                print(f"Diff X: {abs(self.imu_data_inner['lin_acc_x'][-1] - self.imu_data_webots['lin_acc_x'][-1])}")
+                print(f"Diff Y: {abs(self.imu_data_inner['lin_acc_z'][-1] - self.imu_data_webots['lin_acc_y'][-1])}")
+                print(f"Diff Z: {abs(self.imu_data_inner['lin_acc_y'][-1] - self.imu_data_webots['lin_acc_z'][-1])}")
 
-                if webots_shadow_pos.x > 0.3 :
+                thresh = 1
+                if self.imu_data_webots['lin_acc_y'][-1] > thresh :
                     # stop the robots
                     print("Bump detected  -- STOPPING ROBOTS")
                     self.webot_stop_robot()
                     self.inner_stop_robot()
-                    self.state = "stoped"
-                    # self.state = "bump_detected"
+                    self.state = "bump_detected"
 
             case "bump_detected":       # stop the robot and replay the trajectory in Pybullet until a match
                 if self.bumps_cont == self.number_of_bumps:
@@ -257,7 +209,7 @@ class SpecificWorker(GenericWorker):
                     # create a range of positions for the bump close to the final position of the episode
                     if self.generate_bumps:
                         print("Generating bumps")
-                        last_coord = self.robot_pos[-1]
+                        last_coord = self.imu_data_inner["pos"][-1]
                         bump_x = last_coord[0] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
                         bump_y = last_coord[1] + np.random.uniform(-0.5, 0.5, self.number_of_bumps)
                         bump_z = np.full(self.number_of_bumps, 0.01)
@@ -475,6 +427,8 @@ class SpecificWorker(GenericWorker):
         prev_lin_vel = np.array(self.imu_data_inner.get("prev_lin_vel"))
         t = time.time() - self.start_time
 
+        self.imu_data_inner["prev_lin_vel"] = lin_vel
+
         if self.use_mean_period:
             timeStep = self.mean_period
         else :
@@ -482,17 +436,14 @@ class SpecificWorker(GenericWorker):
 
         lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
 
-        # Store the IMU data in the dictionary
+        # Store data
         self.imu_data_inner["time"].append(t)
         self.imu_data_inner["lin_acc_x"].append(lin_acc[0])
         self.imu_data_inner["lin_acc_y"].append(lin_acc[1])
         self.imu_data_inner["lin_acc_z"].append(lin_acc[2])
-        self.imu_data_inner["prev_lin_vel"] = lin_vel
-        self.imu_data_inner["yaw"].append(yaw)
-        self.imu_data_inner["pitch"].append(pitch)
-        self.imu_data_inner["roll"].append(roll)
-
-        self.robot_pos.append(pos)
+        self.imu_data_inner["pos"].append(pos)
+        # self.imu_data["ang_vel"].append(ang_vel)
+        # self.imu_data["orientation"].append((roll, pitch, yaw))
 
         return self.imu_data_inner
 
@@ -503,13 +454,6 @@ class SpecificWorker(GenericWorker):
             self.imu_data_webots["lin_acc_x"].append(temp_data.XAcc)
             self.imu_data_webots["lin_acc_y"].append(temp_data.YAcc)
             self.imu_data_webots["lin_acc_z"].append(temp_data.ZAcc)
-            temp_data = self.imu_proxy.getOrientation()
-            print(f"Webots IMU data: {temp_data}")
-
-            self.imu_data_webots["yaw"].append(temp_data.Yaw)
-            self.imu_data_webots["pitch"].append(temp_data.Pitch)
-            self.imu_data_webots["roll"].append(temp_data.Roll)
-
             return self.imu_data_webots
         except Exception as e:
             print(e)
@@ -520,21 +464,12 @@ class SpecificWorker(GenericWorker):
         """
         p.resetBasePositionAndOrientation(self.robot, self.init_pos, self.init_orn)
         time.sleep(0.1)
-
-        self.imu_data_inner = {
-            "time": [0],
-            # Storing linear acceleration in x, y and z axis, and the previous linear velocity
-            "lin_acc_x": [0],
-            "lin_acc_y": [0],
-            "lin_acc_z": [0],
-            "prev_lin_vel": np.zeros(3),
-            # Storing the position of the robot in x, y and z axis
-            "pos": [p.getBasePositionAndOrientation(self.robot)[0]],
-            # Storing the orientation of the robot in x, y and z axis
-            "yaw": [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[0]],
-            "pitch": [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[1]],
-            "roll": [p.getEulerFromQuaternion(p.getBasePositionAndOrientation(self.robot)[1])[2]],
-        }
+        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
+        self.imu_data_inner["time"].append(0)
+        self.imu_data_inner["lin_acc_x"].append(0)
+        self.imu_data_inner["lin_acc_y"].append(0)
+        self.imu_data_inner["lin_acc_z"].append(0)
+        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
 
     def update_plot(self, update_legend=False):
         """
@@ -575,61 +510,9 @@ class SpecificWorker(GenericWorker):
         if update_legend: self.ax[2].legend()
         self.ax[2].grid(True)
 
-        # Graphing Yaw
-        self.ax[3].plot(self.imu_data_inner["time"], self.imu_data_inner["yaw"], label="Pybullet Yaw", marker="o", color="blue")
-        self.ax[3].plot(self.imu_data_webots["time"], self.imu_data_webots["yaw"], label="Webots Yaw", marker="s",
-                        color="red")
-        self.ax[3].set_ylabel("Yaw")
-        self.ax[3].set_title("Yaw")
-        self.ax[3].set_ylim(-np.pi/4, np.pi/4)
-        if update_legend: self.ax[3].legend()
-        self.ax[3].grid(True)
-
-        # Graphing Pitch
-        self.ax[4].plot(self.imu_data_inner["time"], self.imu_data_inner["pitch"], label="Pybullet Pitch", marker="o", color="green")
-        self.ax[4].plot(self.imu_data_webots["time"], self.imu_data_webots["pitch"], label="Webots Pitch", marker="s",
-                        color="orange")
-        self.ax[4].set_ylabel("Pitch")
-        self.ax[4].set_title("Pitch")
-        self.ax[4].set_ylim(-np.pi/4, np.pi/4)
-        if update_legend: self.ax[4].legend()
-        self.ax[4].grid(True)
-
-        # Graphing Roll
-        self.ax[5].plot(self.imu_data_inner["time"], self.imu_data_inner["roll"], label="Pybullet Roll", marker="o", color="purple")
-        self.ax[5].plot(self.imu_data_webots["time"], self.imu_data_webots["roll"], label="Webots Roll", marker="s",
-                        color="black")
-        self.ax[5].set_ylabel("Roll")
-        self.ax[5].set_title("Roll")
-        self.ax[5].set_ylim(-np.pi/4, np.pi/4)
-        if update_legend: self.ax[5].legend()
-        self.ax[5].grid(True)
-
         # Pause the plot for a short time to allow the plot to update
         plt.pause(0.1)
 
-    def write_csv_with_IMU_data(self, filename):
-        print("Writing CSV file with IMU data")
-        self.imu_data_inner.pop("prev_lin_vel", None)
-        self.imu_data_inner.pop("lin_acc_x",None)
-        self.imu_data_inner.pop("lin_acc_y",None)
-        self.imu_data_inner.pop("lin_acc_z",None)
-        inner_model = pd.DataFrame(self.imu_data_inner)
-        for name in inner_model.columns:
-            inner_model.rename(columns={name: name + "_inner"}, inplace=True)
-        print(f"Inner model shape:{inner_model.shape}")
-
-        self.imu_data_webots.pop("lin_acc_x",None)
-        self.imu_data_webots.pop("lin_acc_y",None)
-        self.imu_data_webots.pop("lin_acc_z",None)
-        real_model = pd.DataFrame(self.imu_data_webots)
-        for name in real_model.columns:
-            real_model.rename(columns={name: name + "_real"}, inplace=True)
-        total_model = inner_model.join(real_model)
-        print(f"Total model shape:{total_model.shape}")
-        total_model.to_csv(filename, index=False)
-        print(f"CSV file {filename} written")
-        return total_model
 
     # =============== Methods for Component SubscribesTo ================
     # ===================================================================
