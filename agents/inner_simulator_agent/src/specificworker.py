@@ -48,7 +48,8 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map, configData)
         self.Period = configData["Period"]["Compute"]
-        self.g = DSRGraph(0, str(configData["Agent"]["name"]), int(configData["Agent"]["id"]))
+        self.agent_id = int(configData["Agent"]["id"])
+        self.g = DSRGraph(0, str(configData["Agent"]["name"]), self.agent_id)
 
         try:
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
@@ -83,18 +84,8 @@ class SpecificWorker(GenericWorker):
         self.joint_names = self.get_joints_info(self.robot) # Get the joint names and IDs
         print(self.joint_names)
 
-        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
-        self.imu_data_inner["time"].append(0)
-        self.imu_data_inner["lin_acc_x"].append(0)
-        self.imu_data_inner["lin_acc_y"].append(0)
-        self.imu_data_inner["lin_acc_z"].append(0)
-        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
-
         self.saved_state = p.saveState()
 
-        # self.bump_100x5cm = p.loadURDF("./URDFs/bump/bump_100x5cm.urdf", [0, -0.33, 0.001], flags=flags)
-        # self.bump_1000x10cm = p.loadURDF("./URDFs/bump/bump_100x10cm.urdf", [0, -0.33, 0.001], flags=flags)
-        # self.cylinder_bump_10m = p.loadURDF("./URDFs/bump/cylinder_bump_10m.urdf", [0, -0.8, 0.001], p.getQuaternionFromEuler([0, 0, np.pi/2]), flags=flags)
 
         self.joints_name = self.get_joints_info(self.robot)
         self.links_name = self.get_link_info(self.robot)
@@ -112,8 +103,53 @@ class SpecificWorker(GenericWorker):
         self.mean_period = None
         self.use_mean_period = False
 
-        self.start_time = time()
+        #link robot Virtual imu
+        robot_node = self.g.get_node(200)
+        if robot_node is  None:
+            print(f"Robot node {200} not found")
+            return
         
+
+        imu_node = self.g.get_node("Virtual_imu")
+        if imu_node is None:
+            # Crear objeto Node primero
+            imu_node = Node(366, "imu", "Virtual_imu")
+            imu_node.attrs["pos_x"] = Attribute(float(100), self.agent_id)
+            imu_node.attrs["pos_y"] = Attribute(float(100), self.agent_id)
+            
+            # Añadir atributos requeridos
+            imu_node.attrs["imu_accelerometer"] = Attribute(np.array([0.0, 0.0, 0.0], dtype=np.float32), self.agent_id)
+            imu_node.attrs["imu_speed"] = Attribute(np.array([0.0, 0.0, 0.0], dtype=np.float32), self.agent_id)
+            imu_node.attrs["imu_gyroscope"] = Attribute(np.array([0.0, 0.0, 0.0], dtype=np.float32), self.agent_id)
+            imu_node.attrs["imu_in"] = Attribute(np.array([0.0, 0.0, 0.0], dtype=np.float32), self.agent_id)
+            imu_node.attrs["yaw"] = Attribute(.0, self.agent_id)
+            imu_node.attrs["pitch"] = Attribute(.0, self.agent_id)
+            imu_node.attrs["roll"] = Attribute(.0, self.agent_id)
+            imu_node.attrs["imu_time_stamp"] = Attribute(float(0), self.agent_id)
+            # Insertar nodo en el grafo
+            node_id = self.g.insert_node(imu_node)
+            if node_id is None:
+                print("Failed to create IMU node")
+                return
+            print(f"Created new IMU node with ID {node_id}")
+        imu_node = self.g.get_node("Virtual_imu")
+
+        rt_robot_edge = Edge(imu_node.id, robot_node.id, "RT", self.agent_id)
+        rt_robot_edge.attrs['rt_translation'] = Attribute(np.array([.0, .0, .0],dtype=np.float32), self.agent_id)
+        rt_robot_edge.attrs['rt_rotation_euler_xyz'] = Attribute(np.array([.0, .0, .0],dtype=np.float32), self.agent_id)
+        rt_robot_edge.attrs['timestamp_alivetime'] = Attribute(int(time()), self.agent_id)
+        self.g.insert_or_assign_edge(rt_robot_edge)
+        
+        self.g.update_node(imu_node)
+
+        self.data_inner = {
+            "imu_speed": np.array(p.getBaseVelocity(self.robot)[0], dtype=np.float32),
+            "imu_accelerometer": np.array([0.0, 0.0, 0.0], dtype=np.float32),
+            "imu_gyroscope": np.array([0.0, 0.0, 0.0], dtype=np.float32),
+            "imu_inclinometer": np.array(p.getBasePositionAndOrientation(self.robot)[1], dtype=np.float32),
+            "imu_time_stamp": float(time()),
+        }
+        self.pose = p.getBasePositionAndOrientation(self.robot)[0]
 
         if startup_check:
             self.startup_check()
@@ -137,9 +173,8 @@ class SpecificWorker(GenericWorker):
                                         targetVelocity=wheels_velocities[motor_name])
             
         # read acceleration from PyBullet
-        self.imu_data_inner = self.get_imu_data_inner(self.robot)
-        
-        
+        self.update_data_inner(self.robot)
+        self.update_dsr()
         p.stepSimulation()
         return True
 
@@ -234,7 +269,7 @@ class SpecificWorker(GenericWorker):
             "frame_back_right2motor_back_right": forward_velocity / self.wheels_radius + self.distance_from_center_to_wheels * angular_velocity / self.wheels_radius}
         return wheels_velocity
 
-    def get_imu_data_inner(self, body_id):
+    def update_data_inner(self, body_id):
         """
         Get IMU data from a body in the PyBullet simulation
         :param body_id: ID of the body in the simulation
@@ -243,28 +278,23 @@ class SpecificWorker(GenericWorker):
         pos, orn = p.getBasePositionAndOrientation(body_id)
         lin_vel, ang_vel = p.getBaseVelocity(body_id)
         roll, pitch, yaw = p.getEulerFromQuaternion(orn)
-        prev_lin_vel = np.array(self.imu_data_inner.get("prev_lin_vel"))
-        t = time() - self.start_time
 
-        self.imu_data_inner["prev_lin_vel"] = lin_vel
+        t = time()
+        timeStep = t - self.data_inner["imu_time_stamp"]
 
-        if self.use_mean_period:
-            timeStep = self.mean_period
-        else :
-            timeStep = t - self.imu_data_inner["time"][-1]
+        lin_acc = (np.array(lin_vel, dtype=np.float32) - self.data_inner["imu_speed"]) / timeStep
 
-        lin_acc = (np.array(lin_vel, dtype=np.float32) - prev_lin_vel) / timeStep
+        self.pose = np.array(pos, dtype=np.float32)
 
         # Store data
-        self.imu_data_inner["time"].append(t)
-        self.imu_data_inner["lin_acc_x"].append(lin_acc[0])
-        self.imu_data_inner["lin_acc_y"].append(lin_acc[1])
-        self.imu_data_inner["lin_acc_z"].append(lin_acc[2])
-        self.imu_data_inner["pos"].append(pos)
-        # self.imu_data["ang_vel"].append(ang_vel)
-        # self.imu_data["orientation"].append((roll, pitch, yaw))
-
-        return self.imu_data_inner
+        self.data_inner["imu_speed"] =  np.array(lin_vel, dtype=np.float32)
+        self.data_inner["imu_accelerometer"] = np.array(lin_acc, dtype=np.float32)
+        self.data_inner["imu_inclinometer"] = np.array(orn, dtype=np.float32)
+        self.data_inner["imu_gyroscope"] = np.array(ang_vel, dtype=np.float32)
+        self.data_inner["yaw"] = float(yaw)
+        self.data_inner["pitch"] = float(pitch)
+        self.data_inner["roll"] = float(roll)
+        self.data_inner["imu_time_stamp"] = float(t)
 
     def reset_world(self):
         """
@@ -272,15 +302,49 @@ class SpecificWorker(GenericWorker):
         """
         p.resetBasePositionAndOrientation(self.robot, self.init_pos, self.init_orn)
         time.sleep(0.1)
-        self.imu_data_inner = {"time": [], "lin_acc_x": [], "lin_acc_y": [], "lin_acc_z": [], "prev_lin_vel": np.zeros(3), "pos": []}
-        self.imu_data_inner["time"].append(0)
-        self.imu_data_inner["lin_acc_x"].append(0)
-        self.imu_data_inner["lin_acc_y"].append(0)
-        self.imu_data_inner["lin_acc_z"].append(0)
-        self.imu_data_inner["pos"].append(p.getBasePositionAndOrientation(self.robot)[0])
+
+        self.update_data_inner(self.robot)
+        self.data_inner["imu_accelerometer"] = [0, 0, 0]
+        self.update_dsr()
 
 
+    def update_dsr(self):
+        imu_node = self.g.get_node("Virtual_imu")
+        for k, v in self.data_inner.items():
+            # print(k, v, type(v))
+            imu_node.attrs[k] = Attribute(v, self.agent_id)
+        
 
+        
+
+        robot_node = self.g.get_node(200)
+        if robot_node is  None:
+            print(f"Robot node 200 not found")
+            return
+
+        #link root-robot
+        root_node = self.g.get_node("root")
+        if root_node is None:
+            print("Root node not found")
+            return
+        
+        rt_robot_edge = Edge(robot_node.id, root_node.id, "RT", self.agent_id)
+        rt_robot_edge.attrs['rt_translation'] = Attribute(self.pose, self.agent_id)
+        rt_robot_edge.attrs['rt_rotation_euler_xyz'] = Attribute(np.array([self.data_inner.get("yaw"),
+                                                                           self.data_inner.get("pitch"),
+                                                                           self.data_inner.get("roll")],dtype=np.float32), self.agent_id)
+
+        rt_robot_edge.attrs['timestamp_alivetime'] = Attribute(int(self.data_inner.get("imu_time_stamp")) , self.agent_id)
+        self.g.insert_or_assign_edge(rt_robot_edge)
+
+        # Update nodes
+        self.g.update_node(imu_node)
+        self.g.update_node(robot_node)
+        self.g.update_node(root_node)
+
+        imu_node = self.g.get_node("Virtual_imu")
+        for k, v in self.data_inner.items():
+            print(k, imu_node.attrs[k].value)
 
 
 
