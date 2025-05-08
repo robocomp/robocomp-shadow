@@ -44,8 +44,11 @@ from ultralytics import YOLO
 import torch
 import itertools
 import math
+import os
 
-sys.path.append('/home/robocomp/software/JointBDOE')
+HOME = os.environ['HOME']
+sys.path.append(os.path.join(HOME, 'software/JointBDOE'))
+
 
 from utils.torch_utils import select_device
 from utils.general import check_img_size, scale_coords, non_max_suppression
@@ -157,8 +160,8 @@ _COLORS = np.array(
 ).astype(np.float32).reshape(-1, 3)
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, params, startup_check=False):
-        super(SpecificWorker, self).__init__(proxy_map)
+    def __init__(self, proxy_map, configData, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map, configData)
 
         if startup_check:
             self.startup_check()
@@ -208,6 +211,17 @@ class SpecificWorker(GenericWorker):
                     traceback.print_exc()
                     print(e, "Trying again CAMERA...")
                     time.sleep(2)
+
+
+            try:
+                self.classes = [0]
+                self.display = configData["display"]
+                self.depth_flag = configData["depth"]
+                with open(configData["classes-path-file"]) as f:
+                    [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
+            except:
+                print("Error reading config params")
+                traceback.print_exc()
             
             ############## OBJECTS ##############
             #TRACKER
@@ -219,7 +233,7 @@ class SpecificWorker(GenericWorker):
 
             ############## MODELS ##############
             # Load YOLO model
-            self.load_v8_model()
+            self.load_v8_model(configData["yolo_model"])
             # Load JointBDOE model
             self.load_jointbdoe_model()
 
@@ -254,17 +268,7 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
 
     def setParams(self, params):
-        try:
-            self.classes = [0]
-            # self.yolo_model = params["yolo_model"]
-            self.display = params["display"] == "true" or params["display"] == "True"
-            self.depth_flag = params["depth"] == "true" or params["depth"] == "True"
-            with open(params["classes-path-file"]) as f:
-                [self.classes.append(_OBJECT_NAMES.index(line.strip())) for line in f.readlines()]
-            print("Params read. Starting...", params)
-        except:
-            print("Error reading config params")
-            traceback.print_exc()
+
 
         return True
 
@@ -314,7 +318,7 @@ class SpecificWorker(GenericWorker):
             # #
             # # Fuse front_objects and back_objects and equal it to self.objects_write
 
- #           self.visualelementspub_proxy.setVisualObjects(self.objects)
+            self.visualelementspub_proxy.setVisualObjects(self.objects)
 
             # # # If display is enabled, show the tracking results on the image
             #
@@ -344,10 +348,11 @@ class SpecificWorker(GenericWorker):
         return matriz_diferencial
 
     ###################### MODELS LOADING METHODS ######################
-    def load_v8_model(self):
-        pattern = os.path.join(os.getcwd(), "yolo11?-seg.pt")
+    def load_v8_model(self, model):
+        pattern = os.path.join(os.getcwd(), model)
         matching_files = glob.glob(pattern)
         model_path = matching_files[0] if matching_files else None
+        
         if model_path:
             print(f"{model_path} found")
             try:
@@ -373,10 +378,10 @@ class SpecificWorker(GenericWorker):
         try:
             self.device = select_device("0", batch_size=1)
             self.model = attempt_load(
-                "/home/robocomp/software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt",
-                map_location=self.device)
+                 os.path.join(HOME, "software/JointBDOE/runs/JointBDOE/coco_s_1024_e500_t020_w005/weights/best.pt")
+                , map_location=self.device)
             self.stride = int(self.model.stride.max())
-            with open("/home/robocomp/software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml") as f:
+            with open(os.path.join(HOME,"software/JointBDOE/data/JointBDOE_weaklabel_coco.yaml")) as f:
                 self.data = yaml.safe_load(f)  # load data dict
         except Exception as e:
             print("Error loading JointBDOE model", e)
@@ -826,23 +831,28 @@ class SpecificWorker(GenericWorker):
 
     ############################################################################################
     def startup_check(self):
-        print(f"Testing RoboCompCameraRGBDSimple.TImage from ifaces.RoboCompCameraRGBDSimple")
-        test = ifaces.RoboCompCameraRGBDSimple.TImage()
-        print(f"Testing RoboCompCameraRGBDSimple.TDepth from ifaces.RoboCompCameraRGBDSimple")
-        test = ifaces.RoboCompCameraRGBDSimple.TDepth()
-        print(f"Testing RoboCompCameraRGBDSimple.TRGBD from ifaces.RoboCompCameraRGBDSimple")
-        test = ifaces.RoboCompCameraRGBDSimple.TRGBD()
-        print(f"Testing RoboCompHumanCameraBody.TImage from ifaces.RoboCompHumanCameraBody")
-        test = ifaces.RoboCompHumanCameraBody.TImage()
-        print(f"Testing RoboCompHumanCameraBody.TGroundTruth from ifaces.RoboCompHumanCameraBody")
-        test = ifaces.RoboCompHumanCameraBody.TGroundTruth()
-        print(f"Testing RoboCompHumanCameraBody.KeyPoint from ifaces.RoboCompHumanCameraBody")
-        test = ifaces.RoboCompHumanCameraBody.KeyPoint()
-        print(f"Testing RoboCompHumanCameraBody.Person from ifaces.RoboCompHumanCameraBody")
-        test = ifaces.RoboCompHumanCameraBody.Person()
-        print(f"Testing RoboCompHumanCameraBody.PeopleData from ifaces.RoboCompHumanCameraBody")
-        test = ifaces.RoboCompHumanCameraBody.PeopleData()
+        print(f"Testing RoboCompCamera360RGB.TRoi from ifaces.RoboCompCamera360RGB")
+        test = ifaces.RoboCompCamera360RGB.TRoi()
+        print(f"Testing RoboCompCamera360RGB.TImage from ifaces.RoboCompCamera360RGB")
+        test = ifaces.RoboCompCamera360RGB.TImage()
+        print(f"Testing RoboCompCamera360RGBD.TRoi from ifaces.RoboCompCamera360RGBD")
+        test = ifaces.RoboCompCamera360RGBD.TRoi()
+        print(f"Testing RoboCompCamera360RGBD.TRGBD from ifaces.RoboCompCamera360RGBD")
+        test = ifaces.RoboCompCamera360RGBD.TRGBD()
+        print(f"Testing RoboCompLidar3D.TPoint from ifaces.RoboCompLidar3D")
+        test = ifaces.RoboCompLidar3D.TPoint()
+        print(f"Testing RoboCompLidar3D.TDataImage from ifaces.RoboCompLidar3D")
+        test = ifaces.RoboCompLidar3D.TDataImage()
+        print(f"Testing RoboCompLidar3D.TData from ifaces.RoboCompLidar3D")
+        test = ifaces.RoboCompLidar3D.TData()
+        print(f"Testing RoboCompLidar3D.TDataCategory from ifaces.RoboCompLidar3D")
+        test = ifaces.RoboCompLidar3D.TDataCategory()
+        print(f"Testing RoboCompVisualElementsPub.TObject from ifaces.RoboCompVisualElementsPub")
+        test = ifaces.RoboCompVisualElementsPub.TObject()
+        print(f"Testing RoboCompVisualElementsPub.TData from ifaces.RoboCompVisualElementsPub")
+        test = ifaces.RoboCompVisualElementsPub.TData()
         QTimer.singleShot(200, QApplication.instance().quit)
+
 
     # =============== Ice required interfaces ==================
     #
@@ -891,19 +901,17 @@ class SpecificWorker(GenericWorker):
 
         # return self.ax,
     ######################
-    # From the RoboCompByteTrack you can call this methods:
-    # self.bytetrack_proxy.allTargets(...)
-    # self.bytetrack_proxy.getTargets(...)
-    # self.bytetrack_proxy.getTargetswithdepth(...)
-    # self.bytetrack_proxy.setTargets(...)
+    # From the RoboCompCamera360RGB you can call this methods:
+    # RoboCompCamera360RGB.TImage self.camera360rgb_proxy.getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
 
     ######################
-    # From the RoboCompByteTrack you can use this types:
-    # RoboCompByteTrack.Targets
+    # From the RoboCompCamera360RGB you can use this types:
+    # RoboCompCamera360RGB.TRoi
+    # RoboCompCamera360RGB.TImage
 
     ######################
     # From the RoboCompCamera360RGBD you can call this methods:
-    # self.camera360rgbd_proxy.getROI(...)
+    # RoboCompCamera360RGBD.TRGBD self.camera360rgbd_proxy.getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
 
     ######################
     # From the RoboCompCamera360RGBD you can use this types:
@@ -911,13 +919,27 @@ class SpecificWorker(GenericWorker):
     # RoboCompCamera360RGBD.TRGBD
 
     ######################
-    # From the RoboCompVisualElements you can use this types:
-    # RoboCompVisualElements.TRoi
-    # RoboCompVisualElements.TObject
+    # From the RoboCompLidar3D you can call this methods:
+    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarData(str name, float start, float len, int decimationDegreeFactor)
+    # RoboCompLidar3D.TDataImage self.lidar3d_proxy.getLidarDataArrayProyectedInImage(str name)
+    # RoboCompLidar3D.TDataCategory self.lidar3d_proxy.getLidarDataByCategory(TCategories categories, long timestamp)
+    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarDataProyectedInImage(str name)
+    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarDataWithThreshold2d(str name, float distance, int decimationDegreeFactor)
 
-    # From the RoboCompLidarOdometry you can call this methods:
-    # self.lidarodometry_proxy.getFullPoseEuler(...)
-    # self.lidarodometry_proxy.getFullPoseMatrix(...)
-    # self.lidarodometry_proxy.getPoseAndChange(...)
-    # self.lidarodometry_proxy.reset(...)
+    ######################
+    # From the RoboCompLidar3D you can use this types:
+    # RoboCompLidar3D.TPoint
+    # RoboCompLidar3D.TDataImage
+    # RoboCompLidar3D.TData
+    # RoboCompLidar3D.TDataCategory
+
+    ######################
+    # From the RoboCompVisualElementsPub you can publish calling this methods:
+    # RoboCompVisualElementsPub.void self.visualelementspub_proxy.setVisualObjects(TData data)
+
+    ######################
+    # From the RoboCompVisualElementsPub you can use this types:
+    # RoboCompVisualElementsPub.TObject
+    # RoboCompVisualElementsPub.TData
+
 

@@ -1,23 +1,25 @@
-# Proxies for required interfaces
-Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 10100
-Camera360RGBProxy = camera360rgb:tcp -h localhost -p 10097
-Lidar3DProxy = lidar3d:tcp -h localhost -p 12191
-#VisualElementsPubProxy = visualelementspub:tcp -h localhost -p 13928
-
 # This property is used by the clients to connect to IceStorm.
-TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+# Proxies for publishes interfaces
+Proxies.VisualElementsPubPrefix = ""
+
+# Proxies for required interfaces
+Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
+Proxies.Camera360RGBD = "camera360rgbd:tcp -h localhost -p 10100"
+Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 12191"
 
 display = false
 depth = false
-yolo_model = yolov8s.trt
+yolo_model = "yolo11?-seg.pt"
 
 # the common directory is /home/robocomp, even if you have a robolab user
-classes-path-file = /home/robocomp/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt
+classes-path-file = "/home/robolab/robocomp/components/robocomp-shadow/insect/yolov8_360/etc/classes.txt"
 
-Ice.Warn.Connections=0
-Ice.Trace.Network=0
-Ice.Trace.Protocol=0
-Ice.MessageSizeMax=20004800
+Ice.Warn.Connections="0"
+Ice.Trace.Network="0"
+Ice.Trace.Protocol="0"
+Ice.MessageSizeMax="20004800"
 
 
 
