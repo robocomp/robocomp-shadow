@@ -1,18 +1,29 @@
 #!/bin/bash
 
 # ===========================
+# VERIFICACIÓN DE VARIABLES
+# ===========================
+if [ -z "$ROBOCOMP" ]; then
+
+    echo "ROBOCOMP environment variable not set, using the default value /home/robocomp/robocomp"
+    ROBOCOMP="/home/robocomp/robocomp"
+fi
+
+# ===========================
 # CONFIGURACIÓN DE COMPONENTES
 # ===========================
+COMPILE="cmake -B build && make -C build -j$(( $(nproc) / 2 ))"
+
 declare -A COMPONENTS=(
-    ["base_controller_agent"]="$ROBOCOMP/components/robocomp-shadow/agents/base_controller_agent;bin/base_controller_agent etc/config"
-    ["inner_simulator_agent"]="$ROBOCOMP/components/robocomp-shadow/agents/inner_simulator_agent;bin/inner_simulator_agent etc/config"
-    ["mission_monitoring"]="$ROBOCOMP/components/robocomp-shadow/agents/mission_monitoring;bin/mission_monitoring etc/config"
-    ["semantic_memory"]="$ROBOCOMP/components/robocomp-shadow/agents/semantic_memory;bin/semantic_memory etc/config"
-    ["episodic_memory"]="$ROBOCOMP/components/robocomp-shadow/agents/episodic-memory;bin/episodic-memory etc/config"
+    ["base_controller_agent"]="cd $ROBOCOMP/components/robocomp-shadow/agents/base_controller_agent && $COMPILE && bin/base_controller_agent etc/config"
+    ["inner_simulator_agent"]="cd $ROBOCOMP/components/robocomp-shadow/agents/inner_simulator_agent && $COMPILE && bin/inner_simulator_agent etc/config"
+    ["mission_monitoring"]="cd $ROBOCOMP/components/robocomp-shadow/agents/mission_monitoring && $COMPILE && bin/mission_monitoring etc/config"
+    ["semantic_memory"]="cd $ROBOCOMP/components/robocomp-shadow/agents/semantic_memory && $COMPILE && bin/semantic_memory etc/config"
+    ["episodic_memory"]="cd $ROBOCOMP/components/robocomp-shadow/agents/episodic_memory && $COMPILE && bin/episodic_memory etc/config"
+    ["person_detector"]="cd $ROBOCOMP/components/robocomp-shadow/agents/person_detector && $COMPILE && bin/person_detector etc/config"
 )
 
-function show_tabs()
-{
+function show_tabs() {
     echo "=== List of existing tabs ==="
     session_ids=($(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.sessionIdList | tr ',' ' '))
     if [ $? -ne 0 ]; then
@@ -34,8 +45,7 @@ function show_tabs()
 # ===========================
 # ELIMINAR PESTAÑAS Y PROCESOS EXISTENTES
 # ===========================
-function clean_tabs()
-{
+function clean_tabs() {
     echo "=== Cleaning tabs ==="
     session_ids=($(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.sessionIdList | tr ',' ' '))
     if [ $? -ne 0 ]; then
@@ -51,14 +61,14 @@ function clean_tabs()
         fi
 
         if [[ -n "${COMPONENTS[$tab_title]}" ]]; then
-            # Kill the running process
-            process_name=$(basename "${COMPONENTS[$tab_title]}" | cut -d' ' -f1)
-            qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "killall -9 $process_name"
-            if [ $? -ne 0 ]; then
-                echo "Error: Failed to kill process $process_name for tab title $tab_title"
-                continue
-            fi
+            # Extraer el nombre del ejecutable del comando
+            command_parts=(${COMPONENTS[$tab_title]})
+            last_part=${command_parts[-1]}
+            process_name=$(basename "$last_part" | cut -d' ' -f1)
 
+            # Kill the running process
+            qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "killall -9 $process_name" 2>/dev/null
+            
             # Remove the tab
             qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.removeSession "$session_id"
             if [ $? -ne 0 ]; then
@@ -70,18 +80,19 @@ function clean_tabs()
     done
 }
 
-function start_agents
-{
-  echo "=== Starting agents ==="
-      for TAB_NAME in "${!COMPONENTS[@]}"; do
-          IFS=';' read -r DIRECTORY_PATH COMMAND <<< "${COMPONENTS[$TAB_NAME]}"
-          session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
-          qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
-          qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
-          qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake -B build && make -C build -j32"
-          qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "$COMMAND"
-          qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
-      done
+function start_agents() {
+    echo "=== Starting agents ==="
+    for TAB_NAME in "${!COMPONENTS[@]}"; do
+        COMMAND="${COMPONENTS[$TAB_NAME]}"
+        session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to create new tab for $TAB_NAME"
+            continue
+        fi
+        qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+        qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "$COMMAND"
+        qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
+    done
 }
 
 # ===========================
@@ -89,8 +100,9 @@ function start_agents
 # ===========================
 if [ "$1" == "stop" ]; then
     clean_tabs
-else
+elif [ "$1" == "list" ]; then
     show_tabs
+else
     clean_tabs
     start_agents
 fi

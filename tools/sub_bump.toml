@@ -31,7 +31,7 @@ ice_name = "RGBD360:tcp -h localhost -p 11989"
 [[components]]
 name = "joy"
 cwd = "~/robocomp/components/robocomp-robolab/components/hardware/external_control/python_xbox_controller"
-cmd = "bin/python_xbox_controller.py etc/config"
+cmd = "bin/python_xbox_controller etc/config"
 ice_name = "Joystick:tcp -h localhost -p 10100"
 
 #[[components]]
@@ -47,7 +47,7 @@ cmd = "bin/bumper etc/config_wb"
 ice_name = "Bumper:tcp -h localhost -p 16804"
 
 [[components]]
-name = "g2o_cpp"
-cwd = "~/robocomp/components/robocomp-shadow/components/g2o_cpp"
-cmd = "bin/g2o_cpp etc/config"
-ice_name = "G2Ooptimizer:tcp -h localhost -p 11212"
+name = "environment_object_perception"
+cwd = "~/robocomp/components/robocomp-shadow/insect/environment_object_perception"
+cmd = "bin/environment_object_perception etc/config_wb"
+ice_name = "Visualelementspub:tcp -h localhost -p 13928"
