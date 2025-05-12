@@ -32,7 +32,7 @@
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
 #include <timer/timer.h>
-#include <Eigen/Eigen>
+#include <Eigen/Dense>
 #include "custom_widget.h"
 #include "ui_localUI.h"
 

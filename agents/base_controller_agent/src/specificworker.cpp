@@ -608,6 +608,19 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
     G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node_value, (float) pose.vrz);
     G->add_or_modify_attrib_local<timestamp_alivetime_att>(robot_node_value, (uint64_t) pose.timestamp);
     G->update_node(robot_node_value);
+
+    auto robot_edge = G->get_edge("root", params.robot_name, "RT");
+    if(not robot_edge.has_value())
+    {  qWarning() << "Robot edge" << QString::fromStdString(params.robot_name) << "not found"; return; }
+    auto robot_edge_value = robot_edge.value();
+    G->add_or_modify_attrib_local<rt_translation_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.x, pose.y, pose.z});
+    G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.rx, pose.ry, pose.rz});
+    G->add_or_modify_attrib_local<rt_translation_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vx, pose.vy, pose.vz});
+    G->add_or_modify_attrib_local<rt_rotation_euler_xyz_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vrx, pose.vry, pose.vrz});
+    G->add_or_modify_attrib_local<rt_timestamps_att>(robot_edge_value, (std::vector<uint64_t>) std::vector<uint64_t>{pose.timestamp});
+    G->insert_or_assign_edge(robot_edge_value);
+
+
 }
 
 /**************************************/
