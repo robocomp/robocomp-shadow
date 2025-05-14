@@ -60,6 +60,8 @@ class SpecificWorker(GenericWorker):
 
         self.target_velocity = np.array([[0,0,0],[0,0,0]], dtype=np.float32) # forward, angular, side
         self.old_velocity = np.array([[0,0,0],[0,0,0]], dtype=np.float32) # forward, angular, side
+
+        self.reference_time = 0
         
 
 
@@ -68,12 +70,12 @@ class SpecificWorker(GenericWorker):
         self.g = DSRGraph(0, str(configData["Agent"]["name"]), self.agent_id)
 
         try:
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
-            signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
-            signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
+            # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
+            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
         except RuntimeError as e:
             print(e)
@@ -112,7 +114,7 @@ class SpecificWorker(GenericWorker):
 
 
         
-        self.data_inner = {"imu_time_stamp":time(), 
+        self.data_inner = {"imu_time_stamp":time()*1000, 
                            "imu_linear_velocity":np.array([0,0,0], dtype=np.float32),
                            "imu_angular_velocity":np.array([0,0,0], dtype=np.float32),
                            }
@@ -134,7 +136,7 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         if  not np.array_equal(self.target_velocity, self.old_velocity):
-            console.print(f"Change velocity: {self.target_velocity} to {self.old_velocity}", style='blue')
+            # console.print(f"Change velocity: {self.target_velocity} to {self.old_velocity}", style='blue')
             self.old_velocity = np.copy(self.target_velocity)
             wheels_velocities = self.get_wheels_velocity_from_forward_velocity_and_angular_velocity(
                         self.old_velocity[0][0], self.old_velocity[1][2])
@@ -246,11 +248,16 @@ class SpecificWorker(GenericWorker):
         pos, orn = p.getBasePositionAndOrientation(self.robot)
         lin_vel, ang_vel = p.getBaseVelocity(self.robot)
 
-        t = time()
-        timeStep = t - self.data_inner["imu_time_stamp"]
+        t = float(time()*1000) + self.reference_time
+        timeStep = (t - self.data_inner["imu_time_stamp"])/1000
 
-        lin_acc = (np.array(lin_vel, dtype=np.float32) - self.data_inner["imu_linear_velocity"]) / timeStep
-        ang_acc = (np.array(ang_vel, dtype=np.float32) - self.data_inner["imu_angular_velocity"]) / timeStep
+        if timeStep == 0:
+            lin_acc = 0
+            ang_acc = 0
+            print("timeStep is 0")
+        else:
+            lin_acc = (np.array(lin_vel, dtype=np.float32) - self.data_inner["imu_linear_velocity"]) / timeStep
+            ang_acc = (np.array(ang_vel, dtype=np.float32) - self.data_inner["imu_angular_velocity"]) / timeStep
 
         # Store data
         self.data_inner = {
@@ -294,15 +301,15 @@ class SpecificWorker(GenericWorker):
             imu_node = Node(366, "imu", "Virtual_imu")
             imu_node.attrs["pos_x"] = Attribute(float(50), self.agent_id)
             imu_node.attrs["pos_y"] = Attribute(float(50), self.agent_id)
+            imu_node.attrs["parent"] = Attribute(int(200), self.agent_id)
             node_id = self.g.insert_node(imu_node)
             if node_id is None:
                 print("Failed to create IMU node")
                 return
             imu_node = self.g.get_node("Virtual_imu")
-            rt_imu_edge = Edge(imu_node.id, robot_node.id, "RT", self.agent_id)
-            rt_imu_edge.attrs["rt_translation"] = Attribute(np.array([0, 0, 0], dtype=np.float32), self.agent_id)
-            rt_imu_edge.attrs["rt_rotation_euler_xyz"] = Attribute(np.array([0, 0, 0], dtype=np.float32), self.agent_id)
-            rt_imu_edge.attrs["rt_quaternion"] = Attribute(np.array([0, 0, 0, 0], dtype=np.float32), self.agent_id)
+            rt_imu_edge = Edge(imu_node.id, robot_node.id, "VRT", self.agent_id)
+            rt_imu_edge.attrs["rt_translation"] = Attribute(np.array([0.1, 0.1, 0.1], dtype=np.float32), self.agent_id)
+            rt_imu_edge.attrs["rt_rotation_euler_xyz"] = Attribute(np.array([0.1, 0.1, 0.1], dtype=np.float32), self.agent_id)
             self.g.insert_or_assign_edge(rt_imu_edge)
             
 
@@ -359,15 +366,17 @@ class SpecificWorker(GenericWorker):
         # console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
         if fr==100 and to==200 and type=="RT":
             edge = self.g.get_edge(fr, to, "RT")
+            
+            if self.reference_time == 0:
+                self.reference_time = float(edge.attrs["rt_timestamps"].value) - time()*1000
+
             if "rt_translation_velocity" in attribute_names:
-                console.print(f"vel: {self.target_velocity[0]}", style='green')
 
                 self.target_velocity[0] = np.array(edge.attrs["rt_translation_velocity"].value, dtype=np.float32)
-                console.print(f"vel3: {self.target_velocity[0]}", style='green')
+                print(self.target_velocity[0])
 
             elif "rt_rotation_euler_xyz_velocity" in attribute_names:
                 self.target_velocity[1] = np.array(edge.attrs["rt_rotation_euler_xyz_velocity"].value)
-                console.print(f"rot: {self.target_velocity[0]}", style='green')
 
 
     def delete_edge(self, fr: int, to: int, type: str):

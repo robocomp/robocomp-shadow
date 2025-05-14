@@ -60,6 +60,7 @@ class SpecificWorker : public GenericWorker
 
     private:
         bool startup_check_flag;
+        bool loadRT=false;
 
         //widgets
         DSR::QScene2dViewer* widget_2d;

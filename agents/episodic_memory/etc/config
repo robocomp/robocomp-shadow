@@ -1,9 +1,15 @@
-Agent.id = 50
-Agent.name = "inner_simulator_agent"
+
+
+
+
+
+
+Agent.id = 0 # Change id
+Agent.name = "episodic_memory"
 Agent.configFile = ""
 
-#Period.Compute = 4.16666666
-Period.Compute = 33
+
+Period.Compute = 100
 Period.Emergency = 500
 
 Ice.Warn.Connections = "0"
