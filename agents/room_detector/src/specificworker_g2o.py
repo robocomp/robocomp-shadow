@@ -927,6 +927,8 @@ class SpecificWorker(GenericWorker):
         # Extract only X and Y coordinates (top-down projection)
         points_2D = pcd[:, :2]
 
+        # Save to voxel_2d_cloud points_2d but with z as 0
+        self.voxel_2d_cloud = np.hstack((points_2D, np.zeros((points_2D.shape[0], 1))))
 
         # Calculate lines using the Hough transform method implemented in get_hough_lines
         # which internally uses OpenCV

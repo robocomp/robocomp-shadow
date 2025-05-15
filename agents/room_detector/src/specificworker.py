@@ -322,6 +322,10 @@ class SpecificWorker(GenericWorker):
             # Statemachine actual state
             self.state = "finding_room"
 
+            current_edges = self.g.get_edges_by_type("current")
+            if len(current_edges) > 0:
+                self.state = "update_room_data"
+
             self.rt_api = rt_api(self.g)
             self.inner_api = inner_api(self.g)
 
@@ -411,7 +415,6 @@ class SpecificWorker(GenericWorker):
                     self.state = "update_room_data"
 
                 case "update_room_data":
-
                     current_pointcloud = self.processing_input_data(accumulate=False)
                     # Perform corner detection
                     np_pcd_2D_points, hough_lines = self.get_room_lines_from_pointcloud(current_pointcloud)
@@ -426,11 +429,11 @@ class SpecificWorker(GenericWorker):
                                                          threshold=600)
 
                     for i, matched_corner in enumerate(matched_corners):
-                        measured_corner = self.g.get_node("corner_measured_" + str(i))
+                        measured_corner = self.g.get_node("corner_measured_" + str(i+1))
                         if not np.any(np.isnan(matched_corner)):
                             print("Matched corner", matched_corner)
                             measured_corner.attrs['valid'] = Attribute(True, self.agent_id)
-                            self.insert_RT_edge("Shadow", "corner_measured_" + str(i),
+                            self.insert_RT_edge("Shadow", "corner_measured_" + str(i+1),
                                                 np.array([matched_corner[0], matched_corner[1], 0], dtype=np.float32),
                                                 np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
                         else:
@@ -494,7 +497,7 @@ class SpecificWorker(GenericWorker):
         # Insert RT edge between "room" and "Shadow"
         self.insert_RT_edge(room_node.name, robot_node.name,
                             np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32),
-                            np.array([0.0, 0.0, -self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+                            np.array([0.0, 0.0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
         print("Robot node level", robot_node.attrs["level"].value)
         self.process_room_corners(room_corners, room_node.name)
 
@@ -528,7 +531,7 @@ class SpecificWorker(GenericWorker):
         RT_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
             orientation,
             self.agent_id)
-        RT_edge.attrs["timestamp_alivetime"] = Attribute(timestamp, self.agent_id)
+        RT_edge.attrs["rt_timestamps"] = Attribute(np.array([timestamp], dtype=np.uint64), self.agent_id)
         self.g.insert_or_assign_edge(RT_edge)
 
     def process_room_corners(self,
@@ -574,16 +577,16 @@ class SpecificWorker(GenericWorker):
         for i in range(len(room_corners)):
             print(i)
             # Create wall with pre-computed values
-            wall_node = self.create_wall(i, wall_centers[i], wall_angles[i], room_node)
+            wall_node = self.create_wall(i+1, wall_centers[i], wall_angles[i], room_node)
             print("Wall node level", wall_node.attrs["level"].value)
             # Given wall_centers[i] and wall_angles[i], generate a np.array with x,y, angle
             wall_pose = np.array([wall_centers[i][0], wall_centers[i][1]], dtype=np.float32)
 
             # Get wall node if exists
-            corner_node = self.create_corner(i, room_corners[i], wall_node.name, room_node, wall_pose)
+            corner_node = self.create_corner(i+1, room_corners[i], wall_node.name, room_node, wall_pose)
             print("Corner node level", corner_node.attrs["level"].value)
 
-            corner_measured_node = self.create_corner_measured(i, room_corners[i], robot_node, robot_pose)
+            corner_measured_node = self.create_corner_measured(i+1, room_corners[i], robot_node, robot_pose)
 
     def calculate_wall_angles(self, room_corners):
         # Circularly shifted array for next corners
@@ -1419,9 +1422,12 @@ class SpecificWorker(GenericWorker):
         robot_node = self.g.get_node("Shadow")
         room_node = self.g.get_node("room")
         robot_rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
+        print("POSE", robot_rt_edge.attrs["rt_translation"].value)
+        # rt_edge_timestamps = robot_rt_edge.attrs["rt_timestamps"].value
+        # print("Robot RT edge timestamps:", rt_edge_timestamps)
         robot_rt_edge_timestamp = self.rt_api.get_edge_RT_as_rtmat(robot_rt_edge,
                                                                    self.act_segmented_pointcloud_timestamp)
-
+        print("Robot DSR pose at timestamp", self.act_segmented_pointcloud_timestamp, robot_rt_edge_timestamp)
         homogeneus = np.array(
             [[corner[0], corner[1], 0, 1] for corner in observed_corners])
 

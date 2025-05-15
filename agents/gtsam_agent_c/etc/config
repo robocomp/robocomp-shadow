@@ -1,0 +1,16 @@
+Agent.id = 22 # Change id
+Agent.name = "gtsam_agent_c"
+Agent.configFile = ""
+
+ViewAgent.tree = false
+ViewAgent.graph = true
+ViewAgent.2d = true
+ViewAgent.3d = false
+
+Period.Compute = 1
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"

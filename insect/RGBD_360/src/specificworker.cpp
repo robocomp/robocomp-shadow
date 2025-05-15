@@ -79,7 +79,7 @@ void SpecificWorker::initialize(int period)
             }
             catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; return;}
         }
-	    this->Period = 50;
+	    this->Period = 1;
 		timer.start(Period);
 	}
 }
@@ -95,14 +95,22 @@ void SpecificWorker::compute()
 
     RoboCompLidar3D::TDataImage lidar_data;
     RoboCompCamera360RGB::TImage cam_data;
-    long long aa, bb;
+
 
     // Get lidar data
     try
     {
         lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
-        aa = lidar_data.timestamp;
-        sync_buffer.push<0>(std::move(lidar_data));
+        if (lidar_data.timestamp != last_lidar_stamp) 
+        {
+            b_lidar_queue.push_back(lidar_data);
+            last_lidar_stamp = lidar_data.timestamp;
+            // qInfo() << "Lidar timestamp" << lidar_data.timestamp;
+        } 
+        else 
+        {
+            // qInfo() << "Lidar data with timestamp" << lidar_data.timestamp << "already exists in buffer. Stopping compute";
+        }
     }
     catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
@@ -110,76 +118,104 @@ void SpecificWorker::compute()
     try
     {
         cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
-        bb = cam_data.timestamp;
-        sync_buffer.push<1>(std::move(cam_data));
+        if (cam_data.timestamp != last_camera_stamp) 
+        {
+            b_camera_queue.push_back(cam_data);
+            last_camera_stamp = cam_data.timestamp;
+            // qInfo() << "RGB timestamp" << cam_data.timestamp;
+        } 
+        else {
+            // qInfo() << "Camera data with timestamp" << cam_data.timestamp << "already exists in buffer";
+        }
     }
     catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
 
-    if( auto opt_tuple = sync_buffer.read(); opt_tuple.has_value())
+    // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
+    // int timestamp_diff = 999999999;
+    // int chosen_rgb, chosen_lidar;
+    // bool exists_data = false;
+    // for(const auto &[i, rgb] : b_camera_queue | iter::enumerate)
+    // {
+    //     for(const auto &[j, lidar] : b_lidar_queue | iter::enumerate)
+    //     {
+    //         int act_timestamp_diff = abs(rgb.alivetime - lidar.timestamp);
+    //
+    //         //std::cout << "timestamp diff: " << act_timestamp_diff << " Queue sizes:" << b_camera_queue.size() << "," << b_lidar_queue.size() <<  std::endl;
+    //         if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 300000)
+    //         {
+    //             timestamp_diff = act_timestamp_diff;
+    //             chosen_rgb = i;
+    //             chosen_lidar = j;
+    //             exists_data = true;
+    //             break;
+    //         }
+    //     }
+    //     if(exists_data){break;}
+    // }
+
+    int timestamp_diff = std::numeric_limits<int>::max();
+    size_t chosen_rgb = 0, chosen_lidar = 0;
+    bool exists_data = false;
+    
+
+
+    // Iterate through lidar queue in reverse
+    for (auto it_lidar = b_lidar_queue.rbegin(); it_lidar != b_lidar_queue.rend(); ++it_lidar)
     {
-        auto &[chosen_lidar_data, chosen_rgb_data] = opt_tuple.value();
+        const auto& lidar = *it_lidar;
+        const auto j = std::distance(it_lidar, b_lidar_queue.rend()) - 1; // Calculate reverse index
+        // qInfo() << "LIDAR Timestamp loop" << lidar.timestamp;
+        // Iterate through camera queue in reverse
+        for (auto it_rgb = b_camera_queue.rbegin(); it_rgb != b_camera_queue.rend(); ++it_rgb)
+        {
+            const auto& rgb = *it_rgb;
+            const auto i = std::distance(it_rgb, b_camera_queue.rend()) - 1; // Calculate reverse index
+            // qInfo() << "RGB Timestamp loop" << rgb.timestamp;
+            int act_timestamp_diff = std::abs(rgb.timestamp - lidar.timestamp);
+            
+            if (act_timestamp_diff < timestamp_diff && act_timestamp_diff < 500)
+            {
+                timestamp_diff = act_timestamp_diff;
+                chosen_rgb = i;
+                chosen_lidar = j;
+                exists_data = true;
 
-        std::cout << "lidar arrive " << aa << " camera arrived " << bb << " cam select " <<
-            chosen_rgb_data.timestamp << " lidar select " <<
-            chosen_lidar_data.timestamp  << " diff with lidar arrive " << chosen_lidar_data.timestamp - aa <<
-                " diff with camera arrive " << chosen_lidar_data.timestamp - bb << std::endl <<
-                " timestamp diff: " << chosen_lidar_data.timestamp - chosen_rgb_data.timestamp <<  std::endl;
+                if(timestamp_diff == 0) break;
+            }
+        }
+        if(timestamp_diff == 0) break;
+    }
 
+    if(exists_data)
+    {        
+        RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
+        RoboCompCamera360RGB::TImage chosen_rgb_data = b_camera_queue.at(chosen_rgb);
 
-//     int timestamp_diff = std::numeric_limits<int>::max();
-//     size_t chosen_rgb = 0, chosen_lidar = 0;
-//     bool exists_data = false;
-//
-//     // Iterate through lidar queue in reverse
-//     for (auto it_lidar = b_lidar_queue.rbegin(); it_lidar != b_lidar_queue.rend(); ++it_lidar)
-//     {
-//         const auto& lidar = *it_lidar;
-//         const auto j = std::distance(it_lidar, b_lidar_queue.rend()) - 1; // Calculate reverse index
-//         // qInfo() << "LIDAR Timestamp loop" << lidar.timestamp;
-//         // Iterate through camera queue in reverse
-//         for (auto it_rgb = b_camera_queue.rbegin(); it_rgb != b_camera_queue.rend(); ++it_rgb)
-//         {
-//             const auto& rgb = *it_rgb;
-//             const auto i = std::distance(it_rgb, b_camera_queue.rend()) - 1; // Calculate reverse index
-//             // qInfo() << "RGB Timestamp loop" << rgb.timestamp;
-//             int act_timestamp_diff = std::abs(rgb.timestamp - lidar.timestamp);
-//
-//             if (act_timestamp_diff < timestamp_diff && act_timestamp_diff < 500)
-//             {
-//                 timestamp_diff = act_timestamp_diff;
-//                 chosen_rgb = i;
-//                 chosen_lidar = j;
-//                 exists_data = true;
-//
-//                 if(timestamp_diff == 0) break;
-//             }
-//         }
-//         if(timestamp_diff == 0) break;
-//     }
-//
-//     if(exists_data)
-//     {
-//         RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
-//         RoboCompCamera360RGB::TImage chosen_rgb_data = b_camera_queue.at(chosen_rgb);
-//
-//         std::cout << "Timestamps " <<  chosen_lidar_data.timestamp << " " << chosen_rgb_data.timestamp <<  std::endl;
-//         std::cout << "timestamp diff: " << chosen_lidar_data.timestamp - chosen_rgb_data.timestamp <<  std::endl;
-//
-//         if(last_fused_time == chosen_lidar_data.timestamp)
-//         {
-//             // qInfo() << "Same lidar matched. Returning";
-//             return;
-//         }
-//         // auto &[chosen_lidar_data, chosen_rgb_data] = opt_tuple.value();
-//
-// >>>>>>> 1fe95cd11b6682441c45c078f26ca0dd81c28fdf
+        std::cout << "Timestamps " <<  chosen_lidar_data.timestamp << " " << chosen_rgb_data.timestamp <<  std::endl;
+        std::cout << "timestamp diff: " << chosen_lidar_data.timestamp - chosen_rgb_data.timestamp <<  std::endl;
+        
+        if(last_fused_time == chosen_lidar_data.timestamp) 
+        {
+            // qInfo() << "Same lidar matched. Returning"; 
+            return;
+        }
+        // auto &[chosen_lidar_data, chosen_rgb_data] = opt_tuple.value();
+
 
         // Generate rgb image
         cv::Mat rgb_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_8UC3, &chosen_rgb_data.image[0]);
         // Generate depth image
         cv::Mat depth_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_32FC3, cv::Scalar(0,0,0));
        // get pointer to the image data
-        //cv::Vec3f* ptr = depth_image.ptr<cv::Vec3f>();
+        cv::Vec3f* ptr = depth_image.ptr<cv::Vec3f>();
+
+        for (auto&& [px, py, x, y, z] : iter::zip(chosen_lidar_data.XPixel, chosen_lidar_data.YPixel, chosen_lidar_data.XArray, chosen_lidar_data.YArray, chosen_lidar_data.ZArray))
+        {
+            cv::Vec3f& pixel = ptr[py * chosen_rgb_data.width + px];
+            pixel[0] = x;
+            pixel[1] = y;
+            pixel[2] = z;
+        }
 
         if(params.DISPLAY)
         {
@@ -195,10 +231,9 @@ void SpecificWorker::compute()
             last_fused_time = capture_time;
         swap_mutex.unlock();
 
+        //lidar_queue.clean_old(chosen_lidar);
+        //camera_queue.clean_old(chosen_rgb);
     }
-
-    else
-    std::cout << "FALTA ---------------" << std::endl;
 
     fps.print("FPS:", 3000);
 }
@@ -372,4 +407,3 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 // From the RoboCompCamera360RGBD you can use this types:
 // RoboCompCamera360RGBD::TRoi
 // RoboCompCamera360RGBD::TRGBD
-
