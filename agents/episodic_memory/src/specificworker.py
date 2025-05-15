@@ -50,9 +50,7 @@ BUFFER_SIZE = 1000  # Guardar cada 1000 registros
 
 def process_RT_data(edge_type, edge):
     attrs = edge.attrs
-    get = lambda name: np.array(attrs[name][1].value, dtype=np.float32) if name in attrs else None
-
-    print(edge)
+    get = lambda name: np.array(attrs[name].value, dtype=np.float32) if name in attrs else [None, None, None]
     
     pose = get("rt_translation")
     rot = get("rt_rotation_euler_xyz")
@@ -61,7 +59,6 @@ def process_RT_data(edge_type, edge):
     lin_acc = get("rt_translation_acceleration")
     rot_acc = get("rt_rotation_euler_xyz_acceleration")
     ts = get("rt_timestamps")
-    print(edge_type, pose)
 
     return {
         'type': edge_type,
@@ -96,8 +93,8 @@ class SpecificWorker(GenericWorker):
         self.Period = configData["Period"]["Compute"]
 
         # Configuración de tiempos (en milisegundos)
-        self.plot_interval = 250  # Actualizar gráfico cada 1 segundo
-        self.save_interval = 60000  # Guardar datos cada 5 segundos
+        self.plot_interval = 250  # Actualizar gráfico 
+        self.save_interval = 60000  # Guardar datos cada 1 minuto
         
         # Timers independientes
         self.plot_timer = QTimer(self)
@@ -113,6 +110,7 @@ class SpecificWorker(GenericWorker):
         self.buffer_lock = QMutex()  # Para acceso thread-safe
 
         rows, cols = DICT2GRAPH.shape  # rows=6, cols=3
+
         
         # Configuración correcta: nrows=6, ncols=3
         self.fig, self.ax = plt.subplots(nrows=rows, ncols=cols, figsize=(15, 10))
@@ -121,6 +119,12 @@ class SpecificWorker(GenericWorker):
         # Configuración común
         plt.ion()
         plt.tight_layout()
+        for i in range(DICT2GRAPH.shape[0]):
+            for j in range(DICT2GRAPH.shape[1]):
+                self.ax[i,j].set_ylim(bottom=-5, top=5)
+                self.ax[i,j].set_autoscale_on(False) 
+        
+        
 
         self.agent_id = 409
         self.g = DSRGraph(0, "pythonAgent", self.agent_id)
