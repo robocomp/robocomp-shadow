@@ -371,12 +371,10 @@ class SpecificWorker(GenericWorker):
                 self.reference_time = float(edge.attrs["rt_timestamps"].value) - time()*1000
 
             if "rt_translation_velocity" in attribute_names:
-
                 self.target_velocity[0] = np.array(edge.attrs["rt_translation_velocity"].value, dtype=np.float32)
-                print(self.target_velocity[0])
 
-            elif "rt_rotation_euler_xyz_velocity" in attribute_names:
-                self.target_velocity[1] = np.array(edge.attrs["rt_rotation_euler_xyz_velocity"].value)
+            if "rt_rotation_euler_xyz_velocity" in attribute_names:
+                self.target_velocity[1] = np.array(edge.attrs["rt_rotation_euler_xyz_velocity"].value, dtype=np.float32)
 
 
     def delete_edge(self, fr: int, to: int, type: str):
