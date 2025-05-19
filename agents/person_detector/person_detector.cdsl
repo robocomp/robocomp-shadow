@@ -1,0 +1,12 @@
+import "VisualElementsPub.idsl";
+Component person_detector
+{
+    Communications
+    {
+        subscribesTo VisualElementsPub;
+    };
+    language Cpp11;
+    options dsr;
+
+};
+
