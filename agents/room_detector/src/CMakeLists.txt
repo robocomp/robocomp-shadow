@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 PROJECT(  room_detector )
 
-INCLUDE( /home/robocomp/robocomp/cmake/robocomp.cmake )
+# find_package(pybind11 REQUIRED)
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior Lidar3D Lidar3DPub )
+# pybind11_add_module(example_module src/example.cpp)
+

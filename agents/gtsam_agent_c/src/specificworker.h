@@ -63,7 +63,7 @@ public:
      */
 	~SpecificWorker();
 
-
+	void FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose);
 
 
 public slots:
@@ -109,6 +109,12 @@ private:
     DSR::QScene2dViewer* widget_2d;
     CustomWidget *room_widget;
 
+    struct Params
+    {
+        std::string robot_name = "Shadow";
+    };
+    Params params;
+
     //Odometry
     int odometry_node_id = -1;
     Eigen::Vector4d last_odometry = Eigen::Vector4d::Zero();
@@ -151,6 +157,9 @@ private:
     Eigen::Affine3d robot_pose;
     double last_timestamp = 0;
 
+    // Corners
+    std::map<int, uint64_t> corners_last_update_timestamp;
+
     // DSR Values
     uint64_t robot_id = 0, room_id = 0;
     std::vector<std::string > attr_reading_variables {"robot_current_advance_speed", "robot_current_side_speed", "robot_current_angular_speed", "timestamp_alivetime"};
@@ -166,13 +175,13 @@ private:
     bool initialize_graph();
     std::vector<std::tuple<int, double, Eigen::Vector3d>> get_nominal_corners();
     std::optional<std::pair<double, gtsam::Pose3>> get_dsr_robot_pose(DSR::Node room_node, uint64_t robot_id);
-
+    void update_robot_odometry_data_in_DSR(const std::tuple<double, Eigen::Vector3d, Eigen::Vector3d> &odom_value);
     std::vector<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>> copy_odometry_buffer(
             boost::circular_buffer<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>>& buffer,
             std::mutex& buffer_mutex,
             double min_timestamp = 0);
     std::tuple<double, Eigen::Affine3d> integrate_odometry(
-            const std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>& odometry_value);
+            double current_time, Eigen::Vector3d translation, Eigen::Vector3d rotation);
     std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> get_measured_corners(double timestamp);
 
 

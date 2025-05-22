@@ -36,13 +36,14 @@ SET (SOURCES
   $ENV{ROBOCOMP}/classes/ConfigLoader/ConfigLoader.cpp
   main.cpp
   genericworker.cpp
+  fullposeestimationpubI.cpp
 )
 
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE()
-ROBOCOMP_ICE_TO_SRC()
+ROBOCOMP_IDSL_TO_ICE(FullPoseEstimationPub FullPoseEstimation)
+ROBOCOMP_ICE_TO_SRC(FullPoseEstimationPub FullPoseEstimation)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 

@@ -293,7 +293,7 @@ std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_from_targe
         offset = { offset_.value().get()[0], offset_.value().get()[1], offset_.value().get()[2] };
     
     // get the pose of the target_node + offset in the intention edge
-    if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value()); not translation_.has_value())
+    if(auto translation_ = inner_api->transform(params.robot_name, offset,G->get_name_from_id(intention_edge.to()).value(), 9999999999999); not translation_.has_value())
     { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node plus offset. Returning." << std::endl; return {};}
     else
         return translation_.value();
@@ -599,16 +599,16 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
         hibernation = true;
     #endif
 
-    auto robot_node = G->get_node(params.robot_name);
-    if(not robot_node.has_value())
-    {  qWarning() << "Robot node" << QString::fromStdString(params.robot_name) << "not found"; return; }
-
-    auto robot_node_value = robot_node.value();
-    G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node_value, (float)  pose.vx);
-    G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node_value, (float) pose.vy);
-    G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node_value, (float) pose.vrz);
-    G->add_or_modify_attrib_local<timestamp_alivetime_att>(robot_node_value, (uint64_t) pose.timestamp);
-    G->update_node(robot_node_value);
+//    auto robot_node = G->get_node(params.robot_name);
+//    if(not robot_node.has_value())
+//    {  qWarning() << "Robot node" << QString::fromStdString(params.robot_name) << "not found"; return; }
+//
+//    auto robot_node_value = robot_node.value();
+//    G->add_or_modify_attrib_local<robot_current_advance_speed_att>(robot_node_value, (float)  pose.vx);
+//    G->add_or_modify_attrib_local<robot_current_side_speed_att>(robot_node_value, (float) pose.vy);
+//    G->add_or_modify_attrib_local<robot_current_angular_speed_att>(robot_node_value, (float) pose.vrz);
+//    G->add_or_modify_attrib_local<timestamp_alivetime_att>(robot_node_value, (uint64_t) pose.timestamp);
+//    G->update_node(robot_node_value);
 
     if (this->loadRT)
     {

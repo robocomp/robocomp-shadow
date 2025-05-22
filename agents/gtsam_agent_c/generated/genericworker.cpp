@@ -57,6 +57,27 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
     // Create graph
     G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile")); // Init nodes
     std::cout<< "Graph loaded" << std::endl;  
+    
+    // Graph viewer
+    using opts = DSR::DSRViewer::view;
+    if(this->configLoader.get<bool>("ViewAgent.tree"))
+    {
+        current_opts = current_opts | opts::tree;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.graph"))
+    {
+        current_opts = current_opts | opts::graph;
+        main = opts::graph;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.2d"))
+    {
+        current_opts = current_opts | opts::scene;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.3d"))
+    {
+        current_opts = current_opts | opts::osg;
+    }
+    setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 }
 
 /**
@@ -139,5 +160,9 @@ void GenericWorker::hibernationCheck()
 		originalPeriod = this->getPeriod("Compute");
         this->setPeriod("Compute", 500);
     }
+}
+
+void GenericWorker::hibernationTick(){
+	hibernation = true;
 }
 

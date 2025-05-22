@@ -47,7 +47,7 @@ private:
 
     ISAM2Params parameters;
     // Define the smoother lag (in seconds)
-    double lag = 1.0;
+    double lag = 2.0;
     double start_time;
     double last_update_timestamp;
 

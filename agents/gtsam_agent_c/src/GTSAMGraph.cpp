@@ -26,18 +26,27 @@ void GTSAMGraph::insert_prior_pose(double timestamp, const gtsam::Pose3 &pose)
 
 void GTSAMGraph::insert_landmark_prior(double timestamp, int landmark_id, const gtsam::Point3& position, bool is_new)
 {
+    std::cout << "Inserting landmark with timestamp: " << timestamp << std::endl;
     Key landmark_key = L(landmark_id);
-//    for (const auto& pair : newTimestamps) {
-//        std::cout << "Key: " << pair.first << ", Timestamp: " << pair.second << std::endl;
-//    }
+    for (const auto& pair : newTimestamps) {
+        std::cout << "Key: " << pair.first << ", Timestamp: " << pair.second << std::endl;
+    }
 //    std::cout << "Landmark key: " << "ID " << landmark_id << " " << landmark_key << std::endl;
     landmark_keys[landmark_id] = std::make_pair(landmark_key, position);
     newFactors.addPrior(landmark_key, position, prior_landmark_noise);
     newValues.insert(landmark_key, position);
     if(not is_new)
+    {
+        qInfo() << "Landmark " << landmark_id << " already exists. Not inserting prior";
         newTimestamps[landmark_key] = 0.0;
+    }
+
     else
+    {
+        qInfo() << "Landmark " << landmark_id << " is new. Inserting prior";
         newTimestamps[landmark_key] = timestamp;
+    }
+
 
 
     smootherISAM2->update(newFactors, newValues, newTimestamps);
@@ -52,7 +61,7 @@ void GTSAMGraph::insert_landmark_prior(double timestamp, int landmark_id, const 
 
 void GTSAMGraph::insert_odometry_pose(double timestamp, const gtsam::Pose3 &pose)
 {
-    double time_from_start = timestamp - start_time;
+    double time_from_start = timestamp - get_start_time();
     currentKey = X(step);
     Pose3 prevPose = smootherISAM2->calculateEstimate<Pose3>(previousKey);
     Pose3 predicted_pose = prevPose.compose(pose);  // Estimate new pose
@@ -78,7 +87,7 @@ void GTSAMGraph::add_landmark_measurement(std::vector<std::tuple<int, double, Ei
 {
     gtsam::Values current_estimates = smootherISAM2->calculateEstimate();
     auto gtsam_timestamps = smootherISAM2->timestamps();
-    auto start_time = get_start_time();
+    auto act_start_time = get_start_time();
 
     for (const auto &corner: measured_corners)
     {
@@ -100,16 +109,17 @@ void GTSAMGraph::add_landmark_measurement(std::vector<std::tuple<int, double, Ei
             }
 
             // Check if the landmark key exists in the estimate
-            if (current_estimates.exists(landmark_keys[landmark_id].first))
+            if (not current_estimates.exists(landmark_keys[landmark_id].first))
             {
-
-                // Get the landmark position from the current estimates
-                std::cout << "Landmark " << landmark_id << " found " << std::endl;
-            }
-            else
-            {
-                std::cerr << "Landmark " << landmark_id << " not found in estimates. Inserting prior landmark" << std::endl;
-                insert_landmark_prior(timestamp - start_time, landmark_id, landmark_keys[landmark_id].second, true);
+                double time_from_start = timestamp - act_start_time;
+//                std::cerr << "Landmark " << landmark_id << " not found in estimates. Inserting prior landmark" << std::endl;
+                std::cout << "Landmark timestamp: " << timestamp << " Start time " << act_start_time << " Time from start " << time_from_start << std::endl;
+                if(time_from_start < 0)
+                {
+                    std::cerr << "Landmark timestamp is negative. Not inserting prior landmark" << std::endl;
+                    continue;
+                }
+                insert_landmark_prior(time_from_start, landmark_id, landmark_keys[landmark_id].second, true);
             }
 
             gtsam::Unit3 bearing(corner_position);
@@ -128,7 +138,7 @@ void GTSAMGraph::add_landmark_measurement(std::vector<std::tuple<int, double, Ei
 //                std::cout << "Key: " << kv.first << ", Timestamp: " << start_time + kv.second << std::endl;
                 // Check if this is a pose key (starts with 'x')
                 if (Symbol(kv.first).chr() == 'x') {
-                    double timeDiff = std::abs(start_time + kv.second - timestamp);
+                    double timeDiff = std::abs(act_start_time + kv.second - timestamp);
 //                    std::cout << "Time difference: " << timeDiff << std::endl;
                     // Check if within acceptable range and closer than previous candidates
                     if (timeDiff < maxTimeDiff && timeDiff < smallestDiff) {
@@ -148,9 +158,10 @@ void GTSAMGraph::add_landmark_measurement(std::vector<std::tuple<int, double, Ei
                 BearingRangeFactor<Pose3, Point3> range_factor(observedPoseKey,
                                                                landmark_keys[landmark_id].first, bearing, measured_range,
                                                                landmark_noise);
-
+//                std::cout << "Adding range factor for landmark " << landmark_id
+//                          << " with timestamp: " << timestamp << std::endl;
                 newFactors.add(range_factor);
-                newTimestamps[landmark_keys[landmark_id].first] = timestamp - start_time;
+                newTimestamps[landmark_keys[landmark_id].first] = timestamp - act_start_time;
             }
         }
         smootherISAM2->update(newFactors, newValues, newTimestamps);
@@ -171,12 +182,12 @@ std::map<double, gtsam::Key> GTSAMGraph::get_graph_timestamps()
     // Get the smoother's keys and timestamps
     auto timestamps_graph = smootherISAM2->timestamps();
 
-    auto start_time = get_start_time();
+    auto act_start_time = get_start_time();
 
     for (const auto& kv : timestamps_graph)
     {
         // Convert timestamp to double and append to map
-        timestamps[Symbol(kv.first).chr()] = start_time + (kv.second / 1.0);
+        timestamps[Symbol(kv.first).chr()] = act_start_time + (kv.second / 1.0);
 //        std::cout << "Key: " << kv.first << ", Timestamp: " << start_time + (kv.second / 1.0) << std::endl;
     }
     return timestamps;

@@ -51,7 +51,7 @@ console = Console(highlight=False)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 100
+        self.Period = 250
         if startup_check:
             self.startup_check()
         else:
@@ -65,7 +65,7 @@ class SpecificWorker(GenericWorker):
             self.last_rgbd_timestamp_thread = 0
 
             self.event = Event()
-            self.thread_period = 50
+            self.thread_period = 250
             self.image_read_thread = Thread(target=self.get_rgbd, args=["", self.event],
                                             name="rgb_read_queue", daemon=True)
             self.image_read_thread.start()
@@ -104,6 +104,7 @@ class SpecificWorker(GenericWorker):
     def get_rgbd(self, camera_name: str, event: Event):
         while not event.is_set():
             try:
+                start = time.time()
                 image = self.camera360rgbd_proxy.getROI(-1,-1,-1,600,-1,600)
                 if image.width / image.height > 4:
                     print("Wrong image aspect ratio")
@@ -117,7 +118,8 @@ class SpecificWorker(GenericWorker):
                 depth_frame = cp.frombuffer(image.depth, dtype=cp.float32).reshape((image.height, image.width, 3))
                 self.read_queue.append([rgb_frame, depth_frame, image.alivetime])
                 self.last_rgbd_timestamp_thread = image.alivetime
-                event.wait(self.thread_period / 1000)
+                expended = time.time() - start
+                event.wait((self.thread_period / 1000) - expended)
             except Ice.Exception as e:
                 print(e, "Error communicating with CameraRGBDSimple")
 

@@ -1,6 +1,16 @@
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+
+
+# Endpoints for subscriptions interfaces
+Endpoints.FullPoseEstimationPubTopic = "tcp -p 9879"
+Endpoints.FullPoseEstimationPubPrefix = ""
+
+
 Agent.id = 22 # Change id
 Agent.name = "gtsam_agent_c"
-Agent.configFile = ""
+Agent.configFile = "shadow_scene.json"
 
 ViewAgent.tree = false
 ViewAgent.graph = true

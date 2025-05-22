@@ -2,7 +2,7 @@
 Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 # Endpoints for subscriptions interfaces
-Endpoints.FullPoseEstimationPubTopic = "tcp -p 9879"
+Endpoints.FullPoseEstimationPubTopic = "tcp -p 9878"
 
 # Proxies for required interfaces
 Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"

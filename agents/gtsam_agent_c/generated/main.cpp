@@ -77,12 +77,75 @@
 #include "genericworker.h"
 #include "../src/specificworker.h"
 
+#include <fullposeestimationpubI.h>
 
+#include <FullPoseEstimation.h>
+#include <FullPoseEstimationPub.h>
 
 #define USE_QTGUI
 
 #define PROGRAM_NAME    "gtsam_agent_c"
 #define SERVER_FULL_NAME   "RoboComp gtsam_agent_c::gtsam_agent_c"
+
+
+template <typename SubInterfaceType>
+void subscribe( const Ice::CommunicatorPtr& communicator,
+                const IceStorm::TopicManagerPrxPtr& topicManager,
+                const std::string& endpointConfig,
+                std::string name_topic,
+                const std::string& topicBaseName,
+                SpecificWorker* worker,
+                int index,
+                std::shared_ptr<IceStorm::TopicPrx> topic,
+                Ice::ObjectPrxPtr& proxy, 
+                const std::string& programName)
+{
+    try   
+    {  
+        if (!name_topic.empty()) name_topic += "/";
+        name_topic += topicBaseName;
+
+        Ice::ObjectAdapterPtr adapter = communicator->createObjectAdapterWithEndpoints(name_topic, endpointConfig);
+        auto servant = std::make_shared<SubInterfaceType>(worker, index);
+        auto proxy = adapter->addWithUUID(servant)->ice_oneway();
+
+        std::cout << "[\033[1;36m" << programName << "\033[0m]: \033[32mINFO\033[0m Topic: " 
+                  << name_topic << " will be used in subscription. \033[0m\n";
+
+        std::shared_ptr<IceStorm::TopicPrx> topic;
+        if(!topic)
+        {
+            try {
+                topic = topicManager->create(name_topic);
+                std::cout << "\n\n[\033[1;36m" << programName << "\033[0m]: \033[1;33mWARNING\033[0m " 
+                          << name_topic << " topic did not create. \033[32mTopic created\033[0m\n\n";
+            }
+            catch (const IceStorm::TopicExists&) {
+                try{
+                    std::cout << "[\033[31m" << programName << "\033[0m]: \033[1;33mWARNING\033[0m Probably other client already opened the topic. \033[32mTrying to connect.\033[0m\n";
+                    topic = topicManager->retrieve(name_topic);
+                }
+                catch(const IceStorm::NoSuchTopic&)
+                {
+                    std::cout << "[" << programName << "]: Topic doesn't exists and couldn't be created.\n";
+                    return;
+                }
+            }
+            catch(const IceUtil::NullHandleException&)
+            {
+                std::cout << "[\033[31m" << programName << "\033[0m]: \033[31mERROR\033[0m TopicManager is Null.\n";
+                throw;
+            }
+            IceStorm::QoS qos;
+            topic->subscribeAndGetPublisher(qos, proxy);
+        }
+        adapter->activate();
+    }
+    catch(const IceStorm::NoSuchTopic&)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: Error creating topic.\n";
+    }
+}
 
 
 class gtsam_agent_c : public Ice::Application
@@ -93,8 +156,7 @@ public:
 		this->prefix = prfx.toStdString();
 		this->startup_check_flag=startup_check; 
 
-		this->configLoader.load(this->configFile);
-		this->configLoader.printConfig();
+		initialize();
 		}
 
 	Ice::InitializationData getInitializationDataIce();
@@ -124,6 +186,7 @@ void gtsam_agent_c::initialize()
 {
     this->configLoader.load(this->configFile);
 	this->configLoader.printConfig();
+	std::cout<<std::endl;
 }
 
 int gtsam_agent_c::run(int argc, char* argv[])
@@ -149,9 +212,33 @@ int gtsam_agent_c::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	std::shared_ptr<IceStorm::TopicPrx> fullposeestimationpub_topic;
+	Ice::ObjectPrxPtr fullposeestimationpub;
 
-	std::string proxy, tmp;
-	initialize();
+
+
+	//Require code
+
+	//Topic Manager code
+
+	IceStorm::TopicManagerPrxPtr topicManager;
+	try
+	{
+		topicManager = Ice::checkedCast<IceStorm::TopicManagerPrx>(communicator()->stringToProxy(configLoader.get<std::string>("Proxies.TopicManager")));
+		if (!topicManager)
+		{
+		    std::cout << "[" << PROGRAM_NAME << "]: TopicManager.Proxy not defined in config file."<<std::endl;
+		    std::cout << "	 Config line example: TopicManager.Proxy=IceStorm/TopicManager:default -p 9999"<<std::endl;
+	        return EXIT_FAILURE;
+		}
+	}
+	catch (const Ice::Exception &ex)
+	{
+		std::cout << "[" << PROGRAM_NAME << "]: Exception: 'rcnode' not running: " << ex << std::endl;
+		return EXIT_FAILURE;
+	}
+
+	//Publish code
 
 	tprx = std::tuple<>();
 	SpecificWorker *worker = new SpecificWorker(this->configLoader, tprx, startup_check_flag);
@@ -159,6 +246,14 @@ int gtsam_agent_c::run(int argc, char* argv[])
 
 	try
 	{
+
+		//Implement code
+
+		//Subscribe code
+		subscribe<FullPoseEstimationPubI>(communicator(),
+		                    topicManager, configLoader.get<std::string>("Endpoints.FullPoseEstimationPubTopic"),
+						    configLoader.get<std::string>("Endpoints.FullPoseEstimationPubPrefix"), "FullPoseEstimationPub", worker,  0,
+						    fullposeestimationpub_topic, fullposeestimationpub, PROGRAM_NAME);
 
 		// Server adapter creation and publication
 		std::cout << SERVER_FULL_NAME " started" << std::endl;
@@ -171,6 +266,17 @@ int gtsam_agent_c::run(int argc, char* argv[])
 		#endif
 		// Run QT Application Event Loop
 		a.exec();
+
+		try
+		{
+			std::cout << "Unsubscribing topic: fullposeestimationpub " <<std::endl;
+			fullposeestimationpub_topic->unsubscribe(fullposeestimationpub);
+
+		}
+		catch(const Ice::Exception& ex)
+		{
+			std::cout << "ERROR Unsubscribing" << ex.what()<<std::endl;
+		}
 
 
 		status = EXIT_SUCCESS;

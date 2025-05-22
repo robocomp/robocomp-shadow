@@ -107,4 +107,33 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/gtsam_agent_c etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
+TAB_NAME="scheduler"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/scheduler"
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/scheduler etc/config"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
+
+
+# gridder
+TAB_NAME="gridder"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/insect/gridder" # replace with your desired path
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/gridder etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
+
+# bumper
+TAB_NAME="bumper"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/insect/bumper" # replace with your desired path
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/bumper etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 

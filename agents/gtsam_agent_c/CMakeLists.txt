@@ -1,4 +1,4 @@
-cmake_minimum_required( VERSION 2.8 )
+cmake_minimum_required( VERSION 3.10 )
 PROJECT( gtsam_agent_c )
 
 IF ( "$ENV{ROBOCOMP}" STREQUAL "")

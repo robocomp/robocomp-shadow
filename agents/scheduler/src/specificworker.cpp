@@ -340,14 +340,15 @@ void SpecificWorker::compute()
     }
 
     std::string best_aff = "";
-    //get current edge with types
-    auto current_edges = G->get_edges_by_type("current");
-
-    if(current_edges.empty())
-    { std::cout << "No current edges found" << std::endl; return; }
+//    //get current edge with types
+//    auto current_edges = G->get_edges_by_type("current");
+//
+//    if(current_edges.empty())
+//    { std::cout << "No current edges found" << std::endl; return; }
 
     //get to node from current edges [0]
-    auto room_node = G->get_node(current_edges[0].to());
+//    auto room_node = G->get_node(current_edges[0].to());
+    auto room_node = G->get_node("room");
     //check to_node value
     if(!room_node.has_value())
     { std::cout << "No to node found" << std::endl; return; }
