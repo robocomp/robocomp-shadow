@@ -50,7 +50,7 @@ DRIVER_REGISTERS = {
     "GET_MOTOR_TEMPERATURE": bytearray([0x54, 0x04]),# int16//MOTOR TEMPERATURE
     "GET_DRIVE_TEMPERATURE": bytearray([0x21, 0x35]),# int16//DRIVER TEMPERATURE
     #dont work "MAX_SPEED": bytearray([0x50, 0x1C]), # uint16//MAXIMUM SPEED
-    # "POLE_PAIRS": bytearray([0x50, 0x18]),          # uint16//NUMNER OF POLE PAIRS
+    "POLE_PAIRS": bytearray([0x50, 0x18]),          # uint16//NUMNER OF POLE PAIRS
     "MAX_CURRENT": bytearray([0x50, 0x20]),         # uint16//MAXIMUM CURRENT
     "DIRECTION": bytearray([0x50, 0x28]),           # uint16//MOTOR DIRECTION 0=NORMAL; 1=INVERT
     "MAX_ACCELERATION": bytearray([0x51, 0x08]),    # uint16//MAXIMUM ACCELERATION
@@ -89,6 +89,8 @@ ERROR_CODES = {
 MSL = 0.015 * 2                                  #Maximum Segment Lifetime             
 NUM_ATTEMPT = 3                                 #Número de intentos de la conexión con el driver
 
+MAX_COUNT_SPEED = 4
+
 class SVD48V:
     """
     Driver class to handle interaction with a motor controller device.
@@ -100,7 +102,7 @@ class SVD48V:
         rpmMaxSpeed: The maximum speed in RPM.
     """
 
-    def __init__(self, port:str="/dev/ttyUSB0", IDs:list[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6):
+    def __init__(self, port:str="/dev/ttyUSB0", IDs:list[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6, polePairs:int=10):
         """
         Initializes an instance of the class.
 
@@ -131,6 +133,7 @@ class SVD48V:
         self.thSecurity = None
         self.turnedOn = False
         self.safety = False
+        self.counterSpeed = 0
 
         while self.driver is None:
             print('Opening serial port with the SVD48V')
@@ -171,10 +174,13 @@ class SVD48V:
 
         print("Starting SVD48V")
         
+        motorPolePairs = self._get_motor_data(DRIVER_REGISTERS['POLE_PAIRS'])
+        assert np.all(motorPolePairs == polePairs), f"\033[91mPole pairs don't match {motorPolePairs} != {polePairs}. Make sure that you calibrate the motors and drivers; it could be dangerous.\033[0m"
+
+        
         self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], np.array([self.rpm_max_acceleration]*(len(self.ids)*2),dtype=np.int16))
         self._set_motor_data(DRIVER_REGISTERS['MAX_DECELATION'], np.array([self.rpm_max_deceleration]*(len(self.ids)*2), dtype=np.int16))
         self._set_motor_data(DRIVER_REGISTERS['MAX_CURRENT'], np.array([maxCurrent]*(len(self.ids)*2), dtype=np.int16))
-        # self._set_motor_data(DRIVER_REGISTERS['POLE_PAIRS'], np.array([polePairs]*(len(self.ids)*2), dtype=np.int16))
         self._set_motor_data(DRIVER_REGISTERS['MODE'], np.array([0]*(len(self.ids)*2), dtype=np.int16))
         self._set_motor_data(DRIVER_REGISTERS['DIRECTION'], np.array([0, 1]*len(self.ids),dtype=np.int16))
             
@@ -524,16 +530,20 @@ class SVD48V:
 
                 #Check Speed
                 elif np.max(np.abs(rpm))>self.rpm_max_speed:
-                    self.disable_driver()
-                    print("DRIVER STOPED, TOO FAST")
+                    if self.counterSpeed < MAX_COUNT_SPEED:
+                        self.counterSpeed += 1
+                    else:
+                        self.disable_driver()
+                        print("DRIVER STOPED, TOO FAST")
+                        self.counterSpeed = 0
 
                 #Check status
-                elif 0 in status:
-                    print(f"check2 {self.turnedOn}")
-
+                elif 0 in status: # Motor OFF 0, ON 1, Alarm 2
                     time.sleep(1)
                     print("THE DRIVER HAS STOPPED. TRYING TO RESTART")
                     self.enable_driver()
+                else:
+                    self.counterSpeed = 0
             else:
                 sys.exit("PORT NOT OPEN. Has the SVD48V possibly been disconnected?")
             time.sleep(0.05)
@@ -628,6 +638,16 @@ class SVD48V:
         """
         return self._get_motor_data(DRIVER_REGISTERS["GET_CURRENT"], divisor=10)
     
+    def get_angle(self):
+        """
+        Get the angle of the motors.
+
+        Returns:
+            The angle of the motors.
+        """
+        position = self._get_motor_data(DRIVER_REGISTERS["GET_POSITION"], divisor=1, num_registers=4)
+        return np.array([position[1::2]])/4096
+    
     def get_position(self):
         """
         Get the position of the motors.
@@ -635,8 +655,7 @@ class SVD48V:
         Returns:
             The position of the motors.
         """
-        position = self._get_motor_data(DRIVER_REGISTERS["GET_POSITION"], divisor=1, num_registers=4)
-        return np.array([position[1::2]])/4096
+        return self.get_angle()/self.mms2rpm 
     
     def get_error(self) -> list[str]:
         """

@@ -29,35 +29,36 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/DifferentialRobot.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/DifferentialRobot.ice")
 
 from RoboCompDifferentialRobot import *
 
 class DifferentialRobotI(DifferentialRobot):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def correctOdometer(self, x, z, alpha, c):
-        return self.worker.DifferentialRobot_correctOdometer(x, z, alpha)
+    def correctOdometer(self, x, z, alpha, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_correctOdometer")(x, z, alpha)
 
-    def getBasePose(self, c):
-        return self.worker.DifferentialRobot_getBasePose()
+    def getBasePose(self, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_getBasePose")()
 
-    def getBaseState(self, c):
-        return self.worker.DifferentialRobot_getBaseState()
+    def getBaseState(self, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_getBaseState")()
 
-    def resetOdometer(self, c):
-        return self.worker.DifferentialRobot_resetOdometer()
+    def resetOdometer(self, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_resetOdometer")()
 
-    def setOdometer(self, state, c):
-        return self.worker.DifferentialRobot_setOdometer(state)
+    def setOdometer(self, state, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_setOdometer")(state)
 
-    def setOdometerPose(self, x, z, alpha, c):
-        return self.worker.DifferentialRobot_setOdometerPose(x, z, alpha)
+    def setOdometerPose(self, x, z, alpha, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_setOdometerPose")(x, z, alpha)
 
-    def setSpeedBase(self, adv, rot, c):
-        return self.worker.DifferentialRobot_setSpeedBase(adv, rot)
+    def setSpeedBase(self, adv, rot, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_setSpeedBase")(adv, rot)
 
-    def stopBase(self, c):
-        return self.worker.DifferentialRobot_stopBase()
+    def stopBase(self, ):
+        return getattr(self.worker, f"DifferentialRobot{self.id}_stopBase")()

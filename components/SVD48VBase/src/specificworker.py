@@ -19,13 +19,18 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import time
-from PySide2.QtCore import QTimer
-from PySide2.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
+from time import time
 from rich.console import Console
+from rich.text import Text
 from genericworker import *
 import interfaces as ifaces
 import numpy as np
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
 import SVD48V
 
 console = Console(highlight=False)
@@ -37,19 +42,21 @@ except:
     pass
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
+    def __init__(self, proxy_map, configData, startup_check=False):
         print("Iniciando base")
-        super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 5
+        super(SpecificWorker, self).__init__(proxy_map, configData)
+        self.Period = 10
         
         #variables de clase
         self.targetSpeed = np.array([[0.0], [0.0], [0.0]])
         self.oldTargetSpeed = np.array([[0.0], [0.0], [0.0]])
-        self.driver=None
+        self.driver = None
         self.joystickControl = False
-        self.time_disble = time.time()
-        self.time_emergency = time.time()
-        self.time_move = time.time()
+        self.time_disble = time()
+        self.time_emergency = time()
+        self.time_move = time()
+
+
 
         if startup_check:
             self.startup_check()
@@ -67,6 +74,7 @@ class SpecificWorker(GenericWorker):
     def __del__(self):
         print("Finalizando base")
         """Destructor"""
+        self.timer.stop()
         self.driver.__del__()
         print("Base destruida")        
 
@@ -87,6 +95,7 @@ class SpecificWorker(GenericWorker):
             maxDeceleration = int(params["maxDeceleration"])
             idDrivers = [int(params["idDriver1"])]
             wheelRadius = int(params["wheelRadius"])
+            polePairs = int(params["polePairs"])
             # polePairs = int(params["polePairs"])
             if baseType == "Omnidirectional":
                 # Omnidireccional params
@@ -109,15 +118,19 @@ class SpecificWorker(GenericWorker):
                 self.m_wheels = np.array([[-1, axesLength/2], [-1, -axesLength/2]])
                 # self.m_wheels = np.array([[1, -axesLength/2], [1, axesLength/2]]) TODO CHANGE WHEELS ORIENTATION
                 maxWheelSpeed = max(abs(self.m_wheels@np.array([self.maxLinSpeed, self.maxRotSpeed])))
+
+            self.inv_m_wheels = np.linalg.inv(self.m_wheels)
                 
                 
             print(self.m_wheels)
 
 
             self.driver = SVD48V.SVD48V(port=port, IDs=idDrivers, wheelRadius=wheelRadius, maxSpeed=maxWheelSpeed,
-                                        maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent)  
+                                        maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent, polePairs=polePairs)  
 
             assert self.driver.get_enable(), "NO se conecto al driver o fallo uno de ellos , cerrando programa"
+            self.oldOdometry = self.driver.get_position().flatten()
+
 
             self.showParams = QTimer(self)
             self.showParams.timeout.connect(self.driver.show_params)
@@ -166,9 +179,9 @@ class SpecificWorker(GenericWorker):
                 #print(f"post speed: {np.round(self.oldTargetSpeed, 5).tolist()}\n")
                     
 
-                self.time_move = time.time()
+                self.time_move = time()
             #si en un segundo no hay nuevo target se detiene
-            elif time.time() - self.time_move > 5:
+            elif time() - self.time_move > 5:
                 print("No comand, Stoping ")
                 self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
                 self.driver.set_speed([0]*4 if self.isOmni else [0]*2)
@@ -178,9 +191,56 @@ class SpecificWorker(GenericWorker):
                     self.time_move = float("inf")
                     self.driver.disable_driver()
                     self.driver.enable_driver()
+                    
+                    
+            ##############PUB ODOMETRY####################
+            try:
+                odometry = ifaces.RoboCompFullPoseEstimation.FullPoseEuler()
+                odometry.timestamp = np.longlong(time()*1000)
+                
+                #Radiants odometry wheels
+                newOdometry = self.driver.get_position().flatten()
+                velocity = self.driver.get_speed().flatten()
+                diffOdometry = newOdometry-self.oldOdometry
+                self.oldOdometry = newOdometry
+
+                #Convert wheel odometry to base odomery
+                velocity = self.inv_m_wheels@velocity
+                diffOdometry = self.inv_m_wheels@diffOdometry
+                
+                #Fill publish
+                odometry.x = diffOdometry[0]
+                odometry.y = diffOdometry[1] if diffOdometry.shape==3 else 0
+                odometry.z = 0
+                odometry.rx = 0
+                odometry.ry = 0
+                odometry.rz = diffOdometry[2] if diffOdometry.shape==3 else diffOdometry[1]
+                odometry.vx = velocity[0]
+                odometry.vy = velocity[1] if velocity.shape==3 else 0
+                odometry.vz = 0
+                odometry.vrx = 0
+                odometry.vry = 0
+                odometry.vrz = velocity[2] if velocity.shape==3 else velocity[1]
+                odometry.ax = 0
+                odometry.ay = 0
+                odometry.az = 0
+                odometry.arx = 0
+                odometry.ary = 0
+                odometry.arz = 0
+                odometry.adv = 0
+                odometry.side = 0
+                odometry.rot = 0
+                odometry.confidence = 0
+                # print(odometry)
+                self.fullposeestimationpub_proxy.newFullPose(odometry)
+            except Exception as e:
+                #console.print_exception(e)
+                console.print(Text("Fault reading odometry", style="yellow"))
         return True
 
     def startup_check(self):
+        print(f"Testing RoboCompDifferentialRobot.TMechParams from ifaces.RoboCompDifferentialRobot")
+        test = ifaces.RoboCompDifferentialRobot.TMechParams()
         print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
         print(f"Testing RoboCompJoystickAdapter.AxisParams from ifaces.RoboCompJoystickAdapter")
@@ -226,7 +286,7 @@ class SpecificWorker(GenericWorker):
         #
         # write your CODE here
         #
-        state = RoboCompGenericBase.TBaseState()
+        state = ifaces.RoboCompGenericBase.TBaseState()
         if not self.isOmni:
             pass
         return state
@@ -276,7 +336,7 @@ class SpecificWorker(GenericWorker):
     #
     def DifferentialRobot_stopBase(self):
         if not self.isOmni:
-            self.time_emergency =time.time()
+            self.time_emergency =time()
             self.DifferentialRobot_setSpeedBase(0, 0)
             self.driver.emergency_stop()
 
@@ -354,6 +414,9 @@ class SpecificWorker(GenericWorker):
             self.setAdvx(-advx)
             self.setAdvz(advz)
             self.setRot(rot)
+        if not self.isOmni and not self.joystickControl:
+            self.setAdvz(advz)
+            self.setRot(rot)
 
 
 
@@ -362,12 +425,12 @@ class SpecificWorker(GenericWorker):
     #
     def OmniRobot_stopBase(self):
          if self.isOmni:
-            self.time_emergency =time.time()
+            self.time_emergency =time()
             self.OmniRobot_setSpeedBase(0, 0, 0)
             self.driver.emergency_stop()
     
     def reset_emergency_stop(self):
-        if time.time()-self.time_emergency>1:
+        if time()-self.time_emergency>1:
             self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
             self.driver.reset_emergency_stop()
 
@@ -392,9 +455,9 @@ class SpecificWorker(GenericWorker):
             elif  b.name == "stop":
                 if b.step == 1:
                     if self.driver.get_enable():
-                        self.time_disble = time.time()
+                        self.time_disble = time()
                         self.driver.disable_driver()
-                    elif time.time()-self.time_disble > 1:
+                    elif time()-self.time_disble > 1:
                         self.driver.enable_driver()
                     self.joystickControl = False
             elif b.name == "joystick_control":
@@ -425,6 +488,10 @@ class SpecificWorker(GenericWorker):
     # ===================================================================
     # ===================================================================
 
+
+    ######################
+    # From the RoboCompFullPoseEstimationPub you can publish calling this methods:
+    # RoboCompFullPoseEstimationPub.void self.fullposeestimationpub_proxy.newFullPose(RoboCompFullPoseEstimation.FullPoseEuler pose)
 
     ######################
     # From the RoboCompDifferentialRobot you can use this types:

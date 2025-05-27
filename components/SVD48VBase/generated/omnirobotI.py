@@ -29,35 +29,36 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/OmniRobot.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/OmniRobot.ice")
 
 from RoboCompOmniRobot import *
 
 class OmniRobotI(OmniRobot):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def correctOdometer(self, x, z, alpha, c):
-        return self.worker.OmniRobot_correctOdometer(x, z, alpha)
+    def correctOdometer(self, x, z, alpha, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_correctOdometer")(x, z, alpha)
 
-    def getBasePose(self, c):
-        return self.worker.OmniRobot_getBasePose()
+    def getBasePose(self, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_getBasePose")()
 
-    def getBaseState(self, c):
-        return self.worker.OmniRobot_getBaseState()
+    def getBaseState(self, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_getBaseState")()
 
-    def resetOdometer(self, c):
-        return self.worker.OmniRobot_resetOdometer()
+    def resetOdometer(self, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_resetOdometer")()
 
-    def setOdometer(self, state, c):
-        return self.worker.OmniRobot_setOdometer(state)
+    def setOdometer(self, state, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_setOdometer")(state)
 
-    def setOdometerPose(self, x, z, alpha, c):
-        return self.worker.OmniRobot_setOdometerPose(x, z, alpha)
+    def setOdometerPose(self, x, z, alpha, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_setOdometerPose")(x, z, alpha)
 
-    def setSpeedBase(self, advx, advz, rot, c):
-        return self.worker.OmniRobot_setSpeedBase(advx, advz, rot)
+    def setSpeedBase(self, advx, advz, rot, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_setSpeedBase")(advx, advz, rot)
 
-    def stopBase(self, c):
-        return self.worker.OmniRobot_stopBase()
+    def stopBase(self, ):
+        return getattr(self.worker, f"OmniRobot{self.id}_stopBase")()
