@@ -121,9 +121,10 @@ class SpecificWorker(GenericWorker):
             room_nodes = self.g.get_nodes_by_type("room")
             current_room_nodes = [node for node in room_nodes if self.g.get_edge(node.id, node.id, "current")]
             if len(current_room_nodes) == 0 and len(room_nodes) == 1:
-                print("Room node exists but no current edge. Setting as current")
-                if not "measured" in room_nodes[0].name:
-                    self.insert_current_edge(room_nodes[0].id)
+                if room_nodes[0].attrs["obj_checked"].value == True:
+                    print("Room node exists but no current edge. Setting as current")
+                    if not "measured" in room_nodes[0].name:
+                        self.insert_current_edge(room_nodes[0].id)
 
             self.pending_doors_to_stabilize = deque(maxlen=10)
 
@@ -1007,10 +1008,16 @@ class SpecificWorker(GenericWorker):
         # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
 
         if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
-            print(self.room_exit_door_id)
-            # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
-            self.insert_current_edge(fr)
-            print("Room node exists but no current edge. Setting as current")
+            from_node = self.g.get_node(fr)
+            if from_node.type == "room":
+                room_checked = from_node.attrs["obj_checked"].value
+                if room_checked != None:
+                    print("UPDATE EDGE: ", fr, to, type, from_node.type, room_checked)
+                    if room_checked:
+                        print(self.room_exit_door_id)
+                        # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
+                        self.insert_current_edge(fr)
+                        print("Room node exists but no current edge. Setting as current")
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
