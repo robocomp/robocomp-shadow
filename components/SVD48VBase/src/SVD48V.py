@@ -3,6 +3,8 @@ import threading
 import numpy as np
 import serial
 import struct
+import signal
+
 
 
 
@@ -173,9 +175,31 @@ class SVD48V:
                 
 
         print("Starting SVD48V")
+        self.show_params(True)
         
+        ########Security pole pairs identification######
         motorPolePairs = self._get_motor_data(DRIVER_REGISTERS['POLE_PAIRS'])
-        assert np.all(motorPolePairs == polePairs), f"\033[91mPole pairs don't match {motorPolePairs} != {polePairs}. Make sure that you calibrate the motors and drivers; it could be dangerous.\033[0m"
+        if np.all(motorPolePairs == -np.inf):
+
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Input timeout reached")
+
+            timeout_seconds = 10
+            warning_msg = "\033[93m⚠ WARNING: Pole pairs not found!\033[0m\n"
+            warning_msg += "\033[93mMake sure you calibrate the motors and drivers.\033[0m"
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)  
+            
+            try:
+                response = input("\033[93mDo you want to continue? [y/n] (timeout: 10s): \033[0m")
+                signal.alarm(0)  
+                if response.lower() != "y":
+                    exit(-1)
+            except TimeoutError:
+                print("\n\033[91m✖ Timeout reached. Defaulting to 'NO'.\033[0m")
+                exit(-1)
+        else:
+            assert np.all(motorPolePairs == polePairs), f"\033[91mPole pairs don't match {motorPolePairs} != {polePairs}. Make sure that you calibrate the motors and drivers; it could be dangerous.\033[0m"
 
         
         self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], np.array([self.rpm_max_acceleration]*(len(self.ids)*2),dtype=np.int16))
@@ -193,8 +217,7 @@ class SVD48V:
         
     
     def __del__(self):
-        if self.driver is not None:
-            self.turnedOn = False
+        if self.driver is not None and self.driver.isOpen():
             print("Turning off SVD48V")
             self.disable_driver()
 
@@ -305,7 +328,7 @@ class SVD48V:
                 #numbers attempt
                 for _ in range(NUM_ATTEMPT):
                     self.driver.flushInput()
-                    #print(f"\033[34msend telegram {list(telegram)}\033[0m")
+                    # print(f"\033[34msend telegram {list(telegram)}\033[0m")
                     self.driver.write(telegram) #Send telegram
                     self.driver.flush()
                     t1 = time.time()            #get time for MSL
@@ -315,7 +338,7 @@ class SVD48V:
                         reply = bytearray (self.driver.readline())#get telegram of reply
                         #Have telegram of reply?
                         if len(reply) > 1:
-                            #print(f"\033[36mReply telegram {list(reply)}\033[0m")
+                            # print(f"\033[36mReply telegram {list(reply)}\033[0m")
                             #Have same number of action?
                             if reply[1] != CODE_TELEGRAM[action_code][0] :
                                 if reply[1] != CODE_TELEGRAM["ERROR_" + action_code][0]:
@@ -331,6 +354,8 @@ class SVD48V:
                             if crc_high != tel_crc_high or crc_low != tel_crc_low:
                                 print(f"CRC FAILURE. RE-{action_code}")
                                 self.accuracy_com["CRC"] += 1
+                                print(f"\033[34msend telegram {list(telegram)}\033[0m")
+                                print(f"\033[36mReply telegram {list(reply)}\033[0m")
                                 break
 
                             #Get data from telegram response
@@ -505,7 +530,7 @@ class SVD48V:
         print("Speed rpm (m1...mn): ", np.round(self.get_rpm(), 4).tolist())
         print("Speed mm/s (m1...mn): ", np.round(self.get_speed(), 4).tolist())
         print("Current amp (m1...mn): ", np.round(self.get_current(), 4).tolist())
-        print("Position rad (m1...mn): ", np.round(self.get_position(), 4).tolist())
+        print("Angle rad (m1...mn): ", np.round(self.get_angle(), 4).tolist())
         print("Motor temperature Cº(m1...mn): ", np.round(self.get_temperature(), 4).tolist())
         print("COMMUNICATION ERRORS:", self.accuracy_com, "ACCURACY:",self.accuracy_com["OK"]*100/sum(self.accuracy_com.values()) )
         print("AVERAGE COMMUNICATION TIME: ", np.mean(self.time_com))

@@ -96,7 +96,7 @@ class SpecificWorker(GenericWorker):
             idDrivers = [int(params["idDriver1"])]
             wheelRadius = int(params["wheelRadius"])
             polePairs = int(params["polePairs"])
-            # polePairs = int(params["polePairs"])
+
             if baseType == "Omnidirectional":
                 # Omnidireccional params
                 self.isOmni=True
@@ -105,12 +105,13 @@ class SpecificWorker(GenericWorker):
                 
                 ''''MATRIZ DE CONVESION'''
                 ll = 0.5*(distAxes + axesLength)
-                self.m_wheels = np.array([  [-1.0,  -1.0, -ll],
-                                            [1.0,  -1.0, ll], 
-                                            [1.0,  -1.0, -ll],
-                                            [ -1.0,  -1.0, ll]])
+                self.m_wheels = np.array([  [-1.0,  1.0, ll],
+                                            [ 1.0,  1.0, -ll], 
+                                            [ 1.0,  1.0, ll],
+                                            [-1.0,  1.0, -ll]])
                 
                 maxWheelSpeed = max(abs(self.m_wheels@np.array([self.maxLinSpeed, self.maxLinSpeed, self.maxRotSpeed])))
+                self.inv_m_wheels = np.linalg.pinv(self.m_wheels)
                 
             else:
                 # Diferential params
@@ -118,18 +119,18 @@ class SpecificWorker(GenericWorker):
                 self.m_wheels = np.array([[-1, axesLength/2], [-1, -axesLength/2]])
                 # self.m_wheels = np.array([[1, -axesLength/2], [1, axesLength/2]]) TODO CHANGE WHEELS ORIENTATION
                 maxWheelSpeed = max(abs(self.m_wheels@np.array([self.maxLinSpeed, self.maxRotSpeed])))
-
-            self.inv_m_wheels = np.linalg.inv(self.m_wheels)
-                
+                self.inv_m_wheels = np.linalg.inv(self.m_wheels)
                 
             print(self.m_wheels)
-
 
             self.driver = SVD48V.SVD48V(port=port, IDs=idDrivers, wheelRadius=wheelRadius, maxSpeed=maxWheelSpeed,
                                         maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent, polePairs=polePairs)  
 
             assert self.driver.get_enable(), "NO se conecto al driver o fallo uno de ellos , cerrando programa"
             self.oldOdometry = self.driver.get_position().flatten()
+            #                      num rot * rot2mm
+            self.maxOdometryDiff = 13 * (2 * np.pi * wheelRadius)/60
+
 
 
             self.showParams = QTimer(self)
@@ -198,10 +199,18 @@ class SpecificWorker(GenericWorker):
                 odometry = ifaces.RoboCompFullPoseEstimation.FullPoseEuler()
                 odometry.timestamp = np.longlong(time()*1000)
                 
-                #Radiants odometry wheels
+                #Millimeters odometry wheels
                 newOdometry = self.driver.get_position().flatten()
                 velocity = self.driver.get_speed().flatten()
                 diffOdometry = newOdometry-self.oldOdometry
+                if diffOdometry > self.maxOdometryDiff:
+                    console.print(Text(f"Pose singularity with {diffOdometry}, maximum {self.maxOdometryDiff}", "bright_yellow"))
+                    if diffOdometry < 0:
+                        diffOdometry += self.maxOdometryDiff
+                    else:
+                        diffOdometry -= self.maxOdometryDiff
+                    console.print(Text(f"Pose chaged to {self.maxOdometryDiff}", "bright_yellow"))
+
                 self.oldOdometry = newOdometry
 
                 #Convert wheel odometry to base odomery
