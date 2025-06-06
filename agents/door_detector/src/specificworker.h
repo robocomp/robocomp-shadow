@@ -84,7 +84,6 @@ public slots:
 	void del_node_slot(std::uint64_t from){};     
 private:
 	// DSR graph
-	std::shared_ptr<DSR::DSRGraph> G;
     std::unique_ptr<DSR::RT_API> rt;
     std::shared_ptr<DSR::InnerEigenAPI> inner_eigen;
 

@@ -32,7 +32,17 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 	{
 		#ifdef HIBERNATION_ENABLED
 			hibernationChecker.start(500);
-		#endif
+        #endif
+
+
+        //dsr update signals
+        //connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
+//        connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
+        //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+        //connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
+
         QLoggingCategory::setFilterRules("*.debug=false\n");
 		// Example statemachine:
 		/***
@@ -71,62 +81,47 @@ SpecificWorker::~SpecificWorker()
 void SpecificWorker::initialize()
 {
     std::cout << "Initialize worker" << std::endl;
-    if(this->startup_check_flag)
+
+    // Graph viewer
+    using opts = DSR::DSRViewer::view;
+    int current_opts = 0;
+    opts main = opts::none;
+    if(this->configLoader.get<bool>("ViewAgent.tree"))
     {
-        this->startup_check();
+        current_opts = current_opts | opts::tree;
     }
-    else
+    if(this->configLoader.get<bool>("ViewAgent.graph"))
     {
+        current_opts = current_opts | opts::graph;
+        main = opts::graph;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.2d"))
+    {
+        current_opts = current_opts | opts::scene;
+    }
+    if(this->configLoader.get<bool>("ViewAgent.3d"))
+    {
+        current_opts = current_opts | opts::osg;
+    }
 
-        rt = G->get_rt_api();
-        inner_eigen = G->get_inner_eigen_api();
-
-        //dsr update signals
-        //connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-        connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
-        //connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
-//        connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-        //connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
-        //connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
-
-        // Graph viewer
-        using opts = DSR::DSRViewer::view;
-        int current_opts = 0;
-        opts main = opts::none;
-        if(this->configLoader.get<bool>("ViewAgent.tree"))
-        {
-            current_opts = current_opts | opts::tree;
-        }
-        if(this->configLoader.get<bool>("ViewAgent.graph"))
-        {
-            current_opts = current_opts | opts::graph;
-            main = opts::graph;
-        }
-        if(this->configLoader.get<bool>("ViewAgent.2d"))
-        {
-            current_opts = current_opts | opts::scene;
-        }
-        if(this->configLoader.get<bool>("ViewAgent.3d"))
-        {
-            current_opts = current_opts | opts::osg;
-        }
-
-        graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
-        setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-        widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(opts::scene));
-
-        // A thread for lidar reading is started
+    graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
+    std::cout << "Initialize worker" << std::endl;
+    setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
+    std::cout << "Initialize worker" << std::endl;
+    widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(DSR::DSRViewer::view::scene));
+    std::cout << "Initialize worker" << std::endl;
+    // A thread for lidar reading is started
 //        read_lidar_th = std::move(std::thread(&SpecificWorker::read_lidar,this));
 //        std::cout << "Started lidar reader" << std::endl;
 
-        room_widget = new CustomWidget();
-        graph_viewer->add_custom_widget_to_dock("room view", room_widget);
+    room_widget = new CustomWidget();
+    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
+    std::cout << "Initialize worker" << std::endl;
+    rt = G->get_rt_api();
+    inner_eigen = G->get_inner_eigen_api();
 
-        /// Clear doors when room_widget->ui->pushButton_stop is clicked
-        connect(room_widget->ui->pushButton_stop, &QPushButton::clicked, this, [this](){ this->clear_doors(); });
-
-    }
-
+    /// Clear doors when room_widget->ui->pushButton_stop is clicked
+    connect(room_widget->ui->pushButton_stop, &QPushButton::clicked, this, [this](){ this->clear_doors(); });
 }
 void SpecificWorker::compute()
 {
@@ -1028,7 +1023,7 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
 {
     // A static vector of tuples to store the last detected doors and a counter to store the number of times a door has been detected
     static vector<tuple<DoorDetector::Door, int>> last_detected_doors;
-    int N = 10; // The number of consecutive frames a door must be detected in to be considered valid
+    int N = 20; // The number of consecutive frames a door must be detected in to be considered valid
 
     for(const auto &[i, d] : last_detected_doors | iter::enumerate)
     {
@@ -1075,7 +1070,7 @@ void SpecificWorker::door_prefilter(vector<DoorDetector::Door> &detected_door)
     // Use the Hungarian algorithm to solve the assignment problem
     vector<int> assignment;
     // Print distances matrix and assignment
-//    std::cout << "Distances matrix:" << std::endl;
+    std::cout << "Distances matrix:" << std::endl;
     for(const auto &row : distances_matrix)
     {
         for(const auto &d : row)

@@ -1,6 +1,7 @@
 # door_detector_agent
 Intro to component here
 
+Install Clipper2 library : https://github.com/AngusJohnson/Clipper2
 
 ## Configuration parameters
 As any other component, *door_detector_agent* needs a configuration file to start. In

@@ -13,15 +13,14 @@ Agent.id = 55 # Change id
 Agent.name = "door_detector"
 Agent.configFile = ""
 
-ViewAgent.tree = true
+ViewAgent.tree = false
 ViewAgent.graph = true
 ViewAgent.2d = true
-ViewAgent.3d = true
+ViewAgent.3d = false
 
 Period.Compute = 100
 Period.Emergency = 500
 
-Param.Display = true
 
 Ice.Warn.Connections = "0"
 Ice.Trace.Network = "0"
