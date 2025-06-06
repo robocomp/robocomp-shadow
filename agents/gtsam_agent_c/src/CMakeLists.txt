@@ -11,8 +11,8 @@ LIST(APPEND HEADERS
   ../src/specificworker.h
 )
 
-
-LIST(APPEND LIBS ${LIBS} gtsam_unstable gtsam)
+include_directories(/usr/local/include)
+LIST(APPEND LIBS ${LIBS} gtsam_unstable gtsam Clipper2)
 
 # no-char8_t to avoid a problem with ICE Connection lib.
 add_definitions(-fmax-errors=1 -fno-char8_t)

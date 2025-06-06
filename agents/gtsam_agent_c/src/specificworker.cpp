@@ -32,8 +32,8 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 		#endif
 		
 		//dsr update signals
-		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-//		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
@@ -111,16 +111,15 @@ void SpecificWorker::initialize()
 
     graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
     setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
-
     // get pointer to 2D viewer
     widget_2d = qobject_cast<DSR::QScene2dViewer*> (graph_viewer->get_widget(DSR::DSRViewer::view::scene));
 
     room_widget = new CustomWidget();
-    widget_2d->set_draw_axis(true);
-    widget_2d->scale(0.08, 0.08);
     graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
     room_widget->viewer->robot_poly()->hide();
+
+
 
     std::cout << "initialize worker" << std::endl;
     //initializeCODE
@@ -146,6 +145,7 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
+    // static double last_timestamp = 0.0;
     // Statemaching
     // Pop odometry value
     auto odom  = odom_buffer.try_get();
@@ -154,6 +154,8 @@ void SpecificWorker::compute()
     update_robot_odometry_data_in_DSR(odom.value());
     auto [timestamp, translation, rotation] = odom.value();
 
+    // qInfo() << "Odom time difference" << timestamp - last_timestamp;
+    // last_timestamp = timestamp;
     timestamp = timestamp / 1000.0; // Convert milliseconds to seconds
 
     // State 1: Graph not initialized
@@ -174,19 +176,25 @@ void SpecificWorker::compute()
         }
         case 1:
         {
-
             if(timestamp != last_odometry_timestamp)
             {
-                // print odometry value
-//                std::cout << "Odometry: " << timestamp << " " << translation.transpose() << " " << rotation.transpose() << std::endl;
+                // print the complete odom timestamp number, e.g. 1700000000.123456
+//                std::cout << std::fixed << std::setprecision(10) << timestamp << std::endl;
+
 //                std::cout << "Timestamp diff: " << timestamp - last_odometry_timestamp << std::endl;
                 auto [last_pose_timestamp, robot_translation_from_last_timestamp] = integrate_odometry(timestamp, translation, rotation);
                 gtsam_graph.insert_odometry_pose(last_pose_timestamp, gtsam::Pose3(robot_translation_from_last_timestamp.matrix()));
 
-                // Get measured corners and nodes graph timestamps
-                auto actual_measured_corners = get_measured_corners(last_pose_timestamp);
-                draw_measured_corners(&room_widget->viewer->scene, actual_measured_corners);
-                gtsam_graph.add_landmark_measurement(actual_measured_corners);
+                auto robot_without_corners_pose = gtsam_graph.get_robot_pose();
+                Eigen::Vector2d robot_position(robot_without_corners_pose.translation().x(),
+                                              robot_without_corners_pose.translation().y());
+                if(not safe_polygon.empty() and is_pose_inside_polygon(robot_position, safe_polygon))
+                {
+                    // Get measured corners and nodes graph timestamps
+                    auto actual_measured_corners = get_measured_corners(last_pose_timestamp);
+                    draw_measured_corners(&room_widget->viewer->scene, actual_measured_corners);
+                    gtsam_graph.add_landmark_measurement(actual_measured_corners);
+                }
 
                 // Print optimized pose
                 auto act_robot_pose = gtsam_graph.get_robot_pose();
@@ -196,11 +204,10 @@ void SpecificWorker::compute()
                 const gtsam::Rot3 rotation = act_robot_pose.rotation();
                 const double yaw = rotation.yaw();     // Z-axis rotation
                 // Print formatted output
-                std::cout << "  X: " << std::setw(8) << x
-                          << "  Y: " << std::setw(8) << y
-                          << "  alpha: " << std::setw(8) << yaw << std::endl;
+//               std::cout << "  X: " << std::setw(8) << x
+//                         << "  Y: " << std::setw(8) << y
+//                         << "  alpha: " << std::setw(8) << yaw << std::endl;
                 update_robot_dsr_pose(x, y, yaw, timestamp);
-                draw_robot_in_room(&room_widget->viewer->scene);
                 gtsam_graph.draw_graph_nodes(&room_widget->viewer->scene);
             }
             break;
@@ -273,6 +280,24 @@ std::tuple<double, Eigen::Affine3d> SpecificWorker::integrate_odometry(
     return std::make_tuple(current_time, current_pose);
 }
 
+bool SpecificWorker::is_pose_inside_polygon(const Eigen::Vector2d& point, const std::vector<Eigen::Vector2d>& polygon)
+{
+    int count = 0;
+    size_t n = polygon.size();
+    for (size_t i = 0; i < n; ++i) {
+        Eigen::Vector2d a = polygon[i];
+        Eigen::Vector2d b = polygon[(i + 1) % n];
+
+        // Ver si hay cruce con el eje horizontal del punto
+        if ((a.y() > point.y()) != (b.y() > point.y())) {
+            double xIntersect = (b.x() - a.x()) * (point.y() - a.y()) / (b.y() - a.y()) + a.x();
+            if (point.x() < xIntersect)
+                count++;
+        }
+    }
+    return count % 2 == 1; // true si número impar de cruces
+}
+
 std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_measured_corners(double timestamp)
 {
     std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> returned_corners;
@@ -336,7 +361,7 @@ std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_
                 // Considering corner_pose_value is a Eigen::Transform<double, 3, Eigen::Affine>, get x and y pose
                 auto corner_pose_matrix = corner_pose_value.second.matrix();
 
-                std::cout << "Corner timestamp: " << corner_pose_value.first << " Ordered:" << (uint64_t)(timestamp * 1000) << std::endl;
+//                std::cout << "Corner " << corner_id.value() << " timestamp: " << corner_pose_value.first << " Ordered:" << (uint64_t)(timestamp * 1000) << " position: " << corner_pose_matrix(0, 3) << " " <<  corner_pose_matrix(1, 3) << std::endl;
                 Eigen::Vector3f corner_pose_(corner_pose_matrix(0, 3) / 1000, corner_pose_matrix(1, 3) / 1000, 0.f);
                 auto corner_pose_double = corner_pose_.cast<double>();
                 returned_corners.push_back(std::make_tuple(corner_id.value(), corner_pose_value.first / 1000.0, corner_pose_double, corner_is_valid.value()));
@@ -348,17 +373,21 @@ std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_
 
 void SpecificWorker::update_robot_dsr_pose(double x, double y, double ang, double timestamp)
 {
-    // Get room node
-    auto room_node_ = G->get_node("room");
-    if (!room_node_) return;
-    auto room_node = room_node_.value();
+//    // Get room node
+//    auto room_node_ = G->get_node("room");
+//    if (!room_node_) return;
+//    auto room_node = room_node_.value();
 
     // Get robot node
     auto robot_node_ = G->get_node("Shadow");
     if (!robot_node_) return;
     auto robot_node = robot_node_.value();
 
-    rt_api->insert_or_assign_edge_RT(room_node, robot_node.id(), { (float)(x * 1000.f), (float)(y * 1000.f), 0 }, {0, 0, (float)ang}, (uint64_t) (timestamp * 1000.0));
+    // Get robot node parent node
+    auto robot_parent_node = G->get_parent_node(robot_node); if (!robot_parent_node.has_value()) return;
+    auto robot_parent_node_value = robot_parent_node.value();
+
+    rt_api->insert_or_assign_edge_RT(robot_parent_node_value, robot_node.id(), { (float)(x * 1000.f), (float)(y * 1000.f), 0 }, {0, 0, (float)ang}, (uint64_t) (timestamp * 1000.0));
 }
 
 void SpecificWorker::emergency()
@@ -394,12 +423,12 @@ void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene)
     }
 }
 
-void SpecificWorker::draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners)
+void SpecificWorker::draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners, const std::vector<Eigen::Vector2d> &security_polygon)
 {
     static std::vector<QGraphicsItem *> items;
     for(const auto &i: items){ pScene->removeItem(i); delete i;}
     items.clear();
-    QPolygonF poly;
+    QPolygonF poly, sec_poly;
     // draw corners
     for(const auto &corner: nominal_corners)
     {
@@ -412,8 +441,14 @@ void SpecificWorker::draw_nominal_corners(QGraphicsScene *pScene, const std::vec
         items.push_back(item);
 
     }
+    for(const auto &corner: security_polygon)
+    {
+        sec_poly << QPointF(corner.x() * 1000, corner.y() * 1000);
+    }
     auto poly_item = pScene->addPolygon(poly, QPen(QColor("red"), 100));
     items.push_back(poly_item);
+    auto sec_poly_item = pScene->addPolygon(sec_poly, QPen(QColor("green"), 100));
+    items.push_back(sec_poly_item);
 }
 
 void SpecificWorker::draw_measured_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> &measured_corners)
@@ -452,25 +487,36 @@ void SpecificWorker::draw_measured_corners(QGraphicsScene *pScene, const std::ve
 // ******************************* CREATE INITIALIZE G2O GRAPH FUNCTION BASED ON GTSAM AGENT FROM GERARDO'S PC ********************************
 bool SpecificWorker::initialize_graph()
 {
+    gtsam_graph.reset_graph();
+
     //get shadow robot node from G
     auto robot_node_ = G->get_node("Shadow"); if (!robot_node_) return false;
     auto& robot_node = robot_node_.value();
 
-    auto current_edge = G->get_edges_by_type("current"); if (current_edge.empty()) return false;
-    auto current_room_node_ = G->get_node(current_edge[0].to()); if (!current_room_node_) return false;
-    auto& current_room_node = current_room_node_.value();
+    // Get robot node parent node
+    auto robot_parent_node = G->get_parent_node(robot_node); if (!robot_parent_node.has_value()) return false;
+    auto robot_parent_node_value = robot_parent_node.value();
+
+    // Get timestamp from the first odom_value in the buffer
+    auto first_odom_value = odometry_queue.front();
+    odometry_queue.pop_front();
+    // Get the timestamp from the first odometry value
+    auto first_odom_timestamp = std::get<0>(first_odom_value);
+
+    // If robot parent node is "root":
+    if (robot_parent_node_value.name() == "root")
+    {
+        std::cerr << "Robot parent node is root. Integrating pure odometry." << std::endl;
+        auto robot_origin = Pose3(Rot3::RzRyRx(0, 0, 0),
+              Point3(0, 0, 0));
+        gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_origin);
+        return true;
+    }
 
     odometry_node_id = robot_node.id();
-    //get attribute room_id from current room node
-    auto current_room_id = G->get_attrib_by_name<room_id_att>(current_room_node); if (!current_room_id) return false;
-
-    if(actual_room_id != current_room_node.id())
-        last_room_id = actual_room_id;
-    actual_room_id = current_room_id.value();
-    actual_room_name = current_room_node.name();
 
 //    # Get first robot pose
-    auto robot_pose = get_dsr_robot_pose(current_room_node, robot_node.id());
+    auto robot_pose = get_dsr_robot_pose();
     if (!robot_pose.has_value())
     {
         std::cerr << "Robot pose not found" << std::endl;
@@ -480,27 +526,42 @@ bool SpecificWorker::initialize_graph()
     // Print robot pose
     std::cout << "Robot pose: " << robot_pose_value.translation() << " " << robot_pose_value.rotation().yaw() << " " << act_pose_timestamp << std::endl;
 
-    // Get timestamp from the first odom_value in the buffer
-    auto first_odom_value = odometry_queue.front();
-    odometry_queue.pop_front();
-    // Get the timestamp from the first odometry value
-    auto first_odom_timestamp = std::get<0>(first_odom_value);
     gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_pose_value);
 
-    auto nominal_corners_data = get_nominal_corners();
-    if(nominal_corners_data.empty())
+    auto current_edge = G->get_edges_by_type("current");
+    if (!current_edge.empty())
     {
-        std::cerr << "No nominal corners found" << std::endl;
-        return false;
+        auto current_room_node_ = G->get_node(current_edge[0].to()); if (!current_room_node_) return false;
+        auto& current_room_node = current_room_node_.value();
+        //get attribute room_id from current room node
+        auto current_room_id = G->get_attrib_by_name<room_id_att>(current_room_node); if (!current_room_id) return false;
+
+        if(actual_room_id != current_room_node.id())
+            last_room_id = actual_room_id;
+        actual_room_id = current_room_id.value();
+        actual_room_name = current_room_node.name();
+
+
+        auto nominal_corners_data = get_nominal_corners();
+        if(nominal_corners_data.empty())
+        {
+            std::cerr << "No nominal corners found" << std::endl;
+//        return false;
+        }
+        // Generate aux vector only with the Eigen::Vector3d corners
+        std::vector<Eigen::Vector2d> corners_2D;
+        for (const auto& corner_data : nominal_corners_data)
+        {
+            auto [corner_id, corner_timestamp, corner_pose] = corner_data;
+            corners_2D.emplace_back(corner_pose.x() / 1000.0, corner_pose.y() / 1000.0);
+            std::cout << "Corner id: " << corner_id << " Corner timestamp: " << corner_timestamp / 1000.0<< std::endl;
+            gtsam_graph.insert_landmark_prior(corner_timestamp, corner_id, Point3(corner_pose.x()/ 1000.0, corner_pose.y()/ 1000.0, 0.0));
+            corners_last_update_timestamp[corner_id] = (uint64_t )corner_timestamp * 1000;
+        }
+        safe_polygon = shrink_polygon_to_safe_zone(corners_2D, 0.4);
+        draw_nominal_corners(&room_widget->viewer->scene, nominal_corners_data, safe_polygon);
     }
-    for (const auto& corner_data : nominal_corners_data)
-    {
-        auto [corner_id, corner_timestamp, corner_pose] = corner_data;
-        std::cout << "Corner id: " << corner_id << " Corner timestamp: " << corner_timestamp / 1000.0<< std::endl;
-        gtsam_graph.insert_landmark_prior(corner_timestamp, corner_id, Point3(corner_pose.x()/ 1000.0, corner_pose.y()/ 1000.0, 0.0));
-        corners_last_update_timestamp[corner_id] = (uint64_t )corner_timestamp * 1000;
-    }
-    draw_nominal_corners(&room_widget->viewer->scene, nominal_corners_data);
+
     return true;
 }
 
@@ -563,13 +624,49 @@ std::vector<std::tuple<int, double, Eigen::Vector3d>> SpecificWorker::get_nomina
     return returned_corners;
 }
 
-
-std::optional<std::pair<double, gtsam::Pose3>> SpecificWorker::get_dsr_robot_pose(DSR::Node room_node, uint64_t robot_id)
+// Proyectar las esquinas y reducir el polígono
+std::vector<Eigen::Vector2d> SpecificWorker::shrink_polygon_to_safe_zone(const std::vector<Eigen::Vector2d>& corners_2D, double margin_meters)
 {
+    ClipperOffset offsetter;
+    Path64 path = toClipper2Path(corners_2D);
+
+    offsetter.AddPath(path, JoinType::Miter, EndType::Polygon);
+    Paths64 solution;
+    offsetter.Execute(-margin_meters * SCALE, solution);
+
+    if (solution.empty()) return {};
+    return fromClipper2Path(solution[0]);
+}
+
+// Convierte de Eigen a Clipper2
+Path64 SpecificWorker::toClipper2Path(const std::vector<Eigen::Vector2d>& poly) {
+    Path64 path;
+    for (const auto& p : poly) {
+        path.emplace_back(static_cast<int64_t>(p.x() * SCALE), static_cast<int64_t>(p.y() * SCALE));
+    }
+    return path;
+}
+
+// Convierte de Clipper2 a Eigen
+std::vector<Eigen::Vector2d> SpecificWorker::fromClipper2Path(const Path64& path) {
+    std::vector<Eigen::Vector2d> poly;
+    for (const auto& pt : path) {
+        poly.emplace_back(pt.x / SCALE, pt.y / SCALE);
+    }
+    return poly;
+}
+
+
+std::optional<std::pair<double, gtsam::Pose3>> SpecificWorker::get_dsr_robot_pose()
+{
+    auto robot_node = G->get_node("Shadow");
+    if (!robot_node) {qInfo() << "Robot node not found"; return{};};
+    // Get robot node parent node
+    auto robot_parent_node = G->get_parent_node(robot_node.value()); if (!robot_parent_node.has_value()) {qInfo() << "Robot parent node not found"; return{};};
     // Print room node name and robot id
-    std::cout << "Room node name: " << room_node.name() << " Robot id: " << robot_id << std::endl;
+    std::cout << "Room node name: " << robot_parent_node.value().name() << " Robot id: " << robot_id << std::endl;
     //get first robot pose
-    auto robot_rt = rt_api->get_edge_RT(room_node, robot_id); if (!robot_rt) return{};
+    auto robot_rt = rt_api->get_edge_RT(robot_parent_node.value(), robot_node.value().id()); if (!robot_rt) return{};
     auto robot_translation = G->get_attrib_by_name<rt_translation_att>(robot_rt.value()); if (!robot_translation) {qInfo() << "Robot translation not found"; return{};};
     auto robot_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(robot_rt.value()); if (!robot_rotation) {qInfo() << "Robot rotastion not found"; return{};};
     auto robot_pose_timestamp = G->get_attrib_by_name<rt_timestamps_att>(robot_rt.value()); if (!robot_pose_timestamp) {qInfo() << "Robot timestamp not found"; return{};};
@@ -577,43 +674,21 @@ std::optional<std::pair<double, gtsam::Pose3>> SpecificWorker::get_dsr_robot_pos
                             Point3(robot_translation.value().get()[0] / 1000.0, robot_translation.value().get()[1] / 1000.0, robot_translation.value().get()[2] / 1000.0)));
 }
 
+void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
+{
+    if(type == "room")
+    {
+//        init_graph = 0;
+        actual_room_id = id;
+    }
+}
+
 void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names)
 {
-//    // Check if id == robot_id
-//    if(id == robot_id)
+//    if(id == actual_room_id and std::find(att_names.begin(), att_names.end(), "obj_checked") != att_names.end())
 //    {
-//        if(auto robot_node_ = G->get_node(robot_id); robot_node_.has_value())
-//        {
-//            auto robot_node = robot_node_.value();
-//            // Check if "robot_current_advance_speed" is in att_names
-//            if(std::find(att_names.begin(), att_names.end(), "robot_current_advance_speed") != att_names.end()) {
-//                auto timestamp_ = G->get_attrib_by_name<timestamp_alivetime_att>(robot_node);
-//                    auto adv_speed = G->get_attrib_by_name<robot_current_advance_speed_att>(robot_node);
-//                    auto ang_speed = G->get_attrib_by_name<robot_current_angular_speed_att>(robot_node);
-//                    auto side_speed = G->get_attrib_by_name<robot_current_side_speed_att>(robot_node);
-//
-//                    // Check both values exists
-//                    if (adv_speed.has_value() && ang_speed.has_value() && side_speed.has_value()) {
-//                        // Get the values
-//                        auto adv_speed_val = adv_speed.value();
-//                        auto ang_speed_val = ang_speed.value();
-//                        auto side_speed_val = side_speed.value();
-//                        auto timestamp_val = timestamp_.value();
-//
-//                         odom_buffer.put(std::make_tuple(
-//                                timestamp_val / 1000.0, Eigen::Vector3d(side_speed_val, adv_speed_val, 0),
-//                                Eigen::Vector3d(0, 0, ang_speed_val)));
-//                    } else {
-//                        std::cerr << "Problem reading values" << std::endl;
-//                        return;
-//                    }
-//            }
-//        }
-//        else
-//        {
-//            std::cerr << "Robot node not found" << std::endl;
-//            std::terminate();
-//        }
+//        qInfo() << "Room node obj_checked attribute modified. Reinitializing graph.";
+//        init_graph = 0;
 //    }
 }
 
@@ -624,37 +699,30 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
 
     if(type == "current" and from_node.value().type() == "room")
     {
-        room_initialized = false;
-        auto from_node_room_id = G->get_attrib_by_name<room_id_att>(from_node.value()); if(!from_node_room_id) return;
-
-        if(actual_room_id > 0 and actual_room_id != from_node_room_id)
-        {
-            last_room_id = actual_room_id;
-            current_edge_set = true;
-        }
-        return;
+        qInfo() << "Current edge inserted. Reinitializing graph.";
+        init_graph = 0;
     }
 
-    auto to_node = G->get_node(to); if(!to_node) return;
-    if(type == "RT" and from_node.value().type() == "room" and to_node.value().name() == "Shadow")
-    {
-        auto rt_edge = G->get_edge(from, to, "RT");
-        auto now = std::chrono::system_clock::now();
-        auto time_difference = std::chrono::duration_cast<std::chrono::seconds>(now - rt_set_last_time);
-        //get rt translation from rt_edge
-        if (rt_edge->agent_id() == agent_id and time_difference.count() > rt_time_min)
-        {
-            room_initialized = false;
-            first_rt_set = true;
-            rt_set_last_time = std::chrono::system_clock::now();
-            //get translation from rt_edge
-            auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_edge.value()); if(!rt_translation) return;
-            translation_to_set = rt_translation.value().get();
-            //get rotation from rt_edge
-            auto rt_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(rt_edge.value()); if(!rt_rotation) return;
-            rotation_to_set = rt_rotation.value().get();
-        }
-    }
+//    auto to_node = G->get_node(to); if(!to_node) return;
+//    if(type == "RT" and from_node.value().type() == "room" and to_node.value().name() == "Shadow")
+//    {
+//        auto rt_edge = G->get_edge(from, to, "RT");
+//        auto now = std::chrono::system_clock::now();
+//        auto time_difference = std::chrono::duration_cast<std::chrono::seconds>(now - rt_set_last_time);
+//        //get rt translation from rt_edge
+//        if (rt_edge->agent_id() == agent_id and time_difference.count() > rt_time_min)
+//        {
+//            room_initialized = false;
+//            first_rt_set = true;
+//            rt_set_last_time = std::chrono::system_clock::now();
+//            //get translation from rt_edge
+//            auto rt_translation = G->get_attrib_by_name<rt_translation_att>(rt_edge.value()); if(!rt_translation) return;
+//            translation_to_set = rt_translation.value().get();
+//            //get rotation from rt_edge
+//            auto rt_rotation = G->get_attrib_by_name<rt_rotation_euler_xyz_att>(rt_edge.value()); if(!rt_rotation) return;
+//            rotation_to_set = rt_rotation.value().get();
+//        }
+//    }
 }
 
 int SpecificWorker::startup_check()
@@ -674,6 +742,7 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
     odom_buffer.put(std::make_tuple(
             double(pose.timestamp), Eigen::Vector3d(pose.vy, pose.vx, 0),
             Eigen::Vector3d(0, 0, pose.vrz)));
+//    qInfo() << "odom value" << pose.vy << pose.vx << pose.vrz << double(pose.timestamp);
 }
 
 

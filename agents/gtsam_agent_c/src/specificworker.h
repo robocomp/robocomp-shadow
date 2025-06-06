@@ -37,11 +37,15 @@
 #include "ui_localUI.h"
 #include <boost/circular_buffer.hpp>
 #include <mutex>
+#include <clipper2/clipper.h>
 
 #include <chrono>
 
 // If you want to reduce the period automatically due to lack of use, you must uncomment the following line
 //#define HIBERNATION_ENABLED
+
+using namespace Clipper2Lib;
+constexpr double SCALE = 1e6;
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -94,7 +98,7 @@ public slots:
      */
 	int startup_check();
 
-	void modify_node_slot(std::uint64_t, const std::string &type){};
+	void modify_node_slot(std::uint64_t id, const std::string &type);
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
@@ -159,6 +163,7 @@ private:
 
     // Corners
     std::map<int, uint64_t> corners_last_update_timestamp;
+    std::vector<Eigen::Vector2d> safe_polygon;
 
     // DSR Values
     uint64_t robot_id = 0, room_id = 0;
@@ -166,15 +171,18 @@ private:
 
     // RT APi
     std::unique_ptr<DSR::RT_API> rt_api;
-    std::shared_ptr<DSR::InnerEigenAPI> inner_api;
+    std::unique_ptr<DSR::InnerEigenAPI> inner_api;
 
     void draw_robot_in_room(QGraphicsScene *pScene);
-    void draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners);
+    void draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners, const std::vector<Eigen::Vector2d> &security_polygon);
     void draw_measured_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> &measured_corners);
 
     bool initialize_graph();
     std::vector<std::tuple<int, double, Eigen::Vector3d>> get_nominal_corners();
-    std::optional<std::pair<double, gtsam::Pose3>> get_dsr_robot_pose(DSR::Node room_node, uint64_t robot_id);
+    std::vector<Eigen::Vector2d> shrink_polygon_to_safe_zone(const std::vector<Eigen::Vector2d>& corners2D, double margin_meters = 0.9);
+    std::vector<Eigen::Vector2d> fromClipper2Path(const Path64& path);
+    Path64 toClipper2Path(const std::vector<Eigen::Vector2d>& poly);
+    std::optional<std::pair<double, gtsam::Pose3>> get_dsr_robot_pose();
     void update_robot_odometry_data_in_DSR(const std::tuple<double, Eigen::Vector3d, Eigen::Vector3d> &odom_value);
     std::vector<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>> copy_odometry_buffer(
             boost::circular_buffer<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>>& buffer,
@@ -182,6 +190,7 @@ private:
             double min_timestamp = 0);
     std::tuple<double, Eigen::Affine3d> integrate_odometry(
             double current_time, Eigen::Vector3d translation, Eigen::Vector3d rotation);
+    bool is_pose_inside_polygon(const Eigen::Vector2d& point, const std::vector<Eigen::Vector2d>& polygon);
     std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> get_measured_corners(double timestamp);
 
 

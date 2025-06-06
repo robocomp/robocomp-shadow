@@ -10,7 +10,7 @@ Endpoints.FullPoseEstimationPubPrefix = ""
 
 Agent.id = 22 # Change id
 Agent.name = "gtsam_agent_c"
-Agent.configFile = "shadow_scene.json"
+Agent.configFile = ""
 
 ViewAgent.tree = false
 ViewAgent.graph = true

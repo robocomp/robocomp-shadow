@@ -236,6 +236,11 @@ void GTSAMGraph::set_start_time(double start_time)
     this->start_time = start_time;
 }
 
+void GTSAMGraph::reset_graph()
+{
+    smootherISAM2 = std::make_unique<gtsam::IncrementalFixedLagSmoother>(lag, parameters);
+}
+
 void GTSAMGraph::draw_graph_nodes(QGraphicsScene *pScene) {
     static std::vector<QGraphicsItem*> pose_items, landmark_items;
     static std::vector<QGraphicsEllipseItem*> covariance_items;

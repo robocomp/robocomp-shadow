@@ -89,6 +89,8 @@ public:
 
     void set_start_time(double start_time);
 
+    void reset_graph();
+
     void draw_graph_nodes(QGraphicsScene *pScene);
     void draw_landmark_measurements(QGraphicsScene *pScene, Pose3 pose, Point2 landmark, bool clear);
 
