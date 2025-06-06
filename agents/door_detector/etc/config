@@ -1,23 +1,29 @@
-CommonBehavior.Endpoints=tcp -p 10000
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+# Endpoints for subscriptions interfaces
+Endpoints.Lidar3DPubTopic = "tcp -p 9874"
+Endpoints.Lidar3DPubPrefix = ""
 
 # Proxies for required interfaces
-G2OoptimizerProxy = g2ooptimizer:tcp -h localhost -p 11212
-Lidar3DProxy = lidar3d:tcp -h localhost -p 11990
+Proxies.G2Ooptimizer = "g2ooptimizer:tcp -h localhost -p 0"
+Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 0"
 
+Agent.id = 55 # Change id
+Agent.name = "door_detector"
+Agent.configFile = ""
 
-agent_id = 55 # Change id
-agent_name = door_detector_agent
-tree_view = false
-graph_view = true
-2d_view = true
-3d_view = false
-#Ice.MessageSizeMax=20004800
+ViewAgent.tree = true
+ViewAgent.graph = true
+ViewAgent.2d = true
+ViewAgent.3d = true
 
-display = true
+Period.Compute = 100
+Period.Emergency = 500
 
-InnerModelPath = innermodel.xml
+Param.Display = true
 
-Ice.Warn.Connections=0
-Ice.Trace.Network=0
-Ice.Trace.Protocol=0
-Ice.MessageSizeMax=20004800
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"

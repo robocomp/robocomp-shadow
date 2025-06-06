@@ -1,11 +1,13 @@
 import "Lidar3D.idsl";
 import "G2Ooptimizer.idsl";
+import "Lidar3DPub.idsl";
 
 Component door_detector
 {
     Communications
     {
         requires Lidar3D, G2Ooptimizer;
+        subscribesTo Lidar3DPub;
     };
     language Cpp11;
     gui Qt(QMainWindow);

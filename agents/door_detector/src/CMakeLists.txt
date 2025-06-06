@@ -1,53 +1,31 @@
-cmake_minimum_required(VERSION 3.10)
-
-
-IF ( "$ENV{ROBOCOMP}" STREQUAL "")
-  MESSAGE(WARNING "ROBOCOMP variable not set. Using the default value: /home/robocomp/robocomp")
-  SET (ENV{ROBOCOMP} "/home/robocomp/robocomp/")
-ENDIF ( "$ENV{ROBOCOMP}" STREQUAL "")
-
-IF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
-  MESSAGE(FATAL_ERROR "Couldn't find RoboComp in $ENV{ROBOCOMP}! Exiting...")
-ENDIF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
-
-INCLUDE( $ENV{ROBOCOMP}/cmake/robocomp.cmake )
-INCLUDE( $ENV{ROBOCOMP}/cmake/modules/qt.cmake )
-INCLUDE ( CMakeListsSpecific.txt)
-
 # Sources set
-SET ( SOURCES
-  ${SOURCES}
-  $ENV{ROBOCOMP}/classes/rapplication/rapplication.cpp
-  $ENV{ROBOCOMP}/classes/sigwatch/sigwatch.cpp
-  $ENV{ROBOCOMP}/classes/qlog/qlog.cpp
-  main.cpp
-  genericmonitor.cpp
-  commonbehaviorI.cpp
-  genericworker.cpp
+LIST(APPEND SOURCES
+  ../src/specificworker.cpp
+  ../src/Hungarian.cpp
+  ../src/door_detector.cpp
+  ../src/nodes.cpp
+  ../src/custom_widget.h
+)
+
+# Headers set
+LIST(APPEND HEADERS
+  ../src/specificworker.h
 )
 
 
+INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
+add_definitions(-g  -fmax-errors=1 -std=c++2a -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/)
+SET (LIBS ${LIBS}   dsr_core dsr_gui dsr_api fastcdr fastdds osgDB OpenThreads Eigen3::Eigen QGLViewer-qt6 Qt6OpenGLWidgets behaviortree_cpp Clipper2)
 
-ADD_DEFINITIONS ("-DICE_CPP11_MAPPING")
-FIND_PACKAGE( Ice REQUIRED COMPONENTS Ice++11 IceStorm++11)
+option(USE_QT6 "Use Qt6" ON) # OFF por defecto, puedes cambiarlo a ON si deseas usar Qt6
 
+if( USE_QT6)
+    LIST(APPEND SOURCES "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.cpp")
+    LIST(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer/abstract_graphic_viewer.h")
+    LIST(APPEND LIBS QGLViewer-qt6 Qt6OpenGLWidgets Qt6PrintSupport)
+  else()
+    list(APPEND SOURCES "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.cpp")
+    list(APPEND HEADERS "/home/robocomp/robocomp/classes/abstract_graphic_viewer_qt5/abstract_graphic_viewer.h")
+    LIST(APPEND LIBS QGLViewer-qt5)
+endif()
 
-#ROBOCOMP
-ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior G2Ooptimizer Lidar3D)
-ROBOCOMP_ICE_TO_SRC( CommonBehavior G2Ooptimizer Lidar3D)
-SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
-
-QT_WRAP_UI( UI_HEADERS mainUI.ui )
-
-# no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-fmax-errors=1 -fno-char8_t)
-
-# Specify construction and link process
-ADD_EXECUTABLE( door_detector ${SOURCES} ${MOC_SOURCES} ${RC_SOURCES} ${UI_HEADERS} )
-TARGET_LINK_LIBRARIES( door_detector ${LIBS} ${STATIC_LIBS} ${SPECIFIC_LIBS} ${QT_LIBRARIES} ${Ice_LIBRARIES})
-SET_TARGET_PROPERTIES(door_detector
-        PROPERTIES
-        CXX_STANDARD 20
-        )
-INSTALL(FILES ${EXECUTABLE_OUTPUT_PATH}/door_detector DESTINATION ${RC_COMPONENT_INSTALL_PATH}/bin/ PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE )
