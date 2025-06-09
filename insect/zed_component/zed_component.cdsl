@@ -1,0 +1,13 @@
+import "CameraRGBDSimplePub.idsl";
+import "FullPoseEstimationPub.idsl";
+import "IMUPub.idsl";
+
+Component zed_component
+{
+    Communications
+    {
+        publishes CameraRGBDSimplePub, FullPoseEstimationPub, IMUPub;
+    };
+    language Cpp11;
+};
+
