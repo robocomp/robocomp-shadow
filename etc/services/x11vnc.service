@@ -1,0 +1,14 @@
+[Unit]
+Description=x11vnc service
+Requires=display-manager.service
+After=display-manager.service
+
+[Service]
+ExecStart=/usr/bin/x11vnc -auth guess -xkb -noxdamage -noxrecord -noxfixes -display :0 -rfbauth /etc/x11vnc.pass -forever -shared
+ExecStop=/usr/bin/killall x11vnc
+Restart=on-failure
+RestartSec=2
+User=robolab
+
+[Install]
+WantedBy=multi-user.target
