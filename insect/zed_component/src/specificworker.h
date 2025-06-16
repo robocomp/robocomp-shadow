@@ -26,7 +26,7 @@
 
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
-
+#define POSE
 
 #include <sl/Camera.hpp>
 #include <opencv2/opencv.hpp>

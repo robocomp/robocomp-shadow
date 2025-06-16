@@ -71,44 +71,18 @@ SpecificWorker::~SpecificWorker()
 
 void SpecificWorker::initialize()
 {
-    // std::cout << "initialize worker" << std::endl;
+    // INIT PARAMETERS
     init_parameters.camera_resolution = sl::RESOLUTION::HD720; // Use HD720 opr HD1200 video mode, depending on camera type.
     init_parameters.camera_fps = 30; // Set fps at 30
-    init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
+    #ifdef POSE
+        init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
+    #else
+        init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
+    #endif
     init_parameters.coordinate_units = sl::UNIT::MILLIMETER; // Use millimeter units (for depth measurements)
     init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP; // Use a right-handed Y-up coordinate system
     init_parameters.depth_minimum_distance = 650 ;
-    //
-    // // Open the camera
-    // returned_state = zed.open(init_parameters);
-    // if (returned_state != sl::ERROR_CODE::SUCCESS) {
-    //     std::cout << "Error " << returned_state << ", exit program." << std::endl;
-    //     return;
-    // }
-    //
-    // // Enable positional tracking with default parameters
-    tracking_parameters.enable_imu_fusion = true;
-    tracking_parameters.enable_pose_smoothing = true;
-
-    tracking_parameters.mode = sl::POSITIONAL_TRACKING_MODE::GEN_3;
-    // tracking_parameters.enable_area_memory = false;
-    //tracking_parameters.enable_light_computation_mode = true;
-    //
-    //
-    // auto err = zed.enablePositionalTracking(tracking_parameters);
-    // if (err != sl::ERROR_CODE::SUCCESS)
-    //     exit(-1);
-
-
-    // INIT PARAMETERS
-    //init_parameters.camera_resolution = sl::RESOLUTION::HD720; // Máxima resolución compatible
-    //init_parameters.camera_fps = 60; // 30 FPS balancea precisión y estabilidad
-    //init_parameters.depth_mode = sl::DEPTH_MODE::PERFORMANCE; // Máxima calidad de profundidad
-    //init_parameters.coordinate_units = sl::UNIT::MILLIMETER; // Para mayor precisión de pose
-    //init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP; // Consistente con robótica
-
-    //init_parameters.depth_minimum_distance = 0.6; // Reducido para mejorar seguimiento cercano
-    //init_parameters.enable_image_enhancement = true; // Mejora visual en condiciones complejas
+    init_parameters.enable_image_enhancement = true; // Mejora visual en condiciones complejas
     //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
     //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
 
@@ -119,17 +93,24 @@ void SpecificWorker::initialize()
         exit(0);
     }
 
-
-
     // TRACKING PARAMETERS
-    //tracking_parameters.enable_imu_fusion = true; // Combina visual e IMU
-    //tracking_parameters.enable_pose_smoothing = true; // Estabiliza la pose (algo más lento)
-    //tracking_parameters.set_as_static = false; // Asegura que use movimiento real
-    //tracking_parameters.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2; // Último modo de seguimiento (mejor IMU)
+    #ifndef POSE
+        //init_parameters.camera_fps = 60; // 30 FPS balancea precisión y estabilidad
+
+        tracking_parameters.enable_imu_fusion = true; // Combina visual e IMU
+        tracking_parameters.enable_pose_smoothing = true; // Estabiliza la pose (algo más lento)
+        tracking_parameters.set_as_static = false; // Asegura que use movimiento real
+        tracking_parameters.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2; // Último modo de seguimiento (mejor IMU)
+        tracking_parameters.enable_area_memory = true;
+
+    #endif
 
     auto err = zed.enablePositionalTracking(tracking_parameters);
     if (err != sl::ERROR_CODE::SUCCESS)
         exit(-1);
+
+    sl::Transform reset_transform;
+    zed.resetPositionalTracking(reset_transform);
 
 
 
@@ -229,7 +210,11 @@ void SpecificWorker::process_pose_data()
 
 
     // 1) ZED pose
-    zed.getPosition(zed_pose, sl::REFERENCE_FRAME::CAMERA);
+    #ifdef POSE
+        zed.getPosition(zed_pose, sl::REFERENCE_FRAME::WORLD);
+    #else
+        zed.getPosition(zed_pose, sl::REFERENCE_FRAME::CAMERA);
+    #endif
     // 2) traslación y orientación
     auto t_cam_sl = zed_pose.getTranslation();
     auto r_cam_sl = zed_pose.getEulerAngles(true);
@@ -238,6 +223,7 @@ void SpecificWorker::process_pose_data()
     Eigen::AngleAxisf aa_y(r_cam_sl.y, Eigen::Vector3f::UnitY());
     Eigen::AngleAxisf aa_z(r_cam_sl.z, Eigen::Vector3f::UnitZ());
     Eigen::Quaternionf q_cam = aa_z * aa_y * aa_x;  // orden ZYX
+    std::cout<<std::setprecision(3)<<"\rX:"<<q_cam.x()<<"|Y:"<<q_cam.y()<<"|Z:"<< q_cam.z()<<"|W:"<< q_cam.w();
 
     // 3) Transformación fija cámara?robot
     static const Eigen::Vector3f cam_to_robot_t(60.0f, 76.6f, 0.0f);
@@ -289,22 +275,21 @@ void SpecificWorker::process_pose_data()
 
     // 7) Publicación
     RoboCompFullPoseEstimation::FullPoseEuler pose;
-    pose.x  = t_robot.x();
-    pose.y  = t_robot.y();
-    pose.z  = t_robot.z();
-    pose.rx = euler_robot.x();
-    pose.ry = euler_robot.y();
-    pose.rz = euler_robot.z();
+    pose.x  = t_cam_sl.x;
+    pose.y  = t_cam_sl.y;
+    pose.z  = t_cam_sl.z;
+    pose.rx = r_cam_sl.x;
+    pose.ry = r_cam_sl.y;
+    pose.rz = r_cam_sl.z;
     pose.vx  = v_robot.x();
     pose.vy  = v_robot.y();
     pose.vz  = v_robot.z();
     pose.vrx = omega_robot.x();
     pose.vry = omega_robot.y();
     pose.vrz = omega_robot.z();
-    pose.pose_cov = pose_cov_matrix;
+    pose.poseCov = pose_cov_matrix;
     pose.timestamp = zed_pose.timestamp.getMilliseconds();
 
-    //Try except publish
     try
     {
         fullposeestimationpub_pubproxy->newFullPose(pose);
@@ -313,6 +298,10 @@ void SpecificWorker::process_pose_data()
     {
         std::cerr << "Error publishing pose: " << e.what() << std::endl;
     }
+
+    //std::cout<<std::setprecision(3)<<"\rX:"<<pose.x<<"|Y:"<<pose.y<<"|Z:"<< pose.z<<
+        // "| RX:"<< pose.rx << "|RY:"<<pose.ry<< "|RZ:"<< pose.rz<<"| VX:"<<pose.vx<<"|VY:"<<pose.vy<<"|VZ:"<< pose.vz<<
+        // "| VRX:"<< pose.vrx << "|VRY:"<<pose.vry<< "|VRZ:"<< pose.vrz<<"| Time:"<<pose.timestamp<<"              ";    
 
 }
 

@@ -205,8 +205,6 @@ int zed_component::run(int argc, char* argv[])
 	RoboCompIMUPub::IMUPubPrxPtr imupub_proxy;
 
 
-	//Require code
-
 	//Topic Manager code
 
 	IceStorm::TopicManagerPrxPtr topicManager;
@@ -243,10 +241,6 @@ int zed_component::run(int argc, char* argv[])
 
 	try
 	{
-
-		//Implement code
-
-		//Subscribe code
 
 		// Server adapter creation and publication
 		std::cout << SERVER_FULL_NAME " started" << std::endl;
