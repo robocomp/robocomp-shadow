@@ -102,7 +102,7 @@ public slots:
 	void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names);
 	void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
 	void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+	void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
 	void del_node_slot(std::uint64_t from){};     
 private:
 
@@ -174,7 +174,7 @@ private:
     std::unique_ptr<DSR::InnerEigenAPI> inner_api;
 
     void draw_robot_in_room(QGraphicsScene *pScene);
-    void draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners, const std::vector<Eigen::Vector2d> &security_polygon);
+    void draw_nominal_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d>> &nominal_corners, const std::vector<Eigen::Vector2d> &security_polygon, bool erase=false);
     void draw_measured_corners(QGraphicsScene *pScene, const std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> &measured_corners);
 
     bool initialize_graph();
@@ -183,6 +183,9 @@ private:
     std::vector<Eigen::Vector2d> fromClipper2Path(const Path64& path);
     Path64 toClipper2Path(const std::vector<Eigen::Vector2d>& poly);
     std::optional<std::pair<double, gtsam::Pose3>> get_dsr_robot_pose();
+    std::optional<std::pair<std::uint64_t, Eigen::Vector3d>>  transform_point(     const std::string& from_node_name,
+                                                                   const std::string& to_node_name,
+                                                                    std::uint64_t timestamp);
     void update_robot_odometry_data_in_DSR(const std::tuple<double, Eigen::Vector3d, Eigen::Vector3d> &odom_value);
     std::vector<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>> copy_odometry_buffer(
             boost::circular_buffer<std::tuple<double, Eigen::Vector3d, Eigen::Vector3d>>& buffer,
