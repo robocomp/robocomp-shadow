@@ -25,7 +25,7 @@ from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-import segmentator
+import src.segmentator as segmentator
 import cv2
 import numpy as np
 import cupy as cp
@@ -49,9 +49,9 @@ console = Console(highlight=False)
 
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
-        super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 250
+    def __init__(self, proxy_map, configData, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map, configData)
+        self.Period = configData["Period"]["Compute"]
         if startup_check:
             self.startup_check()
         else:
@@ -182,6 +182,8 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompLidar3D.TDataImage()
         print(f"Testing RoboCompLidar3D.TData from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TData()
+        print(f"Testing RoboCompLidar3D.TDataCategory from ifaces.RoboCompLidar3D")
+        test = ifaces.RoboCompLidar3D.TDataCategory()
         QTimer.singleShot(200, QApplication.instance().quit)
 
     # =============== Methods for Component SubscribesTo ================
@@ -263,22 +265,23 @@ class SpecificWorker(GenericWorker):
         return ret
 
     ######################
-    # From the RoboCompLidar3DPub you can publish calling this methods:
-    # self.lidar3dpub_proxy.pushLidarData(...)
-
-    ######################
-    # From the RoboCompLidar3D you can use this types:
-    # RoboCompLidar3D.TPoint
-    # RoboCompLidar3D.TDataImage
-    # RoboCompLidar3D.TData
-    # RoboCompLidar3D.TDataCategory
-
-    ######################
     # From the RoboCompCamera360RGBD you can call this methods:
-    # self.camera360rgbd_proxy.getROI(...)
+    # RoboCompCamera360RGBD.TRGBD self.camera360rgbd_proxy.getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
 
     ######################
     # From the RoboCompCamera360RGBD you can use this types:
-    # RoboCompCamera360RGBD.TRoi
-    # RoboCompCamera360RGBD.TRGBD
+    # ifaces.RoboCompCamera360RGBD.TRoi
+    # ifaces.RoboCompCamera360RGBD.TRGBD
+
+    ######################
+    # From the RoboCompLidar3DPub you can publish calling this methods:
+    # RoboCompLidar3DPub.void self.lidar3dpub_proxy.pushLidarData(RoboCompLidar3D.TDataCategory lidarData)
+
+    ######################
+    # From the RoboCompLidar3D you can use this types:
+    # ifaces.RoboCompLidar3D.TPoint
+    # ifaces.RoboCompLidar3D.TDataImage
+    # ifaces.RoboCompLidar3D.TData
+    # ifaces.RoboCompLidar3D.TDataCategory
+
 

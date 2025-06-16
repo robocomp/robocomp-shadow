@@ -29,14 +29,15 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/FullPoseEstimationPub.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/FullPoseEstimationPub.ice")
 
 from RoboCompFullPoseEstimationPub import *
 
 class FullPoseEstimationPubI(FullPoseEstimationPub):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def newFullPose(self, pose, c):
-        return self.worker.FullPoseEstimationPub_newFullPose(pose)
+    def newFullPose(self, pose, ice):
+        return getattr(self.worker, f"FullPoseEstimationPub{self.id}_newFullPose")(pose)

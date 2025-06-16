@@ -1,10 +1,7 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 PROJECT(  segmented_lidar )
 
-IF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
-  MESSAGE(FATAL_ERROR "Couldn't find RoboComp in $ENV{ROBOCOMP}! Exiting...")
-ENDIF(NOT EXISTS $ENV{ROBOCOMP}/cmake)
+# find_package(pybind11 REQUIRED)
 
-INCLUDE( $ENV{ROBOCOMP}/cmake/robocomp.cmake )
+# pybind11_add_module(example_module src/example.cpp)
 
-ROBOCOMP_IDSL_TO_ICE( CommonBehavior Camera360RGBD FullPoseEstimation FullPoseEstimationPub Lidar3D Lidar3D Lidar3DPub )

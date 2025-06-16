@@ -29,26 +29,27 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/Lidar3D.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/Lidar3D.ice")
 
 from RoboCompLidar3D import *
 
 class Lidar3DI(Lidar3D):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def getLidarData(self, name, start, len, decimationDegreeFactor, c):
-        return self.worker.Lidar3D_getLidarData(name, start, len, decimationDegreeFactor)
+    def getLidarData(self, name, start, len, decimationDegreeFactor, ice):
+        return getattr(self.worker, f"Lidar3D{self.id}_getLidarData")(name, start, len, decimationDegreeFactor)
 
-    def getLidarDataArrayProyectedInImage(self, name, c):
-        return self.worker.Lidar3D_getLidarDataArrayProyectedInImage(name)
+    def getLidarDataArrayProyectedInImage(self, name, ice):
+        return getattr(self.worker, f"Lidar3D{self.id}_getLidarDataArrayProyectedInImage")(name)
 
-    def getLidarDataByCategory(self, categories, timestamp, c):
-        return self.worker.Lidar3D_getLidarDataByCategory(categories, timestamp)
+    def getLidarDataByCategory(self, categories, timestamp, ice):
+        return getattr(self.worker, f"Lidar3D{self.id}_getLidarDataByCategory")(categories, timestamp)
 
-    def getLidarDataProyectedInImage(self, name, c):
-        return self.worker.Lidar3D_getLidarDataProyectedInImage(name)
+    def getLidarDataProyectedInImage(self, name, ice):
+        return getattr(self.worker, f"Lidar3D{self.id}_getLidarDataProyectedInImage")(name)
 
-    def getLidarDataWithThreshold2d(self, name, distance, decimationDegreeFactor, c):
-        return self.worker.Lidar3D_getLidarDataWithThreshold2d(name, distance, decimationDegreeFactor)
+    def getLidarDataWithThreshold2d(self, name, distance, decimationDegreeFactor, ice):
+        return getattr(self.worker, f"Lidar3D{self.id}_getLidarDataWithThreshold2d")(name, distance, decimationDegreeFactor)

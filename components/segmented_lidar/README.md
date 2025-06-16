@@ -3,6 +3,10 @@ Intro to component here
 
 This component requires instaling mmseg:
 
+- If using python 3.12:
+    - python3 -m ensurepip --upgrade
+    - pip3 install --upgrade setuptools
+
 - pip3 install cupy-cuda12x
 - pip install ftfy
 - pip3 install -U openmim

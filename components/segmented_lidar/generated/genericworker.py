@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2025 by YOUR NAME HERE
+#    Copyright (C) 20252025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -21,33 +21,24 @@
 import sys, Ice, os
 from PySide6 import QtWidgets, QtCore
 
-ROBOCOMP = ''
-try:
-    ROBOCOMP = os.environ['ROBOCOMP']
-except KeyError:
-    print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
-    ROBOCOMP = '/opt/robocomp'
-
-Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
-import RoboCompCommonBehavior
-
-
 
 
 class GenericWorker(QtCore.QObject):
 
     kill = QtCore.Signal()
 
-    def __init__(self, mprx):
+    def __init__(self, mprx, configData):
         super(GenericWorker, self).__init__()
 
-        self.camera360rgbd_proxy = mprx["Camera360RGBDProxy"]
+        self.camera360rgbd_proxy = mprx["Camera360RGBD"]
+        self.camera360rgbd_proxy = mprx["Camera360RGBD"]
+        self.lidar3dpub_proxy = mprx["Lidar3DPub"]
         self.lidar3dpub_proxy = mprx["Lidar3DPub"]
 
-        self.mutex = QtCore.QMutex()
+        self.configData = configData
+
         self.Period = 30
         self.timer = QtCore.QTimer(self)
-
 
     @QtCore.Slot()
     def killYourSelf(self):

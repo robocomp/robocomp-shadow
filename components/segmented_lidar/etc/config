@@ -1,21 +1,26 @@
-# Endpoints for implements interfaces
-Lidar3D.Endpoints=tcp -p 12434
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
+# Proxies for publishes interfaces
+Proxies.Lidar3DPubPrefix = ""
 
 # Proxies for required interfaces
-Camera360RGBDProxy = camera360rgbd:tcp -h localhost -p 10100
+Proxies.Camera360RGBD = "camera360rgbd:tcp -h localhost -p 10099"
 
 # Endpoints for subscriptions interfaces
-FullPoseEstimationPubTopic.Endpoints=tcp -p 10560
+Endpoints.FullPoseEstimationPubTopic = "tcp -p 0"
+Endpoints.FullPoseEstimationPubPrefix = "zed"
 
-# This property is used by the clients to connect to IceStorm.
-TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+# Endpoints for implements interfaces
+Endpoints.Lidar3D = "tcp -p 12434"
 
+Period.Compute = 25
+Period.Emergency = 500
 
-Ice.Warn.Connections=0
-Ice.Trace.Network=0
-Ice.Trace.Protocol=0
-Ice.MessageSizeMax=20004800
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"
 
 
 
