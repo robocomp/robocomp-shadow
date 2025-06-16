@@ -379,10 +379,11 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getBaseState method from OmniRobot interface
     #
     def OmniRobot_getBaseState(self):
+        state = ifaces.RoboCompGenericBase.TBaseState()
+
         #
         # write your CODE here
         #
-        state = RoboCompGenericBase.TBaseState()
         if self.isOmni:
             pass
         return state
@@ -508,17 +509,16 @@ class SpecificWorker(GenericWorker):
 
     ######################
     # From the RoboCompDifferentialRobot you can use this types:
-    # RoboCompDifferentialRobot.TMechParams
+    # ifaces.RoboCompDifferentialRobot.TMechParams
 
     ######################
     # From the RoboCompOmniRobot you can use this types:
-    # RoboCompOmniRobot.TMechParams
+    # ifaces.RoboCompOmniRobot.TMechParams
 
     ######################
     # From the RoboCompJoystickAdapter you can use this types:
-    # RoboCompJoystickAdapter.AxisParams
-    # RoboCompJoystickAdapter.ButtonParams
-    # RoboCompJoystickAdapter.TData
-
+    # ifaces.RoboCompJoystickAdapter.AxisParams
+    # ifaces.RoboCompJoystickAdapter.ButtonParams
+    # ifaces.RoboCompJoystickAdapter.TData
 
 

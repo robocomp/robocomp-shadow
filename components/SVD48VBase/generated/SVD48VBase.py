@@ -61,26 +61,34 @@ import sys
 import os
 from pathlib import Path
 
+from rich.console import Console
+from rich.text import Text
+console = Console()
+
 try:
     ROBOCOMP = os.environ['ROBOCOMP']
 except KeyError:
-    print('ROBOCOMP environment variable not set, using the default value /home/robocomp/robocomp')
+    console.print(Text('ROBOCOMP environment variable not set, using the default value /home/robocomp/robocomp', "yellow"))
     ROBOCOMP = '/home/robocomp/robocomp'
 
-sys.path.append(str(os.path.join(ROBOCOMP, "classes/ConfigLoader")))
-from ConfigLoader import ConfigLoader
+configloader_path = os.path.join(ROBOCOMP, "classes", "ConfigLoader")
+sys.path.append(str(configloader_path))
+try:
+    from ConfigLoader import ConfigLoader
+except ModuleNotFoundError:
+    console.print(Text(f"ERROR: Could not find ConfigLoader.py. Expected path: {configloader_path}/ConfigLoader.py", "red"))
+    console.print(Text("Please update RoboComp classes or check the path.", "green"))
+    exit(-1)
 
 sys.path.append(str(Path(__file__).parent.parent))
 from src.specificworker import *
 import interfaces
 
 
-from rich.console import Console
-console = Console()
-
 #SIGNALS handler
 def sigint_handler(*args):
     QtCore.QCoreApplication.quit()
+    worker.__del__()
 
 
 if __name__ == '__main__':
@@ -95,7 +103,7 @@ if __name__ == '__main__':
 
     if interface_manager.status == 0:
         worker = SpecificWorker(interface_manager.get_proxies_map(), configData, args.startup_check)
-        worker.setParams(configData)
+        if hasattr(worker, "setParams"): worker.setParams(configData)
     else:
         print("Error getting required connections, check config file")
         sys.exit(-1)

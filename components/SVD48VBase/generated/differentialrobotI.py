@@ -39,26 +39,26 @@ class DifferentialRobotI(DifferentialRobot):
         self.id = id
 
 
-    def correctOdometer(self, x, z, alpha, ):
+    def correctOdometer(self, x, z, alpha, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_correctOdometer")(x, z, alpha)
 
-    def getBasePose(self, ):
+    def getBasePose(self, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_getBasePose")()
 
-    def getBaseState(self, ):
+    def getBaseState(self, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_getBaseState")()
 
-    def resetOdometer(self, ):
+    def resetOdometer(self, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_resetOdometer")()
 
-    def setOdometer(self, state, ):
+    def setOdometer(self, state, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_setOdometer")(state)
 
-    def setOdometerPose(self, x, z, alpha, ):
+    def setOdometerPose(self, x, z, alpha, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_setOdometerPose")(x, z, alpha)
 
-    def setSpeedBase(self, adv, rot, ):
+    def setSpeedBase(self, adv, rot, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_setSpeedBase")(adv, rot)
 
-    def stopBase(self, ):
+    def stopBase(self, ice):
         return getattr(self.worker, f"DifferentialRobot{self.id}_stopBase")()

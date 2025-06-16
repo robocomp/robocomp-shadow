@@ -39,26 +39,26 @@ class OmniRobotI(OmniRobot):
         self.id = id
 
 
-    def correctOdometer(self, x, z, alpha, c ):
+    def correctOdometer(self, x, z, alpha, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_correctOdometer")(x, z, alpha)
 
-    def getBasePose(self, c ):
+    def getBasePose(self, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_getBasePose")()
 
-    def getBaseState(self, c ):
+    def getBaseState(self, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_getBaseState")()
 
-    def resetOdometer(self, c ):
+    def resetOdometer(self, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_resetOdometer")()
 
-    def setOdometer(self, state, c ):
+    def setOdometer(self, state, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_setOdometer")(state)
 
-    def setOdometerPose(self, x, z, alpha, c ):
+    def setOdometerPose(self, x, z, alpha, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_setOdometerPose")(x, z, alpha)
 
-    def setSpeedBase(self, advx, advz, rot, c ):
+    def setSpeedBase(self, advx, advz, rot, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_setSpeedBase")(advx, advz, rot)
 
-    def stopBase(self, c ):
+    def stopBase(self, ice):
         return getattr(self.worker, f"OmniRobot{self.id}_stopBase")()

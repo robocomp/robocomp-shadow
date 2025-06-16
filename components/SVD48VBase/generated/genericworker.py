@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2025 by YOUR NAME HERE
+#    Copyright (C) 20252025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -22,6 +22,7 @@ import sys, Ice, os
 from PySide6 import QtWidgets, QtCore
 
 
+
 class GenericWorker(QtCore.QObject):
 
     kill = QtCore.Signal()
@@ -30,12 +31,12 @@ class GenericWorker(QtCore.QObject):
         super(GenericWorker, self).__init__()
 
         self.fullposeestimationpub_proxy = mprx["FullPoseEstimationPub"]
+        self.fullposeestimationpub_proxy = mprx["FullPoseEstimationPub"]
 
         self.configData = configData
 
         self.Period = 30
         self.timer = QtCore.QTimer(self)
-
 
     @QtCore.Slot()
     def killYourSelf(self):

@@ -10,8 +10,8 @@ Endpoints.JoystickAdapterTopic = "tcp -p 18896"
 Endpoints.JoystickAdapterPrefix = ""
 
 # Endpoints for implements interfaces
-Endpoints.DifferentialRobot = "tcp -p 10004"
-Endpoints.OmniRobot = "tcp -p 10010"
+Endpoints.DifferentialRobot = "tcp -p 10010"
+Endpoints.OmniRobot = "tcp -p 10004"
 
 port="/dev/Driver_base"#Direcion de dispositivo conectado
 baseType="Omnidirectional"#Diferential/Omnidirectional

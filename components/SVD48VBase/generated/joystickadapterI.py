@@ -39,5 +39,5 @@ class JoystickAdapterI(JoystickAdapter):
         self.id = id
 
 
-    def sendData(self, data, c):
+    def sendData(self, data, ice):
         return getattr(self.worker, f"JoystickAdapter{self.id}_sendData")(data)
