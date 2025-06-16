@@ -81,7 +81,6 @@ console = Console()
 #SIGNALS handler
 def sigint_handler(*args):
     QtCore.QCoreApplication.quit()
-    worker.__del__()
 
 
 if __name__ == '__main__':

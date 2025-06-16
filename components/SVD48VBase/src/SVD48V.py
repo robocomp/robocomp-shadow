@@ -123,6 +123,7 @@ class SVD48V:
         self.ids = IDs
         self.wheel_radius = wheelRadius
         self.mms2rpm = 60 / (2 * np.pi * self.wheel_radius)
+        self.rad2mm = (2 * np.pi * self.wheel_radius)
         self.set_max_speed(maxSpeed)
         self.set_acceleration(maxAcceleration)
         self.set_deceleration(maxDeceleration)
@@ -680,7 +681,7 @@ class SVD48V:
         Returns:
             The position of the motors.
         """
-        return self.get_angle()/self.mms2rpm 
+        return self.get_angle()*self.rad2mm
     
     def get_error(self) -> list[str]:
         """

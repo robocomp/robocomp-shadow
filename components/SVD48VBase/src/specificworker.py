@@ -129,7 +129,7 @@ class SpecificWorker(GenericWorker):
             assert self.driver.get_enable(), "NO se conecto al driver o fallo uno de ellos , cerrando programa"
             self.oldOdometry = self.driver.get_position().flatten()
             #                      num rot * rot2mm
-            self.maxOdometryDiff = 13 * (2 * np.pi * wheelRadius)/60
+            self.maxOdometryDiff = 13.9999999 * (2 * np.pi * wheelRadius)
 
 
 
@@ -203,13 +203,17 @@ class SpecificWorker(GenericWorker):
                 newOdometry = self.driver.get_position().flatten()
                 velocity = self.driver.get_speed().flatten()
                 diffOdometry = newOdometry-self.oldOdometry
-                if diffOdometry > self.maxOdometryDiff:
-                    console.print(Text(f"Pose singularity with {diffOdometry}, maximum {self.maxOdometryDiff}", "bright_yellow"))
-                    if diffOdometry < 0:
-                        diffOdometry += self.maxOdometryDiff
-                    else:
-                        diffOdometry -= self.maxOdometryDiff
-                    console.print(Text(f"Pose chaged to {self.maxOdometryDiff}", "bright_yellow"))
+                print(self.driver.get_angle())
+
+                positive_mask = diffOdometry > self.maxOdometryDiff
+                negative_mask = diffOdometry < -self.maxOdometryDiff
+                if np.any(positive_mask) or np.any(negative_mask):
+                    console.print(
+                        Text(f"Pose singularity with {diffOdometry}, maximum {self.maxOdometryDiff}", "bright_yellow"))
+                    diffOdometry[positive_mask] -= self.maxOdometryDiff
+                    diffOdometry[negative_mask] += self.maxOdometryDiff
+                    console.print(
+                        Text(f"Pose changed to {diffOdometry}", "bright_yellow"))
 
                 self.oldOdometry = newOdometry
 
@@ -218,14 +222,14 @@ class SpecificWorker(GenericWorker):
                 diffOdometry = self.inv_m_wheels@diffOdometry
                 
                 #Fill publish
-                odometry.x = diffOdometry[0]
-                odometry.y = diffOdometry[1] if diffOdometry.shape==3 else 0
+                odometry.x = diffOdometry[1] if diffOdometry.shape==3 else 0
+                odometry.y = diffOdometry[0]
                 odometry.z = 0
                 odometry.rx = 0
                 odometry.ry = 0
                 odometry.rz = diffOdometry[2] if diffOdometry.shape==3 else diffOdometry[1]
-                odometry.vx = velocity[0]
-                odometry.vy = velocity[1] if velocity.shape==3 else 0
+                odometry.vx = velocity[1] if velocity.shape==3 else 0
+                odometry.vy = velocity[0]
                 odometry.vz = 0
                 odometry.vrx = 0
                 odometry.vry = 0
@@ -243,7 +247,7 @@ class SpecificWorker(GenericWorker):
                 # print(odometry)
                 self.fullposeestimationpub_proxy.newFullPose(odometry)
             except Exception as e:
-                #console.print_exception(e)
+                console.print_exception(e)
                 console.print(Text("Fault reading odometry", style="yellow"))
         return True
 
