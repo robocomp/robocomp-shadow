@@ -29,14 +29,15 @@ if len(ROBOCOMP)<1:
     raise RuntimeError('ROBOCOMP environment variable not set! Exiting.')
 
 
-Ice.loadSlice("-I ./src/ --all ./src/Lidar3DPub.ice")
+Ice.loadSlice("-I ./generated/ --all ./generated/Lidar3DPub.ice")
 
 from RoboCompLidar3DPub import *
 
 class Lidar3DPubI(Lidar3DPub):
-    def __init__(self, worker):
+    def __init__(self, worker, id:str):
         self.worker = worker
+        self.id = id
 
 
-    def pushLidarData(self, lidarData, c):
-        return self.worker.Lidar3DPub_pushLidarData(lidarData)
+    def pushLidarData(self, lidarData, ice):
+        return getattr(self.worker, f"Lidar3DPub{self.id}_pushLidarData")(lidarData)

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2025 by YOUR NAME HERE
+#    Copyright (C) 20252025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -19,32 +19,24 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide2 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore
+from pydsr import DSRGraph
 
-ROBOCOMP = ''
-try:
-    ROBOCOMP = os.environ['ROBOCOMP']
-except KeyError:
-    print('$ROBOCOMP environment variable not set, using the default value /opt/robocomp')
-    ROBOCOMP = '/opt/robocomp'
-
-Ice.loadSlice("-I ./src/ --all ./src/CommonBehavior.ice")
-import RoboCompCommonBehavior
 
 
 try:
-    from ui_mainUI import *
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from src.ui_mainUI import *
 except:
     print("Can't import UI file. Did you run 'make'?")
     sys.exit(-1)
-
-
 
 class GenericWorker(QtWidgets.QWidget):
 
     kill = QtCore.Signal()
 
-    def __init__(self, mprx):
+    def __init__(self, mprx, configData):
         super(GenericWorker, self).__init__()
 
 
@@ -52,10 +44,12 @@ class GenericWorker(QtWidgets.QWidget):
         self.ui.setupUi(self)
         self.show()
 
-        self.mutex = QtCore.QMutex(QtCore.QMutex.Recursive)
+        self.configData = configData
+
         self.Period = 30
         self.timer = QtCore.QTimer(self)
-
+        self.agent_id = configData["Agent"]["id"]
+        self.g = DSRGraph(0, configData["Agent"]["name"], self.agent_id, configData["Agent"]["configFile"])
 
     @QtCore.Slot()
     def killYourSelf(self):

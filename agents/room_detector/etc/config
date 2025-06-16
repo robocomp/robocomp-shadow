@@ -1,10 +1,10 @@
 # Endpoints for subscriptions interfaces
-Lidar3DPubTopic.Endpoints=tcp -p 11639
-
+Endpoints.Lidar3DPubTopic = "tcp -p 11639"
+Endpoints.Lidar3DPubPrefix = ""
 
 
 # This property is used by the clients to connect to IceStorm.
-TopicManager.Proxy=IceStorm/TopicManager:default -p 9999
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 
 Ice.Warn.Connections=0
@@ -14,3 +14,16 @@ Ice.MessageSizeMax=20004800
 
 
 
+# Change id
+Agent.id = 404
+Agent.name = "room_detector"
+Agent.configFile = ""
+
+
+Period.Compute = 250
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"
