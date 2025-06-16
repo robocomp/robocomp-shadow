@@ -134,7 +134,7 @@ void SpecificWorker::initialize()
 //    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
     // Get robot id
-    if(auto robot_node = G->get_node("Shadow"); robot_node.has_value())
+    if(auto robot_node = G->get_node(params.robot_name); robot_node.has_value())
         robot_id = robot_node.value().id();
     else
     {
@@ -379,7 +379,7 @@ void SpecificWorker::update_robot_dsr_pose(double x, double y, double ang, doubl
 //    auto room_node = room_node_.value();
 
     // Get robot node
-    auto robot_node_ = G->get_node("Shadow");
+    auto robot_node_ = G->get_node(params.robot_name);
     if (!robot_node_) return;
     auto robot_node = robot_node_.value();
 
@@ -411,7 +411,7 @@ void SpecificWorker::restore()
 void SpecificWorker::draw_robot_in_room(QGraphicsScene *pScene)
 {
     /// Get robot pose in room
-    if(auto rt_room_robot = inner_api->get_transformation_matrix("room", "Shadow"); not rt_room_robot.has_value())
+    if(auto rt_room_robot = inner_api->get_transformation_matrix("room", params.robot_name); not rt_room_robot.has_value())
     { std::cout << __FUNCTION__ << "Error getting robot pose in room. Returning." << std::endl; return;}
     else
     {
@@ -490,7 +490,7 @@ bool SpecificWorker::initialize_graph()
     gtsam_graph.reset_graph();
 
     //get shadow robot node from G
-    auto robot_node_ = G->get_node("Shadow"); if (!robot_node_) return false;
+    auto robot_node_ = G->get_node(params.robot_name); if (!robot_node_) return false;
     auto& robot_node = robot_node_.value();
 
     // Get robot node parent node
@@ -659,7 +659,7 @@ std::vector<Eigen::Vector2d> SpecificWorker::fromClipper2Path(const Path64& path
 
 std::optional<std::pair<double, gtsam::Pose3>> SpecificWorker::get_dsr_robot_pose()
 {
-    auto robot_node = G->get_node("Shadow");
+    auto robot_node = G->get_node(params.robot_name);
     if (!robot_node) {qInfo() << "Robot node not found"; return{};};
     // Get robot node parent node
     auto robot_parent_node = G->get_parent_node(robot_node.value()); if (!robot_parent_node.has_value()) {qInfo() << "Robot parent node not found"; return{};};
@@ -704,7 +704,7 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
     }
 
 //    auto to_node = G->get_node(to); if(!to_node) return;
-//    if(type == "RT" and from_node.value().type() == "room" and to_node.value().name() == "Shadow")
+//    if(type == "RT" and from_node.value().type() == "room" and to_node.value().name() == robot_name)
 //    {
 //        auto rt_edge = G->get_edge(from, to, "RT");
 //        auto now = std::chrono::system_clock::now();

@@ -115,7 +115,7 @@ private:
 
     struct Params
     {
-        std::string robot_name = "Shadow";
+        std::string robot_name = "robot";
     };
     Params params;
 

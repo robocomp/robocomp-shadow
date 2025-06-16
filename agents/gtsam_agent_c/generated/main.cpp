@@ -217,8 +217,6 @@ int gtsam_agent_c::run(int argc, char* argv[])
 
 
 
-	//Require code
-
 	//Topic Manager code
 
 	IceStorm::TopicManagerPrxPtr topicManager;
@@ -238,16 +236,12 @@ int gtsam_agent_c::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	//Publish code
-
 	tprx = std::tuple<>();
 	SpecificWorker *worker = new SpecificWorker(this->configLoader, tprx, startup_check_flag);
 	QObject::connect(worker, SIGNAL(kill()), &a, SLOT(quit()));
 
 	try
 	{
-
-		//Implement code
 
 		//Subscribe code
 		subscribe<FullPoseEstimationPubI>(communicator(),
