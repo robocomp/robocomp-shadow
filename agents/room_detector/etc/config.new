@@ -3,16 +3,13 @@ Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 
 
-
 # Endpoints for subscriptions interfaces
 Endpoints.Lidar3DPubTopic = "tcp -p 0"
 Endpoints.Lidar3DPubPrefix = ""
 
 
 
-
-# Change id
-Agent.id = 0
+Agent.id = 0 # Change id
 Agent.name = "room_detector"
 Agent.configFile = ""
 

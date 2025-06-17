@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 20252025 by YOUR NAME HERE
+#    Copyright (C) 2025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -20,8 +20,6 @@
 
 import sys, Ice, os
 from PySide6 import QtWidgets, QtCore
-from pydsr import DSRGraph
-
 
 
 try:
@@ -48,8 +46,7 @@ class GenericWorker(QtWidgets.QWidget):
 
         self.Period = 30
         self.timer = QtCore.QTimer(self)
-        self.agent_id = configData["Agent"]["id"]
-        self.g = DSRGraph(0, configData["Agent"]["name"], self.agent_id, configData["Agent"]["configFile"])
+
 
     @QtCore.Slot()
     def killYourSelf(self):

@@ -18,112 +18,88 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-
-
 import time
 import sys
 import matplotlib.pyplot as plt
+from rich.console import Console
 from PySide6.QtGui import QPen
 from PySide6.QtCore import QTimer, QPointF
 from PySide6.QtWidgets import QApplication
-from numpy.polynomial.polynomial import polyline
-from rich.console import Console
+
 from genericworker import *
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 import numpy as np
-import queue
-from collections import deque
+from collections import defaultdict, deque
 import cv2
 import open3d as o3d
 import copy
-import math
 import itertools
-import cupy as cp
 from src.room_model import RoomModel
-import interfaces as ifaces
 import torch
 from scipy.optimize import linear_sum_assignment
 import random
 from scipy.spatial import distance
 from scipy.signal import find_peaks
+import cProfile
+import pstats
+import io
+from scipy.spatial import KDTree
+from sklearn.cluster import DBSCAN
 
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
-
-ROBOT_NAME = "robot"
+ROBOT_NAME = "Shadow"
 from pydsr import *
 
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map, configData)
-        self.Period = configData["Period"]["Compute"]
+        self.Period = 20
+
+        # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
+        self.agent_id = 404
+        self.g = DSRGraph(0, "pythonAgent", self.agent_id)
 
         # --------------- ODOMETRY ----------------
-        self.odometry_queue_len = 50
+        self.odometry_queue_len = 120
         self.odometry_queue = deque(maxlen=self.odometry_queue_len)
         self.odometry_node_id = 200
 
-
-        # # --------------- PROCESSING --------------
-        # self.voxel_size = 0.1
-        # self.max_height = 3.0
-        # self.min_height = 1.2
-        # # ----- remove_outliers -----
-        # self.nb_neighbors = 400
-        # self.std_ratio = 1
-        # # ----- get_hough_lines -----
-        # self.rho_min = -8000.0
-        # self.rho_max = 8000.0
-        # self.rho_step = 80  # self.voxel_size * 1000
-        # self.theta_min = -np.pi
-        # self.theta_max = np.pi + np.deg2rad(1)
-        # self.theta_step = np.deg2rad(0.5)
-        # self.min_votes = 20
-        #
-        # self.lines_max = 50  # 150
-        # self.line_threshold = 25  # 50
-        #
-        # # ----- filter_parallel_hough_lines
-        # self.theta_thresh = np.pi / 4
-        # self.rho_thresh = 350
-
         # --------------- PROCESSING --------------
-        self.voxel_size = 0.05
+        self.voxel_size = 0.10
+
         self.max_height = 3.0
-        self.min_height = 1.0
+        self.min_height = 1.2
         # ----- remove_outliers -----
         self.nb_neighbors = 400
         self.std_ratio = 1
 
         # ----- get_hough_lines -----
-        self.rho_min = -7000.0
-        self.rho_max = 7000.0
+        self.rho_min = -10000.0
+        self.rho_max = 10000.0
         self.rho_step = 100
         self.theta_min = -np.pi
         self.theta_max = np.pi + np.deg2rad(1)
         self.theta_max = 0
         self.theta_max = 0.0
-        self.theta_step = np.deg2rad(1)
-        self.min_votes = 20
+        self.theta_step = np.deg2rad(0.25)
+        self.min_votes = 50
 
-        self.lines_max = 200  # 150
-        self.line_threshold = 100  # 50
+        self.lines_max = 2  # 150
+        self.line_threshold = 10  # 50
 
         # ----- filter_parallel_hough_lines
-        self.theta_thresh = np.pi /8
+        self.theta_thresh = np.pi / 8
         self.rho_thresh = 500
 
         # ------ get corners ------
-        # self.votes = 5
-        # self.CORNER_SUPPORT_THRESHOLD = 0.5
         self.CORNERS_PERP_ANGLE_THRESHOLD = np.deg2rad(10)
-        # self.NMS_MIN_DIST_AMONG_CORNERS = 0.5
         self.SUPPORT_DISTANCE_THRESHOLD = self.voxel_size * 1.1
-        self.SUPPORT_PERCENTAGE_THRESHOLD = 0.6
-        self.MAX_WALL_HOLE_WIDTH = 1.2
+        self.SUPPORT_PERCENTAGE_THRESHOLD = 0.5
+        self.MAX_WALL_HOLE_WIDTH = 3.0
 
         if startup_check:
             self.startup_check()
@@ -137,7 +113,6 @@ class SpecificWorker(GenericWorker):
         self.mesh_view = False
         self.open3d_view = True
 
-        # ----------------
         self.read_deque = deque(maxlen=1)
         # Filter points categories self.categories_filter = [0, 1, 22, 8, 14] in labels
         self.categories_filter = [0, 1, 22, 8, 14, 114]
@@ -181,7 +156,8 @@ class SpecificWorker(GenericWorker):
 
             # Add robot geometry
             # Load the Shadow .obj mesh
-            self.shadow_mesh = o3d.io.read_triangle_mesh("../../etc/meshes/shadow.obj", print_progress=True)
+            self.shadow_mesh = o3d.io.read_triangle_mesh("../../etc/meshes/shadow.obj",
+                                                         _progress=True)
             self.shadow_mesh.paint_uniform_color([1, 0, 1])
             self.vis.add_geometry(self.shadow_mesh)
 
@@ -193,6 +169,9 @@ class SpecificWorker(GenericWorker):
 
         # Room model variables
         self.room = None
+        self.room_id = 0
+        self.to_known_room = False
+        self.rooms_number = 0
 
         current_edges = self.g.get_edges_by_type("current")
         if len(current_edges) > 0:
@@ -206,13 +185,13 @@ class SpecificWorker(GenericWorker):
                                   key=lambda x: x.attrs["corner_id"].value)
             corner_poses = []
             for corner in room_corners:
-                print("Corner")
+                # print("Corner")
                 corner_pose = self.inner_api.get_translation_vector(room_node.name, corner.name, sys.maxsize)
+                corner_poses.append([corner_pose[0] / 1000, corner_pose[1] / 1000])
 
-                corner_poses.append([corner_pose[0]/ 1000, corner_pose[1] / 1000])
             corner_poses.append(corner_poses[0])
             corner_poses = np.array(corner_poses, dtype=np.float32)
-            print("Room corners", corner_poses)
+            # print("Room corners", corner_poses)
             self.room = RoomModel(corner_poses, room_timestamp, height=2.5,
                                   device="cuda")
             self.state = "update_room_data"
@@ -223,6 +202,7 @@ class SpecificWorker(GenericWorker):
         self.origin = QPointF(self.width() / 2, self.height() / 2)  # center of the widget
         self.lidar_points_2d = np.array([])
         self.target_points = deque()
+        self.tf_target_points = []
         self.intention_active = False
         self.target_tolerance = np.array([200, 200, 0, 0, 0, 0.5], dtype=np.float32)
 
@@ -237,12 +217,17 @@ class SpecificWorker(GenericWorker):
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
-            # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
+            signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
         except RuntimeError as e:
             print(e)
+
+        # --------- PROFILE -----------------
+        self.profile_iterations = 200
+        self.profile = cProfile.Profile()
+        self.counter = 0
 
     def __del__(self):
 
@@ -259,6 +244,12 @@ class SpecificWorker(GenericWorker):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
+        # Paint a circle in the center of the widget
+        center = self.origin
+        radius = 5
+        painter.setBrush(Qt.green)
+        painter.drawEllipse(center, radius, radius)
+
         pen = QPen(Qt.blue)
         pen.setWidth(2)
         painter.setPen(pen)
@@ -266,24 +257,62 @@ class SpecificWorker(GenericWorker):
         lidar_points_copy = copy.deepcopy(self.lidar_points_2d) / 1000
 
         for point in lidar_points_copy:
-            screen_point = self.world_to_screen(point[0], point[1])
+            screen_point = self.robot_to_screen(point[0], point[1])
             painter.drawPoint(screen_point)
-
         # Draw target points
         pen.setColor(Qt.red)
         painter.setPen(pen)
-        for point in self.target_points:
-            point = self.world_to_screen(point[0], point[1])
+        for point in self.tf_target_points:
+            point = self.robot_to_screen(point[0] / 1000, point[1] / 1000)
             painter.drawEllipse(point, 5, 5)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            x_world, y_world = self.screen_to_world(event.x(), event.y())
-            self.target_points.append(np.array([x_world, y_world, 0], dtype=np.float32))
-            print(f"Target set at ({x_world:.2f}, {y_world:.2f}) meters")
+            robot_x, robot_y = self.screen_to_robot(event.x(), event.y())
+            print(f"Target in robot reference set at ({robot_x:.2f}, {robot_y:.2f}) mm")
+
+            robot_node = self.g.get_node(ROBOT_NAME)
+            room_node = self.g.get_node("room_" + str(self.room_id))
+
+            rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
+            if rt_edge is not None:
+                translation = rt_edge.attrs["rt_translation"].value
+                rotation = rt_edge.attrs["rt_rotation_euler_xyz"].value
+                self.robot_pose = np.array([translation[0], translation[1], rotation[2]], dtype=np.float32)
+
+                # BUild Tf matrix using robot_pose
+                tf = np.array([[np.cos(self.robot_pose[2]), -np.sin(self.robot_pose[2]), self.robot_pose[0]],
+                               [np.sin(self.robot_pose[2]), np.cos(self.robot_pose[2]), self.robot_pose[1]],
+                               [0, 0, 1]], dtype=np.float32)
+                # Build click pose from robot_x and robot_y
+                click_pose = np.array([robot_x, robot_y, 0], dtype=np.float32)
+                # Transform click pose to world frame
+
+                click_pose_world = np.dot(tf, np.array([click_pose[0], click_pose[1], 1]))
+                self.target_points.append(click_pose_world)
+
+            # self.target_points.append(np.array([target_pose_world[0], target_pose_world[1], 0], dtype=np.float32))
+
+        if event.button() == Qt.RightButton:
+            print("Deletting action")
+            robot_node = self.g.get_node(ROBOT_NAME)
+            room_node = self.g.get_node("room_" + str(self.room_id))
+            self.g.delete_edge(robot_node.id, room_node.id, "has_intention")
+            self.target_points.popleft()
+            affordance_node = self.g.get_node("aff_wandering_" + str(self.room_id))
+            affordance_node.attrs["bt_state"] = Attribute("completed", self.agent_id)
+            self.g.update_node(affordance_node)
+            affordance_node.attrs["bt_state"] = Attribute("waiting", self.agent_id)
+            self.g.update_node(affordance_node)
+            self.intention_active = False
 
     @QtCore.Slot()
     def compute(self):
+        # -------PROFILE---------
+        if self.counter == 0:
+            self.profile.enable()
+            print("-------------------PROFILE ENABLED---------------------")
+
         # ROOM State Machine
         # 1. Existe Room?
         #   SI -> Verificación?
@@ -296,67 +325,67 @@ class SpecificWorker(GenericWorker):
         #               NO -> Seguir Acumulando
 
         if self.read_deque:
-
-            # Variables globales
-            #     State machine state self.state
-            #     Existe room? self.exists_room
-            #     room_model object self.room
-            #     self.robot_pose
-            #     self.odometry_queue
+            print("------------------ STATE", self.state, "----------------------------")
             match self.state:
                 case "finding_room":
                     ################# Pointcloud processing #################
                     self.accumulated_pcs, mean_center = self.processing_input_data(accumulate=True)
                     # Get accumulated pointcloud mean center
                     if not mean_center.size == 0:
-                        print("Mean center", mean_center)
-
-                        room = self.g.get_node("room")
+                        # print("Mean center", mean_center)
+                        print("Checking if room", self.room_id, "exists")
+                        room = self.g.get_node("room_" + str(self.room_id))
                         if room:
-                            self.insert_RT_edge("room", ROBOT_NAME,
-                                                np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0],
-                                                         dtype=np.float32),
-                                                np.array([0, 0, self.robot_pose[2]], dtype=np.float32),
-                                                self.act_segmented_pointcloud_timestamp)
-                            self.check_stabilizing_affordance_node(np.array([mean_center[0] * 1000, mean_center[1] * 1000, 0],
-                                                         dtype=np.float32))
+                            print("Room", self.room_id, "exists. Stabilizing")
+                            self.check_stabilizing_affordance_node(
+                                np.array([mean_center[0] * 1000, mean_center[1] * 1000, 0],
+                                         dtype=np.float32))
                         else:
+                            print("Room", self.room_id, "doesn't exists. Creating new room node")
                             # Create room_pre node and intention
                             self.create_room_for_stabilize(mean_center)
 
                     # Get Hough lines
                     np_pcd_2D_points, hough_lines = self.get_room_lines_from_pointcloud(self.accumulated_pcs)
                     # Compute corners
-                    polyline, corners_to_display, _, _, _ = self.get_corners(hough_lines, pc2d_points=np_pcd_2D_points)
-                    print("Polyline", polyline, "Hough lines", hough_lines)
+                    polyline, corners_to_display, _, _, closed = self.get_corners(hough_lines,
+                                                                                  pc2d_points=np_pcd_2D_points)
+
+                    # _ = self.draw_unwrapped_wall_projection_with_gaps(self.accumulated_pcs, n_poly)
+                    #
+                    # # Draw pointcloud and line
+                    # print("Polyline", polyline)
                     # Transform polyline to a np.array of 2d points and process it to remove intermediate corners
-                    corner_poses = self.remove_false_corners(np.array([corner[1] for corner in polyline]), epsilon=0.5)
-                    # Generate room model with PyTorch3D
-                    self.room = RoomModel(corner_poses, self.act_segmented_pointcloud_timestamp, height=2.5,
-                                          device="cuda")
-                    # Check if room has characteristics required: the room is closed and the robot falls inside the room
-                    if self.room.is_mesh_closed_by_corners(corner_poses) and self.room.is_point_inside_room(
-                            corner_poses):
-                        # Draw PyTorch3D mesh
-                        if self.mesh_view:
-                            lidar_points = torch.tensor(np.array(self.accumulated_pcs, dtype=np.float32),
-                                                        dtype=torch.float32,
-                                                        device="cuda")  # Convert to meters
-                            residuals_filtered, explained_points, face_counts = self.room.remove_explained_points(
-                                lidar_points, 0.2)
-                            self.draw_room(self.room, residuals_filtered, face_counts)
-                        self.state = "initialize_room"
+                    if closed:
+                        corner_poses = self.remove_false_corners(np.array([corner[1] for corner in polyline]),
+                                                                 epsilon=0.5)
+                        # Generate room model with PyTorch3D
+                        self.room = RoomModel(corner_poses, self.act_segmented_pointcloud_timestamp, height=2.5,
+                                              device="cuda")
+                        # Check if room has characteristics required: the room is closed and the robot falls inside the room
+                        if self.room.is_mesh_closed_by_corners(corner_poses) and self.room.is_point_inside_room(
+                                corner_poses):
+                            # Draw PyTorch3D mesh
+                            if self.mesh_view:
+                                lidar_points = torch.tensor(np.array(self.accumulated_pcs, dtype=np.float32),
+                                                            dtype=torch.float32,
+                                                            device="cuda")  # Convert to meters
+                                residuals_filtered, explained_points, face_counts = self.room.remove_explained_points(
+                                    lidar_points, 0.2)
+                                self.draw_room(self.room, residuals_filtered, face_counts)
+                            self.state = "initialize_room"
                     # Draw pointcloud and room with Open3D
                     if self.open3d_view:
-                        self.update_visualization(self.scatter, self.accumulated_pcs.copy(), self.lines, self.hough_lines,
+                        self.update_visualization(self.scatter, self.accumulated_pcs.copy(), self.lines,
+                                                  self.hough_lines,
                                                   hough_lines.copy(),
                                                   self.corners_plot, polyline, [])
                 case "initialize_room":
-                    room_node = self.g.get_node("room")
+                    room_node = self.g.get_node("room_" + str(self.room_id))
                     # Get robot node
                     robot_node = self.g.get_node(ROBOT_NAME)
                     # Get affordance node stabilize
-                    affordance_node = self.g.get_node("aff_stabilizing")
+                    affordance_node = self.g.get_node("aff_stabilizing_" + str(self.room_id))
                     if affordance_node:
                         self.g.delete_edge(robot_node.id, room_node.id, "has_intention")
                         affordance_node.attrs["bt_state"] = Attribute("completed", self.agent_id)
@@ -367,78 +396,171 @@ class SpecificWorker(GenericWorker):
                     self.state = "update_room_data"
 
                 case "update_room_data":
+                    current_edges = self.g.get_edges_by_type("current")
+                    if len(current_edges) > 0:
+                        room_node = self.g.get_node(current_edges[0].destination)
+                        self.room_id = room_node.attrs['room_id'].value
+                        matched_corners = []
+                        current_pointcloud, target_point = self.processing_input_data(accumulate=False)
 
-                    start = time.time()
-                    current_pointcloud, target_point = self.processing_input_data(accumulate=False)
-                    # Perform corner detection
-                    np_pcd_2D_points, hough_lines = self.get_room_lines_from_pointcloud(current_pointcloud)
-                    # Compute corners
-                    _, detected_corners, _, _, _ = self.get_corners(hough_lines, pc2d_points=np_pcd_2D_points,
-                                                                    corner_detection=True)
-                    # Transform polyline to a np.array of 2d points and process it to remove intermediate corners
-                    detected_corners = self.remove_false_corners(np.array([corner[1] * 1000 for corner in detected_corners], dtype=np.float32), epsilon=0.5)
-                    # Calculate mahalanobis distance matrix and execute Hungarian algorithm to match nominal and measured corners
-                    matched_corners = self.match_corners(self.room.get_corners() * 1000, detected_corners,
-                                                         threshold=400)
-                    print("###############################################################")
-                    print("###############################################################")
-                    print("Match corners time", time.time() - start)
-                    # Update graph data if posible
-                    print("@@@@@@@@@@@@@@@@@@@@@@@@······················ timestamps current pc", self.act_segmented_pointcloud_timestamp)
-                    for i, matched_corner in enumerate(matched_corners):
-                        measured_corner = self.g.get_node("corner_measured_" + str(i+1))
-                        if not np.any(np.isnan(matched_corner)):
-                            # print("Matched corner", matched_corner)
-                            measured_corner.attrs['valid'] = Attribute(True, self.agent_id)
-                            self.insert_RT_edge(ROBOT_NAME, "corner_measured_" + str(i+1),
-                                                np.array([matched_corner[0], matched_corner[1], 0], dtype=np.float32),
-                                                np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
-                        else:
-                            measured_corner.attrs['valid'] = Attribute(False, self.agent_id)
-                        self.g.update_node(measured_corner)
-                    print("Update corners data time", time.time() - start)
-                    # Check affordance node status
-                    self.check_wandering_affordance_node()
-                    print("Check Wandering time", time.time() - start)
-                    if self.open3d_view:
-                        self.update_visualization(self.scatter, current_pointcloud.copy(), self.lines, self.hough_lines,
-                                                  hough_lines.copy(),
-                                                  self.corners_plot, self.room.get_corners(), matched_corners * 0.001)
-                    print("Update visualization time", time.time() - start)
-                    print("###############################################################")
-                    print("###############################################################")
-            # Update visualization
-            if self.mesh_view:
-                self.vis.poll_events()
-                self.vis.update_renderer()
+                        # Perform corner detection
+                        np_pcd_2D_points, hough_lines = self.get_room_lines_from_pointcloud(current_pointcloud)
+
+                        _, detected_corners, _, _, _ = self.get_corners(hough_lines, pc2d_points=np_pcd_2D_points,
+                                                                        corner_detection=True)
+
+                        if len(detected_corners) > 0:
+                            # Transform polyline to a np.array of 2d points and process it to remove intermediate corners
+                            detected_corners = self.remove_false_corners(
+                                np.array([corner[1] * 1000 for corner in detected_corners], dtype=np.float32),
+                                epsilon=0.5)
+                            # Calculate mahalanobis distance matrix and execute Hungarian algorithm to match nominal and measured corners
+                            print("Room nominal corners", self.room.get_corners() * 1000)
+                            matched_corners = self.match_corners(self.room.get_corners() * 1000, detected_corners,
+                                                                 threshold=600)
+
+                            for i, matched_corner in enumerate(matched_corners):
+                                measured_corner = self.g.get_node("corner_measured_" + str(i + 1))
+                                if not np.any(np.isnan(matched_corner)):
+                                    # print("Update corner", i+1, "with pose", matched_corner)
+                                    # print("Matched corner", matched_corner)
+                                    measured_corner.attrs['valid'] = Attribute(True, self.agent_id)
+                                    self.insert_RT_edge(ROBOT_NAME, "corner_measured_" + str(i + 1),
+                                                        np.array([matched_corner[0], matched_corner[1], 0],
+                                                                 dtype=np.float32),
+                                                        np.array([0, 0, 0], dtype=np.float32),
+                                                        self.act_segmented_pointcloud_timestamp)
+                                else:
+                                    measured_corner.attrs['valid'] = Attribute(False, self.agent_id)
+                                self.g.update_node(measured_corner)
+
+                            matched_corners * 0.001
+
+                        if self.open3d_view:
+                            self.update_visualization(self.scatter, current_pointcloud.copy(), self.lines,
+                                                      self.hough_lines,
+                                                      hough_lines.copy(),
+                                                      self.corners_plot, self.room.get_corners(),
+                                                      matched_corners)
+                            # print("Update corners data time", time.time() - start)
+                        # Check affordance node status
+                        self.check_wandering_affordance_node()
+
+                case "exit_room":
+
+                    print("Exiting room")
+
+                case "change_room":
+
+                    # ------------ FIND CURRENT ROOM AND LOAD CORNERS TO CHANGE DIRECTLY TO UPDATE ROOM DATA STATE
+                    # Get current edge
+                    current_edges = self.g.get_edges_by_type("current")
+                    if len(current_edges) > 0:
+                        room_node = self.g.get_node(current_edges[0].destination)
+                        room_timestamp = room_node.attrs["timestamp_alivetime"].value
+                        # Get room data from graph
+                        room_corners = self.g.get_nodes_by_type("corner")
+                        # Iterate over room_corners and remove those which name include "measured". Then, order by corner_id
+                        room_corners = sorted([corner for corner in room_corners if "measured" not in corner.name],
+                                              key=lambda x: x.attrs["corner_id"].value)
+                        corner_poses = []
+                        for corner in room_corners:
+                            # print("Corner")
+                            corner_pose = self.inner_api.get_translation_vector(room_node.name, corner.name,
+                                                                                sys.maxsize)
+
+                            corner_poses.append([corner_pose[0] / 1000, corner_pose[1] / 1000])
+                        corner_poses.append(corner_poses[0])
+                        corner_poses = np.array(corner_poses, dtype=np.float32)
+                        # print("Room corners", corner_poses)
+                        self.room = RoomModel(corner_poses, room_timestamp, height=2.5,
+                                              device="cuda")
+                        self.state = "update_room_data"
+
+        # --------------------------------------------------------
+        # Get "affordance" nodes
+        affordance_nodes = self.g.get_nodes_by_type("affordance")
+        # Check parents and get nodes with parent type "door"
+
+        # affordance_nodes = [node for node in affordance_nodes if self.g.get_node(node.attrs["parent"].value).type == "door"]
+        # Check if "active" attribute is True, if true case = "exiting_room"
+        # for affordance_node in affordance_nodes:
+        #     if affordance_node.attrs["active"].value:
+        # #         Change state to "exiting_room"
+        #         self.state = "exit_room"
+        #         self.active_exit_door = affordance_node
+
+        # ------------------ PROFILE -----------------
+        self.counter += 1
+
+        if self.counter == self.profile_iterations:
+            self.profile.disable()
+            s = io.StringIO()
+            sortby = 'tottime'
+            ps = pstats.Stats(self.profile, stream=s).sort_stats(sortby)
+            ps.print_stats(20)  # Muestra solo las 20 funciones más costosas
+            print(s.getvalue())
+            self.profile.dump_stats("room_detector.prof")
+            print("-------------------------------------------------------")
+            print("-------------------------------------------------------")
+            print("Profile saved to room_detector.prof")
+            print("-------------------------------------------------------")
+            print("-------------------------------------------------------")
+            # Save accumulated_pcs to a CSV file
+            # np.savetxt('accumulated_pcs.csv', self.accumulated_pcs, delimiter=';')
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
 
     def send_room_to_dsr(self, room):
+        # Get root node
+        root_node = self.g.get_node("root")
         # Get robot node
         robot_node = self.g.get_node(ROBOT_NAME)
         # Get room node
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         # Get room corners
         room_corners = room.get_corners() * 1000
         # Get room dimensions TODO: think about it
 
+        # Get root -> robot last pose
+        robot_gtsam_RT = self.rt_api.get_edge_RT(root_node, robot_node.id)
+        if robot_gtsam_RT is None:
+            print("No RT edge found between root and Shadow.")
+            exit(0)
+        robot_gtsam_pose = self.rt_api.get_edge_RT_as_stamped_rtmat(robot_gtsam_RT, int(time.time() * 1000))[1]
+
+        print("Robot last pose", [robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3],
+                                  np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])],
+              "Robot initialization pose", self.robot_pose)
+
+        # Remove RT edge between "root" and ROBOT_NAME
+        self.g.delete_edge(root_node.id, robot_node.id, "RT")
+        # Change robot node level
+        robot_node.attrs["level"].value = room_node.attrs["level"].value + 1
+        robot_node.attrs["parent"].value = room_node.id
+        self.g.update_node(robot_node)
+
         # Insert RT edge between "room" and ROBOT_NAME
-        for i in range(30): # TODO: Please, modify RT:API TO remove ñapa
+        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
             self.insert_RT_edge(room_node.name, robot_node.name,
-                                np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32),
-                                np.array([0.0, 0.0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+                                np.array([robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3], 0], dtype=np.float32),
+                                np.array([0.0, 0.0, np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])],
+                                         dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+            # self.insert_RT_edge(room_node.name, robot_node.name,
+            #                     np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32),
+            #                     np.array([0.0, 0.0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
 
         self.insert_room_structure_into_DSR(room_corners, room_node)
 
         self.insert_room_affordances(room_node)
+        room_node.attrs["obj_checked"] = Attribute(True, self.agent_id)
+        self.g.update_node(room_node)
+        # current_edge = Edge(room_node.id, room_node.id, "current", self.agent_id)
+        # self.g.insert_or_assign_edge(current_edge)
 
-        current_edge = Edge(room_node.id, room_node.id, "current", self.agent_id)
-        self.g.insert_or_assign_edge(current_edge)
-
-    def insert_room_node(self, root_node, room_name):
-        room_node = Node(agent_id=self.agent_id, type="room", name=room_name)
+    def insert_room_node(self, root_node, room_name, room_id):
+        room_node = Node(agent_id=self.agent_id, type="room", name=room_name + "_" + str(room_id))
 
         pos_x = 350.0
         pos_y = 250.0 * (1 % 3 - 1)
@@ -451,7 +573,7 @@ class SpecificWorker(GenericWorker):
         room_node.attrs['pos_y'] = Attribute(float(pos_y), self.agent_id)
         room_node.attrs['obj_checked'] = Attribute(False, self.agent_id)
         room_node.attrs['level'] = Attribute(root_node.attrs["level"].value + 1, self.agent_id)
-        room_node.attrs['room_id'] = Attribute(0, self.agent_id)
+        room_node.attrs['room_id'] = Attribute(int(room_id), self.agent_id)
         room_node.attrs['timestamp_alivetime'] = Attribute(int(self.act_segmented_pointcloud_timestamp), self.agent_id)
 
         self.g.insert_node(room_node)
@@ -469,15 +591,15 @@ class SpecificWorker(GenericWorker):
                 translation = rt_edge.attrs["rt_translation"].value
                 rotation = rt_edge.attrs["rt_rotation_euler_xyz"].value
                 timestamps = rt_edge.attrs["rt_timestamps"].value
-                print("RT edge data from", origin_name, "to", destination_name, ":")
-                print("Translation", translation)
-                print("Rotation", rotation)
-                print("Timestamps", timestamps)
+                # print("RT edge data from", origin_name, "to", destination_name, ":")
+                # print("Translation", translation)
+                # print("Rotation", rotation)
+                # print("Timestamps", timestamps)
 
     def insert_room_structure_into_DSR(self,
-                             room_corners: np.ndarray,  # Shape (N, 2) for N corners
-                             room_node: Node
-                             ) -> None:
+                                       room_corners: np.ndarray,  # Shape (N, 2) for N corners
+                                       room_node: Node
+                                       ) -> None:
         """
         Process room corners to create walls and corner nodes using NumPy optimizations.
 
@@ -511,16 +633,21 @@ class SpecificWorker(GenericWorker):
         for i in range(len(room_corners)):
             # print(i)
             # Create wall with pre-computed values
-            wall_node = self.create_wall(i+1, wall_centers[i], wall_angles[i], room_node)
+
+            wall_node = self.create_wall(i + 1, wall_centers[i], wall_angles[i], room_node)
+            print("Wall center", wall_centers[i], "Wall angle", wall_angles[i])
             # print("Wall node level", wall_node.attrs["level"].value)
             # Given wall_centers[i] and wall_angles[i], generate a np.array with x,y, angle
             wall_pose = np.array([wall_centers[i][0], wall_centers[i][1]], dtype=np.float32)
-
+            print("Wall pose", wall_pose)
             # Get wall node if exists
-            corner_node = self.create_corner(i+1, room_corners[i], wall_node.name, room_node, wall_pose)
-            print("Corner node level", corner_node.attrs["level"].value)
-
-            corner_measured_node = self.create_corner_measured(i+1, room_corners[i], robot_node, robot_pose)
+            corner_node = self.create_corner(i + 1, room_corners[i], wall_node.name, room_node, wall_pose)
+            print("Corner pose", room_corners[i])
+            # print("Corner node level", corner_node.attrs["level"].value)
+            # Check if corner measured with i + 1 id exists
+            if (not self.g.get_node("corner_measured_" + str(i + 1))):
+                corner_measured_node = self.create_corner_measured(i + 1, room_corners[i], robot_node, robot_pose)
+                print("Corner measured", room_corners[i])
 
     def calculate_wall_angles(self, room_corners):
         # Circularly shifted array for next corners
@@ -553,21 +680,24 @@ class SpecificWorker(GenericWorker):
         # Get parent node(room) level
         room_node_level = room_node.attrs["level"].value
 
-        print("Creating wall", wall_id, wall_center, wall_angle, room_node_level)
+        # print("Creating wall", wall_id, wall_center, wall_angle, room_node_level)
 
         wall_node = Node(agent_id=self.agent_id, type="wall", name=f"wall_{room_node.attrs['room_id'].value}_{wall_id}")
         wall_node.attrs['pos_x'] = Attribute(float(wall_center[0] * 0.1), self.agent_id)
         wall_node.attrs['pos_y'] = Attribute(float(-wall_center[1] * 0.1), self.agent_id)
         wall_node.attrs['room_id'] = Attribute(room_node.attrs['room_id'].value, self.agent_id)
+        wall_node.attrs['wall_id'] = Attribute(wall_id, self.agent_id)
         wall_node.attrs['level'] = Attribute(room_node_level + 1, self.agent_id)
         wall_node.attrs['parent'] = Attribute(int(room_id), self.agent_id)
+        wall_node.attrs['timestamp_alivetime'] = Attribute(int(self.act_segmented_pointcloud_timestamp), self.agent_id)
         # Insert node in graph
         self.g.insert_node(wall_node)
 
         # Create wall node RT edge
-        for i in range(30):# TODO: Please, modify RT:API TO remove ñapa
-            self.insert_RT_edge(room_node.id, wall_node.id, np.array([wall_center[0], wall_center[1], 0], dtype=np.float32),
-                                np.array([0, 0, -wall_angle], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
+            self.insert_RT_edge(room_node.id, wall_node.id,
+                                np.array([wall_center[0], wall_center[1], 0], dtype=np.float32),
+                                np.array([0, 0, wall_angle], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
         return wall_node
 
     def create_corner(self, corner_id, corner_pose, wall_node_name, room_node, wall_pose):
@@ -576,7 +706,6 @@ class SpecificWorker(GenericWorker):
         wall_node_level = wall_node.attrs["level"].value
 
         print("Creating corner", corner_id, corner_pose, wall_node_level)
-
         corner_node = Node(agent_id=self.agent_id, type="corner",
                            name=f"corner_{room_node.attrs['room_id'].value}_{corner_id}")
         corner_node.attrs['pos_x'] = Attribute(float(corner_pose[0] * 0.1), self.agent_id)
@@ -585,23 +714,21 @@ class SpecificWorker(GenericWorker):
         corner_node.attrs['corner_id'] = Attribute(corner_id, self.agent_id)
         corner_node.attrs['level'] = Attribute(wall_node_level + 1, self.agent_id)
         corner_node.attrs['parent'] = Attribute(int(wall_node.id), self.agent_id)
+        corner_node.attrs['timestamp_alivetime'] = Attribute(int(self.act_segmented_pointcloud_timestamp),
+                                                             self.agent_id)
         # Insert node in graph
         self.g.insert_node(corner_node)
-
         corner_in_wall_pose = self.transform_point_to_wall_frame(wall_node_name, corner_pose)
         print("Corner in wall pose", corner_in_wall_pose)
         # Create wall node RT edge
-        for i in range(30):# TODO: Please, modify RT:API TO remove ñapa
+        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
             self.insert_RT_edge(wall_node.id, corner_node.id,
                                 np.array([corner_in_wall_pose[0], corner_in_wall_pose[1], 0], dtype=np.float32),
                                 np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
-
         return corner_node
 
     def create_corner_measured(self, corner_id, corner_pose, robot_node, robot_pose):
         robot_node_level = robot_node.attrs["level"].value
-
-        print("Creating corner measured", corner_id, corner_pose)
 
         corner_node = Node(agent_id=self.agent_id, type="corner", name=f"corner_measured_{corner_id}")
         corner_node.attrs['pos_x'] = Attribute(float(robot_node.attrs["pos_x"].value + 1000), self.agent_id)
@@ -610,56 +737,53 @@ class SpecificWorker(GenericWorker):
         corner_node.attrs['corner_id'] = Attribute(corner_id, self.agent_id)
         corner_node.attrs['parent'] = Attribute(int(robot_node.id), self.agent_id)
         corner_node.attrs['valid'] = Attribute(False, self.agent_id)
+        corner_node.attrs['timestamp_alivetime'] = Attribute(int(self.act_segmented_pointcloud_timestamp),
+                                                             self.agent_id)
+
         # Insert node in graph
         self.g.insert_node(corner_node)
         # Transform nominal corner to robot frame
-
-        corner_in_robot_frame = self.inner_api.transform("room", np.array([corner_pose[0], corner_pose[1], 0],
-                                                                          dtype=np.float32), ROBOT_NAME)
-
+        corner_in_robot_frame = self.inner_api.transform(ROBOT_NAME, np.array([corner_pose[0], corner_pose[1], 0],
+                                                                            dtype=np.float32),
+                                                         "room_" + str(self.room_id))
         self.insert_RT_edge(robot_node.id, corner_node.id,
                             np.array([corner_in_robot_frame[0], corner_in_robot_frame[1], 0], dtype=np.float32),
                             np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
-
         return corner_node
 
     def transform_point_to_wall_frame(self, wall_name, corner_point):
         # Return and array which "y" is 0 and "x" is the norm between wall_pose and corner_point
         print("Transforming point to wall frame", wall_name, corner_point)
+        print("wall name", wall_name, "corner_point", corner_point, type(corner_point))
         return self.inner_api.transform(wall_name, np.array([corner_point[0], corner_point[1], 0], dtype=np.float32),
-                                        "room")
+                                        "room_" + str(self.room_id))
 
     def insert_room_affordances(self, room_node):
         # Get room node level
         room_node_level = room_node.attrs["level"].value
-
         # Create affordance node
-        affordance_node = Node(agent_id=self.agent_id, type="affordance", name="aff_wandering")
+        affordance_node = Node(agent_id=self.agent_id, type="affordance", name="aff_wandering_" + str(self.room_id))
         affordance_node.attrs['pos_x'] = Attribute(float(room_node.attrs["pos_x"].value) + 25, self.agent_id)
         affordance_node.attrs['pos_y'] = Attribute(float(room_node.attrs["pos_y"].value) + 25, self.agent_id)
         affordance_node.attrs['level'] = Attribute(room_node_level + 1, self.agent_id)
         affordance_node.attrs['parent'] = Attribute(int(room_node.id), self.agent_id)
         affordance_node.attrs['active'] = Attribute(False, self.agent_id)
         affordance_node.attrs['bt_state'] = Attribute("waiting", self.agent_id)
-        affordance_node.attrs['room_id'] = Attribute(int(0), self.agent_id)
+        affordance_node.attrs['room_id'] = Attribute(int(self.room_id), self.agent_id)
         # Insert node in graph
         self.g.insert_node(affordance_node)
-
         has_edge = Edge(affordance_node.id, room_node.id, "has", self.agent_id)
         self.g.insert_or_assign_edge(has_edge)
 
     def plot_mesh_open3d(self, mesh):
         verts = mesh.verts_packed().cpu().numpy()
         faces = mesh.faces_packed().cpu().numpy()
-
         # Create Open3D TriangleMesh
         o3d_mesh = o3d.geometry.TriangleMesh()
         o3d_mesh.vertices = o3d.utility.Vector3dVector(verts)
         o3d_mesh.triangles = o3d.utility.Vector3iVector(faces)
-
         # Compute normals for better visualization
         o3d_mesh.compute_vertex_normals()
-
         # Visualize
         o3d.visualization.draw_geometries([o3d_mesh])
 
@@ -675,70 +799,85 @@ class SpecificWorker(GenericWorker):
         """
         if not isinstance(points, np.ndarray) or points.ndim != 2 or points.shape[1] != 3:
             raise ValueError("La entrada debe ser un array de NumPy 2D con 3 columnas (x, y, z).")
-
         # Seleccionamos solo las columnas x (índice 0) e y (índice 1)
         puntos_xy = points[:, :2]
-
         # Calculamos el promedio a lo largo del eje 0 (es decir, el promedio de cada columna)
         promedio_xy = np.mean(puntos_xy, axis=0)
 
         return promedio_xy
 
     def create_room_for_stabilize(self, mean_center):
-
-        # Get robot node
-        robot_node = self.g.get_node(ROBOT_NAME)
+        self.rooms_number += 1
+        # self.room_id += 1
         # Get root node
         root_node = self.g.get_node("root")
         # Create room_pre node and intention
-        room_node = self.insert_room_node(root_node, "room")
-        for i in range(30): # TODO: Please, modify RT:API TO remove ñapa
+        room_node = self.insert_room_node(root_node, "room", self.room_id)
+
+        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
             self.insert_RT_edge(root_node.name, room_node.name, np.array([0.0, 0.0, 0.0], dtype=np.float32),
                                 np.array([0.0, 0.0, 0.0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
 
-        # Remove RT edge between "root" and ROBOT_NAME
-        self.g.delete_edge(root_node.id, robot_node.id, "RT")
-        # Change robot node level
-        robot_node.attrs["level"].value = room_node.attrs["level"].value + 1
-        robot_node.attrs["parent"].value = room_node.id
-        self.g.update_node(robot_node)
-
-        inserted_room_node = self.g.get_node("room")
-
-        for i in range(30):# TODO: Please, modify RT:API TO remove ñapa
-            print("Pose rt", np.array([mean_center[0] * 1000, mean_center[1] * 1000, 0], dtype=np.float32))
-            self.insert_RT_edge("room", ROBOT_NAME, np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32), np.array([0, 0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        inserted_room_node = self.g.get_node(room_node.name)
+        #
+        # for i in range(30):# TODO: Please, modify RT:API TO remove ñapa
+        #     #print("Pose rt", np.array([mean_center[0] * 1000, mean_center[1] * 1000, 0], dtype=np.float32))
+        #     self.insert_RT_edge("room", ROBOT_NAME, np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32), np.array([0, 0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
 
         # Create affordance node
-        affordance_node = Node(agent_id=self.agent_id, type="affordance", name="aff_stabilizing")
+        affordance_node = Node(agent_id=self.agent_id, type="affordance", name="aff_stabilizing_" + str(self.room_id))
         affordance_node.attrs['pos_x'] = Attribute(float(inserted_room_node.attrs["pos_x"].value) + 25, self.agent_id)
         affordance_node.attrs['pos_y'] = Attribute(float(inserted_room_node.attrs["pos_y"].value) + 25, self.agent_id)
         affordance_node.attrs['level'] = Attribute(inserted_room_node.attrs["level"].value + 1, self.agent_id)
         affordance_node.attrs['parent'] = Attribute(int(inserted_room_node.id), self.agent_id)
         affordance_node.attrs['active'] = Attribute(False, self.agent_id)
         affordance_node.attrs['bt_state'] = Attribute("waiting", self.agent_id)
-        affordance_node.attrs['room_id'] = Attribute(int(0), self.agent_id)
+        affordance_node.attrs['room_id'] = Attribute(int(self.room_id), self.agent_id)
         # Insert node in graph
         self.g.insert_node(affordance_node)
 
         has_edge = Edge(affordance_node.id, inserted_room_node.id, "has", self.agent_id)
         self.g.insert_or_assign_edge(has_edge)
 
-
     def processing_input_data(self, accumulate=False):
 
         segmented_pointcloud = self.read_deque.pop()
+
         self.act_segmented_pointcloud_timestamp = segmented_pointcloud.timestamp
-        print("############################### ACT TIMESTAMP", self.act_segmented_pointcloud_timestamp)
+        # print("############################### ACT TIMESTAMP", self.act_segmented_pointcloud_timestamp)
         category = np.array(segmented_pointcloud.CategoriesArray).flatten()
         # Generate np.array from new_pc arrayX, arrayY, arrayZ
         new_pc = np.column_stack(
             [np.array(segmented_pointcloud.XArray), np.array(segmented_pointcloud.YArray),
              np.array(segmented_pointcloud.ZArray)]) / 1000.0
         if self.state == "update_room_data":
-            self.lidar_points_2d = self.transform_lidar_points_to_room(new_pc)
-            self.draw_lidar_qt()
+            self.lidar_points_2d = new_pc * 1000
+            # Copy target_points to avoid modifying the original
+            self.tf_target_points = []
+            # Homogeneus tf_target_points to 4D
+            if self.target_points:
+                robot_node = self.g.get_node(ROBOT_NAME)
+                room_node = self.g.get_node("room_" + str(self.room_id))
+                rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
+                if rt_edge is not None:
+                    translation = rt_edge.attrs["rt_translation"].value
+                    rotation = rt_edge.attrs["rt_rotation_euler_xyz"].value
+                    self.robot_pose = np.array([translation[0], translation[1], rotation[2]], dtype=np.float32)
 
+                    # BUild Tf matrix using robot_pose
+                    tf = np.array([[np.cos(self.robot_pose[2]), -np.sin(self.robot_pose[2]), self.robot_pose[0]],
+                                   [np.sin(self.robot_pose[2]), np.cos(self.robot_pose[2]), self.robot_pose[1]],
+                                   [0, 0, 1]], dtype=np.float32)
+
+                    # Transform click pose to world frame
+                    t1 = time.time()
+                    tf = np.linalg.inv(tf)
+                    print("Tf inv time", time.time() - t1)
+                    # Transform target points to world frame
+                    self.tf_target_points = [np.dot(tf, np.array([point[0], point[1], 1])) for point in
+                                             self.target_points]
+
+            self.draw_lidar_qt()
         # PC filter Category & height
         height_mask = (new_pc[:, 2] < self.max_height) & (new_pc[:, 2] > self.min_height)
         category_mask = np.isin(category, self.categories_filter)
@@ -746,23 +885,26 @@ class SpecificWorker(GenericWorker):
 
         if not accumulate:
             robot_stabilization_target = self.get_points_xy_mean(new_pc) if self.accumulated_pcs.shape[
-                                                                                              0] > 3 else np.array([])
-            return np.asarray(new_pc), robot_stabilization_target
+                                                                                0] > 3 else np.array([])
+            # pcd downsample
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(new_pc)
+            pcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
+
+            return np.asarray(pcd.points), robot_stabilization_target
 
         # Integrate pointcloud transformed to robot origin
         transformed_points = self.integrate_odometry_to_pointcloud(new_pc,
                                                                    segmented_pointcloud.timestamp)
-
         self.accumulated_pcs = np.vstack((self.accumulated_pcs, transformed_points))
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.accumulated_pcs)
 
         # Voxelization (new_pc)
         pcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-
-        # pcd = self.remove_outliers(pcd, self.nb_neighbors, self.std_ratio)
         # Get mean center for generating target to stabilize room # TODO: Maybe "get_points_xy_mean" should be adapted to a different target depending the stabilization target (e.g. wall, corner, etc)
-        robot_stabilization_target = self.get_points_xy_mean(self.accumulated_pcs) if self.accumulated_pcs.shape[0] > 3 else np.array([])
+        robot_stabilization_target = self.get_points_xy_mean(self.accumulated_pcs) if self.accumulated_pcs.shape[
+                                                                                          0] > 3 else np.array([])
         return np.asarray(pcd.points), robot_stabilization_target
 
     def update_robot_pose(self):
@@ -770,15 +912,13 @@ class SpecificWorker(GenericWorker):
                                               self.last_robot_pose_timestamp,
                                               self.act_segmented_pointcloud_timestamp)
         if not queue_copy:
-            print("No odometry values or invalid format")
+            # print("No odometry values or invalid format")
             return np.eye(3)
-
         # Construir accum 4x4 desde self.robot_pose
         # get adv, side, angular from self.robot_pose
         x = self.robot_pose[0]
         y = self.robot_pose[1]
         angle = self.robot_pose[2]
-
         # Build 4x4 transformation matrix using adv, side and rot
         cos_rot = np.cos(angle)
         sin_rot = np.sin(angle)
@@ -818,7 +958,7 @@ class SpecificWorker(GenericWorker):
 
         # Update robot pose in DSR
         # Insert RT edge between "room" and ROBOT_NAME
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         robot_node = self.g.get_node(ROBOT_NAME)
         self.insert_RT_edge(room_node.name, robot_node.name,
                             np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0],
@@ -827,52 +967,29 @@ class SpecificWorker(GenericWorker):
 
     def integrate_odometry_to_pointcloud(self, new_pc, timestamp):
         # # copy odometry_list to avoid modifying the original
-        queue_copy = self.get_odometry_simple(np.array(self.odometry_queue.copy()), self.last_robot_pose_timestamp,
-                                              timestamp)
-        if not queue_copy:
+        # queue_copy = self.get_odometry_simple(np.array(self.odometry_queue.copy()), self.last_robot_pose_timestamp,
+        #                                       timestamp)
+        root_node = self.g.get_node("root")
+        robot_node = self.g.get_node(ROBOT_NAME)
+        root_robot_rt = self.rt_api.get_edge_RT(root_node, robot_node.id)
+        if not root_robot_rt:
             print("No odometry values or invalid format")
-            return np.eye(3)
+            return np.eye(4)
+        rt_robot_pose_ = self.rt_api.get_edge_RT_as_stamped_rtmat(root_robot_rt, timestamp)
+        rt_robot_pose = rt_robot_pose_[1]
 
-        # Construir accum 4x4 desde self.robot_pose
-        # get adv, side, angular from self.robot_pose
-        x = self.robot_pose[0]
-        y = self.robot_pose[1]
-        angle = self.robot_pose[2]
+        # divide position in rt_robot_pose by 1000 to convert from mm to m (only in position cells)
+        rt_robot_pose[0, 3] /= 1000.0
+        rt_robot_pose[1, 3] /= 1000.0
+        # rt_robot_pose[2, 3] /= 1000.0  # Z coordinate is not used in this case
 
-        # Build 4x4 transformation matrix using adv, side and rot
-        cos_rot = np.cos(angle)
-        sin_rot = np.sin(angle)
-
-        accum = np.array([
-            [cos_rot.item(), -sin_rot.item(), 0, x.item()],
-            [sin_rot.item(), cos_rot.item(), 0, y.item()],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ], dtype=np.float32)
         if self.open3d_view:
-            self.update_robot_axes(accum)
-
-        prev_time = queue_copy[0][3]
-        for i in range(len(queue_copy)):
-            curr_time = queue_copy[i][3]
-            dt = curr_time - prev_time
-            curr_speed = queue_copy[i][:3] * dt * 0.001
-
-            # Construct the 3x3 transformation matrix for this step
-            T = np.array([
-                [np.cos(curr_speed[2]), -np.sin(curr_speed[2]), 0, curr_speed[1]],
-                [np.sin(curr_speed[2]), np.cos(curr_speed[2]), 0, curr_speed[0]],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ], dtype=np.float32)
-            # Accumulate the transformation
-            accum = np.dot(accum, T)
-            prev_time = curr_time
+            self.update_robot_axes(rt_robot_pose)
 
         # update robot pose, get from accum matrix
-        self.robot_pose[0] = accum[0, 3]
-        self.robot_pose[1] = accum[1, 3]
-        self.robot_pose[2] = np.arctan2(accum[1, 0], accum[0, 0])
+        self.robot_pose[0] = rt_robot_pose[0, 3]
+        self.robot_pose[1] = rt_robot_pose[1, 3]
+        self.robot_pose[2] = np.arctan2(rt_robot_pose[1, 0], rt_robot_pose[0, 0])
 
         self.last_robot_pose_timestamp = timestamp
 
@@ -881,17 +998,16 @@ class SpecificWorker(GenericWorker):
 
         if self.last_pointcloud_exists:
             # Apply the transformation to the current point cloud
-            transformed_points = np.dot(accum, homogeneous_points.T).T[:, :3] / np.dot(accum, homogeneous_points.T).T[:,
-                                                                                3][:, None]
-
+            transformed_points = np.dot(rt_robot_pose, homogeneous_points.T).T[:, :3] / np.dot(rt_robot_pose,
+                                                                                               homogeneous_points.T).T[
+                                                                                        :,
+                                                                                        3][:, None]
             self.last_pointcloud = transformed_points
         else:
-            # total_points = np.vstack((self.accumulated_pcs, new_pc))
             self.last_pointcloud = new_pc
 
         self.last_pointcloud_exists = True
         # Stack a 1 as fourth element
-        # return total_points # Return as numpy array if needed
         return transformed_points  # Return as numpy array if needed
 
     def get_odometry_simple(self, queue, last_ts, pc_ts):
@@ -929,9 +1045,9 @@ class SpecificWorker(GenericWorker):
         # Calculate lines using the Hough transform method implemented in get_hough_lines
         # which internally uses OpenCV
         # hough_lines = self.get_hough_lines(points_2D)
-        hough_lines = self.get_hough_lines_v2(pcd)
+        hough_lines = self.get_hough_lines_v2(pcd, plot=False)
         # Add Z=0 coordinates to maintain the three-dimensional format required by Open3D
-        points_2D = np.hstack((points_2D, np.zeros((points_2D.shape[0], 1))))
+        points_2D = np.hstack((pcd[:, :2], np.zeros((points_2D.shape[0], 1))))
         #
         return points_2D, hough_lines
 
@@ -1053,7 +1169,7 @@ class SpecificWorker(GenericWorker):
 
         return np.array(best_lines)
 
-    def compute_histogram_of_normals(self, pcd):
+    def compute_histogram_of_normals_radians(self, pcd, num, plot=False):
         # Extract normals
         normals = np.asarray(pcd.normals)
 
@@ -1067,138 +1183,177 @@ class SpecificWorker(GenericWorker):
         peaks, properties = find_peaks(hist, height=self.min_votes, distance=10)
 
         # Plot hist graph using matplotlib in same window
-        # if(True):
-        #     plt.clf()
-        #     plt.bar(np.arange(360), hist, width=1)
-        #     plt.xlim(0, 360)
-        #     plt.xlabel('Angle (degrees)')
-        #     plt.ylabel('Count')
-        #     plt.title('Histogram of Point Cloud Normals')
-        #     plt.pause(0.01)  # Pause to update the plot
-        #     plt.show(block=False)
-        # plt.savefig("histogram.png")
-        # Get maximum  bin
+        if (plot):
+            plt.clf()
 
-        return peaks * (2 * np.pi / 360) - np.pi
+            plt.bar(np.arange(360), hist, width=1)
+            plt.xlim(0, 360)
+            plt.xlabel('Angle (degrees)')
+            plt.ylabel('Count')
+            plt.title('Histogram of Point Cloud Normals')
+            plt.pause(0.01)  # Pause to update the plot
+            plt.show(block=False)
 
-    def get_hough_lines_v2(self, points):
-        """
-        Calculates Hough lines from a 2D Point Cloud points using cv2.HoughLinesPointSet.
+        # Return num most prominent peaks in radians
+        if len(peaks) == 0:
+            return np.array([])
+        if len(peaks) > num:
+            peaks = peaks[:num] * (2 * np.pi / 360) - np.pi
+            return peaks
+        else:
+            return peaks * (2 * np.pi / 360) - np.pi
 
-        :param points: np.asarray(pcd2D).
-        :return: List of detected lines in format [(votes, rho, theta), ...] in meters.
-        """
+    def compute_histogram_of_normals_scalar(self, dir_scalar, num, plot=False):
 
-        # Build pcd from points
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
+        hist = np.histogram(dir_scalar, bins=180, range=(0, 1))[0]
 
-        # estimete normals from points
-        pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=500, max_nn=50))
+        # Encuentra picos prominentes
+        peaks, properties = find_peaks(hist, height=self.min_votes, distance=10)
 
-        # Histogram of normals
-        main_direction = self.compute_histogram_of_normals(pcd)
+        # Plot hist graph using matplotlib in same window
+        if (plot):
+            plt.clf()
+            plt.bar(np.arange(180), hist, width=1)
+            plt.xlim(0, 180)
+            plt.xlabel('Angle (degrees)')
+            plt.ylabel('Count')
+            plt.title('Histogram of Point Cloud Normals')
+            plt.pause(0.01)  # Pause to update the plot
+            plt.show(block=False)
+
+        # Return num most prominent peaks in radians
+        if len(peaks) == 0:
+            return np.array([])
+        if len(peaks) > num:
+            peaks = peaks[:num]
+            return peaks / 180
+        else:
+            return peaks / 180
+
+    def get_hough_lines_v2(self, points, plot=False):
+        # Estimar normales directamente
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(
+                radius=self.voxel_size * 4,
+                max_nn=20
+            )
+        )
+
+        # Normales y orientación en azimut (mod π)
         normals = np.asarray(pcd.normals)
-        # Convertir normales a ángulos en el plano XY
-        azimuth = np.arctan2(normals[:, 1], normals[:, 0])  # Radianes entre -π y π
+        azim = np.mod(np.arctan2(normals[:, 1], normals[:, 0]), np.pi)
+        azim[azim == np.pi] = 0.0  # Convierte π → 0
 
-        # print min/max azimuth
-        print("MIN/MAX AZIMUTH",np.min(azimuth), np.max(azimuth))
-        # Convertir tolerancia de grados a radianes
-        tolerance = np.deg2rad(10)
+        direction_scalar = azim / np.pi  # [0, 1] (ángulo sin orientación)
 
-        # Inicializamos máscara (asignaciones de dirección)
-        mask_assignments = np.zeros(len(azimuth))
-        complete_color = np.zeros((len(azimuth), 3))
-        lines = []
+        # Histograma de orientaciones (dirección, no sentido)
+        main_dirs = self.compute_histogram_of_normals_scalar(direction_scalar, 2, plot=False)
 
-        # Asignar cada punto a su dirección más cercana (si está dentro de tolerancia)
-        for dir in main_direction:
-            print("DIRECCION", dir)
-            # Dirección opuesta
-            dir_opposite = np.arctan2(np.sin(dir + np.pi), np.cos(dir + np.pi))
+        if main_dirs is None or len(main_dirs) == 0:
+            print("No main direction found in normals histogram.")
+            return []
+        print("Main directions (scalar):", main_dirs)
+        # Umbral angular (7.5° en escala [0opticalflow
 
-            # Función para calcular diferencia angular mínima
-            def angular_diff(theta1, theta2):
-                return np.arctan2(np.sin(theta1 - theta2), np.cos(theta1 - theta2))
+        th_norm = 20 / 180.0
+        # Vectorizado: crea máscara OR combinando todas las condiciones de proximidad angular
+        mask = np.zeros(len(direction_scalar), dtype=bool)
+        for d in main_dirs:
+            # Handle the circular discontinuity at 0-1
+            direct_diff = np.abs(direction_scalar - d)
+            # Calculate the wraparound difference (the "other way around" the circle)
+            wrap_diff = 1 - direct_diff
+            # Take the smaller of the two differences
+            min_diff = np.minimum(direct_diff, wrap_diff)
+            # Update mask with points that are within threshold in either direction
+            mask |= min_diff < th_norm
 
-            diffs_to_dir = np.abs(angular_diff(azimuth, dir))
-            diffs_to_opposite = np.abs(angular_diff(azimuth, dir_opposite))
+        if not np.any(mask):
+            print("No points found in the main directions.")
+            return []
 
-            # Crear máscaras donde se cumple la tolerancia
-            assign_mask = (diffs_to_dir < tolerance) | (diffs_to_opposite < tolerance)
-            assign_indices = np.where(assign_mask)[0]
-            # Asignar el valor del ángulo original (dir) a los puntos que cumplan
-            mask_assignments[assign_mask] = dir
-            # apply dbscan
-            cluster = pcd.select_by_index(np.where(assign_mask)[0])
-            labels = np.array(cluster.cluster_dbscan(eps=(self.voxel_size * 20) , min_points=self.min_votes))
-            # Generar colores
-            n_labels = np.max(labels)
+        # Filtrar los datos necesarios una sola vez
+        points = points[mask]
+        azim = azim[mask]
+        direction_scalar = direction_scalar[mask]
 
-            # DISPLAY DBSCAN
-            if(0):
-                if n_labels >= 0 :
-                    colors = plt.get_cmap("tab10")(labels / (np.max(labels) + 1e-8))
-                else:
-                    colors = np.zeros((len(labels), 4))
+        # Proyección a XY directamente sin copia completa
+        pts2d = points.copy()
+        pts2d[:, 2] = 0.0
 
-                colors[labels == -1] = [0, 0, 0, 1]  # ruido en negro
-                cluster.colors = o3d.utility.Vector3dVector(colors[:, :3])
-                complete_color[assign_indices] = colors[:, :3]
-                plt.clf()
-                plt.scatter(points[:, 0], points[:, 1], c=complete_color, s=1)
-                plt.axis('equal')
-                plt.title("Point cloud directions by azimuthal cluster")
-                plt.pause(0.01)  # Pause to update the plot
-                plt.show(block=False)
+        # Construcción eficiente del espacio extendido (x, y, dirección escalar)
+        X_scaled = np.empty((len(pts2d), 3), dtype=np.float32)
+        X_scaled[:, 0:2] = pts2d[:, 0:2]
+        X_scaled[:, 2] = direction_scalar
+        X_scaled *= np.array([1.0, 1.0, 8.0], dtype=np.float32)  # pesos (último es direccional)
 
-            cluster_points_np = np.asarray(cluster.points)
-            if n_labels >= 0:
-                original_cluster_points_np = np.asarray(cluster.points)
-                for i in range(n_labels + 1):  # <- debe incluir el último label
-                    mask = labels == i
-                    if np.count_nonzero(mask) < 2:
-                        continue  # muy pocos puntos para Hough
+        # DBSCAN
+        clustering = DBSCAN(
+            eps=self.voxel_size * 6,
+            min_samples=self.min_votes,
+            metric='euclidean'
+        ).fit(X_scaled)
 
-                    cluster_points_np = original_cluster_points_np[mask]
+        labels = clustering.labels_
+        unique_labels = np.unique(labels)
+        unique_labels = unique_labels[unique_labels != -1]  # quitar outliers
 
+        if len(unique_labels) == 0:
+            print("No clusters found.")
+            return []
 
-                    # Filter by
-                    points_2d = cluster_points_np[:, :2]  # Solo XY
-                    points_mm = points_2d * 1000.0  # Convertir a mm si necesario
+        lines_accum = []
 
-                    # Preparar entrada para Hough (N,1,2) float32
-                    points_float = np.round(points_mm).astype(np.float32).reshape(-1, 1, 2)
+        if plot:
+            # Visualizar clusters
+            cols = plt.get_cmap('tab10')((labels % 10) / 10.0)
+            cols[labels < 0] = [0, 0, 0, 1]
+            plt.scatter(pts2d[:, 0], pts2d[:, 1], c=cols, s=1)
+            plt.axis('equal')
+            plt.title('DBSCAN clusters with azimuth')
+            plt.show(block=False)
 
-                        # Limit theta_min, theta_max to the direction of the cluster + pi/2
-                    self.theta_min = dir - np.deg2rad(1)
-                    self.theta_max = dir + np.deg2rad(1)
+        for lbl in unique_labels:
+            idx = labels == lbl
+            sub_points = pts2d[idx]
+            sub_azim = azim[idx]
 
-                    # Parámetros ajustados para mejor resolución (modifícalos según tu caso)
-                    cluster_lines = cv2.HoughLinesPointSet(points_float, 2, self.line_threshold,
-                                                           self.rho_min, self.rho_max, self.rho_step,
-                                                           self.theta_min, self.theta_max, self.theta_step)
-                    # Guardar siempre algo para esa dirección, incluso si no detecta líneas
-                    if cluster_lines is None:
-                        continue
-                    lines.append(cluster_lines.copy())
+            if sub_points.shape[0] < 2:
+                continue
 
-        if len(lines) == 0:
-            return []  # No se detectó ninguna línea
+            # Pasar a mm y redondear
+            pts_h = (sub_points[:, :2] * 1000.0).round().astype(np.float32).reshape(-1, 1, 2)
 
-        # Concatenar todos los arrays (cada uno con forma (N,1,3)) en uno solo
-        all_lines = np.vstack(lines)  # shape (total_N, 1, 3)
+            # Media circular del ángulo
+            theta_avg = np.arctan2(np.mean(np.sin(sub_azim)), np.mean(np.cos(sub_azim)))
+            self.theta_min = theta_avg - np.deg2rad(1)
+            self.theta_max = theta_avg + np.deg2rad(1)
 
-        # Normalizar rho de mm a metros (o unidades originales)
-        all_lines[:, 0, 1] /= 1000.0
+            clines = cv2.HoughLinesPointSet(
+                pts_h, 1, self.line_threshold,
+                self.rho_min, self.rho_max, self.rho_step,
+                self.theta_min, self.theta_max, self.theta_step
+            )
+            if clines is not None:
+                lines_accum.append(clines)
 
-        # Reorganizar a forma (N, 3)
-        all_lines = all_lines.reshape(-1, 3)
+        if not lines_accum:
+            return []
 
-        filtered_lines = self.filter_parallel_hough_lines(all_lines, self.theta_thresh, 1)
+        all_lines = np.vstack(lines_accum)
+        all_lines[:, 0, 1] /= 1000.0  # Convertir rho a metros
+        flat = all_lines.reshape(-1, 3)
 
-        return [(line[0], line[1], line[2]) for line in filtered_lines if len(line) >= 3]
+        # Filtrar líneas paralelas redundantes
+        result = self.filter_parallel_hough_lines(flat, self.theta_thresh, rho_thresh=1)
+        # print result si hay líneas
+        if result is None or len(result) == 0:
+            print("No lines found after filtering.")
+            return []
+        else:
+            print(f"Found {len(result)} lines after filtering.")
+        return [(v, r, t) for v, r, t in result]
 
     def simplify_polyline(self, polyline, angle_threshold_deg=5):
         """
@@ -1247,6 +1402,127 @@ class SpecificWorker(GenericWorker):
     # ===========================================================
     # ===================== VISUALIZATION =======================
     # ===========================================================
+
+    def draw_unwrapped_wall_projection_with_gaps(self, pc_points, polyline, max_distance=0.35, bin_size=0.05,
+                                                 gap_threshold=0.3):
+        points_xy = pc_points[:, :2]
+        points_z = pc_points[:, 2]
+        accumulated_length = 0
+        corner_positions = [0]
+        all_projected_x = []
+        all_projected_z = []
+        gap_regions = []
+
+        # Precalcular longitudes y desplazamientos
+        segment_lengths = []
+        for i in range(len(polyline)):
+            p1 = np.array(polyline[i][1])
+            p2 = np.array(polyline[(i + 1) % len(polyline)][1])
+            seg_len = np.linalg.norm(p2 - p1)
+            segment_lengths.append(seg_len)
+
+        accumulated_offsets = [0.0]
+        for L in segment_lengths[:-1]:
+            accumulated_offsets.append(accumulated_offsets[-1] + L)
+
+        # Proyección de puntos y detección de huecos
+        for i in range(len(polyline)):
+            p1 = np.array(polyline[i][1])
+            p2 = np.array(polyline[(i + 1) % len(polyline)][1])
+            seg_len = segment_lengths[i]
+            if seg_len < 1e-6:
+                continue
+
+            seg_dir = (p2 - p1) / seg_len
+            seg_normal = np.array([-seg_dir[1], seg_dir[0]])
+
+            rel_points = points_xy - p1
+            dist_along = np.dot(rel_points, seg_dir)
+            dist_perp = np.dot(rel_points, seg_normal)
+
+            mask = (dist_along >= 0) & (dist_along <= seg_len) & (np.abs(dist_perp) <= max_distance)
+            seg_proj_x = accumulated_length + dist_along[mask]
+            seg_proj_z = points_z[mask]
+
+            all_projected_x.append(seg_proj_x)
+            all_projected_z.append(seg_proj_z)
+
+            if len(seg_proj_x) > 0:
+                x_bins = np.arange(accumulated_length, accumulated_length + seg_len, bin_size)
+                hist, _ = np.histogram(seg_proj_x, bins=x_bins)
+                zero_mask = hist == 0
+                start = None
+                for j, is_zero in enumerate(zero_mask):
+                    if is_zero and start is None:
+                        start = x_bins[j]
+                    elif not is_zero and start is not None:
+                        end = x_bins[j]
+                        if end - start >= gap_threshold:
+                            gap_regions.append((i, start, end))
+                        start = None
+                if start is not None and x_bins[-1] - start >= gap_threshold:
+                    gap_regions.append((i, start, x_bins[-1]))
+
+            accumulated_length += seg_len
+            corner_positions.append(accumulated_length)
+
+        # Construir nueva polilínea manteniendo orden original
+        nueva_polilinea = []
+        replaced_corners = set()
+
+        for i in range(len(polyline)):
+            global_pos = accumulated_offsets[i]
+            corner_replaced = False
+
+            for (seg_idx, g_start, g_end) in gap_regions:
+                if g_start <= global_pos <= g_end:
+                    # segmento del gap
+                    p_start = np.array(polyline[seg_idx][1])
+                    p_end = np.array(polyline[(seg_idx + 1) % len(polyline)][1])
+                    seg_vec = p_end - p_start
+                    seg_len = np.linalg.norm(seg_vec)
+
+                    if seg_len < 1e-6:
+                        continue
+
+                    t0 = (g_start - accumulated_offsets[seg_idx]) / seg_len
+                    t1 = (g_end - accumulated_offsets[seg_idx]) / seg_len
+                    t0 = np.clip(t0, 0, 1)
+                    t1 = np.clip(t1, 0, 1)
+
+                    corner_a = p_start + t0 * seg_vec
+                    corner_b = p_start + t1 * seg_vec
+                    corner_c = np.array(polyline[i][1]) + 0.3 * (corner_b - corner_a)
+
+                    nueva_polilinea.append((0, tuple(corner_a)))
+                    nueva_polilinea.append((0, tuple(corner_c)))
+                    nueva_polilinea.append((0, tuple(corner_b)))
+                    replaced_corners.add(i)
+                    corner_replaced = True
+                    break
+
+            if not corner_replaced:
+                nueva_polilinea.append(polyline[i])
+
+        plt.clf()
+        for x, z in zip(all_projected_x, all_projected_z):
+            plt.plot(x, z, 'k.', markersize=1)
+
+        for cx in corner_positions:
+            plt.axvline(x=cx, color='r', linestyle='--', linewidth=1)
+
+        for (_, start, end) in gap_regions:
+            plt.axvspan(start, end, color='red', alpha=0.3)
+
+        plt.title("Despliegue 2D del perímetro con detección de huecos y refinamiento de esquinas")
+        plt.xlabel("Distancia a lo largo del perímetro (m)")
+        plt.ylabel("Altura (Z) en metros")
+        plt.ylim(0, np.max(pc_points[:, 2]) + 0.5)
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show(block=False)
+
+        return nueva_polilinea
 
     def initialize_application(self):
         """Inicializa la aplicación PyQt y los widgets."""
@@ -1330,7 +1606,7 @@ class SpecificWorker(GenericWorker):
 
             # Plot as large red points
             corners_plot.setData(
-                pos=corner_coords,
+                pos=corner_coords / 1000,
                 color=(1, 1, 0, 1),  # Red
                 size=10,  # Larger size
                 pxMode=True  # Size in screen pixels
@@ -1364,9 +1640,9 @@ class SpecificWorker(GenericWorker):
             # print("Measured corners", corner_coords)
             # Plot as large red points
             corners_plot.setData(
-                pos=measured_corners,
+                pos=measured_corners / 1000,
                 color=(1, 0, 0, 1),  # Red
-                size=20,  # Larger size
+                size=10,  # Larger size
                 pxMode=True  # Size in screen pixels
             )
 
@@ -1637,13 +1913,13 @@ class SpecificWorker(GenericWorker):
 
         # Get RT pose of robot
         robot_node = self.g.get_node(ROBOT_NAME)
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         robot_rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
         # print("POSE", robot_rt_edge.attrs["rt_translation"].value)
         # rt_edge_timestamps = robot_rt_edge.attrs["rt_timestamps"].value
         # print("Robot RT edge timestamps:", rt_edge_timestamps)
         robot_rt_edge_stamped_mat = self.rt_api.get_edge_RT_as_stamped_rtmat(robot_rt_edge,
-                                                                   self.act_segmented_pointcloud_timestamp)
+                                                                             self.act_segmented_pointcloud_timestamp)
         robot_rt_edge_mat = robot_rt_edge_stamped_mat[1]
 
         # print("Robot DSR pose at timestamp", self.act_segmented_pointcloud_timestamp, robot_rt_edge_stamped_mat)
@@ -1657,7 +1933,8 @@ class SpecificWorker(GenericWorker):
         nominal_corners = nominal_corners[:-1]
 
         # Calcular la matriz de costos (asociación) usando la distancia euclidiana entre cada par
-        cost_matrix = np.linalg.norm(nominal_corners[:, np.newaxis, :] - observed_corners_transformed[np.newaxis, :, :], axis=2)
+        cost_matrix = np.linalg.norm(nominal_corners[:, np.newaxis, :] - observed_corners_transformed[np.newaxis, :, :],
+                                     axis=2)
 
         # print("Matriz de asociación (costos):")
         # print(cost_matrix)
@@ -1678,51 +1955,45 @@ class SpecificWorker(GenericWorker):
         return matched_points
 
     def has_support(self, p1, p2, pc2d_points):
-        """
-        Helper function: verifies that a segment between two points has support in the point cloud.
-        Divides the p1-p2 segment into N samples and checks if enough points are close to the cloud.
-
-        :param p1: First point of the segment
-        :param p2: Second point of the segment
-        :param pc2d_points: Point cloud in which to check for support
-        :return: Boolean indicating if the segment has enough support points
-        """
-        # Calculate distance between p1 and p2
         distance = np.linalg.norm(p2 - p1)
-
-        # Calculate number of samples needed
         N = int(distance / self.voxel_size)
-
         if N == 0:
             return False
 
-        # Generate points along the segment
         samples = np.linspace(0, 1, N)[:, None] * (p2 - p1) + p1
         support_count = 0
-
-        # Maximum allowed consecutive samples without support (to detect holes in walls)
         continuous_samples = self.MAX_WALL_HOLE_WIDTH // self.voxel_size
         samples_counter = continuous_samples
 
-        # Use Euclidean distance for each sample against all pc2d points
-        for s in samples:
+        # Filtrar puntos cercanos al segmento p1-p2 usando un bounding box UNA SOLA VEZ
+        bbox_min = np.minimum(p1, p2) - self.SUPPORT_DISTANCE_THRESHOLD
+        bbox_max = np.maximum(p1, p2) + self.SUPPORT_DISTANCE_THRESHOLD
 
+        mask = np.all((pc2d_points[:, :2] >= bbox_min) & (pc2d_points[:, :2] <= bbox_max), axis=1)
+        filtered_points = pc2d_points[mask]
+
+        # Si no hay puntos cerca del segmento, retorna temprano
+        if len(filtered_points) == 0:
+            return False
+
+        # Construir KD-Tree sobre puntos filtrados
+        tree = KDTree(filtered_points[:, :2])
+
+        # Buscar vecinos cercanos a cada muestra
+        for s in samples:
             if samples_counter <= 0:
-                # Maximum number of consecutive samples without support has been reached
                 print("Segment without support - HOLE")
                 return False
 
-            # Calculate distances between the sample and pc2d points
-            distances = np.linalg.norm(pc2d_points[:, :2] - s, axis=1)
+            # Buscar puntos dentro del umbral de distancia
+            indices = tree.query_ball_point(s, self.SUPPORT_DISTANCE_THRESHOLD)
 
-            # If any point is close enough, it's considered support
-            if np.any(distances < self.SUPPORT_DISTANCE_THRESHOLD):
+            if indices:
                 support_count += 1
                 samples_counter = continuous_samples
             else:
                 samples_counter -= 1
 
-        # Return True if the support percentage exceeds the threshold
         return support_count / N >= self.SUPPORT_PERCENTAGE_THRESHOLD
 
     def add_unique_points(self, total, actual, radius=0.01):
@@ -1773,7 +2044,7 @@ class SpecificWorker(GenericWorker):
             if affordance_node_is_active:
                 # Check affordance_node status
                 affordance_node_status = affordance_node.attrs["bt_state"].value
-                print("Act bt_status", affordance_node_status)
+                # print("Act bt_status", affordance_node_status)
                 # If affordance_node is active, was activated by scheduler. Updating
                 # bt_state to "in_progress" in order to get control
                 if affordance_node_status == "waiting":
@@ -1807,7 +2078,7 @@ class SpecificWorker(GenericWorker):
             if affordance_node_is_active:
                 # Check affordance_node status
                 affordance_node_status = affordance_node.attrs["bt_state"].value
-                print("Act bt_status", affordance_node_status)
+                # print("Act bt_status", affordance_node_status)
                 # If affordance_node is active, was activated by scheduler. Updating
                 # bt_state to "in_progress" in order to get control
                 if affordance_node_status == "waiting":
@@ -1844,11 +2115,10 @@ class SpecificWorker(GenericWorker):
             self.g.insert_or_assign_edge(intention_edge)
             self.intention_active = True
 
-
     def monitor_stabilizing_intention(self):
         # Get intention node from robot to room
         robot_node = self.g.get_node(ROBOT_NAME)
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         intention_edge = self.g.get_edge(robot_node.id, room_node.id, "has_intention")
         if intention_edge:
             if intention_edge.attrs["state"].value == "completed":
@@ -1873,7 +2143,7 @@ class SpecificWorker(GenericWorker):
             intention_edge = Edge(current_room, robot_node.id, "has_intention", self.agent_id)
             intention_edge.attrs["active"] = Attribute(True, self.agent_id)
             intention_edge.attrs["state"] = Attribute("waiting", self.agent_id)
-            intention_edge.attrs["offset_xyz"] = Attribute(last_target * 1000, self.agent_id)
+            intention_edge.attrs["offset_xyz"] = Attribute(last_target, self.agent_id)
             intention_edge.attrs["tolerance"] = Attribute(self.target_tolerance, self.agent_id)
             self.g.insert_or_assign_edge(intention_edge)
             self.intention_active = True
@@ -1881,7 +2151,7 @@ class SpecificWorker(GenericWorker):
     def monitor_wander_intention(self):
         # Get intention node from robot to room
         robot_node = self.g.get_node(ROBOT_NAME)
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         intention_edge = self.g.get_edge(robot_node.id, room_node.id, "has_intention")
         if intention_edge:
             if intention_edge.attrs["state"].value == "completed":
@@ -1987,9 +2257,9 @@ class SpecificWorker(GenericWorker):
         # self.vis.add_geometry(pcd_corners)
 
         # Print wall information
-        print(f"Found {len(wall_groups)} wall sections")
-        for i, (group, count) in enumerate(zip(wall_groups, wall_point_counts)):
-            print(f"Wall {i}: {len(group)} triangles, {count} explained points")
+        # print(f"Found {len(wall_groups)} wall sections")
+        # for i, (group, count) in enumerate(zip(wall_groups, wall_point_counts)):
+        # print(f"Wall {i}: {len(group)} triangles, {count} explained points")
 
         self.vis.poll_events()
         self.vis.update_renderer()
@@ -2002,15 +2272,32 @@ class SpecificWorker(GenericWorker):
         pen = QPen(Qt.blue)
         pen.setWidth(3)
         painter.setPen(pen)
-        for x, y in self.lidar_points:
-            point = self.world_to_screen(x, y)
-            painter.drawPoint(point)
+        # for x, y in self.lidar_points:
+        #     point = self.robot_to_screen(x, y)
+        #     painter.drawPoint(point)
+
+        xs = np.array([p[0] for p in self.lidar_points], dtype=float)
+        ys = np.array([p[1] for p in self.lidar_points], dtype=float)
+
+        # 2) vectoriza la conversión robot→pantalla
+        def robot_to_screen_vec(origin: QPointF, scale: float,
+                                xs: np.ndarray, ys: np.ndarray) -> [QPointF]:
+            xs_scr = origin.x() + xs * scale
+            ys_scr = origin.y() - ys * scale
+            return [QPointF(x, y) for x, y in zip(xs_scr, ys_scr)]
+
+        # 3) obtén la lista completa de QPointF
+        pts = robot_to_screen_vec(self.origin, self.scale, xs, ys)
+
+        # 4) dibújalos todos de una vez
+        painter.drawPoints(pts)
 
         # Draw target points
         pen.setColor(Qt.red)
         painter.setPen(pen)
-        for x, y in self.target_points:
-            point = self.world_to_screen(x, y)
+        for x, y in self.tf_target_points:  # ROBOCENTRIC
+            point = self.robot_to_screen(x / 1000, y / 1000)
+            print("-----------------------------POINT", point)
             painter.drawEllipse(point, 5, 5)
 
     def draw_lidar_qt(self):
@@ -2025,25 +2312,58 @@ class SpecificWorker(GenericWorker):
         """
         # Get RT pose of robot
         robot_node = self.g.get_node(ROBOT_NAME)
-        room_node = self.g.get_node("room")
+        room_node = self.g.get_node("room_" + str(self.room_id))
         robot_rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
         robot_rt_edge_timestamp = self.rt_api.get_edge_RT_as_rtmat(robot_rt_edge,
                                                                    self.act_segmented_pointcloud_timestamp)
-        # Transform lidar points to room coordinates
-        homogeneus = np.array(
-            [[corner[0]*1000, corner[1]*1000, 0, 1] for corner in lidar_points])
-        transformed_points = np.dot(robot_rt_edge_timestamp, homogeneus.T).T[:, :2]
-        return transformed_points
 
-    def world_to_screen(self, x, y):
+        robot_rt_edge_timestamp[0, 3] /= 1000  # Convert to mm
+        robot_rt_edge_timestamp[1, 3] /= 1000  # Convert to meters
+
+        # Transform lidar points to room coordinates
+        homogeneus = np.column_stack([lidar_points, np.ones(lidar_points.shape[0])])
+        transformed_hom = homogeneus @ robot_rt_edge_timestamp.T  # -> shape: (N, 4)
+        transformed_points = transformed_hom[:, :2]  # solo X, Y
+        transformed_points = np.dot(robot_rt_edge_timestamp, homogeneus.T).T[:, :2]
+        #
+        return transformed_points * 1000
+
+    def transform_point_from_robot_to_room(self, point):
+        """
+        Transform lidar points to room coordinates using the robot pose.
+        :param lidar_points: Lidar points in robot coordinates
+        :return: Transformed points in room coordinates
+        """
+        # Get RT pose of robot
+        robot_node = self.g.get_node(ROBOT_NAME)
+        room_node = self.g.get_node("room" + str(self.room_id))
+        robot_rt_edge = self.rt_api.get_edge_RT(robot_node.id, room_node)
+
+        robot_rt_edge_timestamp = self.rt_api.get_edge_RT_as_rtmat(robot_rt_edge,
+                                                                   self.act_segmented_pointcloud_timestamp)
+
+        robot_rt_edge_timestamp[0, 3] /= 1000  # Convert to mm
+        robot_rt_edge_timestamp[1, 3] /= 1000  # Convert to meters
+
+        # Transform lidar points to room coordinates
+        homogeneus = np.array([[point[0], point[1], 0, 1]])
+        transformed_hom = homogeneus @ robot_rt_edge_timestamp.T  # -> shape: (N, 4)
+        transformed_point = np.dot(robot_rt_edge_timestamp, homogeneus.T).T[:, :2]
+        # Get only X, Y
+        transformed_point = transformed_point[:, :2] * 1000  # Convert to mm
+        # Print "coordinate transformed from robot to room", transformed_point
+        print("Coordinate transformed from robot", point, "to room", transformed_point)
+        return transformed_point
+
+    def robot_to_screen(self, x, y):
         """Convert world (meters) to screen (pixels)."""
         return QPointF(self.origin.x() + x * self.scale,
                        self.origin.y() - y * self.scale)
 
-    def screen_to_world(self, px, py):
+    def screen_to_robot(self, px, py):
         """Convert screen (pixels) to world (meters)."""
-        return ((px - self.origin.x()) / self.scale,
-                -(py - self.origin.y()) / self.scale)
+        return ((px - self.origin.x()) * 1000 / self.scale,
+                -(py - self.origin.y()) * 1000 / self.scale)
 
     def _group_wall_sections(self, o3d_mesh, face_counts):
         """
@@ -2125,40 +2445,50 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to pushLidarData method from Lidar3DPub interface
     #
     def Lidar3DPub_pushLidarData(self, lidarData):
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Lidar data timestamnp", lidarData.timestamp)
+        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ Lidar data timestamnp", lidarData.timestamp)
         self.read_deque.append(lidarData)
 
     # =============== DSR SLOTS  ================
     # =============================================
 
     def update_node_att(self, id: int, attribute_names: [str]):
-        if id == self.odometry_node_id:
-            odom_node = self.g.get_node(ROBOT_NAME)
-            if odom_node is not None:
-                odom_attrs = odom_node.attrs
-                self.odometry_queue.append([odom_attrs["robot_current_advance_speed"].value,
-                                            odom_attrs["robot_current_side_speed"].value,
-                                            odom_attrs["robot_current_angular_speed"].value,
-                                            odom_attrs["timestamp_alivetime"].value])
+        pass
 
     def update_node(self, id: int, type: str):
         # console.print(f"UPDATE NODE: {id} {type}", style='green')
         pass
 
     def delete_node(self, id: int):
-        # console.print(f"DELETE NODE:: {id} ", style='green')
         pass
 
     def update_edge(self, fr: int, to: int, type: str):
-        # console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        if (type == "exit"):
+            print("######### EXIT EDGE CREATED #########")
+            #     get attrib connected_room_name from "topticaode
+            exit_node = self.g.get_node(to)
+            # if get attrib "connected_room_name" from exit_node has value
+            if "connected_room_name" in exit_node.attrs:
+
+                connected_room_name = exit_node.attrs["connected_room_name"].value
+                print(f"Exit edge from {fr} to {to} connected to room: {connected_room_name}")
+                # Knowed room
+                self.to_known_room = True
+                self.state = "change_room"
+            else:
+                print(f"Exit edge from {fr} to {to} has no connected room")
+                self.to_known_room = False
+                self.state = "exit_room"
+                self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
         pass
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
-        # console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
         pass
 
     def delete_edge(self, fr: int, to: int, type: str):
-        # console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
-        pass
+        if type == "current":
+            print("Deleting current edge from robot to room")
+            if not self.to_known_room:
+                self.room_id += 1
+                self.state = "finding_room"
 
 
