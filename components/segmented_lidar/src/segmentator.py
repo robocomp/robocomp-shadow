@@ -8,7 +8,7 @@ from cupyx.scipy.ndimage import binary_dilation
 class Segmentator:
     def __init__(self):
 
-        self.model = MMSegInferencer(model="maskformer_swin-t_upernet_8xb2-160k_ade20k-512x512", device="cuda")
+        self.model = MMSegInferencer(model="fcn_hr18s_4xb4-160k_ade20k-512x512", device="cuda")
         # Definir la paleta de colores para la segmentación semántica
         self.color_palette = np.array([
             [255, 0, 0],  # wall
@@ -318,24 +318,24 @@ class Segmentator:
 
         # Create valid mask (non-zero points)
         # valid_mask = cp.any(points != 0, axis=1)  # Find non-zero XYZ points
-        valid_mask = cp.any(points != 0, axis=1) & (labels.squeeze() != 255)
+        valid_mask = np.any(points != 0, axis=1) & (labels.squeeze() != 255)
 
         # Apply mask
         filtered_points = points[valid_mask]  # Shape: (M, 3), M <= 921600
         filtered_labels = labels[valid_mask]  # Shape: (M, 1)
 
         # Combine points and labels
-        result = cp.hstack([filtered_points, filtered_labels])
+        result = np.hstack([filtered_points, filtered_labels])
 
         # Convert back to numpy if needed (remove if you want to keep results on GPU)
         return result
 
     def process_frame(self, rgb_frame, depth_frame, img_timestamp):
         result = self.model(rgb_frame, return_datasamples=True)
-        segmented_image = cp.asarray(result.pred_sem_seg.data)  # Skip CPU transfer, directly to GPU
+        segmented_image = result.pred_sem_seg.data.cpu().numpy()
         if segmented_image.ndim == 3:
             segmented_image = segmented_image.squeeze(0)  # Now shape [H, W] on GPU
-        segmented_image = self.add_zero_borders_to_segmentation_gpu(segmented_image, 15)
+        # segmented_image = self.add_zero_borders_to_segmentation_gpu(segmented_image, 15)
         pointcloud = self.extract_points_and_labels_cupy(depth_frame, segmented_image)
         return pointcloud, segmented_image
 

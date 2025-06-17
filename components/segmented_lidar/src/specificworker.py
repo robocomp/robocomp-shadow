@@ -18,14 +18,13 @@
 #    You should have received a copy of the GNU General Public License
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
-
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
-import src.segmentator as segmentator
+from src.segmentator import Segmentator
 import cv2
 import numpy as np
 import cupy as cp
@@ -36,6 +35,10 @@ from collections import deque
 import time
 import sys
 from threading import Thread, Event
+
+from mmseg.apis import inference_model, init_model, show_result_pyplot, MMSegInferencer
+import shutil
+import csv
 
 sys.path.append('/opt/robocomp/lib')
 
@@ -55,21 +58,20 @@ class SpecificWorker(GenericWorker):
         if startup_check:
             self.startup_check()
         else:
+            #self.model_performance_testing()
+
             self.read_queue = deque(maxlen=1)
             self.odometry_queue = deque(maxlen=15)
             self.pointcloud_queue = deque(maxlen=5)
 
             # ============== SEGMENTATION ==================
-            self.segmentator = segmentator.Segmentator()
+            self.segmentator = Segmentator()
 
-            self.last_rgbd_timestamp_thread = 0
+            self.timestamp = 0
 
             self.event = Event()
-            self.thread_period = 250
-            self.image_read_thread = Thread(target=self.get_rgbd, args=["", self.event],
-                                            name="rgb_read_queue", daemon=True)
-            self.image_read_thread.start()
-
+            self.thread_period = 1000
+            
             self.integrate_odometry = False
 
             self.timer.timeout.connect(self.compute)
@@ -84,44 +86,71 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        if self.read_queue:
-            start = time.time()
-            rgb, depth, timestamp = self.read_queue.pop()
-            points, mask = self.segmentator.process_frame(rgb, depth, timestamp)
+
+        try:
+            image = self.camera360rgbd_proxy.getROI(-1,-1,-1,600,-1,600)
+            if image.width / image.height > 4:
+                print("Wrong image aspect ratio")
+                # event.wait(self.thread_period / 1000)
+                return
+            if image.alivetime == self.timestamp:
+                print("No new image")
+                return
+            rgb = np.frombuffer(image.rgb, dtype=np.uint8).reshape((image.height, image.width, 3))
+
+            depth = np.frombuffer(image.depth, dtype=np.float32).reshape((image.height, image.width, 3))
+
+            self.timestamp = image.alivetime
+            points, mask = self.segmentator.process_frame(rgb, depth, self.timestamp)
             if self.integrate_odometry:
                 # # From self.odometry_queue, create a copy and search odometry values between now and image timestamp. Iterate in a reverse way until finding a timestamp lower than the image timestamp
                 odometry = cp.array(self.odometry_queue.copy())
-                odometry_interval = odometry[odometry[:, 3] > timestamp]
+                odometry_interval = odometry[odometry[:, 3] > self.timestamp]
                 points = self.integrate_odometry_to_pointcloud(odometry_interval, points)
 
-            lidar_data = self.to_lidar_data(points.get(), timestamp)
+            lidar_data = self.to_lidar_data(points, self.timestamp)
             self.lidar3dpub_proxy.pushLidarData(lidar_data)
-            # image = self.segmentator.mask_to_color(mask.get())
-            # cv2.imshow("Segmentation", image)
-            # cv2.waitKey(1)
-            print(f"Total time: {time.time() - start}")
+            #image = self.segmentator.mask_to_color(mask.get())
+            #cv2.imshow("Segmentation", image)
+            #cv2.waitKey(1)
+            
+        except Ice.Exception as e:
+            print(e, "Error communicating with CameraRGBDSimple")
+
 
     def get_rgbd(self, camera_name: str, event: Event):
         while not event.is_set():
             try:
                 start = time.time()
+                print("try timestamp",start)
                 image = self.camera360rgbd_proxy.getROI(-1,-1,-1,600,-1,600)
                 if image.width / image.height > 4:
                     print("Wrong image aspect ratio")
                     # event.wait(self.thread_period / 1000)
+                    expended = time.time() - start
+                    print("expended", expended, "wait", (self.thread_period / 1000) - expended )
+                    event.wait((self.thread_period / 1000) - expended)
                     continue
                 if image.alivetime == self.last_rgbd_timestamp_thread:
                     print("No new image")
                     # event.wait(self.thread_period / 1000)
+                    expended = time.time() - start
+                    print("expended", expended, "wait", (self.thread_period / 1000) - expended )
+                    event.wait((self.thread_period / 1000) - expended)
                     continue
                 rgb_frame = np.frombuffer(image.rgb, dtype=np.uint8).reshape((image.height, image.width, 3))
+
                 depth_frame = cp.frombuffer(image.depth, dtype=cp.float32).reshape((image.height, image.width, 3))
                 self.read_queue.append([rgb_frame, depth_frame, image.alivetime])
                 self.last_rgbd_timestamp_thread = image.alivetime
                 expended = time.time() - start
+                print("expended", expended, "wait", (self.thread_period / 1000) - expended )
                 event.wait((self.thread_period / 1000) - expended)
             except Ice.Exception as e:
                 print(e, "Error communicating with CameraRGBDSimple")
+                expended = time.time() - start
+                print("expended", expended, "wait", (self.thread_period / 1000) - expended )
+                event.wait((self.thread_period / 1000) - expended)
 
     def integrate_odometry_to_pointcloud(self, odometry_list, pointcloud):
 
@@ -171,6 +200,40 @@ class SpecificWorker(GenericWorker):
         lidar_data = ifaces.RoboCompLidar3D.TDataCategory(XArray=x_array, YArray=y_array, ZArray=z_array, CategoriesArray=seg_array, period=100, timestamp=timestamp)
         return lidar_data
 
+    def model_performance_testing(self):
+        models = MMSegInferencer.list_models('mmseg')
+        # Write to CSV
+        with open('model_results.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Model Name", "Inference Time (s)"])  # Header
+
+            for i in models:
+                if "ade20k" in i:
+                    print(i)
+                    # if not os.path.isdir("images/"+i):
+                    mean_time = 0
+                    try:
+                        inferencer = MMSegInferencer(model=i, device="cuda")
+                        for j in range(5):
+                            start = time.time()
+                            image = self.camera360rgbd_proxy.getROI(-1, -1, -1, 600, -1, 600)
+                            rgb = np.frombuffer(image.rgb, dtype=np.uint8).reshape((image.height, image.width, 3))
+                            result = inferencer(rgb, return_datasamples=True)
+                            print(result)
+                            print(i, "- Expended time", time.time() - start)
+                            if j > 0:
+                                mean_time += (time.time() - start)
+                        print(i, "mean time:", mean_time / 4)
+                        writer.writerow([i, mean_time / 4])
+                        try:
+                            shutil.rmtree("/home/robolab/.cache/torch/hub/checkpoints")
+                        except:
+                            print("Folder deleted yet")
+                    except Exception as e:
+                        print(e)
+                        continue
+        exit(0)
+
     def startup_check(self):
         print(f"Testing RoboCompCamera360RGBD.TRoi from ifaces.RoboCompCamera360RGBD")
         test = ifaces.RoboCompCamera360RGBD.TRoi()
@@ -182,8 +245,6 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompLidar3D.TDataImage()
         print(f"Testing RoboCompLidar3D.TData from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TData()
-        print(f"Testing RoboCompLidar3D.TDataCategory from ifaces.RoboCompLidar3D")
-        test = ifaces.RoboCompLidar3D.TDataCategory()
         QTimer.singleShot(200, QApplication.instance().quit)
 
     # =============== Methods for Component SubscribesTo ================
@@ -265,23 +326,22 @@ class SpecificWorker(GenericWorker):
         return ret
 
     ######################
-    # From the RoboCompCamera360RGBD you can call this methods:
-    # RoboCompCamera360RGBD.TRGBD self.camera360rgbd_proxy.getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
-
-    ######################
-    # From the RoboCompCamera360RGBD you can use this types:
-    # ifaces.RoboCompCamera360RGBD.TRoi
-    # ifaces.RoboCompCamera360RGBD.TRGBD
-
-    ######################
     # From the RoboCompLidar3DPub you can publish calling this methods:
-    # RoboCompLidar3DPub.void self.lidar3dpub_proxy.pushLidarData(RoboCompLidar3D.TDataCategory lidarData)
+    # self.lidar3dpub_proxy.pushLidarData(...)
 
     ######################
     # From the RoboCompLidar3D you can use this types:
-    # ifaces.RoboCompLidar3D.TPoint
-    # ifaces.RoboCompLidar3D.TDataImage
-    # ifaces.RoboCompLidar3D.TData
-    # ifaces.RoboCompLidar3D.TDataCategory
+    # RoboCompLidar3D.TPoint
+    # RoboCompLidar3D.TDataImage
+    # RoboCompLidar3D.TData
+    # RoboCompLidar3D.TDataCategory
 
+    ######################
+    # From the RoboCompCamera360RGBD you can call this methods:
+    # self.camera360rgbd_proxy.getROI(...)
+
+    ######################
+    # From the RoboCompCamera360RGBD you can use this types:
+    # RoboCompCamera360RGBD.TRoi
+    # RoboCompCamera360RGBD.TRGBD
 
