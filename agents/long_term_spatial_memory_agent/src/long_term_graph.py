@@ -328,6 +328,9 @@ class LongTermGraph:
     def draw_room(self, room_name, room_polygon, current=False):
         """ Draws the room polygon """
 
+        for point in room_polygon:
+            print("Point", point.x(), point.y())
+
         # Get corner points from the polygon
         x_coords = [point.x() for point in room_polygon]
         y_coords = [point.y() for point in room_polygon]

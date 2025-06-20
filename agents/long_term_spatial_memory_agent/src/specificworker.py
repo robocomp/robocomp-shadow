@@ -21,6 +21,7 @@
 import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
+from nbclient.client import timestamp
 from rich.console import Console
 from genericworker import *
 import igraph as ig
@@ -34,7 +35,7 @@ import subprocess
 from collections import deque
 import json
 
-from long_term_graph import LongTermGraph
+from src.long_term_graph import LongTermGraph
 
 import cv2
 
@@ -50,13 +51,9 @@ except:
 from pydsr import *
 
 class SpecificWorker(GenericWorker):
-    def __init__(self, proxy_map, startup_check=False):
-        super(SpecificWorker, self).__init__(proxy_map)
-        self.Period = 500
-
-        # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
-        self.agent_id = 13
-        self.g = DSRGraph(0, "LongTermSpatialMemory_agent", self.agent_id)
+    def __init__(self, proxy_map, configData, startup_check=False):
+        super(SpecificWorker, self).__init__(proxy_map, configData)
+        self.Period = configData["Period"]["Compute"]
 
         if startup_check:
             self.startup_check()
@@ -86,7 +83,8 @@ class SpecificWorker(GenericWorker):
 
             # Graph variables
             self.vertex_size = 0
-            self.not_required_attrs = ["parent", "timestamp_alivetime", "timestamp_creation", "rt", "valid", "obj_checked", "name", "id"]
+            self.not_required_attrs = ["parent", "timestamp_creation", "rt", "valid", "name", "id"]
+            self.boolean_attrs = ["obj_checked", "active", "current", "measured"]
 
             self.last_save_time = time.time()
             # Global map variables
@@ -96,7 +94,7 @@ class SpecificWorker(GenericWorker):
                 # Draw graph from file
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
-                g_map = self.long_term_graph.compute_metric_map("room_1")
+                g_map = self.long_term_graph.compute_metric_map("room_0") # WARNING: The first room is always 0 (global RS origin)
                 self.long_term_graph.draw_metric_map(g_map)
                 self.initialize_room_from_igraph()
                 self.update_robot_pose_in_igraph()
@@ -123,8 +121,9 @@ class SpecificWorker(GenericWorker):
             if len(current_room_nodes) == 0 and len(room_nodes) == 1:
                 if room_nodes[0].attrs["obj_checked"].value == True:
                     print("Room node exists but no current edge. Setting as current")
-                    if not "measured" in room_nodes[0].name:
-                        self.insert_current_edge(room_nodes[0].id)
+                    # if not "measured" in room_nodes[0].name:
+                    # if room_nodes[0].attrs["obj_checked"].value:
+                    self.insert_current_edge(room_nodes[0].id)
 
             self.pending_doors_to_stabilize = deque(maxlen=10)
 
@@ -132,7 +131,7 @@ class SpecificWorker(GenericWorker):
             self.timer.start(self.Period)
 
             try:
-                # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+                signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
                 signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
                 # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
                 signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
@@ -163,9 +162,10 @@ class SpecificWorker(GenericWorker):
         # - Read entrance door node and add an attribute other_side_door with the name of the exit door in the new room
     @QtCore.Slot()
     def compute(self):
+        print("------------------- ACT STATE", self.state, "-------------------")
         # Exectue function self.update_robot_pose_in_igraph each second
-        if time.time() - self.last_save_time > 1:
-            self.update_robot_pose_in_igraph()
+        # if time.time() - self.last_save_time > 1:
+        #     self.update_robot_pose_in_igraph()
 
         if self.testing:
             # # Get room nodes number in igraph
@@ -188,14 +188,14 @@ class SpecificWorker(GenericWorker):
 
                         # For each room, insert an attribute with the room center in the global reference system
                         for room in dict["rooms"]:
-                            room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", room["name"])
+                            room_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_0", room["name"])
                             print("ROOM CENTER POSE VALUE", room_center)
                             room["global_center"] = (room_center[0], room_center[1])
                             if (2 * math.pi/6)  < abs(room_center[2]) < (4*math.pi/6):
                                 room["x"], room["y"] = room["y"], room["x"]
                         dict["doors"] = [{"name" : door["name"], "width" : door["width"], "room_id" : door["room_id"], "other_side_door_name" : door["other_side_door_name"], "connected_room_name" : door["connected_room_name"]} for door in self.long_term_graph.g.vs.select(type_eq="door")]
                         for door in dict["doors"]:
-                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_1", door["name"])
+                            door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64), "room_0", door["name"])
                             door["global_center"] = (door_center[0], door_center[1])
                             # Divide door name by "_" and get the second and the forth element to get the wall_id
                             wall_id = "wall_" + door["name"].split("_")[1] + "_" + door["name"].split("_")[3]
@@ -218,16 +218,17 @@ class SpecificWorker(GenericWorker):
                 pass
 
         # try:
-        #     path_to_room_1 = self.long_term_graph.get_path_to_target("room_1")
+        #     path_to_room_0 = self.long_term_graph.get_path_to_target("room_0")
         #     # Print element names in the path
         #     print("Path to room 1:")
-        #     for element in path_to_room_1:
+        #     for element in path_to_room_0:
         #         print("-", self.long_term_graph.g.vs[element]["name"])
         # except Exception as e:
         #     print(e)
 
         # Check igraph graph to check doors that are the same in the graph from different rooms
         self.check_igraph_similar_doors()
+
         match self.state:
             case "idle":
                 self.idle()
@@ -261,22 +262,18 @@ class SpecificWorker(GenericWorker):
 
         # Get room node from graph
         room_node = self.g.get_node(actual_room_igraph["name"])
-        new_edge = Edge(self.robot_id, room_node.id, "RT", self.agent_id)
-        # Get igraph edge from room to robot
+        robot_dsr_node = self.g.get_node(self.robot_id)
         robot_rt_igraph = self.long_term_graph.g.es.find(_source=actual_room_igraph.index, _target=robot_node.index)
         # Get "translation" and "rotation" attributes
-        rt_robot = robot_rt_igraph["traslation"]
-        door_rotation = robot_rt_igraph["rotation"]
-        new_edge.attrs["rt_translation"] = Attribute(np.array(rt_robot, dtype=np.float32), self.agent_id)
-        # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
+        robot_translation = robot_rt_igraph["traslation"]
+        robot_rotation = robot_rt_igraph["rotation"]
+        # # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
+        for i in range(30):
+            self.rt_api.insert_or_assign_edge_RT(robot_dsr_node, room_node.id, np.array(robot_translation, dtype=np.float32),
+                                                 np.array(robot_rotation, dtype=np.float32), np.uint64(time.time() * 1000)) # TODO: CUIDAO CON EL TIMESTAMP!!!!
 
-        new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
-            np.array(door_rotation, dtype=np.float32),
-            self.agent_id)
-        self.g.insert_or_assign_edge(new_edge)
-        robot_node = self.g.get_node(self.robot_name)
         # Modify parent attribute of robot node
-        robot_node.attrs["parent"] = Attribute(room_node.id, self.agent_id)
+        robot_dsr_node.attrs["parent"] = Attribute(room_node.id, self.agent_id)
         self.g.update_node(robot_node)
 
     def update_robot_pose_in_igraph(self):
@@ -293,15 +290,15 @@ class SpecificWorker(GenericWorker):
                     robot_node = self.long_term_graph.g.vs.find(name=self.robot_name)
                     # Get robot antecessor
                     robot_node_neighbors = self.long_term_graph.g.neighbors(robot_node)
-                    print("Robot node neighbors", robot_node_neighbors)
+                    # print("Robot node neighbors", robot_node_neighbors)
                     # Get first value and get node
                     actual_room_igraph = self.long_term_graph.g.vs.find(robot_node_neighbors[0])
 
                     try:
                         robot_rt_igraph = self.long_term_graph.g.es.find(_source=actual_room_igraph.index, _target=robot_node.index)
                         # Print rt and rotation values
-                        print("RT edge from room to robot", actual_room_igraph["name"], robot_node["name"])
-                        print("Robot RT", robot_rt_igraph["traslation"], robot_rt_igraph["rotation"])
+                        # print("RT edge from room to robot", actual_room_igraph["name"], robot_node["name"])
+                        # print("Robot RT", robot_rt_igraph["traslation"], robot_rt_igraph["rotation"])
                         if actual_room_igraph["name"] != actual_room_node.name:
                             print("Robot node is not in the same room as the robot")
                             # Get new room node
@@ -334,7 +331,7 @@ class SpecificWorker(GenericWorker):
 
     def idle(self):
         # Check if there is a node of type aff_cross and it has it's valid attribute to true using comprehension list
-        aff_cross_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value == True]
+        aff_cross_nodes = [node for node in self.g.get_nodes_by_type("affordance") if node.attrs["active"].value == True and "cross" in node.name]
         # Check if not empty
         if len(aff_cross_nodes) == 0 or len(aff_cross_nodes) > 1:
             # print("No aff_cross nodes with valid attribute or more than one valid affordance")
@@ -346,6 +343,7 @@ class SpecificWorker(GenericWorker):
             if len(current_edges) == 1 and to_stabilize_doors == []:
                 # From current edge, get the origin of the edge to get room node id
                 self.room_exit_door_id = current_edges[0].origin
+                print("Current room exit door id", self.room_exit_door_id)
                 exit_room_node = self.g.get_node(self.room_exit_door_id)
                 # Store DSR graph in igraph
                 self.store_graph()
@@ -366,7 +364,7 @@ class SpecificWorker(GenericWorker):
                 # Draw graph from file
                 self.long_term_graph.draw_graph(False)
                 # Compute metric map and draw it
-                g_map = self.long_term_graph.compute_metric_map("room_1")
+                g_map = self.long_term_graph.compute_metric_map("room_0") # WARNING: The first room is always 0 (global RS origin)
                 self.long_term_graph.draw_metric_map(g_map, exit_room_node.name)
                 # Get affordance node
                 self.affordance_node_active_id = aff_cross_nodes[0].id
@@ -380,16 +378,24 @@ class SpecificWorker(GenericWorker):
                     # global reference system
                     self.exit_door_id = affordance_node.attrs["parent"].value
                     exit_door_node = self.g.get_node(self.exit_door_id)
+
+                    # door_pose_in_room = self.inner_api.transform(exit_room_node.name,
+                    #                                     exit_door_node.name, int(time.time()*1000))
+
+                    door_pose_in_room = self.transform_pose(exit_door_node.name, exit_room_node.name,int(time.time()*1000))[1]
+                    print("DEBUG: Exit door pose in room reference", door_pose_in_room)
+
+
                     final_robot_affordance_pose = self.inner_api.transform(exit_room_node.name,
                                                         np.array([0., 1000., 0.], dtype=np.float64),
-                                                        exit_door_node.name)
+                                                        exit_door_node.name, int(time.time()*1000))
                     wall_room_rt = self.rt_api.get_edge_RT(exit_room_node, exit_door_node.attrs["parent"].value)
                     wall_room_rotation = wall_room_rt.attrs["rt_rotation_euler_xyz"].value
                     robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], wall_room_rotation[2]]
 
                     # Transform final affordance pose to global reference
                     print("Final affordance pose in room reference", robot_pose)
-                    final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(robot_pose, "room_1",
+                    final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(robot_pose, "room_0",
                     exit_room_node.name)
 
                     print("Final affordance pose in global reference", final_robot_affordance_pose_in_room_reference)
@@ -405,40 +411,47 @@ class SpecificWorker(GenericWorker):
                     # In case the robot is going to cross to a known room...
                     if other_side_room != None:
                         # Get exit door center pose
-                        exit_door_pose = self.inner_api.transform(exit_room_node.name,
-                                                                  exit_door_node.name)
-                        # Convert to np.array
-                        exit_door_pose = np.array(exit_door_pose, dtype=np.float32)
-                        print("Exit door pose", exit_door_pose)
-                        # Transform exit door pose to other_side_room reference
-                        exit_door_in_room_reference = self.long_term_graph.compute_element_pose(exit_door_pose,
-                                                                                              other_side_room,
-                                                                                              exit_room_node.name)
+                        # exit_door_pose = self.inner_api.transform(exit_room_node.name,
+                        #                                           exit_door_node.name, int(time.time()*1000))
 
-                        self.robot_exit_pose = self.long_term_graph.compute_element_pose(robot_pose,
-                                                                                              other_side_room,
-                                                                                              exit_room_node.name)
-                        # Get door nodes connected to room other_side_room
-                        doors = self.long_term_graph.get_room_objects_transform_matrices_with_name(other_side_room, "door")
-                        closer_pose = ("", np.finfo(np.float32).max) # Variable to set the closest door to the exit one
-                        # Iterate over known room doors
-                        for i in doors:
-                            # Get difference pose between robot and door
-                            door_pose = i[1].t
-                            pose_difference = math.sqrt((exit_door_in_room_reference[0] - door_pose[0]) ** 2 + (
-                                    exit_door_in_room_reference[1] - door_pose[1]) ** 2)
-                            if pose_difference < closer_pose[1] and pose_difference < 1200:
-                                closer_pose = (i[0], pose_difference)
-                        if closer_pose[0] != "":
-                            # Associate both doors data in igraph
-                            self.associate_doors((closer_pose[0], other_side_room),
-                                                 (exit_door_node.name, exit_room_node.name))
-                        # Set to the exit door DSR node the attributes of the matched door in the new room
-                        exit_door_node.attrs["other_side_door_name"] = Attribute(closer_pose[0], self.agent_id)
-                        # Set to the exit door DSR node the connected room name
-                        exit_door_node.attrs["connected_room_name"] = Attribute(other_side_room,
-                                                                                self.agent_id)
-                        self.g.update_node(exit_door_node)
+                        # cHeck if the exit door has an other_side_door_name attribute
+                        if "other_side_door_name" not in exit_door_node.attrs:
+                            exit_door_pose = self.transform_pose(exit_room_node.name,
+                                                                    exit_door_node.name,
+                                                                    int(time.time() * 1000))[1]
+                            # Convert to np.array
+                            exit_door_pose = np.array(exit_door_pose, dtype=np.float32)
+                            print("Exit door pose", exit_door_pose)
+                            # Transform exit door pose to other_side_room reference
+                            exit_door_in_room_reference = self.long_term_graph.compute_element_pose(exit_door_pose,
+                                                                                                  other_side_room,
+                                                                                                  exit_room_node.name)
+
+                            self.robot_exit_pose = self.long_term_graph.compute_element_pose(robot_pose,
+                                                                                                  other_side_room,
+                                                                                                  exit_room_node.name)
+                            # Get door nodes connected to room other_side_room
+                            doors = self.long_term_graph.get_room_objects_transform_matrices_with_name(other_side_room, "door")
+                            closer_pose = ("", np.finfo(np.float32).max) # Variable to set the closest door to the exit one
+                            # Iterate over known room doors
+                            for i in doors:
+                                # Get difference pose between robot and door
+                                door_pose = i[1].t
+                                pose_difference = math.sqrt((exit_door_in_room_reference[0] - door_pose[0]) ** 2 + (
+                                        exit_door_in_room_reference[1] - door_pose[1]) ** 2)
+                                if pose_difference < closer_pose[1] and pose_difference < 1200:
+                                    closer_pose = (i[0], pose_difference)
+                            if closer_pose[0] != "":
+                                # Associate both doors data in igraph
+                                self.associate_doors((closer_pose[0], other_side_room),
+                                                     (exit_door_node.name, exit_room_node.name))
+                            # Set to the exit door DSR node the attributes of the matched door in the new room
+                            exit_door_node.attrs["other_side_door_name"] = Attribute(closer_pose[0], self.agent_id)
+                            # Set to the exit door DSR node the connected room name
+                            exit_door_node.attrs["connected_room_name"] = Attribute(other_side_room,
+                                                                                    self.agent_id)
+                            self.g.update_node(exit_door_node)
+
                     self.state = "crossing"
                     print("CROSSING")
             else:
@@ -453,7 +466,7 @@ class SpecificWorker(GenericWorker):
             for door in door_nodes:
                 # print("Door name", door["name"])
                 door_center = self.long_term_graph.compute_element_pose(np.array([0., 0., 0.], dtype=np.float64),
-                                                                            "room_1", door["name"])
+                                                                            "room_0", door["name"])
                 # Iterate over all doors
                 for door2 in door_nodes:
                     # If the doors are different
@@ -463,7 +476,7 @@ class SpecificWorker(GenericWorker):
                             # print("No other_side_door_name attribute in door", door2["name"])
                             door2_center = self.long_term_graph.compute_element_pose(
                                 np.array([0., 0., 0.], dtype=np.float64),
-                                "room_1", door2["name"])
+                                "room_0", door2["name"])
                             # Get the distance between the doors
                             distance = math.sqrt(
                                 (door_center[0] - door2_center[0]) ** 2 + (door_center[1] - door2_center[1]) ** 2)
@@ -484,26 +497,79 @@ class SpecificWorker(GenericWorker):
         # Get parent node of affordance node
         affordance_node = self.g.get_node(self.affordance_node_active_id)
         if not affordance_node.attrs["parent"].value:
-            # print("Affordance node has no parent")
+            print("Affordance node has no parent")
             return
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             exit_door_id_node = self.g.get_node(self.exit_door_id)
+            robot_node = self.g.get_node(200)
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
+            # Remove RT edge between room and robot
+            root_node = self.g.get_node("root")
+
+
+            # TODO: set rt_robot
+            # Get self.exit_door_id pose in the room reference system
+            exit_door_node = self.g.get_node(self.exit_door_id)
+            # Get robot rt pose
+            exit_room_node = self.g.get_node(self.room_exit_door_id)
+
+
+            robot_pose = self.rt_api.get_edge_RT(exit_room_node, robot_node.id)
+
+            # print("Robot pose in room reference", robot_pose.attrs["rt_translation"].value, robot_pose.attrs["rt_rotation_euler_xyz"].value)
+            # Transform robot pose to exit_door_node reference system
+            robot_to_door_matrix = self.inner_api.get_transformation_matrix(exit_door_node.name, robot_node.name, np.uint64(time.time() * 1000))
+            print("Robot to door matrix", robot_to_door_matrix)
+
+
+            # compose self.robot_exit_pose
+            self.robot_exit_pose_matrix = robot_to_door_matrix
+
+            # Transform robot pose to exit_door_node reference system using the transformation matrix
+            # rt_robot = np.dot(robot_room_to_door_matrix, np.array([robot_pose.attrs["rt_translation"].value[0],
+            #                                                        robot_pose.attrs["rt_translation"].value[1], 0.0, 1.0]))
+            # Print RT_robot
+
+
+
+            self.g.delete_edge(self.room_exit_door_id, robot_node.id, "RT")
+
+
             if exit_door_id_node:
                 try:
                     if exit_door_id_node.attrs["connected_room_name"].value:
                         self.state = "known_room"
                         print("INSERTING KNOWN ROOM")
                 except:
+                    robot_node.attrs["level"].value = root_node.attrs["level"].value + 1
+                    robot_node.attrs["parent"].value = root_node.id
+                    self.g.update_node(robot_node)
+
+                    # for i in range(30):
+                    #     self.rt_api.insert_or_assign_edge_RT(root_node, 200, np.array([0, 0, 0], dtype=np.float32),
+                    #                                          np.array([0, 0, 0], dtype=np.float32),
+                    #                                          np.uint64(time.time() * 1000))
+
+                    rt_edge = Edge(200, root_node.id, "RT", self.agent_id)
+                    rt_edge.attrs["rt_translation"] = Attribute(
+                        np.array([0, 0, 0] * 20, dtype=np.float32),
+                        self.agent_id)
+                    rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+                        np.array([0, 0, 0] * 20, dtype=np.float32), self.agent_id)
+                    rt_edge.attrs["rt_timestamps"] = Attribute(
+                        np.array([time.time() * 1000] * 20, dtype=np.uint64), self.agent_id)
+                    self.g.insert_or_assign_edge(rt_edge)
+
                     self.state = "initializing_room"
                     print("INITIALIZING ROOM")
 
     def initializing_room(self):
 
         # Get room nodes
-        room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
+        # room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and not "measured" in node.name]
+        room_nodes = [node for node in self.g.get_nodes_by_type("room") if node.id != self.room_exit_door_id and node.attrs["obj_checked"].value]
         if len(room_nodes) == 0:
             # print("No room nodes different from the exit one found")
             return
@@ -521,6 +587,7 @@ class SpecificWorker(GenericWorker):
         # Search in self.long_term_graph.g for the node with the name of the other side door
         print("known room", other_side_room_name)
         try:
+
             # Search in self.long_term_graph.g for the node with the room_id of the other side door
             other_side_door_room_node = self.long_term_graph.g.vs.find(name=other_side_room_name)
             print("other_side_room_graph_name", other_side_door_room_node["name"])
@@ -535,8 +602,8 @@ class SpecificWorker(GenericWorker):
 
             # Delete RT edge from room node t oShadow
             self.g.delete_edge(self.room_exit_door_id, self.robot_id, "RT")
-            new_room_id = self.g.get_node(other_side_door_room_node["name"]).id
-            new_edge = Edge(self.robot_id, new_room_id, "RT", self.agent_id)
+            new_room_node = self.g.get_node(other_side_door_room_node["name"])
+            # new_edge = Edge(self.robot_id, new_room_id, "RT", self.agent_id)
             # Get new door name
             new_door_name = other_side_door_node.attrs["other_side_door_name"].value
             if new_door_name == "":
@@ -552,7 +619,7 @@ class SpecificWorker(GenericWorker):
                 # final_robot_pose = [final_robot_affordance_pose[0], final_robot_affordance_pose[1], wall_room_rotation[2]]
                 # # Transform final affordance pose to global reference
                 # final_robot_affordance_pose_in_room_reference = self.long_term_graph.compute_element_pose(
-                #     final_robot_pose, "room_1",
+                #     final_robot_pose, "room_0",
                 #     exit_room_node.name)
                 exit_robot_pose = self.robot_exit_pose
                 rt_robot = np.array([exit_robot_pose[0], exit_robot_pose[1], 0.0], dtype=np.float64)
@@ -562,7 +629,8 @@ class SpecificWorker(GenericWorker):
                 print("Going out door", new_door_name)
                 try:
                     new_door_node = self.long_term_graph.g.vs.find(name=new_door_name)
-                    rt_robot = self.inner_api.transform(other_side_door_room_node["name"], np.array([0. , -1000., 0.], dtype=np.float64), new_door_node["name"])
+
+                    rt_robot = self.inner_api.transform(other_side_door_room_node["name"], np.array([0. , -1000., 0.], dtype=np.float64), new_door_node["name"], int(time.time()*1000))
                     door_node = self.g.get_node(new_door_node["name"])
                     door_parent_id = door_node.attrs["parent"].value
                     door_parent_node = self.g.get_node(door_parent_id)
@@ -572,7 +640,7 @@ class SpecificWorker(GenericWorker):
                     rt_room_wall = self.rt_api.get_edge_RT(self.g.get_node(other_side_door_room_node["name"]),
                                                            door_parent_id)
                     # get rt_rotation_euler_xyz from rt_room_wall
-                    door_rotation = rt_room_wall.attrs["rt_rotation_euler_xyz"].value
+                    door_rotation = rt_room_wall.attrs["rt_rotation_euler_xyz"].value[:3].tolist()
                     new_z_value = (door_rotation[2] - math.pi)
                     if new_z_value > math.pi:
                         new_z_value = new_z_value - 2 * math.pi
@@ -580,26 +648,85 @@ class SpecificWorker(GenericWorker):
                         new_z_value = new_z_value + 2 * math.pi
                     door_rotation[2] = new_z_value
                     print("WALL ROTATION", door_rotation)
+
+
+
                 except:
                     print("No door node found")
                     return
 
+                self.enter_room_node_id = new_room_node.id
+                # new_edge.attrs["rt_translation"] = Attribute(np.array(rt_robot, dtype=np.float32), self.agent_id)
+                # # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
+                #
+                # new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+                #     np.array(door_rotation, dtype=np.float32),
+                #     self.agent_id)
+                # # print("FIRST ROBOT RT", rt_robot, door_rotation)
+                # self.g.insert_or_assign_edge(new_edge)
+                robot_node = self.g.get_node(self.robot_id)
+                # for i in range(30):
+                #     self.rt_api.insert_or_assign_edge_RT(new_room_node,robot_node.id,
+                #                                         np.array(rt_robot, dtype=np.float32),
+                #                                         np.array(door_rotation, dtype=np.float32)[:3], np.uint64(time.time() * 1000))
 
-            new_edge.attrs["rt_translation"] = Attribute(np.array(rt_robot, dtype=np.float32), self.agent_id)
-            # Get z rotation value and substract 180 degrees. then, keep the value between -pi and pi
 
-            new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
-                np.array(door_rotation, dtype=np.float32),
-                self.agent_id)
-            print("FIRST ROBOT RT", rt_robot, door_rotation)
-            self.g.insert_or_assign_edge(new_edge)
-            robot_node = self.g.get_node(self.robot_name)
-            # Modify parent attribute of robot node
-            robot_node.attrs["parent"] = Attribute(new_room_id, self.agent_id)
-            self.g.update_node(robot_node)
+                # Build 180 z rotate matrix
+                rotate_180_z = np.array([[np.cos(math.pi), -np.sin(math.pi), 0, 0],
+                                          [np.sin(math.pi), np.cos(math.pi), 0, 0],
+                                          [0, 0, 1, 0],
+                                          [0, 0, 0, 1]], dtype=np.float64)
 
-            # Insert current edge
-            self.insert_current_edge(new_room_id)
+                robot_to_door_matrix = np.dot(rotate_180_z, self.robot_exit_pose_matrix)
+                print("robot_to_door_matrix after 180 z rotation", robot_to_door_matrix)
+                # Get TF matrix from door
+                door_to_new_room = self.inner_api.get_transformation_matrix(other_side_door_room_node["name"],
+                                                                            new_door_node["name"],
+                                                                            int(time.time() * 1000))
+                print("door_to_new_room matrix", door_to_new_room)
+                # Builr TF matrix from self.robot_exit_pose_matrix and door_to_new_room
+                robot_to_door_matrix = np.dot(door_to_new_room, robot_to_door_matrix)
+                print("robot_to_room_matrix matrix", robot_to_door_matrix)
+
+
+
+                # Get translation & rotation from robot_to_door_matrix
+                robot_door_pose = robot_to_door_matrix[:3, 3]
+                robot_door_rotation = np.arctan2(robot_to_door_matrix[1, 0], robot_to_door_matrix[0, 0])
+                # new_z_value = (robot_door_rotation - math.pi)
+                # if new_z_value > math.pi:
+                #     new_z_value = new_z_value - 2 * math.pi
+                # elif new_z_value < -math.pi:
+                #     new_z_value = new_z_value + 2 * math.pi
+                # Print robot pose in door reference system
+
+                print("/////////////////////////////////////")
+                print("/////////////////////////////////////")
+                print("/////////////////////////////////////")
+                print("/////////////////////////////////////")
+                print("Robot pose in door reference system", robot_door_pose, robot_door_rotation)
+
+
+                rt_edge = Edge(robot_node.id, new_room_node.id, "RT", self.agent_id)
+                rt_edge.attrs["rt_translation"] = Attribute(
+                    np.array(list(robot_door_pose) * 20, dtype=np.float32),
+                    self.agent_id)
+                rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+                    np.array([0, 0, robot_door_rotation] * 20, dtype=np.float32), self.agent_id)
+                robot_last_timestamp = robot_node.attrs["timestamp_alivetime"].value
+
+                rt_edge.attrs["rt_timestamps"] = Attribute(
+                    np.array([robot_last_timestamp] * 20, dtype=np.uint64), self.agent_id)
+                self.g.insert_or_assign_edge(rt_edge)
+
+                print("Aftr inserting room -> robot RT edge")
+                print("Robot pose in room reference", rt_robot, "Door rotation", door_rotation)
+
+                # Modify parent attribute of robot node
+                robot_node.attrs["parent"] = Attribute(np.uint64(new_room_node.id), self.agent_id)
+                self.g.update_node(robot_node)
+                # # Insert current edge
+                # self.insert_current_edge(new_room_node.id)
 
 
         except Exception as e:
@@ -624,7 +751,7 @@ class SpecificWorker(GenericWorker):
                 exit_door_id = same_edges[0].destination
                 exit_door_node = self.g.get_node(exit_door_id)
 
-                print(other_side_door_node.name, exit_door_node.name)
+                print("######################## CONNECTED DOORS:", other_side_door_node.name, exit_door_node.name)
 
                 # Read exit door node and add an attribute other_side_door with the name of the entrance door in the new room
 
@@ -666,6 +793,7 @@ class SpecificWorker(GenericWorker):
         door_1_node["connected_room_name"] = door_2[1]
         door_2_node["other_side_door_name"] = door_1[0]
         door_2_node["connected_room_name"] = door_1[1]
+        print("Associated doors in igraph", door_1_node["name"], door_2_node["name"])
 
 
     def store_graph(self):
@@ -684,34 +812,70 @@ class SpecificWorker(GenericWorker):
 
     def removing_dsr_room(self):
         # # Get last number in the name of the room
+        print("Looking for room to remove", self.room_exit_door_id)
         room_number = self.g.get_node(self.room_exit_door_id).attrs["room_id"].value
+        print("Room id to remove", room_number)
         # # Get all RT edges
         rt_edges = self.g.get_edges_by_type("RT")
         # # Get all RT edges which last number in name is the same as the room number and generate a dictionary with the origin node as key and the origin node level as value
         old_room_rt_edges = [edge for edge in rt_edges if self.check_element_room_number(edge.origin) == room_number or self.check_element_room_number(edge.destination) == room_number]
+        print("Old room rt captured")
         has_edges = self.g.get_edges_by_type("has")
         old_room_has_edges = [edge for edge in has_edges if self.check_element_room_number(edge.origin) == room_number]
+        print("Old room has captured")
         for edge in old_room_has_edges:
             self.g.delete_node(edge.destination)
-
+        print("Edge destination affordances removed")
         old_room_dict = {edge: int(self.check_element_room_number(edge.destination)) for edge in old_room_rt_edges}
+        print("Order dictionary by level value in descending order")
         # Order dictionary by level value in descending order
         old_room_dict = dict(sorted(old_room_dict.items(), key=lambda item: item[1], reverse=True))
+        # Remove the first element of the dictionary
+        print("Generate old_room_dict")
         # iterate over the dictionary in descending order
+
+        # Print olD_room_dict
+        # print("Old room dict", old_room_dict)
+
         for item in old_room_dict:
             # self.g.delete_node(self.g.get_node(item.origin).id)
             if item.origin == 200 or item.destination == 200:
                 print("SHADOW NODES")
                 continue
+            act_node = self.g.get_node(item.destination)
 
+            print("Node to remove name", act_node.name, "id", act_node.id, item.destination)
             self.g.delete_node(item.destination)
+        print("Edge destination elements removed")
         self.long_term_graph.draw_graph(False)
+
+        # Get rooms from graph
+        room_nodes = self.g.get_nodes_by_type("room")
+        # Insert current edge
+        self.insert_current_edge(room_nodes[0].id)
         self.state = "idle"
 
     def traverse_graph(self, node_id):
+        def get_wall_id(node):
+            try:
+                return node.attrs["wall_id"].value
+            except KeyError:
+                return None
+
         # Mark the current node as visited and print it
         node = self.g.get_node(node_id)
         rt_children = [edge for edge in self.g.get_edges_by_type("RT") if edge.origin == node_id and edge.destination != self.robot_id]
+
+        # Order edges in rt_children by corner_id attribute if it exists, otherwise by wall_id attribute
+        rt_children.sort(
+            key=lambda edge: get_wall_id(self.g.get_node(edge.destination))
+            if self.g.get_node(edge.destination).type == "wall"
+            else float('inf')  # Pushes non-walls to the end
+        )
+        for rt in rt_children:
+            dest_node = self.g.get_node(rt.destination)
+            print("Dest node name", dest_node.name, "type", dest_node.type)
+
         self.insert_igraph_vertex(node)
         # Recur for all the vertices adjacent to this vertex
         for i in rt_children:
@@ -724,6 +888,7 @@ class SpecificWorker(GenericWorker):
         for i in vertex_successors:
             sucessor = self.long_term_graph.g.vs[i]
             if sucessor["room_id"] == node["room_id"] and sucessor["level"] > node["level"]:
+                # print("Node name", i)
                 self.insert_dsr_vertex(node["name"], sucessor)
                 # Check if node with id i room_id attribute is the same as the room_id attribute of the room node
                 self.insert_dsr_edge(node, sucessor)
@@ -737,7 +902,12 @@ class SpecificWorker(GenericWorker):
         for attr in node.attrs:
             if attr in self.not_required_attrs:
                 continue
-            self.long_term_graph.g.vs[self.vertex_size][attr] = node.attrs[attr].value
+            val = node.attrs[attr].value
+            if isinstance(val, (bool, np.bool_)):
+                val = int(val)
+            elif isinstance(val, (np.integer, np.floating)):
+                val = val.item()
+            self.long_term_graph.g.vs[self.vertex_size][attr] = val
             # Check if current attribute is other_side_door_name and, if it has value, check if the node with that name exists in the graph
             if attr == "other_side_door_name" and node.attrs[attr].value:
                 try:
@@ -777,13 +947,19 @@ class SpecificWorker(GenericWorker):
         # Iterate over the attributes of the node
         for attr in node.attributes():
             if node[attr] is not None and attr not in self.not_required_attrs:
-                # Add the attribute to the node
-                new_node.attrs[attr] = Attribute(node[attr], self.agent_id)
+                value = node[attr]
+                if attr in self.boolean_attrs:
+                    value = bool(int(value))  # Asegura compatibilidad
+                new_node.attrs[attr] = Attribute(value, self.agent_id)
         id_result = self.g.insert_node(new_node)
 
     def insert_igraph_edge(self, edge):
         origin_node_dsr = self.g.get_node(edge.origin)
         destination_node_dsr = self.g.get_node(edge.destination)
+        # print("Inserting igraph edge", origin_node_dsr.name, destination_node_dsr.name)
+        edge = self.rt_api.get_edge_RT(origin_node_dsr, edge.destination)
+
+        [rt_timestamp, rt_matrix] = self.rt_api.get_edge_RT_as_stamped_rtmat(edge, int(time.time()*1000))
 
         # Search for the origin and destination nodes in the graph
         origin_node = self.long_term_graph.g.vs.find(name=origin_node_dsr.name)
@@ -791,47 +967,69 @@ class SpecificWorker(GenericWorker):
         # Add the edge to the graph
         if destination_node_dsr.name != self.robot_name:
             # Check if destination_node["type"] == "door"
-            traslation = edge.attrs["rt_translation"].value
-            if destination_node["type"] == "door":
-                traslation[1] += 100
-            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=traslation, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
+            # traslation = edge.attrs["rt_translation"].value
+            traslation = np.array([rt_matrix[0, 3], rt_matrix[1, 3], 0], dtype=np.float32)
+            rotation = np.array([0, 0, np.arctan2(rt_matrix[1, 0], rt_matrix[0, 0])], dtype=np.float32)
+            # if destination_node["type"] == "door":
+            #     traslation[1] += 100
+            # print("Inserting edge from", origin_node["name"], "to", destination_node["name"])
+            # print("Traslation", traslation)
+            # print("Rotation", rotation)
+            self.long_term_graph.g.add_edge(origin_node, destination_node, rt=traslation, rotation=rotation, timestamp=np.array([rt_timestamp], dtype=np.uint64))
         else:
             self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=[0, 0, 0], rotation=[0, 0, 0])
             # self.long_term_graph.g.add_edge(origin_node, destination_node, traslation=edge.attrs["rt_translation"].value, rotation=edge.attrs["rt_rotation_euler_xyz"].value)
         # print("Inserting igraph edge", origin_node["name"], destination_node["name"])
         # print("RT", edge.attrs["rt_translation"].value)
         # print("Rotation", edge.attrs["rt_rotation_euler_xyz"].value)
+        # print("Timestamps", edge.attrs["rt_timestamps"].value)
         # Print origin and destination nodes
 
     def insert_dsr_edge(self, org, dest):
         # print("ORG::", org)
-        # self.insert_dsr_vertex(dest)
         if org is None:
-            root_node = self.g.get_node("root")
-            org_id = root_node.id
+            org_node = self.g.get_node("root")
             rt_value = [0, 0, 0]
             orientation = [0, 0, 0]
+            timestamp= [0]
         else:
             # print("Inserting DSR edge", org["name"], dest["name"])
             edge_id = self.long_term_graph.g.get_eid(org.index, dest.index)
             edge = self.long_term_graph.g.es[edge_id]
-            rt_value = edge["rt"]
-            orientation = edge["rotation"]
+            rt_value = list(edge["rt"])
+            orientation = list(edge["rotation"])
+            timestamp= list(edge["timestamp"])
             org_name = org["name"]
-            org_id = self.g.get_node(org_name).id
+            org_node = self.g.get_node(org_name)
 
-
-        # print("RT_VALUE", rt_value)
-        # print(dest["name"], org["name"], "RT")
         dest_id = self.g.get_node(dest["name"]).id
-        new_edge = Edge(dest_id, org_id, "RT", self.agent_id)
-        new_edge.attrs["rt_translation"] = Attribute(np.array(rt_value, dtype=np.float32), self.agent_id)
-        new_edge.attrs["rt_rotation_euler_xyz"] = Attribute(np.array(orientation, dtype=np.float32), self.agent_id)
+        # print("Translation to RT edge", rt_value)
+        # print("Orientation to RT edge", orientation)
+        # for i in range(30):
+        #     self.rt_api.insert_or_assign_edge_RT(org_node, dest_id, rt_value,
+        #                                          orientation, np.uint64(timestamp)) # TODO: CUIDAO CON EL TIMESTAMP!!!!
+        rt_edge = Edge(dest_id, org_node.id, "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(
+            np.array(rt_value * 20, dtype=np.float32),
+            self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array(orientation * 20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_timestamps"] = Attribute(
+            np.array([timestamp] * 20, dtype=np.uint64), self.agent_id)
+        self.g.insert_or_assign_edge(rt_edge)
 
-
-        # print("RT", rt_value)
+        # # Get the edge from the graph
+        # rt_edge = self.rt_api.get_edge_RT(org_node, dest_id)
+        # # get attributes from the edge
+        # rt_value = rt_edge.attrs["rt_translation"].value
+        # orientation = rt_edge.attrs["rt_rotation_euler_xyz"].value
+        # timestamps = rt_edge.attrs["rt_timestamps"].value
+        # print("Reading RT edge attributes")
+        # print("rt_translation", rt_value)
+        # print("rt_rotation_euler_xyz", orientation)
+        # print("rt_timestamps", timestamps)
         # print("Rotation", orientation)
-        self.g.insert_or_assign_edge(new_edge)
+        # self.g.insert_or_assign_edge(new_edge)
 
     def check_element_room_number(self, node_id):
         node = self.g.get_node(node_id)
@@ -937,6 +1135,19 @@ class SpecificWorker(GenericWorker):
             print('Errores del script:')
             print(result.stderr)
 
+    def transform_pose(self, from_name, to_name, timestamp):
+        from_node = self.g.get_node(from_name)
+        parent_node = self.g.get_node(from_node.attrs["parent"].value)
+        # Get RT from parent to corner
+        parent_rt = self.rt_api.get_edge_RT(parent_node, from_node.id)
+        # Get rtmat from parent_corner_rt
+        pose = self.rt_api.get_edge_RT_as_stamped_rtmat(parent_rt, sys.maxsize)
+        # Transform corner_pose using inner_api
+        transformed_pose = self.inner_api.transform(to_name, np.array(
+            [pose[1][0, 3], pose[1][1, 3], 0],
+            dtype=np.float32),parent_node.name)
+        return (timestamp, transformed_pose)
+
     # def add_data_to_json(self, room_node_id):
 
     def startup_check(self):
@@ -946,10 +1157,23 @@ class SpecificWorker(GenericWorker):
     # =============================================
 
     def update_node_att(self, id: int, attribute_names: [str]):
-        console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
+        # console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
+        if "obj_checked" in attribute_names:
+            node = self.g.get_node(id)
+            if node.type == "room":
+                room_checked = node.attrs["obj_checked"]
+                if room_checked.value != None:
+                    if room_checked:
+                        print("Zona turbia update node att")
+                        print(self.room_exit_door_id)
+                        # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
+                        self.insert_current_edge(id)
+                        print("Room node exists but no current edge. Setting as current")
 
     def update_node(self, id: int, type: str):
+
         if type == "door":
+            console.print(f"UPDATE NODE: {id} {type}", style='green')
             # Get door name
             door_node = self.g.get_node(id)
             if not "pre" in door_node.name:
@@ -974,7 +1198,6 @@ class SpecificWorker(GenericWorker):
                         # print("Door inserted in igraph")
                         # Get RT from door_parent to door
                         # rt_door = self.rt_api.get_edge_RT(door_parent_node, door_node.id)
-
                         rt_door = self.g.get_edge(door_parent_node.id, door_node.id, "RT")
                         # print("RT DOOR", rt_door.attrs["rt_translation"].value, rt_door.attrs["rt_rotation_euler_xyz"].value)
                         # print("Arigin name", door_parent_node.name, "Destination name", door_node.name)
@@ -1004,20 +1227,20 @@ class SpecificWorker(GenericWorker):
         console.print(f"DELETE NODE:: {id} ", style='green')
 
     def update_edge(self, fr: int, to: int, type: str):
+        # print("UPDATE EDGE: ", fr, "to", to, type)
         # Insert current edge to the room
         # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
-
-        if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
-            from_node = self.g.get_node(fr)
-            if from_node.type == "room":
-                room_checked = from_node.attrs["obj_checked"].value
-                if room_checked != None:
-                    print("UPDATE EDGE: ", fr, to, type, from_node.type, room_checked)
-                    if room_checked:
-                        print(self.room_exit_door_id)
-                        # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
-                        self.insert_current_edge(fr)
-                        print("Room node exists but no current edge. Setting as current")
+        pass
+        # if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
+        #     from_node = self.g.get_node(fr)
+        #     if from_node.type == "room":
+        #         room_checked = from_node.attrs["obj_checked"]
+        #         if room_checked.value != None:
+        #             if room_checked:
+        #                 print(self.room_exit_door_id)
+        #                 # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
+        #                 self.insert_current_edge(fr)
+        #                 print("Room node exists but no current edge. Setting as current")
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
