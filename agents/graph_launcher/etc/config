@@ -1,0 +1,22 @@
+
+
+
+
+
+
+Agent.id = 0 # Change id
+Agent.name = "graph_launcher"
+Agent.configFile = "shadow_scene.json"
+
+ViewAgent.tree = false
+ViewAgent.graph = true
+ViewAgent.2d = true
+ViewAgent.3d = false
+
+Period.Compute = 100
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"

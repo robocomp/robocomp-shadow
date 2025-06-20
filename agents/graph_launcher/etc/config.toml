@@ -1,0 +1,26 @@
+
+
+
+
+
+
+[Agent]
+id = 0 # Change id
+name = "graph_launcher"
+configFile = ""
+
+[ViewAgent]
+tree = true
+graph = true
+2d = true
+3d = true
+
+[Period]
+Compute = 100
+Emergency = 500
+
+[Ice]
+Warn.Connections = "0"
+Trace.Network = "0"
+Trace.Protocol = "0"
+MessageSizeMax = "20004800"
