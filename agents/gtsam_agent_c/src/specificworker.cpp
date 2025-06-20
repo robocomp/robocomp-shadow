@@ -128,7 +128,20 @@ void SpecificWorker::initialize()
 
     /////////GET PARAMS, OPEND DEVICES....////////
     //int period = configLoader.get<int>("Period.Compute") //NOTE: If you want get period of compute use getPeriod("compute")
-    //std::string device = configLoader.get<std::string>("Device.name") 
+    auto measurement_unit = configLoader.get<std::string>("Param.Unit");
+    if(measurement_unit != "m" and measurement_unit != "mm")
+    {
+        std::cerr << "Measurement unit not supported. Set a possible option (m, mm)." << std::endl;
+        exit(0);
+    }
+    if(measurement_unit == "mm")
+    {
+        params.scale = 0.001; // Convert mm to m
+    }
+    else if(measurement_unit == "m")
+    {
+        params.scale = 1.0; // No conversion needed
+    }
 
 //    room_widget = new CustomWidget();
 //    graph_viewer->add_custom_widget_to_dock("room view", room_widget);
@@ -855,8 +868,16 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
         hibernation = true;
     #endif
 
+    // Check if pose.vx, pose.vy, pose.vrz are not nan or inf
+    if(std::isnan(pose.vx) || std::isnan(pose.vy) || std::isnan(pose.vrz) ||
+       std::isinf(pose.vx) || std::isinf(pose.vy) || std::isinf(pose.vrz))
+    {
+        qWarning() << "Received pose with NaN or Inf values. Ignoring.";
+        return;
+    }
+    
     odom_buffer.put(std::make_tuple(
-            double(pose.timestamp), Eigen::Vector3d(pose.vy, pose.vx, 0),
+            double(pose.timestamp), Eigen::Vector3d(pose.vx * params.scale, pose.vy * params.scale, 0),
             Eigen::Vector3d(0, 0, pose.vrz)));
 //    qInfo() << "odom value" << pose.vy << pose.vx << pose.vrz << double(pose.timestamp);
 }

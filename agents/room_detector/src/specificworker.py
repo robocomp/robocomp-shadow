@@ -50,7 +50,6 @@ from sklearn.cluster import DBSCAN
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
-ROBOT_NAME = "Shadow"
 from pydsr import *
 
 
@@ -106,6 +105,18 @@ class SpecificWorker(GenericWorker):
 
         self.rt_api = rt_api(self.g)
         self.inner_api = inner_api(self.g)
+
+        # Robot node variables
+        robot_nodes = self.g.get_nodes_by_type("omnirobot") + self.g.get_nodes_by_type("robot")
+        if len(robot_nodes) == 0:
+            print("No robot node found in the graph. Exiting")
+            exit(0)
+        robot_node = robot_nodes[0]
+
+        self.robot_name = robot_node.name
+        self.robot_id = robot_node.id
+
+        print("Robot node found:", self.robot_name, "with id", self.robot_id)
 
         # --------------- VISUALIZACION ----------------
         o3d.core.Device("CUDA:0")
@@ -271,7 +282,7 @@ class SpecificWorker(GenericWorker):
             robot_x, robot_y = self.screen_to_robot(event.x(), event.y())
             print(f"Target in robot reference set at ({robot_x:.2f}, {robot_y:.2f}) mm")
 
-            robot_node = self.g.get_node(ROBOT_NAME)
+            robot_node = self.g.get_node(self.robot_name)
             room_node = self.g.get_node("room_" + str(self.room_id))
 
             rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
@@ -295,7 +306,7 @@ class SpecificWorker(GenericWorker):
 
         if event.button() == Qt.RightButton:
             print("Deletting action")
-            robot_node = self.g.get_node(ROBOT_NAME)
+            robot_node = self.g.get_node(self.robot_name)
             room_node = self.g.get_node("room_" + str(self.room_id))
             self.g.delete_edge(robot_node.id, room_node.id, "has_intention")
             self.target_points.popleft()
@@ -384,7 +395,7 @@ class SpecificWorker(GenericWorker):
                 case "initialize_room":
                     room_node = self.g.get_node("room_" + str(self.room_id))
                     # Get robot node
-                    robot_node = self.g.get_node(ROBOT_NAME)
+                    robot_node = self.g.get_node(self.robot_name)
                     # Get affordance node stabilize
                     affordance_node = self.g.get_node("aff_stabilizing_" + str(self.room_id))
                     if affordance_node:
@@ -426,7 +437,7 @@ class SpecificWorker(GenericWorker):
                                     # print("Update corner", i+1, "with pose", matched_corner)
                                     # print("Matched corner", matched_corner)
                                     measured_corner.attrs['valid'] = Attribute(True, self.agent_id)
-                                    self.insert_RT_edge(ROBOT_NAME, "corner_measured_" + str(i + 1),
+                                    self.insert_RT_edge(self.robot_name, "corner_measured_" + str(i + 1),
                                                         np.array([matched_corner[0], matched_corner[1], 0],
                                                                  dtype=np.float32),
                                                         np.array([0, 0, 0], dtype=np.float32),
@@ -453,7 +464,7 @@ class SpecificWorker(GenericWorker):
 
                 case "waiting":
                     # Get robot node
-                    robot_node = self.g.get_node(ROBOT_NAME)
+                    robot_node = self.g.get_node(self.robot_name)
                     # Get robot parent node
                     parent_node = self.g.get_node(robot_node.attrs["parent"].value)
                     # Check if any RT between robot and parent node exists
@@ -547,7 +558,7 @@ class SpecificWorker(GenericWorker):
         # Get root node
         root_node = self.g.get_node("root")
         # Get robot node
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         # Get room node
         room_node = self.g.get_node("room_" + str(self.room_id))
         # Get room corners
@@ -565,14 +576,14 @@ class SpecificWorker(GenericWorker):
                                   np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])],
               "Robot initialization pose", self.robot_pose)
 
-        # Remove RT edge between "root" and ROBOT_NAME
+        # Remove RT edge between "root" and self.robot_name
         self.g.delete_edge(root_node.id, robot_node.id, "RT")
         # Change robot node level
         robot_node.attrs["level"].value = room_node.attrs["level"].value + 1
         robot_node.attrs["parent"].value = room_node.id
         self.g.update_node(robot_node)
 
-        # Insert RT edge between "room" and ROBOT_NAME
+        # Insert RT edge between "room" and self.robot_name
         # for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
         #     self.insert_RT_edge(room_node.name, robot_node.name,
         #                         np.array([robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3], 0], dtype=np.float32),
@@ -659,7 +670,7 @@ class SpecificWorker(GenericWorker):
         wall_angles = self.calculate_wall_angles(room_corners)
         room_corners = room_corners[:-1]
 
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         robot_pose = np.array([
             [self.robot_pose[2], -self.robot_pose[2], self.robot_pose[0] * 1000],
             [self.robot_pose[2], self.robot_pose[2], self.robot_pose[1] * 1000],
@@ -796,7 +807,7 @@ class SpecificWorker(GenericWorker):
         # Insert node in graph
         self.g.insert_node(corner_node)
         # Transform nominal corner to robot frame
-        corner_in_robot_frame = self.inner_api.transform(ROBOT_NAME, np.array([corner_pose[0], corner_pose[1], 0],
+        corner_in_robot_frame = self.inner_api.transform(self.robot_name, np.array([corner_pose[0], corner_pose[1], 0],
                                                                             dtype=np.float32),
                                                          "room_" + str(self.room_id))
         self.insert_RT_edge(robot_node.id, corner_node.id,
@@ -885,7 +896,7 @@ class SpecificWorker(GenericWorker):
         #
         # for i in range(30):# TODO: Please, modify RT:API TO remove ñapa
         #     #print("Pose rt", np.array([mean_center[0] * 1000, mean_center[1] * 1000, 0], dtype=np.float32))
-        #     self.insert_RT_edge("room", ROBOT_NAME, np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32), np.array([0, 0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        #     self.insert_RT_edge("room", self.robot_name, np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32), np.array([0, 0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
 
         # Create affordance node
         affordance_node = Node(agent_id=self.agent_id, type="affordance", name="aff_stabilizing_" + str(self.room_id))
@@ -919,7 +930,7 @@ class SpecificWorker(GenericWorker):
             self.tf_target_points = []
             # Homogeneus tf_target_points to 4D
             if self.target_points:
-                robot_node = self.g.get_node(ROBOT_NAME)
+                robot_node = self.g.get_node(self.robot_name)
                 room_node = self.g.get_node("room_" + str(self.room_id))
                 rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
                 if rt_edge is not None:
@@ -1020,9 +1031,9 @@ class SpecificWorker(GenericWorker):
         self.last_robot_pose_timestamp = self.act_segmented_pointcloud_timestamp
 
         # Update robot pose in DSR
-        # Insert RT edge between "room" and ROBOT_NAME
+        # Insert RT edge between "room" and self.robot_name
         room_node = self.g.get_node("room_" + str(self.room_id))
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         self.insert_RT_edge(room_node.name, robot_node.name,
                             np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0],
                                      dtype=np.float32), np.array([0.0, 0.0, self.robot_pose[2]],
@@ -1033,7 +1044,7 @@ class SpecificWorker(GenericWorker):
         # queue_copy = self.get_odometry_simple(np.array(self.odometry_queue.copy()), self.last_robot_pose_timestamp,
         #                                       timestamp)
         root_node = self.g.get_node("root")
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         root_robot_rt = self.rt_api.get_edge_RT(root_node, robot_node.id)
         if not root_robot_rt:
             print("No odometry values or invalid format")
@@ -1812,7 +1823,7 @@ class SpecificWorker(GenericWorker):
         # Sort corners by votes in descending order
         # corners.sort(key=lambda x: x[0], reverse=True)
         # Sort corners by distance to the origin (0, 0) for better visualization
-        corners.sort(key=lambda x: np.linalg.norm(np.array(x[1])), reverse=False)
+        corners.sort(key=lambda x: np.linalg.norm(np.array(x[1]) - np.array([self.robot_pose[0], self.robot_pose[1]])), reverse=False)
         print("Corners sorted", corners)
 
 
@@ -1989,7 +2000,7 @@ class SpecificWorker(GenericWorker):
         # observed_corners = np.array(observed_corners)
 
         # Get RT pose of robot
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         room_node = self.g.get_node("room_" + str(self.room_id))
         robot_rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
         # print("POSE", robot_rt_edge.attrs["rt_translation"].value)
@@ -2178,7 +2189,7 @@ class SpecificWorker(GenericWorker):
 
     def insert_stabilizing_intention(self, target):
         # Get robot node
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         # Get room node
         room_nodes = self.g.get_nodes_by_type("room")
 
@@ -2194,7 +2205,7 @@ class SpecificWorker(GenericWorker):
 
     def monitor_stabilizing_intention(self):
         # Get intention node from robot to room
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         room_node = self.g.get_node("room_" + str(self.room_id))
         intention_edge = self.g.get_edge(robot_node.id, room_node.id, "has_intention")
         if intention_edge:
@@ -2212,7 +2223,7 @@ class SpecificWorker(GenericWorker):
     def insert_wandering_intention(self):
         last_target = self.target_points[0]
         # Get robot node
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         # Get wander affordance
         current_edges = self.g.get_edges_by_type("current")
         if current_edges:
@@ -2227,7 +2238,7 @@ class SpecificWorker(GenericWorker):
 
     def monitor_wander_intention(self):
         # Get intention node from robot to room
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         room_node = self.g.get_node("room_" + str(self.room_id))
         intention_edge = self.g.get_edge(robot_node.id, room_node.id, "has_intention")
         if intention_edge:
@@ -2388,7 +2399,7 @@ class SpecificWorker(GenericWorker):
         :return: Transformed points in room coordinates
         """
         # Get RT pose of robot
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         room_node = self.g.get_node("room_" + str(self.room_id))
         robot_rt_edge = self.rt_api.get_edge_RT(room_node, robot_node.id)
         robot_rt_edge_timestamp = self.rt_api.get_edge_RT_as_rtmat(robot_rt_edge,
@@ -2412,7 +2423,7 @@ class SpecificWorker(GenericWorker):
         :return: Transformed points in room coordinates
         """
         # Get RT pose of robot
-        robot_node = self.g.get_node(ROBOT_NAME)
+        robot_node = self.g.get_node(self.robot_name)
         room_node = self.g.get_node("room" + str(self.room_id))
         robot_rt_edge = self.rt_api.get_edge_RT(robot_node.id, room_node)
 
@@ -2556,7 +2567,7 @@ class SpecificWorker(GenericWorker):
                 self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
         if type == "RT":
             if self.state == "waiting":
-                if to == 200:
+                if to == self.robot_id:
                     if not self.to_known_room:
                         self.room_id += 1
                         self.state = "finding_room"

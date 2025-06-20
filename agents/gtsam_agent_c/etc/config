@@ -20,6 +20,9 @@ ViewAgent.3d = false
 Period.Compute = 1
 Period.Emergency = 500
 
+# Variable to indicate odometry units
+Param.Unit = "m"
+
 Ice.Warn.Connections = "0"
 Ice.Trace.Network = "0"
 Ice.Trace.Protocol = "0"

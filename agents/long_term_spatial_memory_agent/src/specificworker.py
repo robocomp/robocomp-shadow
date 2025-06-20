@@ -64,8 +64,17 @@ class SpecificWorker(GenericWorker):
             self.testing = False
 
             # Robot node variables
-            self.robot_name = "Shadow"
-            self.robot_id = self.g.get_node(self.robot_name).id
+            robot_nodes = self.g.get_nodes_by_type("omnirobot") + self.g.get_nodes_by_type("robot")
+            if len(robot_nodes) == 0:
+                print("No robot node found in the graph. Exiting")
+                exit(0)
+            robot_node = robot_nodes[0]
+
+            self.robot_name = robot_node.name
+            self.robot_id = robot_node.id
+
+            print("Robot node found", self.robot_name, self.robot_id)
+
             self.last_robot_pose = [0, 0, 0]
             self.robot_exit_pose = [0, 0, 0]
 
@@ -502,7 +511,7 @@ class SpecificWorker(GenericWorker):
         else:
             self.exit_door_id = affordance_node.attrs["parent"].value
             exit_door_id_node = self.g.get_node(self.exit_door_id)
-            robot_node = self.g.get_node(200)
+            robot_node = self.g.get_node(self.robot_id)
             # Remove "current" self-edge from the room
             self.g.delete_edge(self.room_exit_door_id, self.room_exit_door_id, "current")
             # Remove RT edge between room and robot
@@ -552,7 +561,7 @@ class SpecificWorker(GenericWorker):
                     #                                          np.array([0, 0, 0], dtype=np.float32),
                     #                                          np.uint64(time.time() * 1000))
 
-                    rt_edge = Edge(200, root_node.id, "RT", self.agent_id)
+                    rt_edge = Edge(self.robot_id, root_node.id, "RT", self.agent_id)
                     rt_edge.attrs["rt_translation"] = Attribute(
                         np.array([0, 0, 0] * 20, dtype=np.float32),
                         self.agent_id)
@@ -839,7 +848,7 @@ class SpecificWorker(GenericWorker):
 
         for item in old_room_dict:
             # self.g.delete_node(self.g.get_node(item.origin).id)
-            if item.origin == 200 or item.destination == 200:
+            if item.origin == self.robot_id or item.destination == self.robot_id:
                 print("SHADOW NODES")
                 continue
             act_node = self.g.get_node(item.destination)
