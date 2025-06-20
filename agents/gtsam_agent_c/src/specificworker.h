@@ -115,7 +115,7 @@ private:
 
     struct Params
     {
-        std::string robot_name = "robot";
+        std::string robot_name = "Shadow";
     };
     Params params;
 
@@ -139,7 +139,8 @@ private:
     int iterations = 0;
 
     //Graph
-    int init_graph = 0;
+    int state = 0;
+    bool reset = false;
     bool current_edge_set = false;
     bool first_rt_set = false;
     GTSAMGraph gtsam_graph;

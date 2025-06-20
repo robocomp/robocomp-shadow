@@ -41,7 +41,7 @@ private:
     std::map<int, std::pair<gtsam::Key, gtsam::Point3>> landmark_keys; // Maps landmark IDs to GTSAM keys
 
     noiseModel::Diagonal::shared_ptr odometry_noise = noiseModel::Diagonal::Sigmas(Vector6(0.01, 0.01, 0.01, 0.005, 0.005, 0.005)); // x, y, z, roll, pitch, yaw noise
-    noiseModel::Diagonal::shared_ptr landmark_noise = noiseModel::Diagonal::Sigmas(Vector3(0.01, 0.01, 0.5)); // x, y, z, roll, pitch, yaw noise
+    noiseModel::Diagonal::shared_ptr landmark_noise = noiseModel::Diagonal::Sigmas(Vector3(0.1, 0.1, 0.9)); // x, y, z, roll, pitch, yaw noise
     noiseModel::Diagonal::shared_ptr prior_noise = noiseModel::Diagonal::Sigmas(Vector6(0.01, 0.01, 0.01, 0.005, 0.005, 0.005));
     noiseModel::Diagonal::shared_ptr prior_landmark_noise = noiseModel::Diagonal::Sigmas(Vector3(0.01, 0.01, 0.01));
 

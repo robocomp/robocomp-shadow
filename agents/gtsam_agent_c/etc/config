@@ -5,7 +5,7 @@ Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 # Endpoints for subscriptions interfaces
 Endpoints.FullPoseEstimationPubTopic = "tcp -p 9879"
-Endpoints.FullPoseEstimationPubPrefix = "zed"
+Endpoints.FullPoseEstimationPubPrefix = ""
 
 
 Agent.id = 22 # Change id

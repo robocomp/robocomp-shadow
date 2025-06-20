@@ -160,7 +160,7 @@ void SpecificWorker::compute()
 
     // State 1: Graph not initialized
 //    std::cout << "timestamp: " << timestamp << std::endl;
-    switch (init_graph)
+    switch (state)
     {
         case 0:
         {
@@ -169,7 +169,7 @@ void SpecificWorker::compute()
             {
                 std::cout << "Graph initialized" << std::endl;
                 gtsam_graph.set_start_time(timestamp);
-                init_graph = 1;
+                state = 1;
             }
             else{std::cerr << "Graph not initialized" << std::endl;};
             break;
@@ -190,6 +190,7 @@ void SpecificWorker::compute()
                                               robot_without_corners_pose.translation().y());
                 if(not safe_polygon.empty() and is_pose_inside_polygon(robot_position, safe_polygon))
                 {
+//                    qInfo() << "Robot pose is inside the safe polygon. Adding corners.";
                     // Get measured corners and nodes graph timestamps
                     auto actual_measured_corners = get_measured_corners(last_pose_timestamp);
                     draw_measured_corners(&room_widget->viewer->scene, actual_measured_corners);
@@ -211,6 +212,36 @@ void SpecificWorker::compute()
                 gtsam_graph.draw_graph_nodes(&room_widget->viewer->scene);
             }
             break;
+        }
+        case 2:
+        {
+            // Check if current edge exists
+            auto current_edges = G->get_edges_by_type("current");
+            if(not current_edges.empty())
+            {
+                qInfo() << "Current edge found. restarting GTSAM.";
+                state = 0;
+
+            }
+            else
+            {
+                if(auto robot_node = G->get_node(params.robot_name); robot_node.has_value())
+                {
+                    auto robot_node_value = robot_node.value();
+                    // Get parent node
+                    if(auto parent_node = G->get_parent_node(robot_node_value); parent_node.has_value())
+                    {
+                        auto parent_node_value = parent_node.value();
+                        // Check if parent node is a room
+                        if(parent_node_value.type() == "root")
+                        {
+                            qInfo() << "Robot is in root node. Restarting GTSAM.";
+                            state = 0;
+                        }
+                    }
+                }
+            }
+            reset = false;
         }
     }
     last_odometry_timestamp = timestamp;
@@ -366,13 +397,13 @@ void SpecificWorker::update_robot_dsr_pose(double x, double y, double ang, doubl
 
     // Get robot node
     auto robot_node_ = G->get_node(params.robot_name);
-    if (!robot_node_) return;
+    if (!robot_node_) {qInfo() << "No robot node."; return;};
     auto robot_node = robot_node_.value();
 
     // Get robot node parent node
-    auto robot_parent_node = G->get_parent_node(robot_node); if (!robot_parent_node.has_value()) return;
+    auto robot_parent_node = G->get_parent_node(robot_node); if (!robot_parent_node.has_value()) {qInfo() << "No parent node."; return;};
     auto robot_parent_node_value = robot_parent_node.value();
-
+//    qInfo() << "Updating robot pose in DSR at " << timestamp << " with position (" << x << ", " << y << ") and angle " << ang;
     rt_api->insert_or_assign_edge_RT(robot_parent_node_value, robot_node.id(), { (float)(x * 1000.f), (float)(y * 1000.f), 0 }, {0, 0, (float)ang}, (uint64_t) (timestamp * 1000.0));
 }
 
@@ -492,14 +523,15 @@ bool SpecificWorker::initialize_graph()
     auto first_odom_timestamp = std::get<0>(first_odom_value);
 
     // If robot parent node is "root":
-    // if (robot_parent_node_value.name() == "root")
-    // {
-    //     std::cerr << "Robot parent node is root. Integrating pure odometry." << std::endl;
-    //     auto robot_origin = Pose3(Rot3::RzRyRx(0, 0, 0),
-    //           Point3(0, 0, 0));
-    //     gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_origin);
-    //     return true;
-    // }
+     if (robot_parent_node_value.name() == "root")
+     {
+         std::cerr << "Robot parent node is root. Integrating pure odometry." << std::endl;
+         auto robot_origin = Pose3(Rot3::RzRyRx(0, 0, 0),
+               Point3(0, 0, 0));
+         gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_origin);
+         return true;
+     }
+
 
     auto current_edge = G->get_edges_by_type("current");
     if (!current_edge.empty())
@@ -562,11 +594,19 @@ bool SpecificWorker::initialize_graph()
 
     else
     {
-        std::cerr << "Robot parent node is root. Integrating pure odometry." << std::endl;
-        auto robot_origin = Pose3(Rot3::RzRyRx(0, 0, 0),
-              Point3(0, 0, 0));
-        gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_origin);
-        draw_nominal_corners(&room_widget->viewer->scene, std::vector<std::tuple<int, double, Eigen::Vector3d>>{}, safe_polygon, true);
+        // Check if room nodes exists
+        auto room_nodes = G->get_nodes_by_type("room");
+        if (!room_nodes.empty())
+        {
+            std::cerr << "Room exists, but not available to use. Waiting for current edge." << std::endl;
+            state = 2;
+            return false;
+        }
+            std::cerr << "Robot parent node is root. Integrating pure odometry." << std::endl;
+            auto robot_origin = Pose3(Rot3::RzRyRx(0, 0, 0),
+                                      Point3(0, 0, 0));
+            gtsam_graph.insert_prior_pose(first_odom_timestamp, robot_origin);
+            draw_nominal_corners(&room_widget->viewer->scene, std::vector<std::tuple<int, double, Eigen::Vector3d>>{}, safe_polygon, true);
     }
 
     return true;
@@ -728,7 +768,7 @@ void SpecificWorker::modify_node_slot(std::uint64_t id, const std::string &type)
 {
     if(type == "room")
     {
-//        init_graph = 0;
+//        state = 0;
         actual_room_id = id;
     }
 }
@@ -738,7 +778,7 @@ void SpecificWorker::modify_node_attrs_slot(std::uint64_t id, const std::vector<
 //    if(id == actual_room_id and std::find(att_names.begin(), att_names.end(), "obj_checked") != att_names.end())
 //    {
 //        qInfo() << "Room node obj_checked attribute modified. Reinitializing graph.";
-//        init_graph = 0;
+//        state = 0;
 //    }
 }
 
@@ -750,8 +790,21 @@ void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  con
     if(type == "current" and from_node.value().type() == "room")
     {
         qInfo() << "Current edge inserted. Reinitializing graph.";
-        init_graph = 0;
+        state = 0;
     }
+    if(reset)
+    {
+        if(type == "RT")
+        {
+            // Check if from node is a room and to node is the robot
+            if(to == 200)
+            {
+                state = 0;
+                reset = false;
+            }
+        }
+    }
+
 
 //    auto to_node = G->get_node(to); if(!to_node) return;
 //    if(type == "RT" and from_node.value().type() == "room" and to_node.value().name() == robot_name)
@@ -782,8 +835,9 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
 
     if(edge_tag == "current" and from_node.value().type() == "room")
     {
-        qInfo() << "Current edge removed. Reinitializing graph.";
-        init_graph = 0;
+        qInfo() << "Current edge removed. Waiting to current of robot conected to root.";
+        state = 2;
+        reset = true;
     }
 }
 
