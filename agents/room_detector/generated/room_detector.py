@@ -74,7 +74,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.specificworker import *
 import interfaces
 
-from PySide6 import QtWidgets
+from PySide2 import QtWidgets
 
 from rich.console import Console
 console = Console()
@@ -103,5 +103,5 @@ if __name__ == '__main__':
 
     interface_manager.set_default_hanlder(worker, configData)
     signal.signal(signal.SIGINT, sigint_handler)
-    app.exec()
+    app.exec_()
     interface_manager.destroy()

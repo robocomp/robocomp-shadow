@@ -22,9 +22,9 @@ import time
 import sys
 import matplotlib.pyplot as plt
 from rich.console import Console
-from PySide6.QtGui import QPen
-from PySide6.QtCore import QTimer, QPointF
-from PySide6.QtWidgets import QApplication
+from PySide2.QtGui import QPen
+from PySide2.QtCore import QTimer, QPointF
+from PySide2.QtWidgets import QApplication
 
 from genericworker import *
 import pyqtgraph as pg
@@ -342,6 +342,7 @@ class SpecificWorker(GenericWorker):
                                          dtype=np.float32))
                         else:
                             print("Room", self.room_id, "doesn't exists. Creating new room node")
+                            self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
                             # Create room_pre node and intention
                             self.create_room_for_stabilize(mean_center)
 
@@ -450,16 +451,43 @@ class SpecificWorker(GenericWorker):
 
                     print("Exiting room")
 
+                case "waiting":
+                    # Get robot node
+                    robot_node = self.g.get_node(ROBOT_NAME)
+                    # Get robot parent node
+                    parent_node = self.g.get_node(robot_node.attrs["parent"].value)
+                    # Check if any RT between robot and parent node exists
+                    rt_edge = self.rt_api.get_edge_RT(parent_node, robot_node.id)
+                    if rt_edge:
+                        if not self.to_known_room:
+                            self.room_id += 1
+                            self.state = "finding_room"
+                            self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
+                        else:
+                            print(
+                                "Deleting current edge from robot to room, but to_known_room is True, so we are changing room")
+                            self.state = "change_room"
+
                 case "change_room":
+                    def corner_has_room_id_attr(corner_node):
+                        try:
+                            return corner_node.attrs["room_id"].value
+                        except KeyError:
+                            return -1
 
                     # ------------ FIND CURRENT ROOM AND LOAD CORNERS TO CHANGE DIRECTLY TO UPDATE ROOM DATA STATE
                     # Get current edge
                     current_edges = self.g.get_edges_by_type("current")
+                    # Get current edge destination
+
+
                     if len(current_edges) > 0:
                         room_node = self.g.get_node(current_edges[0].destination)
                         room_timestamp = room_node.attrs["timestamp_alivetime"].value
                         # Get room data from graph
                         room_corners = self.g.get_nodes_by_type("corner")
+
+                        room_corners = [corner for corner in room_corners if corner_has_room_id_attr(corner) == room_node.attrs["room_id"].value]
                         # Iterate over room_corners and remove those which name include "measured". Then, order by corner_id
                         room_corners = sorted([corner for corner in room_corners if "measured" not in corner.name],
                                               key=lambda x: x.attrs["corner_id"].value)
@@ -475,6 +503,9 @@ class SpecificWorker(GenericWorker):
                         # print("Room corners", corner_poses)
                         self.room = RoomModel(corner_poses, room_timestamp, height=2.5,
                                               device="cuda")
+                        self.room_id = room_node.attrs['room_id'].value
+                        # Insert room affordance node
+                        # self.insert_room_affordances(room_node) # TODO: UNCOMMENT THIS LINE TO INSERT ROOM AFFORDANCES
                         self.state = "update_room_data"
 
         # --------------------------------------------------------
@@ -542,18 +573,24 @@ class SpecificWorker(GenericWorker):
         self.g.update_node(robot_node)
 
         # Insert RT edge between "room" and ROBOT_NAME
-        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
-            self.insert_RT_edge(room_node.name, robot_node.name,
-                                np.array([robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3], 0], dtype=np.float32),
-                                np.array([0.0, 0.0, np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])],
-                                         dtype=np.float32), self.act_segmented_pointcloud_timestamp)
-            # self.insert_RT_edge(room_node.name, robot_node.name,
-            #                     np.array([self.robot_pose[0] * 1000, self.robot_pose[1] * 1000, 0], dtype=np.float32),
-            #                     np.array([0.0, 0.0, self.robot_pose[2]], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        # for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
+        #     self.insert_RT_edge(room_node.name, robot_node.name,
+        #                         np.array([robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3], 0], dtype=np.float32),
+        #                         np.array([0.0, 0.0, np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])],
+        #                                  dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+
+        rt_edge = Edge(robot_node.id, room_node.id, "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(
+            np.array([robot_gtsam_pose[0, 3], robot_gtsam_pose[1, 3], 0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array([0.0, 0.0, np.arctan2(robot_gtsam_pose[1, 0], robot_gtsam_pose[0, 0])]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_timestamps"] = Attribute(
+            np.array([self.act_segmented_pointcloud_timestamp]*20, dtype=np.uint64), self.agent_id)
+        self.g.insert_or_assign_edge(rt_edge)
 
         self.insert_room_structure_into_DSR(room_corners, room_node)
 
-        self.insert_room_affordances(room_node)
+        # self.insert_room_affordances(room_node) # TODO: UNCOMMENT THIS LINE TO INSERT ROOM AFFORDANCES
         room_node.attrs["obj_checked"] = Attribute(True, self.agent_id)
         self.g.update_node(room_node)
         # current_edge = Edge(room_node.id, room_node.id, "current", self.agent_id)
@@ -694,10 +731,18 @@ class SpecificWorker(GenericWorker):
         self.g.insert_node(wall_node)
 
         # Create wall node RT edge
-        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
-            self.insert_RT_edge(room_node.id, wall_node.id,
-                                np.array([wall_center[0], wall_center[1], 0], dtype=np.float32),
-                                np.array([0, 0, wall_angle], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        # for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
+        #     self.insert_RT_edge(room_node.id, wall_node.id,
+        #                         np.array([wall_center[0], wall_center[1], 0], dtype=np.float32),
+        #                         np.array([0, 0, wall_angle], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        rt_edge = Edge(wall_node.id, room_node.id, "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(
+            np.array([wall_center[0], wall_center[1], 0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array([0, 0, wall_angle]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_timestamps"] = Attribute(
+            np.array([self.act_segmented_pointcloud_timestamp]*20, dtype=np.uint64), self.agent_id)
+        self.g.insert_or_assign_edge(rt_edge)
         return wall_node
 
     def create_corner(self, corner_id, corner_pose, wall_node_name, room_node, wall_pose):
@@ -720,11 +765,19 @@ class SpecificWorker(GenericWorker):
         self.g.insert_node(corner_node)
         corner_in_wall_pose = self.transform_point_to_wall_frame(wall_node_name, corner_pose)
         print("Corner in wall pose", corner_in_wall_pose)
+        rt_edge = Edge(corner_node.id, wall_node.id, "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(
+            np.array([corner_in_wall_pose[0], corner_in_wall_pose[1], 0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array([0, 0, 0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_timestamps"] = Attribute(
+            np.array([self.act_segmented_pointcloud_timestamp]*20, dtype=np.uint64), self.agent_id)
+        self.g.insert_or_assign_edge(rt_edge)
         # Create wall node RT edge
-        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
-            self.insert_RT_edge(wall_node.id, corner_node.id,
-                                np.array([corner_in_wall_pose[0], corner_in_wall_pose[1], 0], dtype=np.float32),
-                                np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        # for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
+        #     self.insert_RT_edge(wall_node.id, corner_node.id,
+        #                         np.array([corner_in_wall_pose[0], corner_in_wall_pose[1], 0], dtype=np.float32),
+        #                         np.array([0, 0, 0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
         return corner_node
 
     def create_corner_measured(self, corner_id, corner_pose, robot_node, robot_pose):
@@ -807,16 +860,26 @@ class SpecificWorker(GenericWorker):
         return promedio_xy
 
     def create_room_for_stabilize(self, mean_center):
-        self.rooms_number += 1
-        # self.room_id += 1
+
+
         # Get root node
         root_node = self.g.get_node("root")
         # Create room_pre node and intention
-        room_node = self.insert_room_node(root_node, "room", self.room_id)
+        room_node = self.insert_room_node(root_node, "room", self.rooms_number)
+        self.room_id = self.rooms_number
+        self.rooms_number += 1
+        rt_edge = Edge(room_node.id, root_node.id,  "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(
+            np.array([0.0, 0.0, 0.0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(
+            np.array([0.0, 0.0, 0.0]*20, dtype=np.float32), self.agent_id)
+        rt_edge.attrs["rt_timestamps"] = Attribute(
+            np.array([self.act_segmented_pointcloud_timestamp]*20, dtype=np.uint64), self.agent_id)
+        self.g.insert_or_assign_edge(rt_edge)
 
-        for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
-            self.insert_RT_edge(root_node.name, room_node.name, np.array([0.0, 0.0, 0.0], dtype=np.float32),
-                                np.array([0.0, 0.0, 0.0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
+        # for i in range(30):  # TODO: Please, modify RT:API TO remove ñapa
+        #     self.insert_RT_edge(root_node.name, room_node.name, np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        #                         np.array([0.0, 0.0, 0.0], dtype=np.float32), self.act_segmented_pointcloud_timestamp)
 
         inserted_room_node = self.g.get_node(room_node.name)
         #
@@ -1225,7 +1288,15 @@ class SpecificWorker(GenericWorker):
         if len(peaks) == 0:
             return np.array([])
         if len(peaks) > num:
-            peaks = peaks[:num]
+            peak_heights = properties['peak_heights']
+            sorted_indices = np.argsort(peak_heights)[::-1][:num]
+            peaks = peaks[sorted_indices]
+            return peaks / 180
+        elif len(peaks) == 1:
+            # get main direction
+            main = np.argmax(hist)
+            # generate peaks with 90º offset
+            peaks = np.array([main, (main + 90) % 180, (main - 90) % 180])
             return peaks / 180
         else:
             return peaks / 180
@@ -1693,6 +1764,7 @@ class SpecificWorker(GenericWorker):
                  - line_to_corners: Dictionary relating each line with the corners it contains.
                  - close_loop: Boolean indicating if the polyline forms a closed loop.
         """
+
         # Initialize collections
         corners = []
         corner_to_lines = {}  # Dictionary relating corners to their lines
@@ -1738,7 +1810,12 @@ class SpecificWorker(GenericWorker):
                         line_to_corners[ln].append(intersection_tuple)
 
         # Sort corners by votes in descending order
-        corners.sort(key=lambda x: x[0], reverse=True)
+        # corners.sort(key=lambda x: x[0], reverse=True)
+        # Sort corners by distance to the origin (0, 0) for better visualization
+        corners.sort(key=lambda x: np.linalg.norm(np.array(x[1])), reverse=False)
+        print("Corners sorted", corners)
+
+
 
         if corner_detection:
             return [], corners, corner_to_lines, line_to_corners, False
@@ -1950,8 +2027,8 @@ class SpecificWorker(GenericWorker):
             if cost_matrix[r, c] <= threshold:
                 matched_points[r] = observed_corners[c]
 
-        # print("Matching: nominals", row_ind, "observed", col_ind)
-        # print("Matched points:", matched_points)
+        print("Matching: nominals", row_ind, "observed", col_ind)
+        print("Matched points:", matched_points)
         return matched_points
 
     def has_support(self, p1, p2, pc2d_points):
@@ -2462,7 +2539,7 @@ class SpecificWorker(GenericWorker):
         pass
 
     def update_edge(self, fr: int, to: int, type: str):
-        if (type == "exit"):
+        if type == "exit":
             print("######### EXIT EDGE CREATED #########")
             #     get attrib connected_room_name from "topticaode
             exit_node = self.g.get_node(to)
@@ -2473,12 +2550,21 @@ class SpecificWorker(GenericWorker):
                 print(f"Exit edge from {fr} to {to} connected to room: {connected_room_name}")
                 # Knowed room
                 self.to_known_room = True
-                self.state = "change_room"
             else:
                 print(f"Exit edge from {fr} to {to} has no connected room")
                 self.to_known_room = False
-                self.state = "exit_room"
                 self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
+        if type == "RT":
+            if self.state == "waiting":
+                if to == 200:
+                    if not self.to_known_room:
+                        self.room_id += 1
+                        self.state = "finding_room"
+                        self.accumulated_pcs = np.empty((0, 3), dtype=np.float32)
+                    else:
+                        print("Deleting current edge from robot to room, but to_known_room is True, so we are changing room")
+                        self.state = "change_room"
+
         pass
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
@@ -2486,9 +2572,9 @@ class SpecificWorker(GenericWorker):
 
     def delete_edge(self, fr: int, to: int, type: str):
         if type == "current":
+            self.state = "waiting"
             print("Deleting current edge from robot to room")
-            if not self.to_known_room:
-                self.room_id += 1
-                self.state = "finding_room"
+
+
 
 

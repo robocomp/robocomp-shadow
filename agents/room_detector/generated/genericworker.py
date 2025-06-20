@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide6 import QtWidgets, QtCore
+from PySide2 import QtWidgets, QtCore
 
 
 try:
