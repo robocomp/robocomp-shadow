@@ -60,7 +60,7 @@ namespace Nodes
 //                            G->add_or_modify_attrib_local<bt_state_att>(aff_node, std::string("completed"));
 //                            G->update_node(aff_node);
                             G->delete_edge(params.ROBOT_ID, parent.value(), "has_intention");
-//                            qInfo() << "Mission completed but not deactivated by scheduler";
+                            qInfo() << "Mission completed but not deactivated by scheduler";
                             return BT::NodeStatus::SUCCESS;
                         }
                         else if (state.value() == "aborted" || state.value() == "failed" || aff_state == "aborted" || aff_state == "failed")
@@ -100,6 +100,7 @@ namespace Nodes
     }
 
 #pragma endregion CONDITION_NODES
+
 
 #pragma region ACTION_NODES
 

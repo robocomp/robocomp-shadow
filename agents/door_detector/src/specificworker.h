@@ -194,7 +194,9 @@ private:
                           QColor nominal_color, QColor measured_color, QGraphicsScene *scene);
 
     void clear_doors();
-
+    std::optional<std::pair<std::uint64_t, Eigen::Vector3d>> transform_point(const std::string& from_node_name,
+                                                                                             const std::string& to_node_name,
+                                                                                             std::uint64_t timestamp);
     void affordance();
     void match_exit_door();
     bool exit_door_exists = false;
@@ -203,7 +205,7 @@ private:
     void affordance_thread(uint64_t aff_id);
 
     bool initialize_odom =false;
-
+    bool wait_to_current = false;
     uint64_t actual_room_id = -1;
     bool inside_polygon = false;
 
