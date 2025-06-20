@@ -127,7 +127,7 @@ void SpecificWorker::initialize()
     graph_viewer->add_custom_widget_to_dock("room view", room_widget);
 
     // Lidar thread
-    read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
+    // read_lidar_th = std::thread(&SpecificWorker::read_lidar,this);
     std::cout << __FUNCTION__ << " Started lidar reader" << std::endl;
 
 	// Local apis
@@ -150,12 +150,29 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
-    /// read LiDAR
-    const auto lidar_points = buffer_lidar_data.get_idemp();
-    draw_lidar_in_robot_frame(lidar_points, &widget_2d->scene, 50);
+    std::vector<Eigen::Vector3f> lidar_points;
+    try
+        {
+            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(params.LIDAR_NAME_LOW,
+                                                                   params.MAX_LIDAR_LOW_RANGE,
+                                                                   params.LIDAR_LOW_DECIMATION_FACTOR);
+            
+            std::vector<Eigen::Vector3f> eig_data(data.points.size());
+            for (const auto &[i, p]: data.points | iter::enumerate)
+                if (p.distance2d > 500) eig_data[i] = {p.x, p.y, p.z};
+                 /// read LiDAR
+            lidar_points = eig_data;
+            draw_lidar_in_robot_frame(lidar_points, &widget_2d->scene, 50);
+            // draw robot and lidar in room frame
+            draw_room(&room_widget->viewer->scene, lidar_points);
+        }
+        catch (const Ice::Exception &e)
+        { std::cout << "Error reading from Lidar3D " << e << std::endl; return; }
 
-    // draw robot and lidar in room frame
-    draw_room(&room_widget->viewer->scene, lidar_points);
+
+   
+
+    
 
     /// check if pushButton_stop is checked and stop robot and return if so
     if(room_widget->ui->pushButton_stop->isChecked())
@@ -386,7 +403,7 @@ void SpecificWorker::move_robot(float adv, float side, float rot)
     {
         auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         RoboCompGridPlanner::TPlan plan = {.path={},
-                                           .controls={{RoboCompGridPlanner::TControl{adv, side, rot}}},
+                                           .controls={{RoboCompGridPlanner::TControl{adv, side, -rot}}},
                                            .timestamp=now,
                                            .subtarget={} ,
                                            .valid=true};
@@ -424,12 +441,12 @@ bool SpecificWorker::line_of_sight(const Eigen::Vector3d &target, const std::vec
     items.push_back(pScene->addPolygon(robot_safe_band, QPen(QColor("blue"), 10)));
 
     // check if there are points inside the rectangular shape
-    for(const auto &p: points)
-        if(robot_safe_band.containsPoint(QPointF(p.x(), p.y()), Qt::FillRule::OddEvenFill))
-        {
-            qInfo() << __FUNCTION__ << "Line of sight blocked by point " << p.transpose().x() << " " << p.transpose().y();
-            return false;
-        }
+    // for(const auto &p: points)
+    //     if(robot_safe_band.containsPoint(QPointF(p.x(), p.y()), Qt::FillRule::OddEvenFill))
+    //     {
+    //         qInfo() << __FUNCTION__ << "Line of sight blocked by point " << p.transpose().x() << " " << p.transpose().y();
+    //         return false;
+    //     }
 
 
     return true;
@@ -610,19 +627,19 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
 //    G->add_or_modify_attrib_local<timestamp_alivetime_att>(robot_node_value, (uint64_t) pose.timestamp);
 //    G->update_node(robot_node_value);
 
-    if (this->loadRT)
-    {
-        auto robot_edge = G->get_edge("root", params.robot_name, "RT");
-        if(not robot_edge.has_value())
-        {  qWarning() << "Robot edge" << QString::fromStdString(params.robot_name) << "not found"; return; }
-        auto robot_edge_value = robot_edge.value();
-        G->add_or_modify_attrib_local<rt_translation_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.x, pose.y, pose.z});
-        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.rx, pose.ry, pose.rz});
-        G->add_or_modify_attrib_local<rt_translation_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vx, pose.vy, pose.vz});
-        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vrx, pose.vry, pose.vrz});
-        G->add_or_modify_attrib_local<rt_timestamps_att>(robot_edge_value, (std::vector<uint64_t>) std::vector<uint64_t>{pose.timestamp});
-        G->insert_or_assign_edge(robot_edge_value);
-    }
+    // if (this->loadRT)
+    // {
+    //     auto robot_edge = G->get_edge("root", params.robot_name, "RT");
+    //     if(not robot_edge.has_value())
+    //     {  qWarning() << "Robot edge" << QString::fromStdString(params.robot_name) << "not found"; return; }
+    //     auto robot_edge_value = robot_edge.value();
+    //     G->add_or_modify_attrib_local<rt_translation_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.x, pose.y, pose.z});
+    //     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.rx, pose.ry, pose.rz});
+    //     G->add_or_modify_attrib_local<rt_translation_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vx, pose.vy, pose.vz});
+    //     G->add_or_modify_attrib_local<rt_rotation_euler_xyz_velocity_att>(robot_edge_value, (std::vector<float>)  std::vector<float>{pose.vrx, pose.vry, pose.vrz});
+    //     G->add_or_modify_attrib_local<rt_timestamps_att>(robot_edge_value, (std::vector<uint64_t>) std::vector<uint64_t>{pose.timestamp});
+    //     G->insert_or_assign_edge(robot_edge_value);
+    // }
 
 
 }

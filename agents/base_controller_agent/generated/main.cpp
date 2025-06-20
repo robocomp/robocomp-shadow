@@ -80,11 +80,92 @@
 #include <fullposeestimationpubI.h>
 
 #include <FullPoseEstimation.h>
+#include <FullPoseEstimationPub.h>
+#include <GridPlanner.h>
+#include <Lidar3D.h>
 
 #define USE_QTGUI
 
 #define PROGRAM_NAME    "base_controller_agent"
 #define SERVER_FULL_NAME   "RoboComp base_controller_agent::base_controller_agent"
+
+
+template <typename ProxyType, typename ProxyPointer>
+void require(const Ice::CommunicatorPtr& communicator,
+             const std::string& proxyConfig, 
+             const std::string& proxyName,
+             ProxyPointer& proxy)
+{
+    try
+    {
+        proxy = Ice::uncheckedCast<ProxyType>(communicator->stringToProxy(proxyConfig));
+        std::cout << proxyName << " initialized Ok!\n";
+    }
+    catch(const Ice::Exception& ex)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: Exception creating proxy " << proxyName << ": " << ex;
+        throw;
+    }
+}
+
+template <typename SubInterfaceType>
+void subscribe( const Ice::CommunicatorPtr& communicator,
+                const IceStorm::TopicManagerPrxPtr& topicManager,
+                const std::string& endpointConfig,
+                std::string name_topic,
+                const std::string& topicBaseName,
+                SpecificWorker* worker,
+                int index,
+                std::shared_ptr<IceStorm::TopicPrx> topic,
+                Ice::ObjectPrxPtr& proxy, 
+                const std::string& programName)
+{
+    try   
+    {  
+        if (!name_topic.empty()) name_topic += "/";
+        name_topic += topicBaseName;
+
+        Ice::ObjectAdapterPtr adapter = communicator->createObjectAdapterWithEndpoints(name_topic, endpointConfig);
+        auto servant = std::make_shared<SubInterfaceType>(worker, index);
+        auto proxy = adapter->addWithUUID(servant)->ice_oneway();
+
+        std::cout << "[\033[1;36m" << programName << "\033[0m]: \033[32mINFO\033[0m Topic: " 
+                  << name_topic << " will be used in subscription. \033[0m\n";
+
+        std::shared_ptr<IceStorm::TopicPrx> topic;
+        if(!topic)
+        {
+            try {
+                topic = topicManager->create(name_topic);
+                std::cout << "\n\n[\033[1;36m" << programName << "\033[0m]: \033[1;33mWARNING\033[0m " 
+                          << name_topic << " topic did not create. \033[32mTopic created\033[0m\n\n";
+            }
+            catch (const IceStorm::TopicExists&) {
+                try{
+                    std::cout << "[\033[31m" << programName << "\033[0m]: \033[1;33mWARNING\033[0m Probably other client already opened the topic. \033[32mTrying to connect.\033[0m\n";
+                    topic = topicManager->retrieve(name_topic);
+                }
+                catch(const IceStorm::NoSuchTopic&)
+                {
+                    std::cout << "[" << programName << "]: Topic doesn't exists and couldn't be created.\n";
+                    return;
+                }
+            }
+            catch(const IceUtil::NullHandleException&)
+            {
+                std::cout << "[\033[31m" << programName << "\033[0m]: \033[31mERROR\033[0m TopicManager is Null.\n";
+                throw;
+            }
+            IceStorm::QoS qos;
+            topic->subscribeAndGetPublisher(qos, proxy);
+        }
+        adapter->activate();
+    }
+    catch(const IceStorm::NoSuchTopic&)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: Error creating topic.\n";
+    }
+}
 
 
 class base_controller_agent : public Ice::Application
@@ -95,8 +176,7 @@ public:
 		this->prefix = prfx.toStdString();
 		this->startup_check_flag=startup_check; 
 
-		this->configLoader.load(this->configFile);
-		this->configLoader.printConfig();
+		initialize();
 		}
 
 	Ice::InitializationData getInitializationDataIce();
@@ -126,6 +206,7 @@ void base_controller_agent::initialize()
 {
     this->configLoader.load(this->configFile);
 	this->configLoader.printConfig();
+	std::cout<<std::endl;
 }
 
 int base_controller_agent::run(int argc, char* argv[])
@@ -151,37 +232,20 @@ int base_controller_agent::run(int argc, char* argv[])
 
 	int status=EXIT_SUCCESS;
 
+	std::shared_ptr<IceStorm::TopicPrx> fullposeestimationpub_topic;
+	Ice::ObjectPrxPtr fullposeestimationpub;
+
 	RoboCompGridPlanner::GridPlannerPrxPtr gridplanner_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
-	std::string proxy, tmp;
-	initialize();
 
-	try
-	{
-	    proxy = configLoader.get<std::string>("Proxies.GridPlanner");
-		gridplanner_proxy = Ice::uncheckedCast<RoboCompGridPlanner::GridPlannerPrx>(communicator()->stringToProxy(proxy));
-	}
-	catch(const Ice::Exception& ex)
-	{
-		std::cout << "[" << PROGRAM_NAME << "]: Exception creating proxy GridPlanner: " << ex;
-		return EXIT_FAILURE;
-	}
-	qInfo("GridPlannerProxy initialized Ok!");
+	//Require code
+	require<RoboCompGridPlanner::GridPlannerPrx, RoboCompGridPlanner::GridPlannerPrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.GridPlanner"), "GridPlannerProxy", gridplanner_proxy);
+	require<RoboCompLidar3D::Lidar3DPrx, RoboCompLidar3D::Lidar3DPrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.Lidar3D"), "Lidar3DProxy", lidar3d_proxy);
 
-
-	try
-	{
-	    proxy = configLoader.get<std::string>("Proxies.Lidar3D");
-		lidar3d_proxy = Ice::uncheckedCast<RoboCompLidar3D::Lidar3DPrx>(communicator()->stringToProxy(proxy));
-	}
-	catch(const Ice::Exception& ex)
-	{
-		std::cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Lidar3D: " << ex;
-		return EXIT_FAILURE;
-	}
-	qInfo("Lidar3DProxy initialized Ok!");
-
+	//Topic Manager code
 
 	IceStorm::TopicManagerPrxPtr topicManager;
 	try
@@ -207,50 +271,11 @@ int base_controller_agent::run(int argc, char* argv[])
 	try
 	{
 
-		// Server adapter creation and publication
-		std::shared_ptr<IceStorm::TopicPrx> fullposeestimationpub_topic;
-		Ice::ObjectPrxPtr fullposeestimationpub;
-		try
-		{
-
-		    tmp = configLoader.get<std::string>("Endpoints.FullPoseEstimationPubTopic");
-			Ice::ObjectAdapterPtr FullPoseEstimationPub_adapter = communicator()->createObjectAdapterWithEndpoints("fullposeestimationpub", tmp);
-			RoboCompFullPoseEstimationPub::FullPoseEstimationPubPtr fullposeestimationpubI_ =  std::make_shared <FullPoseEstimationPubI>(worker);
-			auto fullposeestimationpub = FullPoseEstimationPub_adapter->addWithUUID(fullposeestimationpubI_)->ice_oneway();
-			if(!fullposeestimationpub_topic)
-			{
-				try {
-					fullposeestimationpub_topic = topicManager->create("FullPoseEstimationPub");
-				}
-				catch (const IceStorm::TopicExists&) {
-					//Another client created the topic
-					try{
-						std::cout << "[" << PROGRAM_NAME << "]: Probably other client already opened the topic. Trying to connect.\n";
-						fullposeestimationpub_topic = topicManager->retrieve("FullPoseEstimationPub");
-					}
-					catch(const IceStorm::NoSuchTopic&)
-					{
-						std::cout << "[" << PROGRAM_NAME << "]: Topic doesn't exists and couldn't be created.\n";
-						//Error. Topic does not exist
-					}
-				}
-				catch(const IceUtil::NullHandleException&)
-				{
-					std::cout << "[" << PROGRAM_NAME << "]: ERROR TopicManager is Null. Check that your configuration file contains an entry like:\n"<<
-					"\t\tTopicManager.Proxy=IceStorm/TopicManager:default -p <port>\n";
-					return EXIT_FAILURE;
-				}
-				IceStorm::QoS qos;
-				fullposeestimationpub_topic->subscribeAndGetPublisher(qos, fullposeestimationpub);
-			}
-			FullPoseEstimationPub_adapter->activate();
-		}
-		catch(const IceStorm::NoSuchTopic&)
-		{
-			std::cout << "[" << PROGRAM_NAME << "]: Error creating FullPoseEstimationPub topic.\n";
-			//Error. Topic does not exist
-		}
-
+		//Subscribe code
+		subscribe<FullPoseEstimationPubI>(communicator(),
+		                    topicManager, configLoader.get<std::string>("Endpoints.FullPoseEstimationPubTopic"),
+						    configLoader.get<std::string>("Endpoints.FullPoseEstimationPubPrefix"), "FullPoseEstimationPub", worker,  0,
+						    fullposeestimationpub_topic, fullposeestimationpub, PROGRAM_NAME);
 
 		// Server adapter creation and publication
 		std::cout << SERVER_FULL_NAME " started" << std::endl;
@@ -267,11 +292,12 @@ int base_controller_agent::run(int argc, char* argv[])
 		try
 		{
 			std::cout << "Unsubscribing topic: fullposeestimationpub " <<std::endl;
-			fullposeestimationpub_topic->unsubscribe( fullposeestimationpub );
+			fullposeestimationpub_topic->unsubscribe(fullposeestimationpub);
+
 		}
 		catch(const Ice::Exception& ex)
 		{
-			std::cout << "ERROR Unsubscribing topic: fullposeestimationpub " << ex.what()<<std::endl;
+			std::cout << "ERROR Unsubscribing" << ex.what()<<std::endl;
 		}
 
 

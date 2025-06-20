@@ -23,13 +23,13 @@
 #include <Ice/Ice.h>
 #include <FullPoseEstimationPub.h>
 
-#include "genericworker.h"
+#include "../src/specificworker.h"
 
 
 class FullPoseEstimationPubI : public virtual RoboCompFullPoseEstimationPub::FullPoseEstimationPub
 {
 public:
-	FullPoseEstimationPubI(GenericWorker *_worker);
+	FullPoseEstimationPubI(GenericWorker *_worker, const size_t id);
 	~FullPoseEstimationPubI();
 
 	void newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose, const Ice::Current&);
@@ -37,6 +37,10 @@ public:
 private:
 
 	GenericWorker *worker;
+	size_t id;
+
+	// Array handlers for each method
+	std::array<std::function<void(RoboCompFullPoseEstimation::FullPoseEuler)>, 1> newFullPoseHandlers;
 
 };
 

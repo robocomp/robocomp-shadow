@@ -18,9 +18,12 @@
  */
 #include "fullposeestimationpubI.h"
 
-FullPoseEstimationPubI::FullPoseEstimationPubI(GenericWorker *_worker)
+FullPoseEstimationPubI::FullPoseEstimationPubI(GenericWorker *_worker, const size_t id): worker(_worker), id(id)
 {
-	worker = _worker;
+	newFullPoseHandlers = {
+		[this](auto a) { return worker->FullPoseEstimationPub_newFullPose(a); }
+	};
+
 }
 
 
@@ -31,6 +34,15 @@ FullPoseEstimationPubI::~FullPoseEstimationPubI()
 
 void FullPoseEstimationPubI::newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose, const Ice::Current&)
 {
-	worker->FullPoseEstimationPub_newFullPose(pose);
+
+    #ifdef HIBERNATION_ENABLED
+		worker->hibernationTick();
+	#endif
+    
+	if (id < newFullPoseHandlers.size())
+		 newFullPoseHandlers[id](pose);
+	else
+		throw std::out_of_range("Invalid newFullPose id: " + std::to_string(id));
+
 }
 

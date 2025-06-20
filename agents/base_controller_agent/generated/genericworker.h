@@ -73,6 +73,7 @@ public:
 
 	virtual void FullPoseEstimationPub_newFullPose (RoboCompFullPoseEstimation::FullPoseEuler pose) = 0;
 
+
 protected:
 	std::unordered_map<std::string, std::unique_ptr<GRAFCETStep>> states;
 	ConfigLoader configLoader;
@@ -82,6 +83,8 @@ protected:
 	//DSR params
 	std::string agent_name;
 	int agent_id;
+	int current_opts = 0;
+	DSR::DSRViewer::view main = DSR::DSRViewer::view::none;
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
 	QHBoxLayout mainLayout;
@@ -97,6 +100,7 @@ public slots:
 	virtual void emergency() = 0;
 	virtual void restore() = 0;
 	void hibernationCheck();
+	void hibernationTick();
 	
 signals:
 	void kill();
