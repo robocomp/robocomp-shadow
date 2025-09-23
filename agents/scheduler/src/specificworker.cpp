@@ -209,6 +209,16 @@ void SpecificWorker::compute()
                 {
                     std::cout << CYAN << "Affordance name: " << affordance.name() << RESET << std::endl;
                     std::cout << CYAN << "Affordance state: " << affordance_state.value() << RESET << std::endl;
+
+                    if(TODO_edge_removed)
+                    {
+                        std::cout << "TODO edge removed, deactivating affordance" << std::endl;
+                        G->add_or_modify_attrib_local<active_att>(affordance, false);
+                        G->update_node(affordance);
+                        TODO_edge_removed = false;
+                        return;
+                    }
+
                     if(affordance_state.value() == "completed")
                     {
                         G->add_or_modify_attrib_local<active_att>(affordance, false);
@@ -258,6 +268,13 @@ void SpecificWorker::compute()
                     else if(affordance_state.value () == "in_progress" or affordance_state.value () == "waiting")
                     {
                         std::cout << BLUE << "AFFORDANCE NODE IN PROGRESS: " << affordance.name() << RESET << std::endl;
+                        return;
+                    }
+                    else if(affordance_state.value() == "aborted" or affordance_state.value() == "failed")
+                    {
+                        std::cout << RED << "AFFORDANCE NODE ABORTED OR FAILED: " << affordance.name() << RESET << std::endl;
+                        wait_start_time = std::chrono::system_clock::now();
+                        wait = true;
                         return;
                     }
                 }
@@ -341,14 +358,13 @@ void SpecificWorker::compute()
 
     std::string best_aff = "";
 //    //get current edge with types
-//    auto current_edges = G->get_edges_by_type("current");
-//
-//    if(current_edges.empty())
-//    { std::cout << "No current edges found" << std::endl; return; }
+    auto current_edges = G->get_edges_by_type("current");
+
+    if(current_edges.empty())
+    { std::cout << "No current edges found" << std::endl; return; }
 
     //get to node from current edges [0]
-//    auto room_node = G->get_node(current_edges[0].to());
-    auto room_node = G->get_node("room");
+    auto room_node = G->get_node(current_edges[0].to());
     //check to_node value
     if(!room_node.has_value())
     { std::cout << "No to node found" << std::endl; return; }
@@ -358,6 +374,31 @@ void SpecificWorker::compute()
     //check room_id value
     if(!room_id.has_value())
     { std::cout << "No room id found" << std::endl; return; }
+
+    // Check if any TODO edge exists
+    // Get all edges of type TODO
+    auto todo_edges = G->get_edges_by_type("TODO");
+    // If not empty, get the first edge and get the destination node
+    if(not todo_edges.empty())
+    {
+        // Get the first TODO edge
+        auto todo_edge = todo_edges[0];
+        // Get the destination node of the TODO edge
+        auto dest_node = G->get_node(todo_edge.to());
+        if(dest_node.has_value())
+        {
+            auto dest_node_value = dest_node.value();
+            // Print the destination node name
+            std::cout << "TODO edge found, destination node: " << dest_node.value().name() << std::endl;
+            //Set the affordance active to true
+            G->add_or_modify_attrib_local<active_att>(dest_node_value, true);
+            //Set the affordance state to in_progress
+            G->update_node(dest_node_value);
+
+//            affordance_map[best_aff]++;
+            return;
+        }
+    }
 
     //Get first affordance node with state waiting
     for(auto affordance : affordance_nodes)
@@ -573,6 +614,11 @@ void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const s
         qInfo() << "Exit edge deleted";
         affordance_activated = false;
         affordance_activated_id = -1;
+    }
+    if(edge_tag == "TODO")
+    {
+        qInfo() << "TODO edge deleted";
+        TODO_edge_removed = true;
     }
 }
 

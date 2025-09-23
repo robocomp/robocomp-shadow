@@ -111,6 +111,10 @@ class SpecificWorker : public GenericWorker
         FPSCounter fps;
         int hz = 0;
 
+		// DSR
+		void insert_path_node(Eigen::Vector2f target, std::vector<Eigen::Vector2f> points);
+
+
         // Draw
         void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);
         void draw_path(const vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only=false);

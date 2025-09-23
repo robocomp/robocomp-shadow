@@ -22,6 +22,7 @@
 #include <cppitertools/sliding_window.hpp>
 #include <cppitertools/range.hpp>
 #include <cppitertools/reversed.hpp>
+#include <cppitertools/zip.hpp>
 /**
 * \brief Default constructor
 */
@@ -41,10 +42,10 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 
 		//dsr update signals
 		//connect(G.get(), &DSR::DSRGraph::update_node_signal, this, &SpecificWorker::modify_node_slot);
-		//connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::update_edge_signal, this, &SpecificWorker::modify_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_node_attr_signal, this, &SpecificWorker::modify_node_attrs_slot);
 		//connect(G.get(), &DSR::DSRGraph::update_edge_attr_signal, this, &SpecificWorker::modify_edge_attrs_slot);
-		//connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
+		connect(G.get(), &DSR::DSRGraph::del_edge_signal, this, &SpecificWorker::del_edge_slot);
 		//connect(G.get(), &DSR::DSRGraph::del_node_signal, this, &SpecificWorker::del_node_slot);
 
 		/***
@@ -133,6 +134,17 @@ void SpecificWorker::initialize()
 	// Local apis
     rt_api = G->get_rt_api();
     inner_api = G->get_inner_eigen_api();
+
+    // check for current room
+    auto current_edges = G->get_edges_by_type("current");
+    if(current_edges.empty())
+    {qWarning() << __FUNCTION__ << " No current edges in graph"; return;}
+
+    auto room_node_ = G->get_node(current_edges[0].to());
+    if(not room_node_.has_value())
+    { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
+    auto room_node = room_node_.value();
+    params.current_room = room_node.name();
 }
 
 /// ProtoCODE
@@ -152,27 +164,22 @@ void SpecificWorker::compute()
 {
     std::vector<Eigen::Vector3f> lidar_points;
     try
-        {
-            auto data = lidar3d_proxy->getLidarDataWithThreshold2d(params.LIDAR_NAME_LOW,
-                                                                   params.MAX_LIDAR_LOW_RANGE,
-                                                                   params.LIDAR_LOW_DECIMATION_FACTOR);
-            
-            std::vector<Eigen::Vector3f> eig_data(data.points.size());
-            for (const auto &[i, p]: data.points | iter::enumerate)
-                if (p.distance2d > 500) eig_data[i] = {p.x, p.y, p.z};
-                 /// read LiDAR
-            lidar_points = eig_data;
-            draw_lidar_in_robot_frame(lidar_points, &widget_2d->scene, 50);
-            // draw robot and lidar in room frame
-            draw_room(&room_widget->viewer->scene, lidar_points);
-        }
-        catch (const Ice::Exception &e)
-        { std::cout << "Error reading from Lidar3D " << e << std::endl; return; }
+    {
+        auto data = lidar3d_proxy->getLidarDataWithThreshold2d(params.LIDAR_NAME_LOW,
+                                                               params.MAX_LIDAR_LOW_RANGE,
+                                                               params.LIDAR_LOW_DECIMATION_FACTOR);
 
-
-   
-
-    
+        std::vector<Eigen::Vector3f> eig_data(data.points.size());
+        for (const auto &[i, p]: data.points | iter::enumerate)
+            if (p.distance2d > 500) eig_data[i] = {p.x, p.y, p.z};
+             /// read LiDAR
+        lidar_points = eig_data;
+        draw_lidar_in_robot_frame(lidar_points, &widget_2d->scene, 50);
+        // draw robot and lidar in room frame
+        draw_room(&room_widget->viewer->scene, lidar_points);
+    }
+    catch (const Ice::Exception &e)
+    { std::cout << "Error reading from Lidar3D " << e << std::endl; return; }
 
     /// check if pushButton_stop is checked and stop robot and return if so
     if(room_widget->ui->pushButton_stop->isChecked())
@@ -195,45 +202,101 @@ void SpecificWorker::compute()
         std::cout << __FUNCTION__ << " Error getting intention status. Returning." << std::endl;
         return;
     }
+
     auto intention_status = intention_status_.value();
 
-    /// Set string to set intention state
-    std::string intention_state = "waiting";
 
-    /// Check if there is final orientation and tolerance in the intention edge
-    //    Eigen::Vector3f orientation = Eigen::Vector3f::Zero();
-    //    if(auto orientation_ = G->get_attrib_by_name<orientation_att>(intention_edge); orientation_.has_value())
-    //        orientation = { orientation_.value().get()[0], orientation_.value().get()[1], orientation_.value().get()[2] };
-    //
     /// Get translation vector from target node with offset applied to it
     Eigen::Vector3d vector_to_target = Eigen::Vector3d::Zero();
-    if(const auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
+
+    // Check if "current_path" node exists in G
+    if(not current_path_room.empty())
     {
-        qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning.";
-        return;
+        //Transform path to robot using RT API
+        std::vector<Eigen::Vector3d> path_in_robot;
+        path_in_robot.reserve(current_path_room.size());
+
+        for(const auto &[i, point]: current_path_room | iter::enumerate)
+        {
+            auto point_in_robot = get_translation_vector_to_point(point);
+            if(not point_in_robot.has_value())
+            {qWarning() << __FUNCTION__ << "Error getting translation from the robot to the path point"; continue;}
+            path_in_robot.push_back(point_in_robot.value());
+        }
+        vector_to_target = computePathTarget(path_in_robot);
+
     }
-    else vector_to_target = vector_to_target_.value();
+    else
+    {
+        if(const auto vector_to_target_ = get_translation_vector_from_target_node(intention_edge); not vector_to_target_.has_value())
+        {
+            qWarning() << __FUNCTION__ << "Error getting translation from the robot to the target node. Returning.";
+            return;
+        }
+        else vector_to_target = vector_to_target_.value();
+    }
 
     draw_vector_to_target(vector_to_target, &widget_2d->scene );
+    auto [norm_at_target, angle_at_target] = robot_at_target(vector_to_target, intention_edge);
 
     /// If robot is at target, stop
-    if(robot_at_target(vector_to_target, intention_edge))
+    if(norm_at_target)
     {
-        qInfo() << "Robot at target. Stopping.";
-        stop_robot();
-        set_intention_edge_state(intention_edge, "completed");
-        return;
+//        if(not current_path_room.empty())
+//        {
+//            // Print path size
+//            std::cout << "Path size: " << current_path_room.size() << std::endl;
+//            qInfo() << "Robot at current path target.";
+//        }
+//        else
+//        {
+            qInfo() << "Robot at target. Stopping.";
+
+            auto is_finite_intention = G->get_attrib_by_name<finite_att>(intention_edge);
+            if(not is_finite_intention.has_value())
+            {
+                std::cout << "There is not finite attribute. Considering not finite intention." << std::endl;
+                set_intention_edge_state(intention_edge, "completed");
+                stop_robot();
+            }
+            else
+            {
+                auto finite = is_finite_intention.value();
+                if(finite)
+                {
+                    std::cout << "Intention is finite. Deleting intention edge." << std::endl;
+                    set_intention_edge_state(intention_edge, "completed");
+                    stop_robot();
+                }
+                else
+                {
+                    if(angle_at_target)
+                    {
+                        stop_robot();
+                    }
+                    std::cout << "Intention is not finite. Keeping going." << std::endl;
+                }
+            }
+            return;
+//        }
     }
 
     set_intention_edge_state(intention_edge, "in_progress");
 
+    auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
+    
+    // if(norm_at_target) adv = 0;
+    // if(angle_at_target) rot = 0;
+    qInfo() << "Robot speed" << adv << side << -rot;
+    move_robot(adv, side, -rot);
+
     /// Check if the target position is in line of sight
-    if( line_of_sight(vector_to_target, lidar_points, &widget_2d->scene) )
-    {
-        auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
-        move_robot(adv, side, rot);
-        return;
-    }
+    // if( line_of_sight(vector_to_target, lidar_points, &widget_2d->scene) )
+    // {
+    //     auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
+    //     move_robot(adv, side, rot);
+    //     return;
+    // }
 
     /// not in line of sight
     // if there is a node of type ROOM and it has a self edge of type "current" in it
@@ -332,6 +395,20 @@ std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_from_targe
     }
     return {};
 }
+
+std::optional<Eigen::Vector3d> SpecificWorker::get_translation_vector_to_point(const Eigen::Vector2f &current_target)
+{
+    Eigen::Vector3d current_target_3d;
+    current_target_3d << current_target.x(), current_target.y(), 0;
+
+    // get the pose of the target_node + offset in the intention edge
+    if(auto translation_ = inner_api->transform(params.robot_name, current_target_3d, params.current_room, 9999999999999); not translation_.has_value())
+    { std::cout << __FUNCTION__ << "Error getting translation from the robot to the target node plus offset. Returning." << std::endl; return {};}
+    else
+        return translation_.value();
+    return {};
+}
+
 /////////////////// Draw  /////////////////////////////////////////////////////////////
 void SpecificWorker::draw_lidar_in_robot_frame(const std::vector<Eigen::Vector3f> &data, QGraphicsScene *scene, QColor color, int step)
 {
@@ -361,19 +438,23 @@ void SpecificWorker::draw_vector_to_target(const Eigen::Vector3d &target, QGraph
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
-bool SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::Edge &edge)
+std::pair<bool, bool> SpecificWorker::robot_at_target(const Eigen::Vector3d &target, const DSR::Edge &edge)
 {
     // get tolerance from intention edge
     Eigen::Vector<float, 6> tolerance = Eigen::Vector<float, 6>::Zero().array() - 1.f; // -1 means no tolerance is applied
     if(auto threshold_ = G->get_attrib_by_name<tolerance_att>(edge); threshold_.has_value())
         tolerance = { threshold_.value().get()[0], threshold_.value().get()[1], threshold_.value().get()[2],
                       threshold_.value().get()[3], threshold_.value().get()[4], threshold_.value().get()[5] };
+    auto angle_to_target = atan2(target[0], target[1]);
     /// Print target and tolerance
     std::cout << "Target: " << target.transpose() << std::endl;
     std::cout << "Tolerance: " << tolerance.transpose() << std::endl;
     std::cout << "Distance to target: " << target.head(2).norm() << std::endl;
     std::cout << "Tolerance norm: " << tolerance.head(2).norm() << std::endl;
-    return target.head(2).norm() <= tolerance.head(2).norm();
+    std::cout << "Angle tolerance: " << tolerance[5] << std::endl;
+    std::cout << "Angle to target: " << angle_to_target << std::endl;
+    
+    return std::make_pair(target.head(2).norm() <= tolerance.head(2).norm(), angle_to_target <= tolerance[5]);
 }
 void SpecificWorker::stop_robot()
 {
@@ -481,7 +562,226 @@ void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const std::string
     else
         std::cout << __FUNCTION__ << "Error setting intention edge state to " << string << std::endl;
 }
+
+void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)
+{
+    if(type == "TARGET")
+    {
+        auto path_node_ = G->get_node("current_path");
+        if(path_node_.has_value())
+        {
+            auto node = path_node_.value();
+            auto x_values = G->get_attrib_by_name<path_x_values_att>(node);
+            auto y_values = G->get_attrib_by_name<path_y_values_att>(node);
+            if(x_values.has_value() and y_values.has_value())
+            {
+                auto x = x_values.value().get();
+                auto y = y_values.value().get();
+                std::vector<Eigen::Vector2f> path; path.reserve(x.size());
+                for (auto &&[x, y] : iter::zip(x, y))
+                    path.push_back(Eigen::Vector2f(x, y));
+
+                current_path_room = path;
+                std::cout << __FUNCTION__ << " New path received with " << path.size() << " points." << std::endl;
+            }
+        }
+    }
+    if(type == "current")
+    {
+        auto room_node_ = G->get_node(to);
+        if(not room_node_.has_value())
+        { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
+        auto room_node = room_node_.value();
+        params.current_room = room_node.name();
+        qInfo() << __FUNCTION__ << " Current room set to " << params.current_room.c_str();
+    }
+}
+
+void SpecificWorker::del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag)
+{
+    if (edge_tag == "TARGET")
+        current_path_room.clear();
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////
+// computePathTarget:
+// - current_path: vector de puntos en el sistema del robot (Eigen::Vector2f), modificado in-place
+// - D: distancia mínima para eliminar puntos cercanos (mm)
+// - stop_distance: si la distancia al final < stop_distance, path y objetivo se borran (mm)
+// - lookahead: distancia a buscar a lo largo del path para colocar el objetivo (mm)
+// - min_length: si el path total es menor que min_length, se fija objetivo en el punto final (mm)
+// Retorna Eigen::Vector3d {x, y, yaw} en mm/radianes. Si no hay objetivo devuelve {NaN,NaN,NaN}.
+Eigen::Vector3d SpecificWorker::computePathTarget(std::vector<Eigen::Vector3d>& current_path,
+                                  float D,
+                                  float stop_distance,
+                                  float lookahead,
+                                  float min_length)
+{
+    using std::sqrt;
+    using std::atan2;
+
+    const double NAN_D = std::numeric_limits<double>::quiet_NaN();
+
+    // 1) Si path vacío -> sin objetivo
+    if (current_path.empty()) {
+        return Eigen::Vector3d(0.0, 0.0, 0.0);
+    }
+
+    // 2) Eliminar puntos detrás del robot (x < 0) o demasiado cercanos (norma < D)
+    std::vector<Eigen::Vector3d> filtered;
+    filtered.reserve(current_path.size());
+
+//    Find closest point to robot in path
+    auto closest_point = std::min_element(current_path.begin(), current_path.end(),
+                               [](const Eigen::Vector3d &a, const Eigen::Vector3d &b) {
+                                   return a.norm() < b.norm();
+                               });
+    if (closest_point != current_path.end()) {
+        //Remove previous points
+        current_path.erase(current_path.begin(), closest_point);
+    }
+
+
+//    for (const auto &p : current_path) {
+//        float dist = p.norm(); // distancia desde el robot (0,0)
+//        // Detrás del robot -> proyección en eje X negativa en sistema del robot
+//        bool is_behind = (p.x() < 0.0f);
+//        if (dist >= D) {
+//            filtered.push_back(p);
+//        }
+//        else
+//        {
+//            // std::cout << "Removing point " << p.transpose() << " dist=" << dist << (is_behind ? " behind" : " too close") << std::endl;
+//            current_path_room.erase(current_path_room.begin());
+//        }
+//    }
+
+
+
+//
+//    current_path.swap(filtered);
+
+    if (current_path.empty()) {
+        return Eigen::Vector3d(0.0, 0.0, 0.0);
+    }
+
+    // 3) Calcular longitud total del path y distancia al final
+    double total_len = 0.0;
+    for (size_t i = 1; i < current_path.size(); ++i) {
+        Eigen::Vector3d d = current_path[i] - current_path[i-1];
+        total_len += d.norm();
+    }
+    // distancia desde el robot (origen) al último punto
+    Eigen::Vector3d last_pt = current_path.back();
+    double dist_to_last = last_pt.norm();
+
+    // Si estamos lo suficientemente cerca del final -> borrar path y devolver sin objetivo
+    if (dist_to_last < stop_distance) {
+        current_path.clear();
+        return Eigen::Vector3d(0.0, 0.0, 0.0);
+    }
+
+    // Si la longitud total es menor que min_length -> objetivo = punto final
+    if (total_len < min_length) {
+        // determinar yaw mirando desde el penúltimo punto al último (si existe)
+        double yaw = 0.0;
+        if (current_path.size() >= 2) {
+            Eigen::Vector3d pen = current_path[current_path.size() - 2];
+            Eigen::Vector3d diff = last_pt - pen;
+            if (diff.squaredNorm() > 1e-6f) {
+                yaw = atan2((double)diff.y(), (double)diff.x());
+            }
+        } else {
+            // solo un punto: orientar hacia ese punto desde el origen
+            yaw = atan2((double)last_pt.y(), (double)last_pt.x());
+        }
+        return Eigen::Vector3d((double)last_pt.x(), (double)last_pt.y(), yaw);
+    }
+
+    // 4) Estrategia lookahead (pure pursuit-like):
+    // buscamos el primer punto a una distancia acumulada >= lookahead desde el robot (inicio del path).
+    // Path está en coordenadas del robot, empezando por el primer punto (el más cercano hacia adelante).
+    double accum = 0.0;
+    Eigen::Vector2d target_pt( NAN_D, NAN_D );
+    double target_yaw = 0.0;
+    bool found = false;
+
+    // Si el primer punto no está en x>=0 puede darse que tenga un gap; asumimos current_path[0] es el más cercano adelante.
+    // Recorremos segmentos y acumulamos longitudes.
+    Eigen::Vector3d prev;
+    // Si el primer punto está muy lejos en longitud acumulada, asumimos desde el origen al primer punto parte de la longitud:
+    // para simplicidad consideramos el path como secuencia de puntos (no añadimos origen como punto explícito).
+    prev = current_path[0];
+
+    // Si lookahead <= distancia al primer punto, interpolamos desde origen (0,0) al primer punto
+    double dist_origin_to_first = prev.norm();
+    if (lookahead <= dist_origin_to_first) {
+        // Interpolar entre origen (0,0) y current_path[0]
+        double t = lookahead / dist_origin_to_first;
+        if (dist_origin_to_first < 1e-6) t = 1.0;
+        Eigen::Vector2d p0(0.0, 0.0);
+        Eigen::Vector2d p1(prev.x(), prev.y());
+        target_pt = p0 + t * (p1 - p0);
+        target_yaw = atan2((double)prev.y(), (double)prev.x()); // dirección hacia first
+        found = true;
+    } else {
+        // Caso general: buscamos a lo largo de segmentos entre puntos
+        accum = dist_origin_to_first;
+        for (size_t i = 1; i < current_path.size() && !found; ++i) {
+            Eigen::Vector3d cur = current_path[i];
+            Eigen::Vector3d seg = cur - prev;
+            double seg_len = seg.norm();
+            if (seg_len <= 1e-6) {
+                prev = cur;
+                continue;
+            }
+            if (accum + seg_len >= lookahead) {
+                // Interpolar dentro de este segmento
+                double need = lookahead - accum;      // cuánto necesitamos dentro de este segmento
+                double alpha = need / seg_len;        // 0..1
+                Eigen::Vector2d p_prev(prev.x(), prev.y());
+                Eigen::Vector2d p_cur(cur.x(), cur.y());
+                target_pt = p_prev + alpha * (p_cur - p_prev);
+                target_yaw = atan2((double)seg.y(), (double)seg.x());
+                found = true;
+                break;
+            } else {
+                accum += seg_len;
+                prev = cur;
+            }
+        }
+        // Si no encontramos porque lookahead > acumulado hasta el final, usar punto final
+        if (!found) {
+            target_pt = Eigen::Vector2d(last_pt.x(), last_pt.y());
+            // set yaw from penultimate->last if possible
+            if (current_path.size() >= 2) {
+                Eigen::Vector3d p2 = current_path[current_path.size()-2];
+                Eigen::Vector3d diff = last_pt - p2;
+                if (diff.squaredNorm() > 1e-6f) {
+                    target_yaw = atan2((double)diff.y(), (double)diff.x());
+                } else {
+                    target_yaw = atan2((double)last_pt.y(), (double)last_pt.x());
+                }
+            } else {
+                target_yaw = atan2((double)last_pt.y(), (double)last_pt.x());
+            }
+            found = true;
+        }
+    }
+
+    // 5) Comprobar condición de parada (distancia al final)
+    if (dist_to_last < stop_distance) {
+        current_path.clear();
+        return Eigen::Vector3d(0.0, 0.0, 0.0);
+    }
+
+    // Devolver objetivo
+    if (found) {
+        return Eigen::Vector3d(target_pt.x(), target_pt.y(), target_yaw);
+    } else {
+        return Eigen::Vector3d(NAN_D, NAN_D, NAN_D);
+    }
+}
 
 void SpecificWorker::draw_room(QGraphicsScene *pScene, const std::vector<Eigen::Vector3f> &lidar_data) // points in robot frame
 {

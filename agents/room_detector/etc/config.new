@@ -3,13 +3,19 @@ Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 
 
+# Proxies for required interfaces
+Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 0"
+
+
 # Endpoints for subscriptions interfaces
 Endpoints.Lidar3DPubTopic = "tcp -p 0"
 Endpoints.Lidar3DPubPrefix = ""
 
 
 
-Agent.id = 0 # Change id
+
+# Change id
+Agent.id = 0
 Agent.name = "room_detector"
 Agent.configFile = ""
 

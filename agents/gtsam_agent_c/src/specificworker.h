@@ -162,6 +162,7 @@ private:
 
     Eigen::Affine3d robot_pose;
     double last_timestamp = 0;
+    uint64_t actual_parent_node_id = 0;
 
     // Corners
     std::map<int, uint64_t> corners_last_update_timestamp;

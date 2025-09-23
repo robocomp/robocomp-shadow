@@ -6,7 +6,7 @@
 
 Agent.id = 0 # Change id
 Agent.name = "graph_launcher"
-Agent.configFile = "shadow_scene.json"
+Agent.configFile = "shadow_guide_test_charger.json"
 
 ViewAgent.tree = false
 ViewAgent.graph = true

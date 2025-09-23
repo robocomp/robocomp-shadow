@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
-#    Copyright (C) 2025 by YOUR NAME HERE
+#    Copyright (C) 20252025 by YOUR NAME HERE
 #
 #    This file is part of RoboComp
 #
@@ -20,6 +20,8 @@
 
 import sys, Ice, os
 from PySide2 import QtWidgets, QtCore
+from pydsr import DSRGraph
+
 
 
 try:
@@ -37,6 +39,8 @@ class GenericWorker(QtWidgets.QWidget):
     def __init__(self, mprx, configData):
         super(GenericWorker, self).__init__()
 
+        self.camera360rgb_proxy = mprx["Camera360RGB"]
+        self.camera360rgb_proxy = mprx["Camera360RGB"]
 
         self.ui = Ui_guiDlg()
         self.ui.setupUi(self)
@@ -46,7 +50,8 @@ class GenericWorker(QtWidgets.QWidget):
 
         self.Period = 30
         self.timer = QtCore.QTimer(self)
-
+        self.agent_id = configData["Agent"]["id"]
+        self.g = DSRGraph(0, configData["Agent"]["name"], self.agent_id, configData["Agent"]["configFile"])
 
     @QtCore.Slot()
     def killYourSelf(self):

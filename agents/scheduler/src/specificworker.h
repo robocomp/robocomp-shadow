@@ -92,6 +92,7 @@ private:
 
     int waiting_time = 2000;
     bool wait = false;
+    bool TODO_edge_removed = false;
     // Variable to store using std::chrono the time when the affordance was activated
     std::chrono::time_point<std::chrono::system_clock> wait_start_time;
 

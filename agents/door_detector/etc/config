@@ -18,6 +18,8 @@ ViewAgent.graph = true
 ViewAgent.2d = true
 ViewAgent.3d = false
 
+Params.CreateNewDoors = False
+
 Period.Compute = 100
 Period.Emergency = 500
 

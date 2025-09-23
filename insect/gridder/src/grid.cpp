@@ -15,6 +15,7 @@ void Grid::initialize(  QRectF dim_,
 {
     static QGraphicsRectItem *bounding_box = nullptr;
     dim = dim_;
+qInfo() << "dim" << dim.left() << dim.right() << dim.top() << dim.bottom();
     params.tile_size = tile_size;
     scene = scene_;
     for (const auto &[key, value]: fmap)

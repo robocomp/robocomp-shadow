@@ -117,6 +117,10 @@ class RoomModel(nn.Module):
     def get_corners(self):
         return self.corners.cpu().numpy()
 
+    def set_corners(self, corners):
+        self.corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
+
+
     def forward_visible_faces(self) -> Meshes:
         """
         Get a mask of visible faces using rasterization.

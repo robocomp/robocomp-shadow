@@ -35,8 +35,8 @@ from collections import deque
 import time
 import sys
 from threading import Thread, Event
+import os
 
-from mmseg.apis import inference_model, init_model, show_result_pyplot, MMSegInferencer
 import shutil
 import csv
 
@@ -60,6 +60,10 @@ class SpecificWorker(GenericWorker):
         else:
             #self.model_performance_testing()
 
+            self.output_folder = "dataset_imagenes"
+            os.makedirs(self.output_folder, exist_ok=True)
+
+
             self.read_queue = deque(maxlen=1)
             self.odometry_queue = deque(maxlen=15)
             self.pointcloud_queue = deque(maxlen=5)
@@ -73,6 +77,8 @@ class SpecificWorker(GenericWorker):
             self.thread_period = 1000
             
             self.integrate_odometry = False
+
+            self.counter = 0
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -88,7 +94,7 @@ class SpecificWorker(GenericWorker):
     def compute(self):
 
         try:
-            image = self.camera360rgbd_proxy.getROI(-1,-1,-1,600,-1,600)
+            image = self.camera360rgbd_proxy.getROI(-1,-1,-1,-1,-1,-1)
             if image.width / image.height > 4:
                 print("Wrong image aspect ratio")
                 # event.wait(self.thread_period / 1000)
@@ -98,10 +104,22 @@ class SpecificWorker(GenericWorker):
                 return
             rgb = np.frombuffer(image.rgb, dtype=np.uint8).reshape((image.height, image.width, 3))
 
+            # Ruta donde guardar
+            filename = os.path.join(self.output_folder, f"img_{self.counter:04d}.png")
+            self.counter += 1
+            
+            # Guardar imagen (usa cv2.imwrite, que soporta .png, .jpg, etc.)
+            # cv2.imwrite(filename, rgb)
+
             depth = np.frombuffer(image.depth, dtype=np.float32).reshape((image.height, image.width, 3))
 
             self.timestamp = image.alivetime
             points, mask = self.segmentator.process_frame(rgb, depth, self.timestamp)
+
+            # depth_map = self.segmentator.estimate_depth(rgb)
+            # depth_img = self.segmentator.visualize_depth(depth_map)
+            # cv2.imshow("Depth Map", depth_img)
+
             if self.integrate_odometry:
                 # # From self.odometry_queue, create a copy and search odometry values between now and image timestamp. Iterate in a reverse way until finding a timestamp lower than the image timestamp
                 odometry = cp.array(self.odometry_queue.copy())
@@ -110,9 +128,11 @@ class SpecificWorker(GenericWorker):
 
             lidar_data = self.to_lidar_data(points, self.timestamp)
             self.lidar3dpub_proxy.pushLidarData(lidar_data)
-            #image = self.segmentator.mask_to_color(mask.get())
-            #cv2.imshow("Segmentation", image)
-            #cv2.waitKey(1)
+            # image = self.segmentator.mask_to_color(mask)
+            # # mix rgb and image
+            # image = cv2.addWeighted(rgb, 0.3, image, 0.7, 0)
+            # cv2.imshow("Segmentation", image)
+            # cv2.waitKey(1)
             
         except Ice.Exception as e:
             print(e, "Error communicating with CameraRGBDSimple")

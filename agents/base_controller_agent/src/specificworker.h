@@ -53,9 +53,9 @@ class SpecificWorker : public GenericWorker
         int startup_check();
         void modify_node_slot(std::uint64_t, const std::string &type){};
         void modify_node_attrs_slot(std::uint64_t id, const std::vector<std::string>& att_names){};
-        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type){};
+        void modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type);
         void modify_edge_attrs_slot(std::uint64_t from, std::uint64_t to, const std::string &type, const std::vector<std::string>& att_names){};
-        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag){};
+        void del_edge_slot(std::uint64_t from, std::uint64_t to, const std::string &edge_tag);
         void del_node_slot(std::uint64_t from){};
 
     private:
@@ -68,6 +68,7 @@ class SpecificWorker : public GenericWorker
 
         struct Params
         {
+            std::string current_room = "";
             std::string robot_name = "Shadow";
             float ROBOT_WIDTH = 250;  // mm
             float ROBOT_LENGTH = 480;  // mm
@@ -130,12 +131,13 @@ class SpecificWorker : public GenericWorker
         std::unique_ptr<DSR::InnerEigenAPI> inner_api;
 
         // path
-        std::list<Eigen::Vector2f> current_path;  // list to remove elements from the front
+        std::vector<Eigen::Vector2f> current_path_room;  // list to remove elements from the front
 
         std::optional<DSR::Edge> there_is_intention_edge_marked_as_active();
         bool target_node_is_measurement(const DSR::Edge &edge);
         std::optional<Eigen::Vector3d> get_translation_vector_from_target_node(const DSR::Edge &edge);
-        bool robot_at_target(const Eigen::Vector3d &matrix, const DSR::Edge &edge);
+        std::optional<Eigen::Vector3d> get_translation_vector_to_point(const Eigen::Vector2f &current_target);
+        std::pair<bool, bool> robot_at_target(const Eigen::Vector3d &matrix, const DSR::Edge &edge);
         void stop_robot();
         bool line_of_sight(const Eigen::Vector3d &matrix, const std::vector<Eigen::Vector3f> &ldata, QGraphicsScene *pScene);
 
@@ -146,6 +148,11 @@ class SpecificWorker : public GenericWorker
 
         void set_intention_edge_state(DSR::Edge &edge, const std::string &string);
 
+    Eigen::Vector3d
+    computePathTarget(std::vector<Eigen::Vector3d> &current_path, float D = 300.0f,
+                      float stop_distance = 200.0f,
+                      float lookahead = 800.0f,
+                      float min_length = 1000.0f);
 };
 
 #endif

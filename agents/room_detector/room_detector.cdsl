@@ -1,9 +1,11 @@
 import "Lidar3DPub.idsl";
+import "Camera360RGB.idsl";
 
 Component room_detector
 {
     Communications
     {
+        requires Camera360RGB;
     	subscribesTo Lidar3DPub;
     };
     language python;

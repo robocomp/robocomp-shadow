@@ -39,5 +39,5 @@ class Lidar3DPubI(Lidar3DPub):
         self.id = id
 
 
-    def pushLidarData(self, lidarData, c ):
+    def pushLidarData(self, lidarData, ice):
         return getattr(self.worker, f"Lidar3DPub{self.id}_pushLidarData")(lidarData)

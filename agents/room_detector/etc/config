@@ -2,6 +2,8 @@
 Endpoints.Lidar3DPubTopic = "tcp -p 11639"
 Endpoints.Lidar3DPubPrefix = ""
 
+# Proxies for required interfaces
+Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
 
 # This property is used by the clients to connect to IceStorm.
 Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"

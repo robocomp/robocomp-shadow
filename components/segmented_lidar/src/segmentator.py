@@ -1,155 +1,59 @@
 import numpy as np
-from mmseg.apis import inference_model, init_model, show_result_pyplot, MMSegInferencer
+from mmseg.apis.inference import inference_model, init_model, show_result_pyplot
+from mmseg.apis.mmseg_inferencer import MMSegInferencer
+
 import time
 import cupy as cp
 import cv2
 from cupyx.scipy.ndimage import binary_dilation
 
+
 class Segmentator:
     def __init__(self):
 
-        self.model = MMSegInferencer(model="fcn_hr18s_4xb4-160k_ade20k-512x512", device="cuda")
+        # self.model = MMSegInferencer(model="deeplabv3plus_r101-d8_4xb4-160k_ade20k-512x512", device="cuda")
+        self.model = MMSegInferencer(model="resnest_s101-d8_deeplabv3plus_4xb4-160k_ade20k-512x512", device="cuda")
+        # self.depth_model = MMSegInferencer(model="vpd_sd_4xb8-25k_nyu-512x512", device="cuda")
         # Definir la paleta de colores para la segmentación semántica
-        self.color_palette = np.array([
-            [255, 0, 0],  # wall
-            [128, 0, 0],  # building
-            [0, 128, 0],  # sky
-            [128, 128, 0],  # floor
-            [0, 0, 128],  # tree
-            [128, 0, 128],  # ceiling
-            [0, 128, 128],  # road
-            [128, 128, 128],  # bed
-            [64, 0, 0],  # windowpane
-            [192, 0, 0],  # grass
-            [64, 128, 0],  # cabinet
-            [192, 128, 0],  # sidewalk
-            [64, 0, 128],  # person
-            [192, 0, 128],  # earth
-            [64, 128, 128],  # door
-            [192, 128, 128],  # table
-            [0, 64, 0],  # mountain
-            [128, 64, 0],  # plant
-            [0, 192, 0],  # curtain
-            [128, 192, 0],  # chair
-            [0, 64, 128],  # car
-            [128, 64, 128],  # water
-            [0, 192, 128],  # painting
-            [128, 192, 128],  # sofa
-            [64, 64, 0],  # shelf
-            [192, 64, 0],  # house
-            [64, 192, 0],  # sea
-            [192, 192, 0],  # mirror
-            [64, 64, 128],  # rug
-            [192, 64, 128],  # field
-            [64, 192, 128],  # armchair
-            [192, 192, 128],  # seat
-            [0, 0, 64],  # fence
-            [128, 0, 64],  # desk
-            [0, 128, 64],  # rock
-            [128, 128, 64],  # wardrobe
-            [0, 0, 192],  # lamp
-            [128, 0, 192],  # bathtub
-            [0, 128, 192],  # railing
-            [128, 128, 192],  # cushion
-            [64, 0, 64],  # base
-            [192, 0, 64],  # box
-            [64, 128, 64],  # column
-            [192, 128, 64],  # signboard
-            [0, 64, 64],  # chest of drawers
-            [128, 64, 64],  # counter
-            [0, 192, 64],  # sand
-            [128, 192, 64],  # sink
-            [64, 64, 128],  # skyscraper
-            [192, 64, 128],  # fireplace
-            [0, 192, 128],  # refrigerator
-            [128, 192, 128],  # grandstand
-            [64, 0, 192],  # path
-            [192, 0, 192],  # stairs
-            [0, 128, 192],  # runway
-            [128, 128, 192],  # case
-            [0, 64, 192],  # pool table
-            [128, 64, 192],  # pillow
-            [0, 192, 192],  # screen door
-            [128, 192, 192],  # stairway
-            [64, 64, 0],  # river
-            [192, 64, 0],  # bridge
-            [0, 192, 0],  # bookcase
-            [128, 192, 0],  # blind
-            [0, 64, 128],  # coffee table
-            [128, 64, 128],  # toilet
-            [0, 192, 128],  # flower
-            [128, 192, 128],  # book
-            [64, 64, 128],  # hill
-            [192, 64, 128],  # bench
-            [0, 192, 128],  # countertop
-            [128, 192, 128],  # stove
-            [64, 64, 192],  # palm
-            [192, 64, 192],  # kitchen island
-            [0, 192, 192],  # computer
-            [128, 192, 192],  # swivel chair
-            [64, 0, 64],  # boat
-            [192, 0, 64],  # bar
-            [0, 128, 64],  # arcade machine
-            [128, 128, 64],  # hovel
-            [0, 64, 192],  # bus
-            [128, 64, 192],  # towel
-            [0, 192, 192],  # light
-            [128, 192, 192],  # truck
-            [64, 64, 0],  # tower
-            [192, 64, 0],  # chandelier
-            [0, 192, 0],  # awning
-            [128, 192, 0],  # streetlight
-            [0, 64, 128],  # booth
-            [128, 64, 128],  # television receiver
-            [0, 192, 128],  # airplane
-            [128, 192, 128],  # dirt track
-            [64, 64, 192],  # apparel
-            [192, 64, 192],  # pole
-            [0, 192, 192],  # land
-            [128, 192, 192],  # bannister
-            [64, 64, 0],  # escalator
-            [192, 64, 0],  # ottoman
-            [0, 192, 0],  # bottle
-            [128, 192, 0],  # buffet
-            [0, 64, 128],  # poster
-            [128, 64, 128],  # stage
-            [0, 192, 128],  # van
-            [128, 192, 128],  # ship
-            [64, 64, 192],  # fountain
-            [192, 64, 192],  # conveyer belt
-            [0, 192, 192],  # canopy
-            [128, 192, 192],  # washer
-            [64, 64, 0],  # plaything
-            [192, 64, 0],  # swimming pool
-            [0, 192, 0],  # stool
-            [128, 192, 0],  # barrel
-            [0, 64, 128],  # basket
-            [128, 64, 128],  # waterfall
-            [0, 192, 128],  # tent
-            [128, 192, 128],  # bag
-            [64, 64, 192],  # minibike
-            [192, 64, 192],  # cradle
-            [0, 192, 192],  # oven
-            [128, 192, 192],  # ball
-            [64, 64, 0],  # food
-            [192, 64, 0],  # step
-            [0, 192, 0],  # tank
-            [128, 192, 0],  # trade name
-            [0, 64, 128],  # microwave
-            [128, 64, 128],  # pot
-            [0, 192, 128],  # animal
-            [128, 192, 128],  # bicycle
-            [64, 64, 192],  # lake
-            [192, 64, 192],  # dishwasher
-            [0, 192, 192],  # screen
-            [128, 192, 192],  # blanket
-            [64, 64, 0],  # sculpture
-            [192, 64, 0],  # hood
-            [0, 192, 0],  # sconce
-            [128, 192, 0],  # vase
-            [0, 64, 128],  # traffic light
-            [128, 64, 128],  # tray
-        ])
+        self.color_palette = np.array(
+            [[120, 120, 120], [180, 120, 120], [6, 230, 230], [80, 50, 50],
+             [4, 200, 3], [120, 120, 80], [140, 140, 140], [204, 5, 255],
+             [230, 230, 230], [4, 250, 7], [224, 5, 255], [235, 255, 7],
+             [150, 5, 61], [120, 120, 70], [8, 255, 51], [255, 6, 82],
+             [143, 255, 140], [204, 255, 4], [255, 51, 7], [204, 70, 3],
+             [0, 102, 200], [61, 230, 250], [255, 6, 51], [11, 102, 255],
+             [255, 7, 71], [255, 9, 224], [9, 7, 230], [220, 220, 220],
+             [255, 9, 92], [112, 9, 255], [8, 255, 214], [7, 255, 224],
+             [255, 184, 6], [10, 255, 71], [255, 41, 10], [7, 255, 255],
+             [224, 255, 8], [102, 8, 255], [255, 61, 6], [255, 194, 7],
+             [255, 122, 8], [0, 255, 20], [255, 8, 41], [255, 5, 153],
+             [6, 51, 255], [235, 12, 255], [160, 150, 20], [0, 163, 255],
+             [140, 140, 140], [250, 10, 15], [20, 255, 0], [31, 255, 0],
+             [255, 31, 0], [255, 224, 0], [153, 255, 0], [0, 0, 255],
+             [255, 71, 0], [0, 235, 255], [0, 173, 255], [31, 0, 255],
+             [11, 200, 200], [255, 82, 0], [0, 255, 245], [0, 61, 255],
+             [0, 255, 112], [0, 255, 133], [255, 0, 0], [255, 163, 0],
+             [255, 102, 0], [194, 255, 0], [0, 143, 255], [51, 255, 0],
+             [0, 82, 255], [0, 255, 41], [0, 255, 173], [10, 0, 255],
+             [173, 255, 0], [0, 255, 153], [255, 92, 0], [255, 0, 255],
+             [255, 0, 245], [255, 0, 102], [255, 173, 0], [255, 0, 20],
+             [255, 184, 184], [0, 31, 255], [0, 255, 61], [0, 71, 255],
+             [255, 0, 204], [0, 255, 194], [0, 255, 82], [0, 10, 255],
+             [0, 112, 255], [51, 0, 255], [0, 194, 255], [0, 122, 255],
+             [0, 255, 163], [255, 153, 0], [0, 255, 10], [255, 112, 0],
+             [143, 255, 0], [82, 0, 255], [163, 255, 0], [255, 235, 0],
+             [8, 184, 170], [133, 0, 255], [0, 255, 92], [184, 0, 255],
+             [255, 0, 31], [0, 184, 255], [0, 214, 255], [255, 0, 112],
+             [92, 255, 0], [0, 224, 255], [112, 224, 255], [70, 184, 160],
+             [163, 0, 255], [153, 0, 255], [71, 255, 0], [255, 0, 163],
+             [255, 204, 0], [255, 0, 143], [0, 255, 235], [133, 255, 0],
+             [255, 0, 235], [245, 0, 255], [255, 0, 122], [255, 245, 0],
+             [10, 190, 212], [214, 255, 0], [0, 204, 255], [20, 0, 255],
+             [255, 255, 0], [0, 153, 255], [0, 41, 255], [0, 255, 204],
+             [41, 0, 255], [41, 255, 0], [173, 0, 255], [0, 245, 255],
+             [71, 0, 255], [122, 0, 255], [0, 255, 184], [0, 92, 255],
+             [184, 255, 0], [0, 133, 255], [255, 214, 0], [25, 194, 194],
+             [102, 255, 0], [92, 0, 255]])
 
         # Definir los labels y su inverso
         self.labels = {
@@ -339,6 +243,8 @@ class Segmentator:
         pointcloud = self.extract_points_and_labels_cupy(depth_frame, segmented_image)
         return pointcloud, segmented_image
 
+
+
     def add_zero_borders_to_segmentation_gpu(self, mask_gpu, kernel_size=3):
         """
         Args:
@@ -377,16 +283,84 @@ class Segmentator:
 
         return result_gpu
 
-    def mask_to_color(self, mask):
+    # def mask_to_color(self, mask):
+    #
+    #     # Inicializar la imagen en color
+    #     h, w = mask.shape
+    #     color_image = np.zeros((h, w, 3), dtype=np.uint8)
+    #
+    #     # Para cada categoría en la máscara, aplicar su color
+    #     for category in np.unique(mask):
+    #
+    #         if category >= len(self.color_palette):
+    #             continue
+    #         color_image[mask == category] = self.color_palette[category]
+    #     return color_image
 
+    def mask_to_color(self, mask):
         # Inicializar la imagen en color
         h, w = mask.shape
         color_image = np.zeros((h, w, 3), dtype=np.uint8)
 
         # Para cada categoría en la máscara, aplicar su color
-        for category in np.unique(mask):
-            print("Category: ", category)
+        unique_categories = np.unique(mask)
+        for category in unique_categories:
             if category >= len(self.color_palette):
                 continue
             color_image[mask == category] = self.color_palette[category]
+
+        # --- Dibujar leyenda ---
+        legend_height = 25
+        legend_width = 180
+        margin = 10
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+
+        # Solo mostrar hasta 15 categorías para no saturar la imagen
+        max_legend = 20
+        for idx, category in enumerate(unique_categories[:max_legend]):
+            if category >= len(self.color_palette):
+                continue
+            color = [int(c) for c in self.color_palette[category]]
+            label = list(self.labels.keys())[list(self.labels.values()).index(category)] \
+                if category in self.labels.values() else f"Clase {category}"
+
+            legend_text = f"{label} ({category})"
+
+            y0 = h - margin - (idx + 1) * legend_height
+            x0 = w - legend_width - margin
+            y1 = y0 + legend_height - 5
+            x1 = x0 + 20
+
+            # Rectángulo de color
+            cv2.rectangle(color_image, (x0, y0), (x1, y1), color, -1)
+            # Texto de la categoría
+            cv2.putText(color_image, legend_text, (x1 + 5, y1 - 5), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
         return color_image
+
+    def estimate_depth(self, image):
+        """
+        Estima un mapa de profundidad monocular a partir de una imagen RGB,
+        utilizando MMSegInferencer con un modelo como AdaBins o VPD.
+
+        Args:
+            image (np.ndarray): Imagen RGB en formato (H, W, 3), valores uint8.
+
+        Returns:
+            depth_map (np.ndarray): Mapa de profundidad normalizado a float32.
+        """
+        result = self.depth_model(image, return_datasamples=True)
+        depth_tensor = result.pred_depth_map.data  # Tensor (1, H, W)
+        depth = depth_tensor.squeeze().cpu().numpy()  # Convertir a (H, W)
+
+        # Normalizar profundidad entre 0 y 1 para visualización o procesamiento
+        depth_normalized = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+        return depth_normalized
+
+    def visualize_depth(self, depth_map, colormap=cv2.COLORMAP_MAGMA):
+        """Convierte un mapa de profundidad a una imagen visualizable (color)."""
+        depth_8bit = (depth_map * 255).astype(np.uint8)
+        depth_colored = cv2.applyColorMap(depth_8bit, colormap)
+        return depth_colored

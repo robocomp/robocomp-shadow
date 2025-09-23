@@ -199,10 +199,11 @@ private:
                                                                                              std::uint64_t timestamp);
     void affordance();
     void match_exit_door();
-    bool exit_door_exists = false;
+    bool exit_door_exists = true;
     Eigen::Vector3d exit_door_center;
     Eigen::Vector3d exit_door_room_pose;
     void affordance_thread(uint64_t aff_id);
+    bool create_new_doors = false;
 
     bool initialize_odom =false;
     bool wait_to_current = false;

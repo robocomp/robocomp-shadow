@@ -14,13 +14,13 @@ import matplotlib.patches as patches
 
 class LongTermGraph:
     def __init__(self, file_name):
-        # try:
-        #     self.g = self.read_graph(file_name, directed=True)
-        #     print("Graph read from", file_name, self.g.summary())
-        # except FileNotFoundError:
-        #     print("File not found")
-        #     self.g = ig.Graph(directed=True)
-        self.g = ig.Graph(directed=True)
+        try:
+            self.g = self.read_graph(file_name, directed=True)
+            print("Graph read from", file_name, self.g.summary())
+        except FileNotFoundError:
+            print("File not found")
+            self.g = ig.Graph(directed=True)
+        # self.g = ig.Graph(directed=True)
 
         plt.ion()
         self.fig, self.ax = plt.subplots()

@@ -15,6 +15,7 @@ DIRECTORY_PATH="/home/robocomp/robocomp/components/webots-bridge" # replace with
 session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
 qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "export "WEBOTS_CONTROLLER_URL"=ipc://1234/shadow"
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/Webots2Robocomp etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
@@ -160,6 +161,35 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/long_term_spatial_memory_agent etc/config"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
+# object detector
+TAB_NAME="object"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/object_perception_agent"
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/object_perception_agent etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
+
+# mission controller
+TAB_NAME="mission_controller_python"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/mission_controller_python"
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/mission_controller_python etc/config"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
+
+# mission controller
+TAB_NAME="battery_agent"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/battery_agent"
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/battery_agent etc/config"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
 
 # lidar odometry

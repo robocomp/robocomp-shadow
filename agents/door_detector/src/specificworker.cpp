@@ -104,6 +104,11 @@ void SpecificWorker::initialize()
         current_opts = current_opts | opts::osg;
     }
 
+    if(this->configLoader.get<bool>("Params.CreateNewDoors"))
+    {
+        create_new_doors = true;
+    }
+
     graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
     std::cout << "Initialize worker" << std::endl;
     setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
@@ -211,14 +216,11 @@ void SpecificWorker::compute()
     //     return;
     }
 
-    if(wait_to_current)
-    {
-//        qInfo() << __FUNCTION__ << " Waiting for current edge to be removed";
-        return;
-    }
+
 
     // -------- WAIT TO CROSS
     // Check if affordance cross is active
+    qInfo() << __FUNCTION__ << " Checking affordance cross";
     affordance();
     auto affordance_nodes = G->get_nodes_by_type("affordance");
     auto affordance_active = std::ranges::find_if(affordance_nodes, [this](DSR::Node n) { return G->get_attrib_by_name<active_att>(n.id()).value() and n.name().find("cross") != std::string::npos; });
@@ -230,7 +232,11 @@ void SpecificWorker::compute()
         return; // Wait for affordance to finish
     }
 
-
+    if(wait_to_current)
+    {
+//        qInfo() << __FUNCTION__ << " Waiting for current edge to be removed";
+        return;
+    }
 
     auto room_node_ = G->get_node(current_edges[0].to());
     if(not room_node_.has_value())
@@ -289,8 +295,9 @@ void SpecificWorker::compute()
     //  9 Get the rest of doors observed and start the stabilization process. if door.size>0 (observed door not matched) it's a new door.
 //    10 LAST MATCH: PREVIOUS INSERTION BUFFER NEEDED TO AVOID SPURIOUS, generate a vector of doors candidates to insertion.
 //    If door has been seen for N times. insertion
-
-    door_prefilter(to_prefilter_doors);
+    if(create_new_doors)
+    {
+        door_prefilter(to_prefilter_doors);
 
 //    qInfo() << "To prefilter doors size: " << to_prefilter_doors.size();
 
@@ -300,8 +307,10 @@ void SpecificWorker::compute()
 //    if(affordance_active == affordance_nodes.end())
 //        set_doors_to_stabilize(to_prefilter_doors, room_node);
 //    qInfo() << "ROBOT INSIDE POLYGON" << inside_polygon;
-    if(inside_polygon)
-        set_doors_to_stabilize(to_prefilter_doors, room_node, lidar_timestamp);
+        if(inside_polygon)
+            set_doors_to_stabilize(to_prefilter_doors, room_node, lidar_timestamp);
+    }
+
 
 
     auto exit_edges = G->get_edges_by_type("exit");if(!exit_edges.empty() and exit_door_exists)
@@ -365,35 +374,46 @@ void SpecificWorker::affordance()
         {
             if (auto r = std::ranges::find_if(edges, [&door](DSR::Edge e) { return e.from() == door.id(); }); r == edges.end())
             {
-                std::cout << "No affordance node found, inserting" << std::endl;
+                // if(auto door_id = G->get_attrib_by_name<door_id_att>(door.id());door_id.has_value()) 
+                // {
+                //     if (auto wall_id = G->get_attrib_by_name<wall_id_att>(door.id());wall_id.has_value())
+                //     {
+                        // auto actual_door_id = door_id.value();
+                        // auto actual_door_wall_id = wall_id.value();
 
-                string aux = "";
-                if(door.name().find("_") != std::string::npos)
-                    aux = door.name().substr(door.name().find("_"));
+                        std::cout << "No affordance node found, inserting" << std::endl;
 
-                //get pos_x_att and pos_y_att from door node
-                auto pos_x = G->get_attrib_by_name<pos_x_att>(door.id()).value();
-                auto pos_y = G->get_attrib_by_name<pos_y_att>(door.id()).value();
+                        string aux = "";
+                        if(door.name().find("_") != std::string::npos)
+                            aux = door.name().substr(door.name().find("_"));
 
-                //create DSR::Node of type affordance
-                DSR::Node affordance = DSR::Node::create<affordance_node_type>("aff_cross" + aux);
-                G->add_or_modify_attrib_local<parent_att>(affordance, door.id());
-                G->add_or_modify_attrib_local<active_att>(affordance, false);
-                G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("waiting"));
-                G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(pos_x) );
-                G->add_or_modify_attrib_local<pos_y_att>(affordance, pos_y + 25);
-                G->add_or_modify_attrib_local<room_id_att>(affordance, actual_room_id);
-                if (auto door_level = G->get_attrib_by_name<level_att>(door.id()) ; door_level.has_value())
-                    G->add_or_modify_attrib_local<level_att>(affordance,  door_level.value() + 1);
+                        //get pos_x_att and pos_y_att from door node
+                        auto pos_x = G->get_attrib_by_name<pos_x_att>(door.id()).value();
+                        auto pos_y = G->get_attrib_by_name<pos_y_att>(door.id()).value();
 
-                //TODO: CHANGE
-                if (auto aff_id = G->insert_node(affordance); aff_id.has_value())
-                {
-                    std::cout << "Affordance node inserted aff_id:" << aff_id.value() << std::endl;
-                    //create has edge from door to affordance
-                    DSR::Edge has = DSR::Edge::create<has_edge_type>(door.id(), aff_id.value());
-                    qInfo() << "Edge insertion result:" << G->insert_or_assign_edge(has);
-                }
+                        //create DSR::Node of type affordance
+                        DSR::Node affordance = DSR::Node::create<affordance_node_type>("aff_cross" + aux);
+                        G->add_or_modify_attrib_local<parent_att>(affordance, door.id());
+                        G->add_or_modify_attrib_local<active_att>(affordance, false);
+                        G->add_or_modify_attrib_local<bt_state_att>(affordance, std::string("waiting"));
+                        G->add_or_modify_attrib_local<pos_x_att>(affordance, (float)(pos_x) );
+                        G->add_or_modify_attrib_local<pos_y_att>(affordance, pos_y + 25);
+                        G->add_or_modify_attrib_local<room_id_att>(affordance, actual_room_id);
+                        // G->add_or_modify_attrib_local<door_id_att>(affordance, actual_door_id);
+                        // G->add_or_modify_attrib_local<wall_id_att>(affordance, actual_door_wall_id);
+                        if (auto door_level = G->get_attrib_by_name<level_att>(door.id()) ; door_level.has_value())
+                            G->add_or_modify_attrib_local<level_att>(affordance,  door_level.value() + 1);
+
+                        //TODO: CHANGE
+                        if (auto aff_id = G->insert_node(affordance); aff_id.has_value())
+                        {
+                            std::cout << "Affordance node inserted aff_id:" << aff_id.value() << std::endl;
+                            //create has edge from door to affordance
+                            DSR::Edge has = DSR::Edge::create<has_edge_type>(door.id(), aff_id.value());
+                            qInfo() << "Edge insertion result:" << G->insert_or_assign_edge(has);
+                        }
+                //     }
+                // }
             }
         }
     }
@@ -415,6 +435,7 @@ void SpecificWorker::affordance()
     {
         if (auto active = G->get_attrib_by_name<active_att>(aff.id()); active.has_value())
         {
+            std::cout << "Affordance node id: " << aff.id() << " active: " << active.value() << std::endl;
             if (active.value())
             {
                 //check if there is a thread for this affordance node
@@ -423,7 +444,7 @@ void SpecificWorker::affordance()
                     //read affordance node BT status attribute is_completed
                     if (auto bt_state = G->get_attrib_by_name<bt_state_att>(aff.id()); bt_state.has_value())
                     {
-                        if (bt_state.value() == "completed")
+                        if (bt_state.value() == "completed" or bt_state.value() == "aborted")
                         {
                             std::cout << "Affordance node completed" << std::endl;
                             //join thread
@@ -441,6 +462,46 @@ void SpecificWorker::affordance()
                             //create a thread for this affordance node
                             threads[aff.id()] = std::thread(&SpecificWorker::affordance_thread, this, aff.id());
                         }
+                        else if(bt_state.value() == "aborted")
+                        {
+                            std::cout << "Affordance node aborted. Setting as waiting" << std::endl;
+                            if(threads.contains(aff.id()))
+                            {
+                                threads[aff.id()].join();
+                                threads.erase(aff.id());
+                            }
+                            // Set affordance node to waiting
+                            // Get node and update its state
+                            auto aff_node = G->get_node(aff.id());
+                            if (!aff_node.has_value())
+                            { qWarning() << __FUNCTION__ << " No affordance node in graph"; continue; }
+                            G->add_or_modify_attrib_local<bt_state_att>(aff_node.value(), std::string("waiting"));
+                            G->update_node(aff_node.value());
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (auto bt_state = G->get_attrib_by_name<bt_state_att>(aff.id()); bt_state.has_value())
+                {
+                    if(bt_state.value() == "aborted")
+                    {
+                        std::cout << "Affordance node aborted. Setting as waiting" << std::endl;
+                        if(threads.contains(aff.id()))
+                        {
+                            threads[aff.id()].join();
+                            threads.erase(aff.id());
+                        }
+
+                        // Set affordance node to waiting
+                        // Get node and update its state
+                        auto aff_node = G->get_node(aff.id());
+                        if (!aff_node.has_value())
+                        { qWarning() << __FUNCTION__ << " No affordance node in graph"; continue; }
+                        G->add_or_modify_attrib_local<bt_state_att>(aff_node.value(), std::string("waiting"));
+                        G->update_node(aff_node.value());
+                        wait_to_current = false;
                     }
                 }
             }
@@ -627,7 +688,13 @@ void SpecificWorker::affordance_thread(uint64_t aff_id)
     {
         if (auto aff = G->get_node(aff_id); aff.has_value())
         {
-            G->add_or_modify_attrib_local<bt_state_att>(aff.value(), std::string("failed"));
+            // Check if affordance node is active
+            auto active = G->get_attrib_by_name<active_att>(aff.value().id());
+            if (active.has_value() and not active.value())
+            {
+                // Set affordance node as inactive
+                G->add_or_modify_attrib_local<bt_state_att>(aff.value(), std::string("aborted"));
+            }
             G->update_node(aff.value());
         }
     }
@@ -665,53 +732,60 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
         /// Get door id knowing that is the 7 string element in the name
         auto door_id = std::stoi(n.name().substr(9, 1));
         // Check if door still exists in graph
-
-        if(not G->get_node(n.id()).has_value())
-        { qWarning() << __FUNCTION__ << " Door node does not exist in graph"; continue; }
+        // if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
+        // {
+        //     if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
+        //     {
+                // auto wall_id = wall_id_.value();
+                // auto door_id = door_id_.value();
+                if(not G->get_node(n.id()).has_value())
+                { qWarning() << __FUNCTION__ << " Door node does not exist in graph"; continue; }
         
-        if(auto door_width = G->get_attrib_by_name<width_att>(n); door_width.has_value())
-        {
-            auto p_0_ = Eigen::Vector3d {-(double)door_width.value() / 2, 0, 0};
-            auto p_1_ = Eigen::Vector3d {(double)door_width.value() / 2, 0, 0};
-
-            if (auto p_0_transformed = inner_eigen->transform(room_node.name(),
-                                                              p_0_,
-                                                              n.name(), lidar_timestamp); p_0_transformed.has_value())
-            {
-                auto p_0 = p_0_transformed.value();
-                if (auto p_1_transformed = inner_eigen->transform(room_node.name(),
-                                                                  p_1_,
-                                                                  n.name(), lidar_timestamp); p_1_transformed.has_value())
+                if(auto door_width = G->get_attrib_by_name<width_att>(n); door_width.has_value())
                 {
-                    auto p_1 = p_1_transformed.value();
-                    if (auto p_0_transformed_robot = inner_eigen->transform(robot_node.name(),
-                                                                            p_0_,
-                                                                            n.name(), lidar_timestamp); p_0_transformed_robot.has_value())
-                    {
-                        auto p_0_robot = p_0_transformed_robot.value();
-                        if (auto p_1_transformed_robot = inner_eigen->transform(robot_node.name(),
-                                                                                p_1_,
-                                                                                n.name(), lidar_timestamp); p_1_transformed_robot.has_value())
-                        {
-                            auto p_1_robot = p_1_transformed_robot.value();
-                            DoorDetector::Door door(Eigen::Vector2f{p_0.x(), p_0.y()},
-                                                    Eigen::Vector2f{p_1.x(), p_1.y()},
-                                                    Eigen::Vector2f{p_0_robot.x(), p_0_robot.y()},
-                                                    Eigen::Vector2f{p_1_robot.x(), p_1_robot.y()});
-                            door.id = door_id;
-                            door.wall_id = wall_id;
-//                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
-//                            qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
-                            if (n.name().find("_pre") != std::string::npos)
-                                measured_doors.push_back(door);
+                    auto p_0_ = Eigen::Vector3d {-(double)door_width.value() / 2, 0, 0};
+                    auto p_1_ = Eigen::Vector3d {(double)door_width.value() / 2, 0, 0};
 
-                            else if(room_id == actual_room_id)
-                                nominal_doors.push_back(door);
+                    if (auto p_0_transformed = inner_eigen->transform(room_node.name(),
+                                                                    p_0_,
+                                                                    n.name(), lidar_timestamp); p_0_transformed.has_value())
+                    {
+                        auto p_0 = p_0_transformed.value();
+                        if (auto p_1_transformed = inner_eigen->transform(room_node.name(),
+                                                                        p_1_,
+                                                                        n.name(), lidar_timestamp); p_1_transformed.has_value())
+                        {
+                            auto p_1 = p_1_transformed.value();
+                            if (auto p_0_transformed_robot = inner_eigen->transform(robot_node.name(),
+                                                                                    p_0_,
+                                                                                    n.name(), lidar_timestamp); p_0_transformed_robot.has_value())
+                            {
+                                auto p_0_robot = p_0_transformed_robot.value();
+                                if (auto p_1_transformed_robot = inner_eigen->transform(robot_node.name(),
+                                                                                        p_1_,
+                                                                                        n.name(), lidar_timestamp); p_1_transformed_robot.has_value())
+                                {
+                                    auto p_1_robot = p_1_transformed_robot.value();
+                                    DoorDetector::Door door(Eigen::Vector2f{p_0.x(), p_0.y()},
+                                                            Eigen::Vector2f{p_1.x(), p_1.y()},
+                                                            Eigen::Vector2f{p_0_robot.x(), p_0_robot.y()},
+                                                            Eigen::Vector2f{p_1_robot.x(), p_1_robot.y()});
+                                    door.id = door_id;
+                                    door.wall_id = wall_id;
+        //                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
+                                    qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
+                                    if (n.name().find("_pre") != std::string::npos)
+                                        measured_doors.push_back(door);
+
+                                    else if(room_id == actual_room_id)
+                                        nominal_doors.push_back(door);
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
+        //     }
+        // }
     }
     return std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>>{measured_doors, nominal_doors}; //Reference frame changed to wall
 }
@@ -725,6 +799,17 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const std::vector<Eige
     if(not corners_and_wall_centers.has_value())
     { qWarning() << __FUNCTION__ << " No corners and wall centers detected"; return{}; }
     auto [corners, wall_centers] = corners_and_wall_centers.value();
+
+    // Print corners and wall centers
+    // qInfo() << "Corners size:" << corners.size() << "Wall centers size:" << wall_centers.size();
+    // for(const auto &c : corners)
+    // {
+    //     qInfo() << "Corner:" << c.x() << c.y();
+    // }
+    // for(const auto &w : wall_centers)
+    // {
+    //     qInfo() << "Wall center:" << w.x() << w.y();
+    // }
 
     // Convert corners to Eigen vector double
     std::vector<Eigen::Vector2d> corners_eigen;
@@ -1043,17 +1128,17 @@ std::optional<std::tuple<std::vector<Eigen::Vector2f>, std::vector<Eigen::Vector
     // Iterate over corners
     for(const auto &[i, n] : corner_nodes | iter::enumerate)
     {
-//        qInfo() << "Corner name: " << QString::fromStdString(n.name());
-
-//        if (auto corner_transformed = inner_eigen->transform(robot_node.name(),
-//                                                             n.name(), lidar_timestamp); corner_transformed.has_value())
+        // qInfo() << "Corner name: " << QString::fromStdString(n.name());
+        // Print timestamp
+        // qInfo() << "Lidar timestamp: " << lidar_timestamp;
         if (auto corner_transformed = transform_point(n.name(),
         robot_node.name(),
         lidar_timestamp); corner_transformed.has_value())
         {
+
             auto [corner_timestamp, corner_transformed_value] = corner_transformed.value();
             auto corner_transformed_value_float = corner_transformed_value.cast<float>();
-//            qInfo() << "Corner transformed value: " << corner_transformed_value_float.x() << corner_transformed_value_float.y();
+            // qInfo() << "Corner transformed value: " << corner_transformed_value_float.x() << corner_transformed_value_float.y();
             corners.push_back({corner_transformed_value_float.x(), corner_transformed_value_float.y()});
             if(i > 0)
             {
@@ -1357,29 +1442,31 @@ void SpecificWorker::update_door_in_graph(const DoorDetector::Door &door, std::s
         qInfo() << "Pose to update transformed" << pose_transformed.x() << pose_transformed.y();
         // Add edge between door and robot
         //print door_node.name()
+        rt->insert_or_assign_edge_RT(parent_node, door_node.id(), {pose_transformed.x(), 0.f, 0.f}, {0.f, 0.f, 0.f}, lidar_timestamp);
+
 //        for(int i = 0; i<35; i++)
 //        {
 //            rt->insert_or_assign_edge_RT(parent_node, door_node.id(), {pose_transformed.x(), 0.f, 0.f}, {0.f, 0.f, 0.f}, lidar_timestamp);
 //        }
-        auto rt_edge = DSR::Edge::create<RT_edge_type>(parent_node.id(), door_node.id());
-        auto rt_translation_ori = std::vector<float>{pose_transformed.x(), 0.f, 0.f};
-        auto rt_rotation_ori = std::vector<float>{0.f, 0.f, 0.f};
-        auto rt_timestamps_ori = std::vector<uint64_t >{lidar_timestamp};
-        std::vector<float> rt_translation, rt_rotation;
-        std::vector<uint64_t> rt_timestamps;
-        rt_translation.reserve(3 * 20);
-        rt_rotation.reserve(3 * 20);
-        rt_timestamps.reserve(20);
-        for(int i = 0; i < 20; i++)
-        {
-            rt_translation.insert(rt_translation.end(), rt_translation_ori.begin(), rt_translation_ori.end());
-            rt_rotation.insert(rt_rotation.end(), rt_rotation_ori.begin(), rt_rotation_ori.end());
-            rt_timestamps.insert(rt_timestamps.end(), rt_timestamps_ori.begin(), rt_timestamps_ori.end());
-        }
-        G->add_or_modify_attrib_local<rt_translation_att>(rt_edge, rt_translation);
-        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(rt_edge, rt_rotation);
-        G->add_or_modify_attrib_local<rt_timestamps_att>(rt_edge, rt_timestamps);
-        G->insert_or_assign_edge(rt_edge);
+//        auto rt_edge = DSR::Edge::create<RT_edge_type>(parent_node.id(), door_node.id());
+//        auto rt_translation_ori = std::vector<float>{pose_transformed.x(), 0.f, 0.f};
+//        auto rt_rotation_ori = std::vector<float>{0.f, 0.f, 0.f};
+//        auto rt_timestamps_ori = std::vector<uint64_t >{lidar_timestamp};
+//        std::vector<float> rt_translation, rt_rotation;
+//        std::vector<uint64_t> rt_timestamps;
+//        rt_translation.reserve(3 * 20);
+//        rt_rotation.reserve(3 * 20);
+//        rt_timestamps.reserve(20);
+//        for(int i = 0; i < 20; i++)
+//        {
+//            rt_translation.insert(rt_translation.end(), rt_translation_ori.begin(), rt_translation_ori.end());
+//            rt_rotation.insert(rt_rotation.end(), rt_rotation_ori.begin(), rt_rotation_ori.end());
+//            rt_timestamps.insert(rt_timestamps.end(), rt_timestamps_ori.begin(), rt_timestamps_ori.end());
+//        }
+//        G->add_or_modify_attrib_local<rt_translation_att>(rt_edge, rt_translation);
+//        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(rt_edge, rt_rotation);
+//        G->add_or_modify_attrib_local<rt_timestamps_att>(rt_edge, rt_timestamps);
+//        G->insert_or_assign_edge(rt_edge);
 
     }
 }
@@ -1398,10 +1485,19 @@ void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> door
         for(auto &n: door_nodes)
             if(n.name().find("door") != std::string::npos)
             {
-                auto wall_id_graph = std::stoi(n.name().substr(7, 1));
-                auto door_id_graph = std::stoi(n.name().substr(9, 1));
-                if(wall_id == wall_id_graph)
-                    door_ids.push_back(door_id_graph);
+                // if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
+                // {
+                //     if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
+                //     {
+                //         auto wall_id_graph = wall_id_.value();
+                //         auto door_id_graph = door_id_.value();
+                        auto wall_id_graph = std::stoi(n.name().substr(7, 1));
+                        auto door_id_graph = std::stoi(n.name().substr(9, 1));
+                        if(wall_id == wall_id_graph)
+                            door_ids.push_back(door_id_graph);
+                //     }
+                // }
+
             }
         int new_door_id;
         if(door_ids.empty())
@@ -1502,6 +1598,8 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
         G->add_or_modify_attrib_local<width_att>(door_node, (int)door.width());
         G->add_or_modify_attrib_local<level_att>(door_node, wall_node_level + 1);
         G->add_or_modify_attrib_local<room_id_att>(door_node, actual_room_id);
+        G->add_or_modify_attrib_local<wall_id_att>(door_node, door.wall_id);
+        G->add_or_modify_attrib_local<door_id_att>(door_node, static_cast<uint64_t>(door.id));
         G->add_or_modify_attrib_local<timestamp_alivetime_att >(door_node, lidar_timestamp);
 
         // PROVISIONAL
@@ -1511,30 +1609,28 @@ DSR::Node SpecificWorker::insert_door_in_graph(DoorDetector::Door door, DSR::Nod
 
         // Add edge between door and robot
         std::cout << "INSERT OR ASSIGN EDGE" << door_node.name() << std::endl;
-//        for(int i = 0; i<35; i++)
+
+        rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),0.0, 0.0},
+                                     {0.0, 0.0, 0.0}, lidar_timestamp);
+//        auto rt_edge = DSR::Edge::create<RT_edge_type>(wall_node.id(), door_node.id());
+//        auto rt_translation_ori = std::vector<float>{door_middle_transformed_value.x(), 0.f, 0.f};
+//        auto rt_rotation_ori = std::vector<float>{0.f, 0.f, 0.f};
+//        auto rt_timestamps_ori = std::vector<uint64_t >{lidar_timestamp};
+//        std::vector<float> rt_translation, rt_rotation;
+//        std::vector<uint64_t> rt_timestamps;
+//        rt_translation.reserve(3 * 20);
+//        rt_rotation.reserve(3 * 20);
+//        rt_timestamps.reserve(20);
+//        for(int i = 0; i < 20; i++)
 //        {
-//            rt->insert_or_assign_edge_RT(wall_node, door_node.id(), {door_middle_transformed_value.x(),0.0, 0.0},
-//                                         {0.0, 0.0, 0.0}, lidar_timestamp);
+//            rt_translation.insert(rt_translation.end(), rt_translation_ori.begin(), rt_translation_ori.end());
+//            rt_rotation.insert(rt_rotation.end(), rt_rotation_ori.begin(), rt_rotation_ori.end());
+//            rt_timestamps.insert(rt_timestamps.end(), rt_timestamps_ori.begin(), rt_timestamps_ori.end());
 //        }
-        auto rt_edge = DSR::Edge::create<RT_edge_type>(wall_node.id(), door_node.id());
-        auto rt_translation_ori = std::vector<float>{door_middle_transformed_value.x(), 0.f, 0.f};
-        auto rt_rotation_ori = std::vector<float>{0.f, 0.f, 0.f};
-        auto rt_timestamps_ori = std::vector<uint64_t >{lidar_timestamp};
-        std::vector<float> rt_translation, rt_rotation;
-        std::vector<uint64_t> rt_timestamps;
-        rt_translation.reserve(3 * 20);
-        rt_rotation.reserve(3 * 20);
-        rt_timestamps.reserve(20);
-        for(int i = 0; i < 20; i++)
-        {
-            rt_translation.insert(rt_translation.end(), rt_translation_ori.begin(), rt_translation_ori.end());
-            rt_rotation.insert(rt_rotation.end(), rt_rotation_ori.begin(), rt_rotation_ori.end());
-            rt_timestamps.insert(rt_timestamps.end(), rt_timestamps_ori.begin(), rt_timestamps_ori.end());
-        }
-        G->add_or_modify_attrib_local<rt_translation_att>(rt_edge, rt_translation);
-        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(rt_edge, rt_rotation);
-        G->add_or_modify_attrib_local<rt_timestamps_att>(rt_edge, rt_timestamps);
-        G->insert_or_assign_edge(rt_edge);
+//        G->add_or_modify_attrib_local<rt_translation_att>(rt_edge, rt_translation);
+//        G->add_or_modify_attrib_local<rt_rotation_euler_xyz_att>(rt_edge, rt_rotation);
+//        G->add_or_modify_attrib_local<rt_timestamps_att>(rt_edge, rt_timestamps);
+//        G->insert_or_assign_edge(rt_edge);
     }
 
     //Find the node with "door_name" name in the graph
@@ -2225,6 +2321,7 @@ std::optional<std::pair<std::uint64_t, Eigen::Vector3d>> SpecificWorker::transfo
                                                                                          const std::string& to_node_name,
                                                                                          std::uint64_t timestamp)
 {
+
     if (auto corner_transformed = inner_eigen->transform(to_node_name,
                                                          from_node_name, timestamp); corner_transformed.has_value())
     {

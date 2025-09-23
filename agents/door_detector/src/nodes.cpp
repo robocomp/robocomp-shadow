@@ -73,6 +73,14 @@ namespace Nodes
                         }
                         else if (state.value() == "in_progress" && aff_state == "in_progress")
                         {
+                            // Check affordance nide active attribute
+                            if (auto aff_active = G->get_attrib_by_name<active_att>(aff_node); aff_active.has_value() && not aff_active.value())
+                            {
+                                std::cout << "Affordance node desactivated, returning FAILURE" << std::endl;
+                                G->delete_edge(params.ROBOT_ID, parent.value(), "has_intention");
+                                return BT::NodeStatus::FAILURE;
+                            }
+                                //Print if intention edge found but not completed, STATE = IN PROGRESS
 //                            std::cout << "Intention edge found but not completed, STATE = IN PROGRESS" << std::endl;
 //                            std::cout << state.value() << aff_state.value() << std::endl;
                             return BT::NodeStatus::RUNNING;

@@ -83,7 +83,7 @@ void SpecificWorker::initialize()
 	either with a QtDesigner or directly from scratch in a class of its own.
 	The add_custom_widget_to_dock method receives a name for the widget and a reference to the class instance.
 	***/
-
+	
 	graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
 	//graph_viewer->add_custom_widget_to_dock("CustomWidget", &custom_widget);
     save_widget = new CustomWidget();
@@ -96,6 +96,7 @@ void SpecificWorker::initialize()
     /////////GET PARAMS, OPEND DEVICES....////////
     //int period = configLoader.get<int>("Period.Compute") //NOTE: If you want get period of compute use getPeriod("compute")
     //std::string device = configLoader.get<std::string>("Device.name") 
+	hide();
 
 }
 

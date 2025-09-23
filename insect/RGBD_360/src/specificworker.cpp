@@ -64,7 +64,7 @@ void SpecificWorker::initialize(int period)
                 RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
                 enabled_lidar = true;
             }
-            catch (const std::exception &e){std::cout << " In Initialize getting LiDAR " << e.what() << std::endl; return;}
+            catch (const std::exception &e){std::cout << " In Initialize getting LiDAR " << e.what() << std::endl;}
             sleep(1);
         }
         while(!enabled_camera)
@@ -77,7 +77,8 @@ void SpecificWorker::initialize(int period)
                 enabled_camera = true;
                 sleep(1);
             }
-            catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; return;}
+            catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; }
+            sleep(1);
         }
 	    this->Period = 1;
 		timer.start(Period);
