@@ -7,6 +7,13 @@ It does the following functions:
 - answer to queries for paths connecting two locations
 - answer to queries for the location of an object 
 
+## Dependencies
+
+To launch this component you will need to install the next packages:
+```
+pip install igraph setproctitle
+```
+
 ## Configuration parameters
 As any other component, *long_term_spatial_memory_agent* needs a configuration file to start. In
 ```

@@ -898,6 +898,11 @@ class SpecificWorker(GenericWorker):
 
             self.traverse_graph(current_edges[0].destination)
 
+            # Check if the graph path directory exists, if not, create it
+            if not os.path.exists(os.path.dirname(self.graph_path)):
+                os.makedirs(os.path.dirname(self.graph_path))
+                print("Graph path directory created")
+
             # Save graph to file
             with open(self.graph_path, "wb") as f:
                 pickle.dump(self.long_term_graph.g, f)
