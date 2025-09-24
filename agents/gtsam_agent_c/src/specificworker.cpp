@@ -537,15 +537,22 @@ void SpecificWorker::draw_measured_corners(QGraphicsScene *pScene, const std::ve
 // ******************************* CREATE INITIALIZE G2O GRAPH FUNCTION BASED ON GTSAM AGENT FROM GERARDO'S PC ********************************
 bool SpecificWorker::initialize_graph()
 {
+
     gtsam_graph.reset_graph();
+    
+    printf("AAAA\n");
 
     //get shadow robot node from G
     auto robot_node_ = G->get_node(params.robot_name); if (!robot_node_) return false;
     auto& robot_node = robot_node_.value();
 
+    printf("BBBB\n");
+
     // Get robot node parent node
     auto robot_parent_node = G->get_parent_node(robot_node); if (!robot_parent_node.has_value()) return false;
     auto robot_parent_node_value = robot_parent_node.value();
+
+    printf("CCCC\n");
 
     // Get timestamp from the first odom_value in the buffer
     auto first_odom_value = odometry_queue.front();

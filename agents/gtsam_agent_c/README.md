@@ -7,7 +7,8 @@ A brief introduction to the component. Describe its purpose, functionality, and 
 ## Dependencies
 The following dependencies are required to build and run gtsam_agent_c. Ensure they are installed and properly configured on your system before proceeding:
 ```
-<YOUR DEPENDENCIES>
+mkdir ~/software 2> /dev/null; git clone https://github.com/borglab/gtsam.git ~/software/gtsam
+cd ~/software/gtsam && cmake -B build && sudo make install -C build -j12 && cd -
 ```
 
 ## Configuration parameters

@@ -115,7 +115,7 @@ private:
 
     struct Params
     {
-        std::string robot_name = "Shadow";
+        std::string robot_name = "robot";
         double scale = 1.0; // Scale factor for measurements
     };
     Params params;
