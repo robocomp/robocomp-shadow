@@ -231,7 +231,14 @@ class IdleMission:
 
             robot_current_submissions_parsed = [(submission.name, self.graph.get_node(submission.attrs["parent"].value).name) for
                                  submission in robot_current_submissions]
-        return {"available_missions": available_missions, "robot_current_missions": robot_mission_nodes_dict, "robot_current_submissions": robot_current_submissions_parsed}
+
+        robot_mission_history_node = self.graph.get_node("mission_history")
+        mission_history = []
+        if robot_mission_history_node is not None:
+            robot_mission_history = robot_mission_history_node.attrs["plan"].value
+            if robot_mission_history is not None and robot_mission_history != "":
+                mission_history = ast.literal_eval(robot_mission_history)
+        return {"available_missions": available_missions, "robot_current_missions": robot_mission_nodes_dict, "robot_current_submissions": robot_current_submissions_parsed, "mission_history": mission_history}
 
     def get_elements_data(self, rooms_data):
         elements_data = {}
@@ -270,7 +277,7 @@ class IdleMission:
         current_room = rooms_data.get("current_room")
         known_rooms = rooms_data.get("known_rooms", [])
 
-        lines.append(f"[TIMESTAMP] {time.time() - self.start_timestamp}")
+        lines.append(f"[TIMESTAMP] {round(time.time() - self.start_timestamp, 0)}")
         for room_name in known_rooms:
             room_marker = "[ROOM]"
             if room_name == current_room:
@@ -319,6 +326,14 @@ class IdleMission:
                 lines.append(f"    - {m['mission']} ---> {m['target']}. Current submission in mission: {current_submission['mission']} ---> {current_submission['target']}" if current_submission != {} else "None")
         else:
             lines.append("    - None (robot has no active missions)")
+
+        missions_history = missions_data.get("mission_history", [])
+        lines.append("\n[MISSION HISTORY]")
+        if missions_history:
+            for mh in missions_history:
+                lines.append(f"    - Time: {round(mh['end_timestamp'] * 0.001-self.start_timestamp, 0)}, {mh['mission']} ---> {mh['target']}")
+        else:
+            lines.append("    - None (robot has no mission history)")
 
         # Relations
         lines.append("\n[RELATIONS]")

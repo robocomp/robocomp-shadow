@@ -1,0 +1,11 @@
+Component mission_controller_python
+{
+    Communications
+    {
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+
+};
+

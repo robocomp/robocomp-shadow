@@ -1,6 +1,7 @@
 from pydsr import *
+from .mission_base import MissionBase  # Assuming MissionBase is in a separate file
 
-class InteractMission:
+class InteractMission(MissionBase):
     def __init__(self, graph, mission, agent_id):
         self.robot_resources = ["speaker"]
 
@@ -43,7 +44,7 @@ class InteractMission:
         person_node = self.graph.get_node(self.act_submission["target"])
         if person_node is None:
             print(f"Person node {self.act_submission['target']} not found in the graph.")
-            return False
+            return
         # 4 - Check if the cross affordance node exists
         self.person_id = person_node.attrs["person_id"].value
 

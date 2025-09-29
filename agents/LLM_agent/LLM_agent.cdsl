@@ -1,0 +1,11 @@
+Component LLM_agent
+{
+    Communications
+    {
+    };
+    language python;
+    gui Qt(QWidget);
+    options dsr;
+
+};
+

@@ -57,6 +57,8 @@ class GOTOMission:
         actual_target_node = self.graph.get_node(mission["target"])
         if actual_target_node is None:
             print(f"Node {mission['target']} not found in the graph.")
+            print(f"#################### Actual submission popped ####################")
+            self.missions.pop(0)
             return False
         # 4 - Check if the cross affordance node exists
         target_affordance_nodes = [node for node in self.graph.get_nodes_by_type("affordance") if node.attrs["parent"].value == actual_target_node.id]
@@ -98,7 +100,7 @@ class GOTOMission:
         mission = self.missions[0]
         actual_target_node = self.graph.get_node(mission["target"])
         if actual_target_node is None:
-            print(f"Door node {mission[1]}_{mission[2]} not found in the graph.")
+            print(f"Door node {mission['target']} not found in the graph.")
             return False
         # 4 - Check if the cross affordance node exists
         target_affordance_nodes = [node for node in self.graph.get_nodes_by_type("affordance") if node.attrs["parent"].value == actual_target_node.id]

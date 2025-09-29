@@ -1,0 +1,19 @@
+
+
+
+
+
+
+# Change id
+Agent.id = 133
+Agent.name = "LLM_agent"
+Agent.configFile = ""
+
+
+Period.Compute = 250
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"
