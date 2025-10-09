@@ -91,6 +91,24 @@
 #define SERVER_FULL_NAME   "RoboComp zed_component::zed_component"
 
 
+template <typename ProxyType, typename ProxyPointer>
+void require(const Ice::CommunicatorPtr& communicator,
+             const std::string& proxyConfig, 
+             const std::string& proxyName,
+             ProxyPointer& proxy)
+{
+    try
+    {
+        proxy = Ice::uncheckedCast<ProxyType>(communicator->stringToProxy(proxyConfig));
+        std::cout << proxyName << " initialized Ok!\n";
+    }
+    catch(const Ice::Exception& ex)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: Exception creating proxy " << proxyName << ": " << ex;
+        throw;
+    }
+}
+
 template <typename PubProxyType, typename PubProxyPointer>
 void publish(const IceStorm::TopicManagerPrxPtr& topicManager,
              std::string name_topic,
@@ -203,7 +221,12 @@ int zed_component::run(int argc, char* argv[])
 	RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr camerargbdsimplepub_proxy;
 	RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr fullposeestimationpub_proxy;
 	RoboCompIMUPub::IMUPubPrxPtr imupub_proxy;
+	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
 
+
+	//Require code
+	require<RoboCompCameraRGBDSimple::CameraRGBDSimplePrx, RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.CameraRGBDSimple"), "CameraRGBDSimpleProxy", camerargbdsimple_proxy);
 
 	//Topic Manager code
 
@@ -235,7 +258,7 @@ int zed_component::run(int argc, char* argv[])
 	                    configLoader.get<std::string>("Proxies.IMUPubPrefix"),
 	                    "IMUPub", imupub_proxy, PROGRAM_NAME);
 
-	tprx = std::make_tuple(camerargbdsimplepub_proxy,fullposeestimationpub_proxy,imupub_proxy);
+	tprx = std::make_tuple(camerargbdsimple_proxy,camerargbdsimplepub_proxy,fullposeestimationpub_proxy,imupub_proxy);
 	SpecificWorker *worker = new SpecificWorker(this->configLoader, tprx, startup_check_flag);
 	QObject::connect(worker, SIGNAL(kill()), &a, SLOT(quit()));
 

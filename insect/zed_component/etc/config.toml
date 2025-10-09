@@ -3,6 +3,13 @@
 # This property is used by the clients to connect to IceStorm.
 TopicManager = "IceStorm/TopicManager:default -p 9999"
 
+# Proxies for publishes interfaces
+CameraRGBDSimplePubPrefix = ""
+FullPoseEstimationPubPrefix = ""
+IMUPubPrefix = ""
+
+# Proxies for required interfaces
+CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 0"
 
 
 

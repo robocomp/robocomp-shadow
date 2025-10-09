@@ -25,9 +25,10 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
 
 	this->configLoader = configLoader;
 	
-	camerargbdsimplepub_pubproxy = std::get<0>(tprx);
-	fullposeestimationpub_pubproxy = std::get<1>(tprx);
-	imupub_pubproxy = std::get<2>(tprx);
+	camerargbdsimple_proxy = std::get<0>(tprx);
+	camerargbdsimplepub_pubproxy = std::get<1>(tprx);
+	fullposeestimationpub_pubproxy = std::get<2>(tprx);
+	imupub_pubproxy = std::get<3>(tprx);
 
 	states["Initialize"] = std::make_unique<GRAFCETStep>("Initialize", BASIC_PERIOD, nullptr, std::bind(&GenericWorker::initialize, this));
 	states["Compute"] = std::make_unique<GRAFCETStep>("Compute", configLoader.get<int>("Period.Compute"), std::bind(&GenericWorker::compute, this));

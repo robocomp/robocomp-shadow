@@ -89,8 +89,8 @@ public:
     // Set configuration parameters
     sl::InitParameters init_parameters;
 
-
-
+    bool simulated;
+    bool display;
 
     sl::Mat image, depth, point_cloud;
     sl::ERROR_CODE returned_state;

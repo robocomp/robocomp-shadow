@@ -8,12 +8,12 @@ Proxies.CameraRGBDSimplePubPrefix = ""
 Proxies.IMUPubPrefix = ""
 
 # Proxies for required interfaces
-Proxies.CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 0"
+Proxies.CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 10009"
 
 Period.Compute = 1
 Period.Emergency = 500
 
-Config.Simulated = False
+Config.Simulated = True
 Config.Display = True
 
 Ice.Warn.Connections = "0"

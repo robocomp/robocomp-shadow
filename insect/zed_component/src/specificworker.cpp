@@ -70,72 +70,80 @@ SpecificWorker::~SpecificWorker()
 }
 
 void SpecificWorker::initialize()
-{
-    // INIT PARAMETERS
-    init_parameters.camera_resolution = sl::RESOLUTION::HD720; // Use HD720 opr HD1200 video mode, depending on camera type.
-    init_parameters.camera_fps = 30; // Set fps at 30
-    #ifdef POSE
-        init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
-    #else
-        init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
-    #endif
-    init_parameters.coordinate_units = sl::UNIT::MILLIMETER; // Use millimeter units (for depth measurements)
-    init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP; // Use a right-handed Y-up coordinate system
-    init_parameters.depth_minimum_distance = 650 ;
-    init_parameters.enable_image_enhancement = true; // Mejora visual en condiciones complejas
-    //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
-    //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
+{   
+    simulated = configLoader.get<bool>("Config.Simulated");
 
-    // Abrir cámara
-    returned_state = zed.open(init_parameters);
-    if (returned_state != sl::ERROR_CODE::SUCCESS) {
-        std::cout << "Error " << returned_state << ", exit program." << std::endl;
-        exit(0);
-    }
+    display = configLoader.get<bool>("Config.Display");
 
-    // TRACKING PARAMETERS
-    #ifndef POSE
-        //init_parameters.camera_fps = 60; // 30 FPS balancea precisión y estabilidad
+    if (!simulated){
+        // INIT PARAMETERS
+        init_parameters.camera_resolution = sl::RESOLUTION::HD720; // Use HD720 opr HD1200 video mode, depending on camera type.
+        init_parameters.camera_fps = 30; // Set fps at 30
+        #ifdef POSE
+            init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
+        #else
+            init_parameters.depth_mode = sl::DEPTH_MODE::NEURAL_PLUS; // Use ULTRA depth mode
+        #endif
+        init_parameters.coordinate_units = sl::UNIT::MILLIMETER; // Use millimeter units (for depth measurements)
+        init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP; // Use a right-handed Y-up coordinate system
+        init_parameters.depth_minimum_distance = 650 ;
+        init_parameters.enable_image_enhancement = true; // Mejora visual en condiciones complejas
+        //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
+        //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
 
-        tracking_parameters.enable_imu_fusion = true; // Combina visual e IMU
-        tracking_parameters.enable_pose_smoothing = true; // Estabiliza la pose (algo más lento)
-        tracking_parameters.set_as_static = false; // Asegura que use movimiento real
-        tracking_parameters.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2; // Último modo de seguimiento (mejor IMU)
-        tracking_parameters.enable_area_memory = true;
+        // Abrir cámara
+        returned_state = zed.open(init_parameters);
+        if (returned_state != sl::ERROR_CODE::SUCCESS) {
+            std::cout << "Error " << returned_state << ", exit program." << std::endl;
+            exit(0);
+        }
 
-    #endif
+        // TRACKING PARAMETERS
+        #ifndef POSE
+            //init_parameters.camera_fps = 60; // 30 FPS balancea precisión y estabilidad
 
-    auto err = zed.enablePositionalTracking(tracking_parameters);
-    if (err != sl::ERROR_CODE::SUCCESS)
-        exit(-1);
+            tracking_parameters.enable_imu_fusion = true; // Combina visual e IMU
+            tracking_parameters.enable_pose_smoothing = true; // Estabiliza la pose (algo más lento)
+            tracking_parameters.set_as_static = false; // Asegura que use movimiento real
+            tracking_parameters.mode = sl::POSITIONAL_TRACKING_MODE::GEN_2; // Último modo de seguimiento (mejor IMU)
+            tracking_parameters.enable_area_memory = true;
 
-    sl::Transform reset_transform;
-    zed.resetPositionalTracking(reset_transform);
+        #endif
 
+        auto err = zed.enablePositionalTracking(tracking_parameters);
+        if (err != sl::ERROR_CODE::SUCCESS)
+            exit(-1);
 
+        sl::Transform reset_transform;
+        zed.resetPositionalTracking(reset_transform);
 
-    // Get the distance between the center of the camera and the left eye
-    translation_left_to_center = zed.getCameraInformation().camera_configuration.calibration_parameters.stereo_transform;
-    // Lanzar hilo
-    running = true;
+        // Get the distance between the center of the camera and the left eye
+        translation_left_to_center = zed.getCameraInformation().camera_configuration.calibration_parameters.stereo_transform;
+        // Lanzar hilo
+        running = true;
 
     //IMU, barometer and magnetometer
     // sensor_thread = std::thread(&SpecificWorker::sensorsLoop, this);
-
+    }
 }
 
 void SpecificWorker::compute()
 {
-    auto start = std::chrono::high_resolution_clock::now();
-    returned_state = zed.grab();
-    auto end = std::chrono::high_resolution_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    // std::cout << "Elapsed grab: " << elapsed << " microseconds" << std::endl;
-    // A new image is available if grab() returns ERROR_CODE::SUCCESS
-    if (returned_state == sl::ERROR_CODE::SUCCESS)
-    {
-        // process_RGBD_data();
-        process_pose_data();
+    if (simulated){
+        process_RGBD_data();
+    }
+    else{
+        auto start = std::chrono::high_resolution_clock::now();
+        returned_state = zed.grab();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        // std::cout << "Elapsed grab: " << elapsed << " microseconds" << std::endl;
+        // A new image is available if grab() returns ERROR_CODE::SUCCESS
+        if (returned_state == sl::ERROR_CODE::SUCCESS)
+        {
+            process_RGBD_data();
+            process_pose_data();
+        }
     }
 }
 
@@ -166,42 +174,138 @@ int SpecificWorker::startup_check()
 }
 
 void SpecificWorker::process_RGBD_data()
-{
-    // Retrieve left image
-    zed.retrieveImage(image, sl::VIEW::LEFT);
-    // Retrieve colored point cloud. Point cloud is aligned on the left image.
-    zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZ);
+{   
+    RoboCompCameraRGBDSimple::TRGBD rgbd;
+    if (!simulated){
+        // Retrieve left image
+        zed.retrieveImage(image, sl::VIEW::LEFT);
+        // Retrieve colored point cloud. Point cloud is aligned on the left image.
+        zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZ);
 
-    cv::Mat cv_image = cv::Mat(image.getHeight(), image.getWidth(), CV_8UC4, image.getPtr<sl::uchar1>(sl::MEM::CPU));
-    // Wrap the sl::Mat in a cv::Mat without copying
-    cv::Mat pointcloud_mat = cv::Mat(point_cloud.getHeight(),
-                           point_cloud.getWidth(),
-                           CV_32FC4,
-                           point_cloud.getPtr<sl::float1>(sl::MEM::CPU));
+        cv::Mat cv_image = cv::Mat(image.getHeight(), image.getWidth(), CV_8UC4, image.getPtr<sl::uchar1>(sl::MEM::CPU));
+        // Wrap the sl::Mat in a cv::Mat without copying
+        cv::Mat pointcloud_mat = cv::Mat(point_cloud.getHeight(),
+                            point_cloud.getWidth(),
+                            CV_32FC4,
+                            point_cloud.getPtr<sl::float1>(sl::MEM::CPU));
 
-    RoboCompCameraRGBDSimple::TImage rgb_image;
-    rgb_image.width = cv_image.cols;
-    rgb_image.height = cv_image.rows;
-//    rgb_image.cameraID = 0;
-//    depth.focalx = depth_intr.fx;
-//    depth.focaly = depth_intr.fy;
-    rgb_image.alivetime = image.timestamp.getNanoseconds();
-//    depth.period = fps.get_period();
-    rgb_image.compressed = false;
-    rgb_image.image.assign(cv_image.data, cv_image.data + (cv_image.total() * cv_image.elemSize()));
+        RoboCompCameraRGBDSimple::TImage rgb_image;
+        rgb_image.width = cv_image.cols;
+        rgb_image.height = cv_image.rows;
+    //    rgb_image.cameraID = 0;
+    //    depth.focalx = depth_intr.fx;
+    //    depth.focaly = depth_intr.fy;
+        rgb_image.alivetime = image.timestamp.getNanoseconds();
+    //    depth.period = fps.get_period();
+        rgb_image.compressed = false;
+        rgb_image.image.assign(cv_image.data, cv_image.data + (cv_image.total() * cv_image.elemSize()));
 
-    RoboCompCameraRGBDSimple::TDepth depth_image;
-    depth_image.width = pointcloud_mat.cols;
-    depth_image.height = pointcloud_mat.rows;
-//    rgb_image.cameraID = 0;
-//    depth.focalx = depth_intr.fx;
-//    depth.focaly = depth_intr.fy;
-    depth_image.alivetime = rgb_image.alivetime;
-//    depth.period = fps.get_period();
-    depth_image.compressed = false;
-    depth_image.depth.assign(pointcloud_mat.data, pointcloud_mat.data + (pointcloud_mat.total() * pointcloud_mat.elemSize()));
-//    qInfo() << "Publishing";
-    camerargbdsimplepub_pubproxy->pushRGBD(rgb_image, depth_image);
+        RoboCompCameraRGBDSimple::TDepth depth_image;
+        depth_image.width = pointcloud_mat.cols;
+        depth_image.height = pointcloud_mat.rows;
+    //    rgb_image.cameraID = 0;
+    //    depth.focalx = depth_intr.fx;
+    //    depth.focaly = depth_intr.fy;
+        depth_image.alivetime = rgb_image.alivetime;
+    //    depth.period = fps.get_period();
+        depth_image.compressed = false;
+        depth_image.depth.assign(pointcloud_mat.data, pointcloud_mat.data + (pointcloud_mat.total() * pointcloud_mat.elemSize()));
+    //    qInfo() << "Publishing";
+        rgbd.image = rgb_image;    
+        rgbd.depth = depth_image;
+    }
+    else{
+        RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
+        RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
+        RoboCompCameraRGBDSimple::TPoints points;
+
+        cv::Mat depthMat(cv::Size(depth_image.width, depth_image.height), CV_32FC1, &depth_image.depth[0], cv::Mat::AUTO_STEP);
+        
+        int width = depth_image.width;
+        int height = depth_image.height;
+        float fx = depth_image.focalx;
+        float fy = depth_image.focaly;
+        float cx = width / 2.0;
+        float cy = height / 2.0;
+
+        // -------------------- Tablas precalculadas --------------------
+        static std::vector<float> xTable, yTable;
+        if (xTable.size() != (size_t)width || yTable.size() != (size_t)height)
+        {
+            xTable.resize(width);
+            yTable.resize(height);
+
+            for (int u = 0; u < width; u++)
+                xTable[u] = (u - cx) / fx;
+
+            for (int v = 0; v < height; v++)
+                yTable[v] = (v - cy) / fy;
+        }
+
+        std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
+        cloud.reserve(width * height);
+
+        // -------------------- Bucle paralelizado --------------------
+        #pragma omp parallel
+        {
+            std::vector<RoboCompCameraRGBDSimple::Point3D> localCloud;
+            localCloud.reserve(width * height / omp_get_num_threads());
+
+            #pragma omp for collapse(2)
+            for (int v = 0; v < height; v++) {
+                for (int u = 0; u < width; u++) {
+                    float d = depthMat.at<float>(v, u);
+                    if (d <= 0.0f || d == INFINITY) {
+                        continue;
+                    }
+
+                    float X = xTable[u] * d;
+                    float Y = yTable[v] * d;
+                    float Z = d;
+
+                    localCloud.push_back({X, Y, Z});
+                }
+            }
+
+            #pragma omp critical
+            cloud.insert(cloud.end(), localCloud.begin(), localCloud.end());
+        }
+
+        // -------------------- Salida --------------------
+        points.points = std::move(cloud);
+
+        rgbd.image = rgb_image;
+        rgbd.depth = depth_image;
+        rgbd.points = points;
+    }
+    if(display){
+        cv::Mat rgb_frame, depth_frame;
+        if(simulated){
+            rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC3, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
+            cv::cvtColor(rgb_frame, rgb_frame, cv::COLOR_RGBA2BGR);
+
+            depth_frame = cv::Mat(cv::Size(rgbd.depth.width, rgbd.depth.height), CV_32FC1, &rgbd.depth.depth[0], cv::Mat::AUTO_STEP);
+            depth_frame.convertTo(depth_frame, CV_8UC3, 255. / 10, 0);
+            applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb    
+
+            cv::imshow("rgb", rgb_frame);
+            cv::imshow("depth", depth_frame);
+            cv::waitKey(1);
+        }
+        else{
+            // TODO: Imprimir zed real
+
+            // rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC4, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
+
+            // depth_frame = cv::Mat(cv::Size(rgbd.depth.width, rgbd.depth.height), CV_32FC4, &rgbd.depth.depth[0], cv::Mat::AUTO_STEP);
+            
+            // depth_frame.convertTo(depth_frame, CV_8UC3, 255. / 10, 0);
+            // applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb
+        }
+
+    }
+
+    camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
 }
 
 void SpecificWorker::process_pose_data()
@@ -404,8 +508,23 @@ void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform)
 }
 
 /**************************************/
+// From the RoboCompCameraRGBDSimple you can call this methods:
+// RoboCompCameraRGBDSimple::TRGBD this->camerargbdsimple_proxy->getAll(string camera)
+// RoboCompCameraRGBDSimple::TDepth this->camerargbdsimple_proxy->getDepth(string camera)
+// RoboCompCameraRGBDSimple::TImage this->camerargbdsimple_proxy->getImage(string camera)
+// RoboCompCameraRGBDSimple::TPoints this->camerargbdsimple_proxy->getPoints(string camera)
+
+/**************************************/
+// From the RoboCompCameraRGBDSimple you can use this types:
+// RoboCompCameraRGBDSimple::Point3D
+// RoboCompCameraRGBDSimple::TPoints
+// RoboCompCameraRGBDSimple::TImage
+// RoboCompCameraRGBDSimple::TDepth
+// RoboCompCameraRGBDSimple::TRGBD
+
+/**************************************/
 // From the RoboCompCameraRGBDSimplePub you can publish calling this methods:
-// RoboCompCameraRGBDSimplePub::void this->camerargbdsimplepub_pubproxy->pushRGBD(RoboCompCameraRGBDSimple::TImage im, RoboCompCameraRGBDSimple::TDepth dep)
+// RoboCompCameraRGBDSimplePub::void this->camerargbdsimplepub_pubproxy->pushRGBD(RoboCompCameraRGBDSimple::TRGBD rgbd)
 
 /**************************************/
 // From the RoboCompFullPoseEstimationPub you can publish calling this methods:

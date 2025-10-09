@@ -40,13 +40,13 @@ SET (SOURCES
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE(IMUPub IMU CameraRGBDSimplePub CameraRGBDSimple FullPoseEstimation FullPoseEstimationPub)
-ROBOCOMP_ICE_TO_SRC(IMUPub IMU CameraRGBDSimplePub CameraRGBDSimple FullPoseEstimation FullPoseEstimationPub)
+ROBOCOMP_IDSL_TO_ICE(FullPoseEstimation CameraRGBDSimple IMU FullPoseEstimationPub CameraRGBDSimplePub IMUPub)
+ROBOCOMP_ICE_TO_SRC(FullPoseEstimation CameraRGBDSimple IMU FullPoseEstimationPub CameraRGBDSimplePub IMUPub)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 
 # Specify construction and link process
 ADD_EXECUTABLE( zed_component ${SOURCES} ${MOC_SOURCES} ${RC_SOURCES} ${UI_HEADERS} )
-TARGET_LINK_LIBRARIES( zed_component ${LIBS}  ${STATIC_LIBS} ${SPECIFIC_LIBS} ${QT_LIBRARIES} ${Ice_LIBRARIES} )
+TARGET_LINK_LIBRARIES( zed_component ${LIBS}  ${STATIC_LIBS} ${SPECIFIC_LIBS} ${QT_LIBRARIES} ${Ice_LIBRARIES} OpenMP::OpenMP_CXX)
 SET_TARGET_PROPERTIES(zed_component
         PROPERTIES
         CXX_STANDARD ${CXX_STANDARD}

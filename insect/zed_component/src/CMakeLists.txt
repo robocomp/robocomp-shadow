@@ -22,6 +22,8 @@ endif()
 
 find_package(ZED 3 REQUIRED)
 find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
+find_package(OpenMP REQUIRED)
+
 
 include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${ZED_INCLUDE_DIRS})
@@ -35,7 +37,7 @@ else()
     SET(ZED_LIBS ${ZED_STATIC_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_LIBRARY})
 endif()
 
-LIST(APPEND LIBS ${LIBS} ${ZED_LIBS})
+LIST(APPEND LIBS ${LIBS} ${ZED_LIBS} )
 
 set(CXX_STANDARD 17)
 

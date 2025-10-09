@@ -41,7 +41,7 @@
 
 #define BASIC_PERIOD 100
 
-using TuplePrx = std::tuple<RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr,RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr,RoboCompIMUPub::IMUPubPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr,RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr,RoboCompIMUPub::IMUPubPrxPtr>;
 
 
 class GenericWorker : public QObject
@@ -60,6 +60,7 @@ public:
 	std::atomic_bool hibernation = false;
 
 
+	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
 	RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr camerargbdsimplepub_pubproxy;
 	RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr fullposeestimationpub_pubproxy;
 	RoboCompIMUPub::IMUPubPrxPtr imupub_pubproxy;
