@@ -176,13 +176,21 @@ int SpecificWorker::startup_check()
 void SpecificWorker::process_RGBD_data()
 {   
     RoboCompCameraRGBDSimple::TRGBD rgbd;
+    RoboCompLidar3D::TColorCloudData colorCloudPoints;
+    std::chrono::duration<double, std::milli> duration;
+    int index = 0;
+
+
     if (!simulated){
+        const static int step = 4;
+
         // Retrieve left image
         zed.retrieveImage(image, sl::VIEW::LEFT);
         // Retrieve colored point cloud. Point cloud is aligned on the left image.
-        zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZ);
+        zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
 
         cv::Mat cv_image = cv::Mat(image.getHeight(), image.getWidth(), CV_8UC4, image.getPtr<sl::uchar1>(sl::MEM::CPU));
+
         // Wrap the sl::Mat in a cv::Mat without copying
         cv::Mat pointcloud_mat = cv::Mat(point_cloud.getHeight(),
                             point_cloud.getWidth(),
@@ -192,9 +200,9 @@ void SpecificWorker::process_RGBD_data()
         RoboCompCameraRGBDSimple::TImage rgb_image;
         rgb_image.width = cv_image.cols;
         rgb_image.height = cv_image.rows;
-    //    rgb_image.cameraID = 0;
-    //    depth.focalx = depth_intr.fx;
-    //    depth.focaly = depth_intr.fy;
+        rgb_image.cameraID = 0;
+        // rgb_image.focalx = depth_intr.fx;
+        // rgb_image.focaly = depth_intr.fy;
         rgb_image.alivetime = image.timestamp.getNanoseconds();
     //    depth.period = fps.get_period();
         rgb_image.compressed = false;
@@ -203,9 +211,9 @@ void SpecificWorker::process_RGBD_data()
         RoboCompCameraRGBDSimple::TDepth depth_image;
         depth_image.width = pointcloud_mat.cols;
         depth_image.height = pointcloud_mat.rows;
-    //    rgb_image.cameraID = 0;
-    //    depth.focalx = depth_intr.fx;
-    //    depth.focaly = depth_intr.fy;
+        depth_image.cameraID = 0;
+        // depth_image.focalx = depth_intr.fx;
+        // depth_image.focaly = depth_intr.fy;
         depth_image.alivetime = rgb_image.alivetime;
     //    depth.period = fps.get_period();
         depth_image.compressed = false;
@@ -213,13 +221,54 @@ void SpecificWorker::process_RGBD_data()
     //    qInfo() << "Publishing";
         rgbd.image = rgb_image;    
         rgbd.depth = depth_image;
+
+        int total_points = pointcloud_mat.total()/step;
+        colorCloudPoints.X.resize(total_points);
+        colorCloudPoints.Y.resize(total_points);
+        colorCloudPoints.Z.resize(total_points);
+        colorCloudPoints.R.resize(total_points);
+        colorCloudPoints.G.resize(total_points);
+        colorCloudPoints.B.resize(total_points);
+
+
+        auto inicio = std::chrono::high_resolution_clock::now();
+        #pragma omp simd
+        for (int y = 0; y < pointcloud_mat.rows; y+=step)
+        {
+            for (int x = 0; x < pointcloud_mat.cols; x+=step)
+            {
+                cv::Vec4f pt = pointcloud_mat.at<cv::Vec4f>(y, x);
+
+                if (!std::isfinite(pt[0]) || !std::isfinite(pt[1]) || !std::isfinite(pt[2]) ||
+                    pt[2] <= 0.0f || pt[2] == INFINITY) 
+                    continue;
+                // // todo if (d <= 0.0f || d == INFINITY) continue;
+                short temp = index/100;
+                colorCloudPoints.X[index] = 0;
+                colorCloudPoints.Y[index] = 0;
+                colorCloudPoints.Z[index] = 0;
+
+                uint32_t color_uint = *reinterpret_cast<uint32_t*>(&pt[3]);
+                colorCloudPoints.R[index] = (color_uint >> 0) & 0xFF;
+                colorCloudPoints.G[index] = (color_uint >> 8) & 0xFF;
+                colorCloudPoints.B[index] = (color_uint >> 16) & 0xFF;
+                ++index;
+            }
+        }
+        
+        auto fin = std::chrono::high_resolution_clock::now();
+        duration = fin - inicio;
     }
     else{
         RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
         RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
         RoboCompCameraRGBDSimple::TPoints points;
 
+        const static int step = 4;
+
+
         cv::Mat depthMat(cv::Size(depth_image.width, depth_image.height), CV_32FC1, &depth_image.depth[0], cv::Mat::AUTO_STEP);
+        cv::Mat cv_image(cv::Size(rgb_image.width, rgb_image.height), CV_8UC3, &rgb_image.image[0], cv::Mat::AUTO_STEP);
         
         int width = depth_image.width;
         int height = depth_image.height;
@@ -229,55 +278,98 @@ void SpecificWorker::process_RGBD_data()
         float cy = height / 2.0;
 
         // -------------------- Tablas precalculadas --------------------
-        static std::vector<float> xTable, yTable;
+        static std::vector<double> xTable, yTable;
         if (xTable.size() != (size_t)width || yTable.size() != (size_t)height)
         {
             xTable.resize(width);
             yTable.resize(height);
 
             for (int u = 0; u < width; u++)
+            {
                 xTable[u] = (u - cx) / fx;
-
+            }
             for (int v = 0; v < height; v++)
+            {
                 yTable[v] = (v - cy) / fy;
+            }
         }
 
         std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
-        cloud.reserve(width * height);
+        const size_t N = width * height / step;
+        cloud.resize(N);
+        colorCloudPoints.X.resize(N);
+        colorCloudPoints.Y.resize(N);
+        colorCloudPoints.Z.resize(N);
+        colorCloudPoints.R.resize(N);
+        colorCloudPoints.G.resize(N);
+        colorCloudPoints.B.resize(N);
 
-        // -------------------- Bucle paralelizado --------------------
-        #pragma omp parallel
-        {
-            std::vector<RoboCompCameraRGBDSimple::Point3D> localCloud;
-            localCloud.reserve(width * height / omp_get_num_threads());
+        auto inicio = std::chrono::high_resolution_clock::now();
 
-            #pragma omp for collapse(2)
-            for (int v = 0; v < height; v++) {
-                for (int u = 0; u < width; u++) {
-                    float d = depthMat.at<float>(v, u);
-                    if (d <= 0.0f || d == INFINITY) {
-                        continue;
-                    }
+        int offsetImage = 0;
+        
 
-                    float X = xTable[u] * d;
-                    float Y = yTable[v] * d;
-                    float Z = d;
+        #pragma omp simd
+        for (int v = 0; v < height; v+=step) {
+            const float* depth_ptr = depthMat.ptr<float>(v);
+            const uint8_t* image_ptr = cv_image.ptr<uint8_t>(v);
+            for (int u = 0; u < width; u+=step) {
+                float d = depth_ptr[u];
+                const uint8_t* pixel_ptr = image_ptr + 3 * u;
 
-                    localCloud.push_back({X, Y, Z});
-                }
+                if (d <= 0.0f || d == INFINITY) continue;
+                d *=1000;
+                const float x = xTable[u] * d;
+                const float y = yTable[v] * d;
+
+                cloud[index].x = x;
+                cloud[index].y = y;
+                cloud[index].z = d;
+
+                colorCloudPoints.X[index] = x;
+                colorCloudPoints.Y[index] = d;
+                colorCloudPoints.Z[index] = -y+1320;
+                
+                ////⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️Warning to compress images ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ///
+                colorCloudPoints.R[index] = pixel_ptr[0];
+                colorCloudPoints.G[index] = pixel_ptr[1];
+                colorCloudPoints.B[index] = pixel_ptr[2];
+                ++index;
             }
-
-            #pragma omp critical
-            cloud.insert(cloud.end(), localCloud.begin(), localCloud.end());
         }
+        // index +=1;
+        auto fin = std::chrono::high_resolution_clock::now();
+        duration = fin - inicio;
+        
 
         // -------------------- Salida --------------------
+        cloud.resize(index);
         points.points = std::move(cloud);
 
-        rgbd.image = rgb_image;
-        rgbd.depth = depth_image;
-        rgbd.points = points;
+        rgbd.image = std::move(rgb_image);
+        rgbd.depth = std::move(depth_image);
+        rgbd.points = std::move(points);
     }
+
+    colorCloudPoints.X.resize(index);
+    colorCloudPoints.Y.resize(index);
+    colorCloudPoints.Z.resize(index);
+    colorCloudPoints.R.resize(index);
+    colorCloudPoints.G.resize(index);
+    colorCloudPoints.B.resize(index);
+
+    std::cout << "Tiempo de ejecución: " << duration.count() << "ms to " <<colorCloudPoints.X.size()<< "Points\n";
+    std::cout << "Punto: X" << colorCloudPoints.X[5000] << "Y " <<colorCloudPoints.Y[5000]<< "Z " <<colorCloudPoints.Z[5000]<< 
+                " | R " <<static_cast<int>(colorCloudPoints.R[5000])<< "G " <<static_cast<int>(colorCloudPoints.G[5000])<< "B " <<static_cast<int>(colorCloudPoints.B[5000])<<"\n";
+
+    auto cloud_ptr = std::make_shared<RoboCompLidar3D::TColorCloudData>(std::move(colorCloudPoints));
+    { 
+        std::lock_guard<std::mutex> lock(color_point_cloud_mutex);
+        buffer_color_point_cloud = std::move(cloud_ptr);
+    }
+    camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
+
+
     if(display){
         cv::Mat rgb_frame, depth_frame;
         if(simulated){
@@ -288,24 +380,25 @@ void SpecificWorker::process_RGBD_data()
             depth_frame.convertTo(depth_frame, CV_8UC3, 255. / 10, 0);
             applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb    
 
-            cv::imshow("rgb", rgb_frame);
-            cv::imshow("depth", depth_frame);
-            cv::waitKey(1);
+            
         }
         else{
             // TODO: Imprimir zed real
 
-            // rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC4, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
+            rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC4, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
 
-            // depth_frame = cv::Mat(cv::Size(rgbd.depth.width, rgbd.depth.height), CV_32FC4, &rgbd.depth.depth[0], cv::Mat::AUTO_STEP);
-            
+            // depth_frame = cv::Mat(cv::   Size(rgbd.depth.width, rgbd.depth.height), CV_32FC4, &rgbd.depth.depth[0], cv::Mat::AUTO_STEP);
+    
             // depth_frame.convertTo(depth_frame, CV_8UC3, 255. / 10, 0);
             // applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb
         }
+        cv::imshow("rgb", rgb_frame);
+        // cv::imshow("depth", depth_frame);
+        cv::waitKey(1);
 
     }
 
-    camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
+
 }
 
 void SpecificWorker::process_pose_data()
@@ -327,7 +420,7 @@ void SpecificWorker::process_pose_data()
     Eigen::AngleAxisf aa_y(r_cam_sl.y, Eigen::Vector3f::UnitY());
     Eigen::AngleAxisf aa_z(r_cam_sl.z, Eigen::Vector3f::UnitZ());
     Eigen::Quaternionf q_cam = aa_z * aa_y * aa_x;  // orden ZYX
-    std::cout<<std::setprecision(3)<<"\rX:"<<q_cam.x()<<"|Y:"<<q_cam.y()<<"|Z:"<< q_cam.z()<<"|W:"<< q_cam.w();
+    // std::cout<<std::setprecision(3)<<"\rX:"<<q_caDoubleBufferm.x()<<"|Y:"<<q_cam.y()<<"|Z:"<< q_cam.z()<<"|W:"<< q_cam.w();
 
     // 3) Transformación fija cámara?robot
     static const Eigen::Vector3f cam_to_robot_t(60.0f, 76.6f, 0.0f);
@@ -348,7 +441,6 @@ void SpecificWorker::process_pose_data()
     long timestamp = zed_pose.timestamp.getNanoseconds();
     float dt = (timestamp - last_timestamp) * 1e-9f;  // segundos
     last_timestamp = timestamp;
-
     auto pose_confidence = zed_pose.pose_confidence;
     float* cov = zed_pose.pose_covariance;
     float* twist = zed_pose.twist;
@@ -396,7 +488,7 @@ void SpecificWorker::process_pose_data()
 
     try
     {
-        fullposeestimationpub_pubproxy->newFullPose(pose);
+        ;//fullposeestimationpub_pubproxy->newFullPoDoubleBufferse(pose); // miss inteface?
     }
     catch (const Ice::Exception &e)
     {
@@ -507,6 +599,56 @@ void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform)
     pose = pose * transform;
 }
 
+RoboCompLidar3D::TColorCloudData SpecificWorker::Lidar3D_getColorCloudData()
+{
+    std::lock_guard<std::mutex> lock(color_point_cloud_mutex);
+    if (buffer_color_point_cloud)
+        return *buffer_color_point_cloud; 
+    else
+        return RoboCompLidar3D::TColorCloudData();
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TDataImage SpecificWorker::Lidar3D_getLidarDataArrayProyectedInImage(std::string name)
+{
+	RoboCompLidar3D::TDataImage ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TDataCategory SpecificWorker::Lidar3D_getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp)
+{
+	RoboCompLidar3D::TDataCategory ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataProyectedInImage(std::string name)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
+
 /**************************************/
 // From the RoboCompCameraRGBDSimple you can call this methods:
 // RoboCompCameraRGBDSimple::TRGBD this->camerargbdsimple_proxy->getAll(string camera)
@@ -534,4 +676,11 @@ void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform)
 // From the RoboCompIMUPub you can publish calling this methods:
 // RoboCompIMUPub::void this->imupub_pubproxy->publish(RoboCompIMU::DataImu imu)
 
+/**************************************/
+// From the RoboCompLidar3D you can use this types:
+// RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
+// RoboCompLidar3D::TDataCategory
+// RoboCompLidar3D::TColorCloudData
 

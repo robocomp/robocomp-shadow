@@ -38,6 +38,7 @@
 #include <FullPoseEstimationPub.h>
 #include <IMU.h>
 #include <IMUPub.h>
+#include <Lidar3D.h>
 
 #define BASIC_PERIOD 100
 
@@ -64,6 +65,13 @@ public:
 	RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr camerargbdsimplepub_pubproxy;
 	RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr fullposeestimationpub_pubproxy;
 	RoboCompIMUPub::IMUPubPrxPtr imupub_pubproxy;
+
+	virtual RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData() = 0;
+	virtual RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor) = 0;
+	virtual RoboCompLidar3D::TDataImage Lidar3D_getLidarDataArrayProyectedInImage(std::string name) = 0;
+	virtual RoboCompLidar3D::TDataCategory Lidar3D_getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp) = 0;
+	virtual RoboCompLidar3D::TData Lidar3D_getLidarDataProyectedInImage(std::string name) = 0;
+	virtual RoboCompLidar3D::TData Lidar3D_getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor) = 0;
 
 
 protected:

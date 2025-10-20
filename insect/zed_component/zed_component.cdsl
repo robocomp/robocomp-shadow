@@ -2,11 +2,13 @@ import "CameraRGBDSimplePub.idsl";
 import "CameraRGBDSimple.idsl";
 import "FullPoseEstimationPub.idsl";
 import "IMUPub.idsl";
+import "Lidar3D.idsl";
 
 Component zed_component
 {
     Communications
     {
+        implements Lidar3D;
         requires CameraRGBDSimple;
         publishes CameraRGBDSimplePub, FullPoseEstimationPub, IMUPub;
     };

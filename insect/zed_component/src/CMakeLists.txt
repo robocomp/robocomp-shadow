@@ -12,7 +12,12 @@ LIST(APPEND HEADERS
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
 # no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-fmax-errors=1 -fno-char8_t)
+add_definitions(-O3 -fmax-errors=1 -fno-char8_t)
+
+find_package(OpenMP REQUIRED)
+if(OpenMP_CXX_FOUND)
+    LIST(APPEND LIBS ${LIBS} OpenMP::OpenMP_CXX)
+endif()
 
 option(LINK_SHARED_ZED "Link with the ZED SDK shared executable" ON)
 

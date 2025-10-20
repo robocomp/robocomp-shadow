@@ -12,6 +12,9 @@ IMUPubPrefix = ""
 CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 0"
 
 
+[Endpoints]
+# Endpoints for implements interfaces
+Lidar3D = "tcp -p 0"
 
 
 
