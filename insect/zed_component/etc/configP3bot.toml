@@ -8,7 +8,7 @@ FullPoseEstimationPubPrefix = "zed"
 IMUPubPrefix = ""
 
 # Proxies for required interfaces
-CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 0"
+CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 10009"
 
 
 [Endpoints]
@@ -16,9 +16,9 @@ CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 0"
 Lidar3D = "tcp -p 12000"
 
 [Config]
-Simulated = True
-Display = True
-Extrinsic = [0,0,0,0,0,0]
+Simulated = false
+Display = true
+Extrinsic = [0.0, 0.0, 1320.0, 0.0, 0.0, 0.0]
 
 [Period]
 Compute = 20

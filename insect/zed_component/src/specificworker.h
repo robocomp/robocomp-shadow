@@ -102,6 +102,7 @@ public:
 
     bool simulated;
     bool display;
+    Eigen::Affine3f extrinsic;
 
     sl::Mat image, depth, point_cloud;
     sl::ERROR_CODE returned_state;

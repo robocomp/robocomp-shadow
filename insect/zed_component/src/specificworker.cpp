@@ -72,8 +72,35 @@ SpecificWorker::~SpecificWorker()
 void SpecificWorker::initialize()
 {   
     simulated = configLoader.get<bool>("Config.Simulated");
-
     display = configLoader.get<bool>("Config.Display");
+    std::vector<double> extrinsicVector;
+    try {
+        extrinsicVector = configLoader.get<std::vector<double>>("Config.Extrinsic");
+        }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Extrinsic does not found, using default [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]" << e.what()<< std::endl;
+        extrinsicVector = {0,0,0,0,0,0};
+    }
+
+    // Asegurarse de que tenga al menos 6 elementos
+    if (extrinsicVector.size() < 6) {
+        throw std::runtime_error("Config.Extrinsic must be 6 values (x, y, z, rotX, rotY, rotZ)");
+    }
+
+    Eigen::Vector3f translation(
+        static_cast<float>(extrinsicVector[0]),
+        static_cast<float>(extrinsicVector[1]),
+        static_cast<float>(extrinsicVector[2])
+    );
+
+    Eigen::AngleAxisf rotX(static_cast<float>(extrinsicVector[3]), Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf rotY(static_cast<float>(extrinsicVector[4]), Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf rotZ(static_cast<float>(extrinsicVector[5]), Eigen::Vector3f::UnitZ());
+    Eigen::Affine3f extrinsic = Eigen::Translation3f(translation) * rotX * rotY * rotZ;
+
+    this->extrinsic = extrinsic;
+    std::cout<<"Extrinsic Matrix:"<<std::endl<<this->extrinsic.matrix()<<std::endl;
+
 
     if (!simulated){
         // INIT PARAMETERS
@@ -182,7 +209,7 @@ void SpecificWorker::process_RGBD_data()
 
 
     if (!simulated){
-        const static int step = 4;
+        const static int step = 2;
 
         // Retrieve left image
         zed.retrieveImage(image, sl::VIEW::LEFT);
@@ -242,11 +269,10 @@ void SpecificWorker::process_RGBD_data()
                 if (!std::isfinite(pt[0]) || !std::isfinite(pt[1]) || !std::isfinite(pt[2]) ||
                     pt[2] <= 0.0f || pt[2] == INFINITY) 
                     continue;
-                // // todo if (d <= 0.0f || d == INFINITY) continue;
-                short temp = index/100;
-                colorCloudPoints.X[index] = 0;
-                colorCloudPoints.Y[index] = 0;
-                colorCloudPoints.Z[index] = 0;
+                Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(pt[0], pt[1], pt[2]) + extrinsic.translation();
+                colorCloudPoints.X[index] = lidar_point[0];
+                colorCloudPoints.Y[index] = lidar_point[1];
+                colorCloudPoints.Z[index] = lidar_point[2];
 
                 uint32_t color_uint = *reinterpret_cast<uint32_t*>(&pt[3]);
                 colorCloudPoints.R[index] = (color_uint >> 0) & 0xFF;
@@ -322,21 +348,23 @@ void SpecificWorker::process_RGBD_data()
                 const float x = xTable[u] * d;
                 const float y = yTable[v] * d;
 
-                cloud[index].x = x;
-                cloud[index].y = y;
-                cloud[index].z = d;
+                Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(x, d, -y) + extrinsic.translation();
 
-                colorCloudPoints.X[index] = x;
-                colorCloudPoints.Y[index] = d;
-                colorCloudPoints.Z[index] = -y+1320;
+                cloud[index].x = lidar_point[0];
+                cloud[index].y = lidar_point[1];
+                cloud[index].z = lidar_point[2];
+
+                colorCloudPoints.X[index] = lidar_point[0];
+                colorCloudPoints.Y[index] = lidar_point[1];
+                colorCloudPoints.Z[index] = lidar_point[2];
                 
-                ////⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️Warning to compress images ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ///
                 colorCloudPoints.R[index] = pixel_ptr[0];
                 colorCloudPoints.G[index] = pixel_ptr[1];
                 colorCloudPoints.B[index] = pixel_ptr[2];
                 ++index;
             }
         }
+
         // index +=1;
         auto fin = std::chrono::high_resolution_clock::now();
         duration = fin - inicio;
@@ -359,8 +387,8 @@ void SpecificWorker::process_RGBD_data()
     colorCloudPoints.B.resize(index);
 
     std::cout << "Tiempo de ejecución: " << duration.count() << "ms to " <<colorCloudPoints.X.size()<< "Points\n";
-    std::cout << "Punto: X" << colorCloudPoints.X[5000] << "Y " <<colorCloudPoints.Y[5000]<< "Z " <<colorCloudPoints.Z[5000]<< 
-                " | R " <<static_cast<int>(colorCloudPoints.R[5000])<< "G " <<static_cast<int>(colorCloudPoints.G[5000])<< "B " <<static_cast<int>(colorCloudPoints.B[5000])<<"\n";
+    // std::cout << "Punto: X" << colorCloudPoints.X[5000] << "Y " <<colorCloudPoints.Y[5000]<< "Z " <<colorCloudPoints.Z[5000]<< 
+    //             " | R " <<static_cast<int>(colorCloudPoints.R[5000])<< "G " <<static_cast<int>(colorCloudPoints.G[5000])<< "B " <<static_cast<int>(colorCloudPoints.B[5000])<<"\n";
 
     auto cloud_ptr = std::make_shared<RoboCompLidar3D::TColorCloudData>(std::move(colorCloudPoints));
     { 
