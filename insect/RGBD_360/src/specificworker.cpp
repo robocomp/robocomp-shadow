@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2025 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -18,33 +18,54 @@
  */
 #include "specificworker.h"
 
-/**
-* \brief Default constructor
-*/
-SpecificWorker::SpecificWorker(TuplePrx tprx, bool startup_check) : GenericWorker(tprx)
+SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(configLoader, tprx)
 {
-	this->startup_check_flag = startup_check;
-	// Uncomment if there's too many debug messages
-	// but it removes the possibility to see the messages
-	// shown in the console with qDebug()
-//	QLoggingCategory::setFilterRules("*.debug=false\n");
+this->startup_check_flag = startup_check;
+	if(this->startup_check_flag)
+	{
+		this->startup_check();
+	}
+	else
+	{
+		#ifdef HIBERNATION_ENABLED
+			hibernationChecker.start(500);
+		#endif
+
+		// Example statemachine:
+		/***
+		//Your definition for the statesmachine (if you dont want use a execute function, use nullptr)
+		states["CustomState"] = std::make_unique<GRAFCETStep>("CustomState", period, 
+															std::bind(&SpecificWorker::customLoop, this),  // Cyclic function
+															std::bind(&SpecificWorker::customEnter, this), // On-enter function
+															std::bind(&SpecificWorker::customExit, this)); // On-exit function
+
+		//Add your definition of transitions (addTransition(originOfSignal, signal, dstState))
+		states["CustomState"]->addTransition(states["CustomState"].get(), SIGNAL(entered()), states["OtherState"].get());
+		states["Compute"]->addTransition(this, SIGNAL(customSignal()), states["CustomState"].get()); //Define your signal in the .h file under the "Signals" section.
+
+		//Add your custom state
+		statemachine.addState(states["CustomState"].get());
+		***/
+
+		statemachine.setChildMode(QState::ExclusiveStates);
+		statemachine.start();
+
+		auto error = statemachine.errorString();
+		if (error.length() > 0){
+			qWarning() << error;
+			throw error;
+		}
+	}
 }
 
-/**
-* \brief Default destructor
-*/
 SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
 }
 
-bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
+void SpecificWorker::initialize()
 {
-	return true;
-}
-
-void SpecificWorker::initialize(int period)
-{
+    //chekpoint robocompUpdater
 	std::cout << "Initialize worker" << std::endl;
 
 	if(this->startup_check_flag)
@@ -53,6 +74,8 @@ void SpecificWorker::initialize(int period)
 	}
 	else
 	{
+        lidarName = this->configLoader.get<std::string>("lidar");
+        params.DISPLAY = this->configLoader.get<bool>("display");
         // pause variable
         last_read.store(std::chrono::high_resolution_clock::now());
 
@@ -61,7 +84,7 @@ void SpecificWorker::initialize(int period)
         {
             try
             {
-                RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
+                RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage(lidarName);
                 enabled_lidar = true;
             }
             catch (const std::exception &e){std::cout << " In Initialize getting LiDAR " << e.what() << std::endl;}
@@ -80,28 +103,27 @@ void SpecificWorker::initialize(int period)
             catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; }
             sleep(1);
         }
-	    this->Period = 1;
-		timer.start(Period);
+	    setPeriod("Compute", 1);
+		
 	}
 }
 
 void SpecificWorker::compute()
 {
     /// check idle time
-    if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
-    {
-        fps.print("No requests in the last 5 seconds. Pausing. Comp wil continue in next call", 3000);
-        return;
-    }
 
     RoboCompLidar3D::TDataImage lidar_data;
     RoboCompCamera360RGB::TImage cam_data;
+    RoboCompLidar3D::TColorCloudData cloud;
+    RoboCompLidar3D::TDataImage chosen_lidar_data{.timestamp=-1};
+    RoboCompCamera360RGB::TImage chosen_rgb_data{.timestamp=-1};
+
 
 
     // Get lidar data
     try
     {
-        lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage("helios");
+        lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage(lidarName);
         if (lidar_data.timestamp != last_lidar_stamp) 
         {
             b_lidar_queue.push_back(lidar_data);
@@ -159,14 +181,13 @@ void SpecificWorker::compute()
     bool exists_data = false;
     
 
-
-    // Iterate through lidar queue in reverse
+    // Iterate through lidar std::queue in reverse
     for (auto it_lidar = b_lidar_queue.rbegin(); it_lidar != b_lidar_queue.rend(); ++it_lidar)
     {
         const auto& lidar = *it_lidar;
         const auto j = std::distance(it_lidar, b_lidar_queue.rend()) - 1; // Calculate reverse index
         // qInfo() << "LIDAR Timestamp loop" << lidar.timestamp;
-        // Iterate through camera queue in reverse
+        // Iterate through camera std::queue in reverse
         for (auto it_rgb = b_camera_queue.rbegin(); it_rgb != b_camera_queue.rend(); ++it_rgb)
         {
             const auto& rgb = *it_rgb;
@@ -189,11 +210,10 @@ void SpecificWorker::compute()
 
     if(exists_data)
     {        
-        RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
-        RoboCompCamera360RGB::TImage chosen_rgb_data = b_camera_queue.at(chosen_rgb);
+        chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
+        chosen_rgb_data = b_camera_queue.at(chosen_rgb);
 
-        std::cout << "Timestamps " <<  chosen_lidar_data.timestamp << " " << chosen_rgb_data.timestamp <<  std::endl;
-        std::cout << "timestamp diff: " << chosen_lidar_data.timestamp - chosen_rgb_data.timestamp <<  std::endl;
+       
         
         if(last_fused_time == chosen_lidar_data.timestamp) 
         {
@@ -208,14 +228,45 @@ void SpecificWorker::compute()
         // Generate depth image
         cv::Mat depth_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_32FC3, cv::Scalar(0,0,0));
        // get pointer to the image data
-        cv::Vec3f* ptr = depth_image.ptr<cv::Vec3f>();
+        cv::Vec3f* depth_ptr = depth_image.ptr<cv::Vec3f>();
+        cv::Vec3b* rgb_ptr = rgb_image.ptr<cv::Vec3b>();
 
-        for (auto&& [px, py, x, y, z] : iter::zip(chosen_lidar_data.XPixel, chosen_lidar_data.YPixel, chosen_lidar_data.XArray, chosen_lidar_data.YArray, chosen_lidar_data.ZArray))
+        const size_t N = chosen_lidar_data.XArray.size();
+        cloud.X.resize(N);
+        cloud.Y.resize(N); 
+        cloud.Z.resize(N);
+        cloud.R.resize(N);
+        cloud.G.resize(N);        // VERSIÓN OPTIMIZADA CON CONTADOR
+        cloud.B.resize(N);
+        constexpr float maxShort = 32767.0f;
+
+    
+        for(size_t i = 0; i < N; ++i)
         {
-            cv::Vec3f& pixel = ptr[py * chosen_rgb_data.width + px];
-            pixel[0] = x;
-            pixel[1] = y;
-            pixel[2] = z;
+            const int px = chosen_lidar_data.XPixel[i];
+            const int py = chosen_lidar_data.YPixel[i];
+            const float x = chosen_lidar_data.XArray[i];
+            const float y = chosen_lidar_data.YArray[i]; 
+            const float z = chosen_lidar_data.ZArray[i];
+            
+            const int index = py * chosen_rgb_data.width + px;
+            
+            // Depth image
+            cv::Vec3f& depth_pixel = depth_ptr[index];
+            depth_pixel[0] = x;
+            depth_pixel[1] = y; 
+            depth_pixel[2] = z;
+            
+            // RGB data 
+            const cv::Vec3b& rgb_pixel = rgb_ptr[index];
+            
+            // Cloud data
+            cloud.X[i] = static_cast<int16_t>(std::clamp(x, -maxShort, maxShort));
+            cloud.Y[i] = static_cast<int16_t>(std::clamp(y, -maxShort, maxShort));
+            cloud.Z[i] = static_cast<int16_t>(std::clamp(z, -maxShort, maxShort));
+            cloud.R[i] = rgb_pixel[2];  // uint8_t
+            cloud.G[i] = rgb_pixel[1];  // uint8_t  
+            cloud.B[i] = rgb_pixel[0];  // uint8_t
         }
 
         if(params.DISPLAY)
@@ -225,18 +276,39 @@ void SpecificWorker::compute()
             cv::waitKey(1);
         }
 
-        swap_mutex.lock();
+        {
+            std::unique_lock<std::shared_mutex> lock(swap_mutex);
             rgb_image.copyTo(rgb_frame_write);
             depth_image.copyTo(depth_frame_write);
             capture_time = chosen_lidar_data.timestamp;
             last_fused_time = capture_time;
-        swap_mutex.unlock();
+            pointCloud =std::move(cloud);
+        }
 
         //lidar_queue.clean_old(chosen_lidar);
         //camera_queue.clean_old(chosen_rgb);
     }
+    fps.print("Timestamps: Lidar " + std::to_string(chosen_lidar_data.timestamp) + " RGB " + std::to_string(chosen_rgb_data.timestamp) + 
+        " diff:" + std::to_string(chosen_lidar_data.timestamp - chosen_rgb_data.timestamp), 3000);
+}
 
-    fps.print("FPS:", 3000);
+
+void SpecificWorker::emergency()
+{
+    std::cout << "Emergency worker" << std::endl;
+	//computeCODE
+	//
+	//if (SUCCESSFUL)
+    //  emmit goToRestore()
+}
+
+//Execute one when exiting to emergencyState
+void SpecificWorker::restore()
+{
+    std::cout << "Restore worker" << std::endl;
+	//computeCODE
+	//Restore emergency component
+
 }
 
 int SpecificWorker::startup_check()
@@ -250,7 +322,7 @@ int SpecificWorker::startup_check()
 RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
 {
     RoboCompCamera360RGBD::TRGBD res;
-    const std::lock_guard<std::mutex> lg(swap_mutex);
+    std::shared_lock<std::shared_mutex> lock(swap_mutex);
     if (enabled_camera and enabled_lidar)
     {
         last_read.store(std::chrono::high_resolution_clock::now());
@@ -343,7 +415,7 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
                 
                 // Asumiendo que la imagen es de tres canales (color)
                 cv::Vec3f value = dst_depth.at<cv::Vec3f>(y, x);
-                if (cv::norm(value) != 0) { // Si el vector del pixel de la fuente es diferente de cero, copiamos el valor
+                if (cv::norm(value) != 0) { // Si el std::vector del pixel de la fuente es diferente de cero, copiamos el valor
                     dst.at<cv::Vec3f>(newY, newX) = value;
                 }
             }
@@ -380,11 +452,58 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 
 }
 
+RoboCompLidar3D::TColorCloudData SpecificWorker::Lidar3D_getColorCloudData()
+{
+	RoboCompLidar3D::TColorCloudData ret{};
+    std::shared_lock<std::shared_mutex> lock(swap_mutex);
+	return pointCloud;
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TDataImage SpecificWorker::Lidar3D_getLidarDataArrayProyectedInImage(std::string name)
+{
+	RoboCompLidar3D::TDataImage ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TDataCategory SpecificWorker::Lidar3D_getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp)
+{
+	RoboCompLidar3D::TDataCategory ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataProyectedInImage(std::string name)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
+RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor)
+{
+	RoboCompLidar3D::TData ret{};
+	//implementCODE
+
+	return ret;
+}
+
 
 
 /**************************************/
 // From the RoboCompCamera360RGB you can call this methods:
-// this->camera360rgb_proxy->getROI(...)
+// RoboCompCamera360RGB::TImage this->camera360rgb_proxy->getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
 
 /**************************************/
 // From the RoboCompCamera360RGB you can use this types:
@@ -393,18 +512,31 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
-// this->lidar3d_proxy->getLidarData(...)
-// this->lidar3d_proxy->getLidarDataArrayProyectedInImage(...)
-// this->lidar3d_proxy->getLidarDataProyectedInImage(...)
-// this->lidar3d_proxy->getLidarDataWithThreshold2d(...)
+// RoboCompLidar3D::TColorCloudData this->lidar3d_proxy->getColorCloudData()
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarData(string name, float start, float len, int decimationDegreeFactor)
+// RoboCompLidar3D::TDataImage this->lidar3d_proxy->getLidarDataArrayProyectedInImage(string name)
+// RoboCompLidar3D::TDataCategory this->lidar3d_proxy->getLidarDataByCategory(TCategories categories, long timestamp)
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataProyectedInImage(string name)
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataWithThreshold2d(string name, float distance, int decimationDegreeFactor)
 
 /**************************************/
 // From the RoboCompLidar3D you can use this types:
 // RoboCompLidar3D::TPoint
 // RoboCompLidar3D::TDataImage
 // RoboCompLidar3D::TData
+// RoboCompLidar3D::TDataCategory
+// RoboCompLidar3D::TColorCloudData
 
 /**************************************/
 // From the RoboCompCamera360RGBD you can use this types:
 // RoboCompCamera360RGBD::TRoi
 // RoboCompCamera360RGBD::TRGBD
+
+/**************************************/
+// From the RoboCompLidar3D you can use this types:
+// RoboCompLidar3D::TPoint
+// RoboCompLidar3D::TDataImage
+// RoboCompLidar3D::TData
+// RoboCompLidar3D::TDataCategory
+// RoboCompLidar3D::TColorCloudData
+

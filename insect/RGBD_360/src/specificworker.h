@@ -27,18 +27,22 @@
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
+// If you want reduce compute period automaticaly for lack of use
+#define HIBERNATION_ENABLED
+
 #include <genericworker.h>
 #include <opencv2/core.hpp>
 #include<opencv2/imgproc/imgproc.hpp>
 #include "cppitertools/zip.hpp"
 #include"cppitertools/enumerate.hpp"
 #include<opencv2/highgui/highgui.hpp>
-#include<fixedsizedeque.h>
+#include "fixedsizedeque.h"
 #include <deque>
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
 #include <boost/circular_buffer.hpp>
 #include <multibuffer_sync/multibuffer_sync.h>
+#include <shared_mutex>
 
 using namespace std::chrono;
 
@@ -46,15 +50,56 @@ class SpecificWorker : public GenericWorker
 {
     Q_OBJECT
     public:
-        SpecificWorker(TuplePrx tprx, bool startup_check);
-        ~SpecificWorker();
-        bool setParams(RoboCompCommonBehavior::ParameterList params);
-        RoboCompCamera360RGBD::TRGBD Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
+       /**
+     * \brief Constructor for SpecificWorker.
+     * \param configLoader Configuration loader for the component.
+     * \param tprx Tuple of proxies required for the component.
+     * \param startup_check Indicates whether to perform startup checks.
+     */
+	SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check);
+
+	/**
+     * \brief Destructor for SpecificWorker.
+     */
+	~SpecificWorker();
+
+	RoboCompCamera360RGBD::TRGBD Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
+
+	RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData();
+	RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor);
+	RoboCompLidar3D::TDataImage Lidar3D_getLidarDataArrayProyectedInImage(std::string name);
+	RoboCompLidar3D::TDataCategory Lidar3D_getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp);
+	RoboCompLidar3D::TData Lidar3D_getLidarDataProyectedInImage(std::string name);
+	RoboCompLidar3D::TData Lidar3D_getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor);
+
 
     public slots:
+
+    /**
+         * \brief Initializes the worker one time.
+         */
+        void initialize();
+
+        /**
+         * \brief Main compute loop of the worker.
+         */
         void compute();
+
+        /**
+         * \brief Handles the emergency state loop.
+         */
+        void emergency();
+
+        /**
+         * \brief Restores the component from an emergency state.
+         */
+        void restore();
+
+    /**
+     * \brief Performs startup checks for the component.
+     * \return An integer representing the result of the checks.
+     */
         int startup_check();
-        void initialize(int period);
 
     private:
         struct Params
@@ -71,6 +116,9 @@ class SpecificWorker : public GenericWorker
         boost::circular_buffer<RoboCompLidar3D::TDataImage> b_lidar_queue{1};
 
         cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
+        /**
+         * \brief Flag indicating whether startup checks are enabled.
+         */
         bool startup_check_flag;
 
         int MAX_WIDTH, MAX_HEIGHT;
@@ -89,10 +137,13 @@ class SpecificWorker : public GenericWorker
 
         // camera buffers
         cv::Mat rgb_frame_write, depth_frame_write;
+        RoboCompLidar3D::TColorCloudData pointCloud;
 
-        mutable std::mutex swap_mutex;
+        mutable std::shared_mutex swap_mutex;
+        std::string lidarName;
+
+        signals:
+	//void customSignal();
     };
-
-
 
 #endif
