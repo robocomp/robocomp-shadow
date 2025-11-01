@@ -1,0 +1,14 @@
+import "OmniRobot.idsl";
+import "Lidar3D.idsl";
+import "JoystickAdapter.idsl";
+
+Component room_detector_ransac_two_levels
+{
+    Communications
+    {
+        requires Lidar3D, OmniRobot;
+        subscribesTo JoystickAdapter;
+    };
+    language python;
+};
+
