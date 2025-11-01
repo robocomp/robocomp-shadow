@@ -78,15 +78,14 @@ class SpecificWorker(GenericWorker):
                     theta=0.0,  # 0 degrees
                     length=5.0,  # 5 meters long
                     width=10.0,  # 4 meters wide
-                    height=2.5,  # Room height in meters
-                    z_center=1.25,  # Vertical center (height/2)
-                    weight=2.5
+                    height=2.5, # 2.5 meters high
+                    weight=1.0,
                 ))
 
             # Initialize the particle filter
             self.particle_filter = (RoomParticleFilter
             (
-                num_particles=1,
+                num_particles=10,
                 initial_hypothesis=ground_truth_particle  # Can use RoomAssembler here for a 1-shot guess
             ))
             self.current_best_particle = None
@@ -140,8 +139,9 @@ class SpecificWorker(GenericWorker):
         odometry_delta = (0.0, 0.0, 0.0)  # (dx, dy, dtheta)
 
         # Run particle filter step: Predict -> Detect -> Update -> Resample
-        self.current_best_particle, (h_planes, v_planes, o_planes, outliers) = \
-            self.particle_filter.step(odometry_delta, self.plane_detector, pcd)
+        self.particle_filter.step(odometry_delta, self.plane_detector, pcd)
+        self.current_best_particle =  self.particle_filter.best_particle()
+        h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
 
         # Visualize results
         self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers)
