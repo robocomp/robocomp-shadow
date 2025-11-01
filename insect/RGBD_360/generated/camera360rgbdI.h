@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2025 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -16,42 +16,32 @@
  *    You should have received a copy of the GNU General Public License
  *    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "genericworker.h"
-/**
-* \brief Default constructor
-*/
-GenericWorker::GenericWorker(TuplePrx tprx) : QObject()
+#ifndef CAMERA360RGBD_H
+#define CAMERA360RGBD_H
+
+// Ice includes
+#include <Ice/Ice.h>
+#include <Camera360RGBD.h>
+
+#include "../src/specificworker.h"
+
+
+class Camera360RGBDI : public virtual RoboCompCamera360RGBD::Camera360RGBD
 {
+public:
+	Camera360RGBDI(GenericWorker *_worker, const size_t id);
+	~Camera360RGBDI();
 
-	camera360rgb_proxy = std::get<0>(tprx);
-	lidar3d_proxy = std::get<1>(tprx);
+	RoboCompCamera360RGBD::TRGBD getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight, const Ice::Current&);
 
-	mutex = new QMutex();
+private:
 
-	Period = BASIC_PERIOD;
-	connect(&timer, SIGNAL(timeout()), this, SLOT(compute()));
+	GenericWorker *worker;
+	size_t id;
 
-}
+	// Array handlers for each method
+	std::array<std::function<RoboCompCamera360RGBD::TRGBD(int, int, int, int, int, int)>, 1> getROIHandlers;
 
-/**
-* \brief Default destructor
-*/
-GenericWorker::~GenericWorker()
-{
+};
 
-}
-void GenericWorker::killYourSelf()
-{
-	rDebug("Killing myself");
-	emit kill();
-}
-/**
-* \brief Change compute period
-* @param per Period in ms
-*/
-void GenericWorker::setPeriod(int p)
-{
-	rDebug("Period changed"+QString::number(p));
-	Period = p;
-	timer.start(Period);
-}
+#endif

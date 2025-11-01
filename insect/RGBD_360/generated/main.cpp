@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2023 by YOUR NAME HERE
+ *    Copyright (C) 2025 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -70,29 +70,83 @@
 #include <IceStorm/IceStorm.h>
 #include <Ice/Application.h>
 
-#include <rapplication/rapplication.h>
-#include <sigwatch/sigwatch.h>
-#include <qlog/qlog.h>
+#include <ConfigLoader/ConfigLoader.h>
 
-#include "config.h"
-#include "genericmonitor.h"
+#include <sigwatch/sigwatch.h>
+
 #include "genericworker.h"
-#include "specificworker.h"
-#include "specificmonitor.h"
-#include "commonbehaviorI.h"
+#include "../src/specificworker.h"
 
 #include <camera360rgbdI.h>
+#include <lidar3dI.h>
+
+#include <Camera360RGB.h>
+#include <Camera360RGBD.h>
+#include <Lidar3D.h>
+
+//#define USE_QTGUI
+
+#define PROGRAM_NAME    "RGBD_360"
+#define SERVER_FULL_NAME   "RoboComp RGBD_360::RGBD_360"
 
 
+template <typename InterfaceType>
+void implement( const Ice::CommunicatorPtr& communicator,
+                const std::string& endpointConfig,
+                const std::string& adapterName,
+                SpecificWorker* worker,
+                int index)
+{
+    try
+    {
+        Ice::ObjectAdapterPtr adapter = communicator->createObjectAdapterWithEndpoints(adapterName, endpointConfig);
+        auto servant = std::make_shared<InterfaceType>(worker, index);
+        adapter->add(servant, Ice::stringToIdentity(adapterName));
+        adapter->activate();
+        std::cout << "[" << PROGRAM_NAME << "]: " << adapterName << " adapter created in port " << endpointConfig << std::endl;
+    }
+    catch (const IceStorm::TopicExists&)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for " << adapterName << std::endl;
+    }
+}
+
+template <typename ProxyType, typename ProxyPointer>
+void require(const Ice::CommunicatorPtr& communicator,
+             const std::string& proxyConfig, 
+             const std::string& proxyName,
+             ProxyPointer& proxy)
+{
+    try
+    {
+        proxy = Ice::uncheckedCast<ProxyType>(communicator->stringToProxy(proxyConfig));
+        std::cout << proxyName << " initialized Ok!\n";
+    }
+    catch(const Ice::Exception& ex)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: Exception creating proxy " << proxyName << ": " << ex;
+        throw;
+    }
+}
 
 
-class RGBD_360 : public RoboComp::Application
+class RGBD_360 : public Ice::Application
 {
 public:
-	RGBD_360 (QString prfx, bool startup_check) { prefix = prfx.toStdString(); this->startup_check_flag=startup_check; }
+	RGBD_360 (QString configFile, QString prfx, bool startup_check) { 
+		this->configFile = configFile.toStdString();
+		this->prefix = prfx.toStdString();
+		this->startup_check_flag=startup_check; 
+
+		initialize();
+		}
+
+	Ice::InitializationData getInitializationDataIce();
+
 private:
 	void initialize();
-	std::string prefix;
+	std::string prefix, configFile;
+	ConfigLoader configLoader;
 	TuplePrx tprx;
 	bool startup_check_flag = false;
 
@@ -100,14 +154,24 @@ public:
 	virtual int run(int, char*[]);
 };
 
-void ::RGBD_360::initialize()
-{
-	// Config file properties read example
-	// configGetString( PROPERTY_NAME_1, property1_holder, PROPERTY_1_DEFAULT_VALUE );
-	// configGetInt( PROPERTY_NAME_2, property1_holder, PROPERTY_2_DEFAULT_VALUE );
+Ice::InitializationData RGBD_360::getInitializationDataIce(){
+        Ice::InitializationData initData;
+        initData.properties = Ice::createProperties();
+        initData.properties->setProperty("Ice.Warn.Connections", this->configLoader.get<std::string>("Ice.Warn.Connections"));
+        initData.properties->setProperty("Ice.Trace.Network", this->configLoader.get<std::string>("Ice.Trace.Network"));
+        initData.properties->setProperty("Ice.Trace.Protocol", this->configLoader.get<std::string>("Ice.Trace.Protocol"));
+        initData.properties->setProperty("Ice.MessageSizeMax", this->configLoader.get<std::string>("Ice.MessageSizeMax"));
+		return initData;
 }
 
-int ::RGBD_360::run(int argc, char* argv[])
+void RGBD_360::initialize()
+{
+    this->configLoader.load(this->configFile);
+	this->configLoader.printConfig();
+	std::cout<<std::endl;
+}
+
+int RGBD_360::run(int argc, char* argv[])
 {
 #ifdef USE_QTGUI
 	QApplication a(argc, argv);  // GUI application
@@ -133,100 +197,30 @@ int ::RGBD_360::run(int argc, char* argv[])
 	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 
-	string proxy, tmp;
-	initialize();
 
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "Camera360RGBProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Camera360RGBProxy\n";
-		}
-		camera360rgb_proxy = Ice::uncheckedCast<RoboCompCamera360RGB::Camera360RGBPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Camera360RGB: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("Camera360RGBProxy initialized Ok!");
-
-
-	try
-	{
-		if (not GenericMonitor::configGetString(communicator(), prefix, "Lidar3DProxy", proxy, ""))
-		{
-			cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Lidar3DProxy\n";
-		}
-		lidar3d_proxy = Ice::uncheckedCast<RoboCompLidar3D::Lidar3DPrx>( communicator()->stringToProxy( proxy ) );
-	}
-	catch(const Ice::Exception& ex)
-	{
-		cout << "[" << PROGRAM_NAME << "]: Exception creating proxy Lidar3D: " << ex;
-		return EXIT_FAILURE;
-	}
-	rInfo("Lidar3DProxy initialized Ok!");
-
+	//Require code
+	require<RoboCompCamera360RGB::Camera360RGBPrx, RoboCompCamera360RGB::Camera360RGBPrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.Camera360RGB"), "Camera360RGBProxy", camera360rgb_proxy);
+	require<RoboCompLidar3D::Lidar3DPrx, RoboCompLidar3D::Lidar3DPrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.Lidar3D"), "Lidar3DProxy", lidar3d_proxy);
 
 	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy);
-	SpecificWorker *worker = new SpecificWorker(tprx, startup_check_flag);
-	//Monitor thread
-	SpecificMonitor *monitor = new SpecificMonitor(worker,communicator());
-	QObject::connect(monitor, SIGNAL(kill()), &a, SLOT(quit()));
+	SpecificWorker *worker = new SpecificWorker(this->configLoader, tprx, startup_check_flag);
 	QObject::connect(worker, SIGNAL(kill()), &a, SLOT(quit()));
-	monitor->start();
-
-	if ( !monitor->isRunning() )
-		return status;
-
-	while (!monitor->ready)
-	{
-		usleep(10000);
-	}
 
 	try
 	{
-		try {
-			// Server adapter creation and publication
-			if (not GenericMonitor::configGetString(communicator(), prefix, "CommonBehavior.Endpoints", tmp, "")) {
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy CommonBehavior\n";
-			}
-			Ice::ObjectAdapterPtr adapterCommonBehavior = communicator()->createObjectAdapterWithEndpoints("commonbehavior", tmp);
-			auto commonbehaviorI = std::make_shared<CommonBehaviorI>(monitor);
-			adapterCommonBehavior->add(commonbehaviorI, Ice::stringToIdentity("commonbehavior"));
-			adapterCommonBehavior->activate();
-		}
-		catch(const Ice::Exception& ex)
-		{
-			status = EXIT_FAILURE;
 
-			cout << "[" << PROGRAM_NAME << "]: Exception raised while creating CommonBehavior adapter: " << endl;
-			cout << ex;
-
-		}
-
-
-
-		try
-		{
-			// Server adapter creation and publication
-			if (not GenericMonitor::configGetString(communicator(), prefix, "Camera360RGBD.Endpoints", tmp, ""))
-			{
-				cout << "[" << PROGRAM_NAME << "]: Can't read configuration for proxy Camera360RGBD";
-			}
-			Ice::ObjectAdapterPtr adapterCamera360RGBD = communicator()->createObjectAdapterWithEndpoints("Camera360RGBD", tmp);
-			auto camera360rgbd = std::make_shared<Camera360RGBDI>(worker);
-			adapterCamera360RGBD->add(camera360rgbd, Ice::stringToIdentity("camera360rgbd"));
-			adapterCamera360RGBD->activate();
-			cout << "[" << PROGRAM_NAME << "]: Camera360RGBD adapter created in port " << tmp << endl;
-		}
-		catch (const IceStorm::TopicExists&){
-			cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for Camera360RGBD\n";
-		}
-
+		//Implement code
+		implement<Camera360RGBDI>(communicator(),
+		                    configLoader.get<std::string>("Endpoints.Camera360RGBD"), 
+		                    "camera360rgbd", worker,  0);
+		implement<Lidar3DI>(communicator(),
+		                    configLoader.get<std::string>("Endpoints.Lidar3D"), 
+		                    "lidar3d", worker,  0);
 
 		// Server adapter creation and publication
-		cout << SERVER_FULL_NAME " started" << endl;
+		std::cout << SERVER_FULL_NAME " started" << std::endl;
 
 		// User defined QtGui elements ( main window, dialogs, etc )
 
@@ -244,8 +238,8 @@ int ::RGBD_360::run(int argc, char* argv[])
 	{
 		status = EXIT_FAILURE;
 
-		cout << "[" << PROGRAM_NAME << "]: Exception raised on main thread: " << endl;
-		cout << ex;
+		std::cerr << "[" << PROGRAM_NAME << "]: Exception raised on main thread: " << std::endl;
+		std::cerr << ex;
 
 	}
 	#ifdef USE_QTGUI
@@ -253,16 +247,13 @@ int ::RGBD_360::run(int argc, char* argv[])
 	#endif
 
 	status = EXIT_SUCCESS;
-	monitor->terminate();
-	monitor->wait();
 	delete worker;
-	delete monitor;
 	return status;
 }
 
 int main(int argc, char* argv[])
 {
-	string arg;
+	std::string arg;
 
 	// Set config file
 	QString configFile("etc/config");
@@ -281,7 +272,7 @@ int main(int argc, char* argv[])
 			if (arg.find(startup.toStdString(), 0) != std::string::npos)
 			{
 				startup_check_flag = true;
-				cout << "Startup check = True"<< endl;
+				std::cout << "Startup check = True"<< std::endl;
 			}
 			else if (arg.find(prfx.toStdString(), 0) != std::string::npos)
 			{
@@ -303,7 +294,7 @@ int main(int argc, char* argv[])
 		}
 
 	}
-	::RGBD_360 app(prefix, startup_check_flag);
+	RGBD_360 app(configFile, prefix, startup_check_flag);
 
-	return app.main(argc, argv, configFile.toLocal8Bit().data());
+	return app.main(argc, argv, app.getInitializationDataIce());
 }

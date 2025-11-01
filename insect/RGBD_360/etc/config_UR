@@ -1,14 +1,14 @@
 # Endpoints for implements interfaces
 Endpoints.Camera360RGBD = "tcp -p 10100"
-Endpoints.Lidar3D = "tcp -h localhost -p 12001"
+Endpoints.Lidar3D = "tcp -p 12001"
 
 
 # Proxies for required interfaces
 Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
 Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
 
-display = true
-lidar = "helios"
+display = false
+lidar = "unfiltered"
 
 Ice.Warn.Connections = "0"
 Ice.Trace.Network = "0"

@@ -32,6 +32,9 @@
 #include <opencv2/opencv.hpp>
 #include <atomic>
 #include <Eigen/Dense>
+#include <omp.h>
+//#include <doublebuffer/DoubleBuffer.h>
+
 
 // If you want to reduce the period automatically due to lack of use, you must uncomment the following line
 //#define HIBERNATION_ENABLED
@@ -83,6 +86,14 @@ public:
      */
 	~SpecificWorker();
 
+	RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData();
+	RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor);
+	RoboCompLidar3D::TDataImage Lidar3D_getLidarDataArrayProyectedInImage(std::string name);
+	RoboCompLidar3D::TDataCategory Lidar3D_getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp);
+	RoboCompLidar3D::TData Lidar3D_getLidarDataProyectedInImage(std::string name);
+	RoboCompLidar3D::TData Lidar3D_getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor);
+
+
     // Create a ZED camera object
     sl::Camera zed;
 
@@ -91,6 +102,7 @@ public:
 
     bool simulated;
     bool display;
+    Eigen::Affine3f extrinsic;
 
     sl::Mat image, depth, point_cloud;
     sl::ERROR_CODE returned_state;
@@ -148,6 +160,8 @@ private:
      * \brief Flag indicating whether startup checks are enabled.
      */
 	bool startup_check_flag;
+    std::mutex color_point_cloud_mutex;
+    std::shared_ptr<RoboCompLidar3D::TColorCloudData> buffer_color_point_cloud;
 
 signals:
 	//void customSignal();

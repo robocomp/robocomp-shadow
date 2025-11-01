@@ -32,17 +32,13 @@
 #include <unordered_map>
 
 
-#include <CameraRGBDSimple.h>
-#include <CameraRGBDSimplePub.h>
-#include <FullPoseEstimation.h>
-#include <FullPoseEstimationPub.h>
-#include <IMU.h>
-#include <IMUPub.h>
+#include <Camera360RGB.h>
+#include <Camera360RGBD.h>
 #include <Lidar3D.h>
 
 #define BASIC_PERIOD 100
 
-using TuplePrx = std::tuple<RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr,RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr,RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr,RoboCompIMUPub::IMUPubPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCamera360RGB::Camera360RGBPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr>;
 
 
 class GenericWorker : public QObject
@@ -61,10 +57,10 @@ public:
 	std::atomic_bool hibernation = false;
 
 
-	RoboCompCameraRGBDSimple::CameraRGBDSimplePrxPtr camerargbdsimple_proxy;
-	RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr camerargbdsimplepub_pubproxy;
-	RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr fullposeestimationpub_pubproxy;
-	RoboCompIMUPub::IMUPubPrxPtr imupub_pubproxy;
+	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
+	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
+
+	virtual RoboCompCamera360RGBD::TRGBD Camera360RGBD_getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight) = 0;
 
 	virtual RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData() = 0;
 	virtual RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor) = 0;

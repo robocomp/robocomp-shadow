@@ -7,7 +7,7 @@ Component RGBD_360
     Communications
     {
         requires Camera360RGB, Lidar3D;
-        implements Camera360RGBD;
+        implements Camera360RGBD, Lidar3D;
     };
     language Cpp11;
 };

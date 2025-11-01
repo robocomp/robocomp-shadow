@@ -77,6 +77,7 @@
 #include "genericworker.h"
 #include "../src/specificworker.h"
 
+#include <lidar3dI.h>
 
 #include <CameraRGBDSimple.h>
 #include <CameraRGBDSimplePub.h>
@@ -84,12 +85,34 @@
 #include <FullPoseEstimationPub.h>
 #include <IMU.h>
 #include <IMUPub.h>
+#include <Lidar3D.h>
 
 //#define USE_QTGUI
 
 #define PROGRAM_NAME    "zed_component"
 #define SERVER_FULL_NAME   "RoboComp zed_component::zed_component"
 
+
+template <typename InterfaceType>
+void implement( const Ice::CommunicatorPtr& communicator,
+                const std::string& endpointConfig,
+                const std::string& adapterName,
+                SpecificWorker* worker,
+                int index)
+{
+    try
+    {
+        Ice::ObjectAdapterPtr adapter = communicator->createObjectAdapterWithEndpoints(adapterName, endpointConfig);
+        auto servant = std::make_shared<InterfaceType>(worker, index);
+        adapter->add(servant, Ice::stringToIdentity(adapterName));
+        adapter->activate();
+        std::cout << "[" << PROGRAM_NAME << "]: " << adapterName << " adapter created in port " << endpointConfig << std::endl;
+    }
+    catch (const IceStorm::TopicExists&)
+    {
+        std::cout << "[" << PROGRAM_NAME << "]: ERROR creating or activating adapter for " << adapterName << std::endl;
+    }
+}
 
 template <typename ProxyType, typename ProxyPointer>
 void require(const Ice::CommunicatorPtr& communicator,
@@ -264,6 +287,11 @@ int zed_component::run(int argc, char* argv[])
 
 	try
 	{
+
+		//Implement code
+		implement<Lidar3DI>(communicator(),
+		                    configLoader.get<std::string>("Endpoints.Lidar3D"), 
+		                    "lidar3d", worker,  0);
 
 		// Server adapter creation and publication
 		std::cout << SERVER_FULL_NAME " started" << std::endl;
