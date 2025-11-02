@@ -91,10 +91,13 @@ class SpecificWorker(GenericWorker):
             ))
 
             # Initialize the particle filter
-            self.particle_filter = RoomParticleFilter(num_particles=100,
+            self.particle_filter = RoomParticleFilter(num_particles=1,
                                                       initial_hypothesis=ground_truth_particle,
                                                       device="cuda",
-                                                      use_gradient_refinement=True)
+                                                      use_gradient_refinement=True,
+                                                      adaptive_particles=False,
+                                                      min_particles=20,
+                                                      max_particles=300)
 
             self.current_best_particle = None
             self.room_box_height = 2.5

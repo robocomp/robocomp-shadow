@@ -54,17 +54,7 @@ def main():
                     l1.set_data(t, hist["loss_best"]); ax1.relim(); ax1.autoscale_view()
                     l2.set_data(t, hist["num_features"]); ax2.relim(); ax2.autoscale_view()
                     l3.set_data(t, hist["ess_pct"]); ax3.relim(); ax3.autoscale_view()
-                    l4.set_data(t, hist["n_particles"])
-                    if len(hist["n_particles"]) > 0:
-                        ax4.relim()
-                        ax4.autoscale_view()
-                        ymin = min(hist["n_particles"])
-                        ymax = max(hist["n_particles"])
-                        if abs(ymax - ymin) < 5:  # nearly constant
-                            val = hist["n_particles"][-1]
-                            ax4.set_ylim(val - 5, val + 5)
-                    else:
-                        ax4.set_ylim(0, 120)
+                    l4.set_data(t, hist["n_particles"]); ax4.relim(); ax4.autoscale_view()
                     l5.set_data(t, hist["weight_entropy"]); ax5.relim(); ax5.autoscale_view()
 
                     # births/deaths markers on ax2

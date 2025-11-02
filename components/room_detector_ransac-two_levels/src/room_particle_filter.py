@@ -2,7 +2,6 @@
 import math
 import numpy as np
 import torch
-import torch.nn.functional as F
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -70,15 +69,27 @@ class RoomParticleFilter:
             initial_hypothesis,
             device="cpu",
             use_gradient_refinement=True,
+            adaptive_particles=True,
+            min_particles=20,
+            max_particles=300,
     ):
 
         assert num_particles > 0, "num_particles must be positive"
         assert initial_hypothesis.length > 0, "length must be positive"
         assert initial_hypothesis.width > 0, "width must be positive"
+        assert min_particles > 0, "min_particles must be positive"
+        assert max_particles >= min_particles, "max_particles must be >= min_particles"
 
         self.device = device
         self.num_particles = num_particles
         self.use_gradient_refinement = use_gradient_refinement
+
+        # Adaptive particle settings
+        self.adaptive_particles = adaptive_particles
+        self.min_particles = min_particles
+        self.max_particles = max_particles
+        self.target_ess_pct = 75.0  # target ESS as percentage of N
+        self.last_adaptation_tick = -10  # cooldown tracking
 
         # initialize particles around the initial hypothesis
         base = deepcopy(initial_hypothesis)
@@ -107,7 +118,7 @@ class RoomParticleFilter:
         self.rot_noise_stationary = 0.004
 
         # Resampling settings
-        self.ess_frac = 0.75  # resample when ESS < 0.5*N
+        self.ess_frac = 0.5  # resample when ESS < 0.5*N (was 0.75, too aggressive)
         self.ess = float(getattr(self, "num_particles", 1))  # start with a sane value
         self.ess_pct = None
 
@@ -116,7 +127,7 @@ class RoomParticleFilter:
 
         # Gradient refinement settings
         self.lr = 0.01  #
-        self.num_steps = 10  # gradient steps per refinement
+        self.num_steps = 30  # gradient steps per refinement
         self.top_n = 3  # refine top-N particles
         self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
         self.size_lambda = 1e-4  # size prior strength
@@ -152,7 +163,13 @@ class RoomParticleFilter:
         # resample only if ESS below threshold
         if self.ess < self.ess_frac * len(self.particles):
             self.resample()
-            self.roughen_after_resample(sigma_xy=0.003, sigma_th=0.004)
+            #self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
+
+            # Adaptive particle count adjustment
+            if self.adaptive_particles:
+                self.adapt_particle_count()
+        elif self._tick % 20 == 0:
+            print(f"[No Resample] tick={self._tick}, ESS={self.ess:.1f} >= {self.ess_frac * len(self.particles):.1f}")
 
         # Compute loss for logging
         best_p = self.best_particle()
@@ -210,12 +227,19 @@ class RoomParticleFilter:
         mad = np.median(np.abs(losses - med))
         eps = 1e-12
 
-        if mad < eps:
-            weights = np.ones_like(losses) / len(losses)
-        else:
-            alpha = 0.5
-            w = np.exp(- (losses - med) / (alpha * mad))
-            weights = w / w.sum()
+        # if mad < eps:
+        #     weights = np.ones_like(losses) / len(losses)
+        # else:
+        #     alpha = 1
+        #     w = np.exp(- (losses - med) / (alpha * mad))
+        #     weights = w / w.sum()
+        alpha = 0.3
+        scale = max(mad, eps)
+        z = - (losses - med) / (alpha * scale)
+        z = np.clip(z, -50.0, 50.0)
+        w = np.exp(z)
+        w_sum = w.sum()
+        weights = (w / w_sum) if w_sum > 0 else np.ones_like(w) / len(w)
 
         # ---- entropy-based diversity in [0, 1] ----
         eps = 1e-12
@@ -325,6 +349,143 @@ class RoomParticleFilter:
             p.x += np.random.normal(0, sigma_xy)
             p.y += np.random.normal(0, sigma_xy)
             p.theta = ((p.theta + np.random.normal(0, sigma_th) + np.pi) % (2 * np.pi)) - np.pi
+
+    # -----------------------------------------------------------------
+    def adapt_particle_count(self):
+        """
+        Dynamically adjust the number of particles based on filter performance.
+
+        Strategy:
+        - Increase particles when uncertainty is high (low ESS%, high entropy, poor loss)
+        - Decrease particles when filter is confident (high ESS%, low entropy, good loss)
+        """
+        N = len(self.particles)
+
+        # Cooldown: don't adapt too frequently (wait at least 5 ticks)
+        current_tick = self._tick
+        if current_tick - self.last_adaptation_tick < 1:  # TEMP: reduced from 5 to 1 for testing
+            if current_tick % 20 == 0:
+                print(
+                    f"[Adapt] COOLDOWN: tick={current_tick}, last={self.last_adaptation_tick}, wait={(current_tick - self.last_adaptation_tick)} ticks")
+            return
+
+        # Decision factors
+        ess_ratio = self.ess / N  # ESS as fraction of N
+        entropy = self.weight_entropy  # normalized entropy in [0, 1]
+
+        # Compute particle diversity (spatial spread)
+        positions = np.array([[p.x, p.y, p.theta] for p in self.particles])
+        pos_std = np.std(positions[:, :2], axis=0).mean()  # avg std of x,y
+        theta_std = np.std(positions[:, 2])
+
+        # LOOSER Decision thresholds - allow adaptation at borderline performance
+        # Need BOTH low ESS AND high entropy/diversity to add particles
+        very_low_ess = ess_ratio < 0.4  # was 0.3 - loosened to trigger at your 35-40% ESS
+        high_entropy = entropy > 0.7  # was 0.8 - loosened to trigger at your 0.75-0.8 entropy
+        high_diversity = pos_std > 0.5 or theta_std > 0.8  # keep strict
+
+        # More lenient for removing particles
+        good_ess = ess_ratio > 0.7  # was 0.85 - easier to remove
+        low_entropy = entropy < 0.4  # was 0.3 - easier to remove
+        low_diversity = pos_std < 0.15 and theta_std < 0.3  # was 0.1/0.2 - easier to remove
+
+        # Decide on adjustment - require MULTIPLE bad conditions to add
+        delta = 0
+
+        # Add particles only if MULTIPLE indicators show high uncertainty
+        need_more = sum([very_low_ess, high_entropy, high_diversity]) >= 2
+
+        # Debug logging (remove after testing)
+        if current_tick % 20 == 0:  # Log every 20 ticks
+            print(f"[Adapt] tick={current_tick}, N={N}, ESS%={ess_ratio * 100:.1f}, entropy={entropy:.2f}")
+            print(
+                f"  Conditions: low_ess={very_low_ess}, high_ent={high_entropy}, high_div={high_diversity}, need_more={need_more}")
+            print(f"  pos_std={pos_std:.3f}, theta_std={theta_std:.3f}")
+            print(f"  Check: N({N}) < max({self.max_particles})? {N < self.max_particles}, need_more? {need_more}")
+
+        if N < self.max_particles and need_more:
+            # Need more particles - increase by 15% (was 20%)
+            delta = max(10, int(0.15 * N))
+            delta = min(delta, self.max_particles - N)  # don't exceed max
+            print(f"[Adapt] Adding {delta} particles (N: {N} → {N + delta})")
+
+        elif N > self.min_particles and good_ess and (low_entropy or low_diversity):
+            # Can reduce particles - decrease by 20% (was 15%)
+            delta = -max(5, int(0.2 * N))
+            delta = max(delta, self.min_particles - N)  # don't go below min
+            print(f"[Adapt] Removing {-delta} particles (N: {N} → {N + delta})")
+
+        if delta == 0:
+            return  # no change needed
+
+        # Apply the change
+        if delta > 0:
+            self._add_particles(delta)
+        else:
+            self._remove_particles(-delta)
+
+    # -----------------------------------------------------------------
+    def _add_particles(self, n_add):
+        """Add n_add new particles by duplicating and jittering existing ones."""
+        if n_add <= 0:
+            return
+
+        # Sample n_add particles from current set (proportional to weight)
+        weights = np.array([p.weight for p in self.particles])
+        weights = weights / weights.sum()
+
+        indices = np.random.choice(len(self.particles), size=n_add, p=weights, replace=True)
+
+        new_particles = []
+        for idx in indices:
+            p_new = deepcopy(self.particles[idx])
+            # Add SMALL noise to diversify (reduced from 0.05)
+            p_new.x += np.random.normal(0, 0.01)
+            p_new.y += np.random.normal(0, 0.01)
+            p_new.theta = ((p_new.theta + np.random.normal(0, 0.02) + np.pi) % (2 * np.pi)) - np.pi
+            p_new.length = max(1.0, p_new.length + np.random.normal(0, 0.01))
+            p_new.width = max(1.0, p_new.width + np.random.normal(0, 0.01))
+            new_particles.append(p_new)
+
+        self.particles.extend(new_particles)
+
+        # Renormalize all weights
+        N_new = len(self.particles)
+        uniform_weight = 1.0 / N_new
+        for p in self.particles:
+            p.weight = uniform_weight
+
+        # Track births
+        self.history.setdefault("births", [])
+        if self.history["births"]:
+            self.history["births"][-1] = n_add
+
+        # Update cooldown
+        self.last_adaptation_tick = self._tick
+
+    # -----------------------------------------------------------------
+    def _remove_particles(self, n_remove):
+        """Remove n_remove particles with lowest weights."""
+        if n_remove <= 0 or n_remove >= len(self.particles):
+            return
+
+        # Sort by weight and keep the top (N - n_remove) particles
+        self.particles.sort(key=lambda p: p.weight, reverse=True)
+        self.particles = self.particles[:-n_remove]
+
+        # Renormalize weights
+        N_new = len(self.particles)
+        uniform_weight = 1.0 / N_new
+        for p in self.particles:
+            p.weight = uniform_weight
+
+        # Track deaths
+        self.history.setdefault("deaths", [])
+        if self.history["deaths"]:
+            self.history["deaths"][-1] = n_remove
+
+        # Update cooldown
+        self.last_adaptation_tick = self._tick
 
     # -----------------------------------------------------------------
     def best_particle(self):
