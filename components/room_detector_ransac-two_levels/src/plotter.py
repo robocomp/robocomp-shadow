@@ -1,0 +1,92 @@
+# pf_plotter.py
+import sys, time, json, os, math
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("QtAgg")
+
+def ensure_keys(d):
+    for k in ["tick","loss_best","num_features","ess","births","deaths", "n_particles", "ess_pct", "weight_entropy"]:
+        d.setdefault(k, [])
+    return d
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: pf_plotter.py /path/to/history.json")
+        sys.exit(1)
+    path = sys.argv[1]
+    print(f"[plotter] watching {path}")
+
+    plt.ioff()
+    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5,1, figsize=(7,9), sharex=True)
+    fig.canvas.manager.set_window_title("PF Diagnostics")
+
+    (l1,) = ax1.plot([], [], label="loss_best")
+    ax1.set_ylabel("loss"); ax1.grid(True, alpha=0.3); ax1.legend(loc="upper right")
+
+    (l2,) = ax2.plot([], [], label="#features")
+    ax2.set_ylabel("features"); ax2.set_ylim(-0.2, 3.2)
+    ax2.grid(True, alpha=0.3); ax2.legend(loc="upper right")
+
+    (l3,) = ax3.plot([], [], label="ESS%")
+    ax3.set_ylabel("ESS%"); ax3.set_xlabel("tick")
+    ax3.grid(True, alpha=0.3); ax3.legend(loc="upper right")
+
+    (l4,) = ax4.plot([], [], label="particles")
+    ax4.set_ylabel("particles");  ax4.set_xlabel("tick")
+    ax4.grid(True, alpha=0.3);  ax4.legend(loc="upper right")
+    ax4.yaxis.get_major_locator().set_params(integer=True)
+
+    (l5,) = ax5.plot([], [], label="weight_entropy")
+    ax5.set_ylabel("weight_entropy"); ax5.set_xlabel("tick")
+    ax5.grid(True, alpha=0.3); ax5.legend(loc="upper right")
+
+    last_mtime = 0
+    while True:
+        try:
+            st = os.stat(path)
+            if st.st_mtime != last_mtime and st.st_size > 0:
+                last_mtime = st.st_mtime
+                with open(path, "r") as f:
+                    hist = ensure_keys(json.load(f))
+
+                t = hist["tick"]
+                if len(t) >= 2:
+                    l1.set_data(t, hist["loss_best"]); ax1.relim(); ax1.autoscale_view()
+                    l2.set_data(t, hist["num_features"]); ax2.relim(); ax2.autoscale_view()
+                    l3.set_data(t, hist["ess_pct"]); ax3.relim(); ax3.autoscale_view()
+                    l4.set_data(t, hist["n_particles"])
+                    if len(hist["n_particles"]) > 0:
+                        ax4.relim()
+                        ax4.autoscale_view()
+                        ymin = min(hist["n_particles"])
+                        ymax = max(hist["n_particles"])
+                        if abs(ymax - ymin) < 5:  # nearly constant
+                            val = hist["n_particles"][-1]
+                            ax4.set_ylim(val - 5, val + 5)
+                    else:
+                        ax4.set_ylim(0, 120)
+                    l5.set_data(t, hist["weight_entropy"]); ax5.relim(); ax5.autoscale_view()
+
+                    # births/deaths markers on ax2
+                    births_x = [ti for ti,b in zip(t, hist["births"]) if b>0]
+                    deaths_x = [ti for ti,d in zip(t, hist["deaths"]) if d>0]
+                    ymin, ymax = ax2.get_ylim()
+                    yb = ymax - 0.1*(ymax-ymin)
+                    yd = ymax - 0.2*(ymax-ymin)
+                    for line in list(ax2.lines)[1:]:
+                        line.remove()
+                    if births_x: ax2.plot(births_x, [yb]*len(births_x), "g|", markersize=12)
+                    if deaths_x: ax2.plot(deaths_x, [yd]*len(deaths_x), "r|", markersize=12)
+
+                    fig.canvas.draw_idle()
+
+            plt.pause(0.5)
+            time.sleep(0.1)
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            # keep running even if file is temporarily empty/invalid
+            time.sleep(0.2)
+
+if __name__ == "__main__":
+    main()

@@ -20,7 +20,7 @@ SET(RC_COMPONENT_DEVEL_PATH ${CMAKE_CURRENT_SOURCE_DIR} CACHE STRING "component 
 SET(RC_OUTPUT_ICE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 
 #Generate ices
-ROBOCOMP_IDSL_TO_ICE(GenericBase Lidar3D Lidar3D OmniRobot OmniRobot )
+ROBOCOMP_IDSL_TO_ICE(GenericBase JoystickAdapter JoystickAdapter Lidar3D Lidar3D OmniRobot OmniRobot )
 
 
 ADD_SUBDIRECTORY( src )
@@ -38,6 +38,7 @@ MACRO( WRAP_PYTHON_UI )
   ENDFOREACH( input_file )
 ENDMACRO( WRAP_PYTHON_UI )
 
+WRAP_PYTHON_UI( mainUI )
 
 #Add symbolic link bin
 add_custom_target(create_symlink ALL

@@ -23,7 +23,15 @@ from PySide6 import QtWidgets, QtCore
 
 
 
-class GenericWorker(QtCore.QObject):
+try:
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from src.ui_mainUI import *
+except:
+    print("Can't import UI file. Did you run 'make'?")
+    sys.exit(-1)
+
+class GenericWorker(QtWidgets.QWidget):
 
     kill = QtCore.Signal()
 
@@ -34,6 +42,10 @@ class GenericWorker(QtCore.QObject):
         self.omnirobot_proxy = mprx["OmniRobot"]
         self.lidar3d_proxy = mprx["Lidar3D"]
         self.omnirobot_proxy = mprx["OmniRobot"]
+
+        self.ui = Ui_guiDlg()
+        self.ui.setupUi(self)
+        self.show()
 
         self.configData = configData
 

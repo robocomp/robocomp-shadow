@@ -10,5 +10,7 @@ Component room_detector_ransac_two_levels
         subscribesTo JoystickAdapter;
     };
     language python;
+    gui Qt(QWidget);
+
 };
 

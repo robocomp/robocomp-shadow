@@ -30,6 +30,7 @@
 #     pass
 
 import os, sys, typing
+import time
 sys.path.insert(0, os.path.dirname(__file__))
 import compat_typing_self
 if sys.version_info < (3, 11):
@@ -44,6 +45,8 @@ import open3d as o3d
 from plane_detector import PlaneDetector
 from room_particle_filter import RoomParticleFilter, Particle
 import numpy as np
+from collections import deque
+import subprocess, tempfile, json
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -53,6 +56,7 @@ class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map, configData)
         self.Period = configData["Period"]["Compute"]
+        self.hide()
         if startup_check:
             self.startup_check()
         else:
@@ -83,11 +87,11 @@ class SpecificWorker(GenericWorker):
                 ))
 
             # Initialize the particle filter
-            self.particle_filter = (RoomParticleFilter
-            (
-                num_particles=10,
-                initial_hypothesis=ground_truth_particle  # Can use RoomAssembler here for a 1-shot guess
-            ))
+            self.particle_filter = RoomParticleFilter( num_particles=100,
+                                                       initial_hypothesis=ground_truth_particle,
+                                                       device="cuda",
+                                                       use_gradient_refinement=True)
+
             self.current_best_particle = None
             self.room_box_height = 2.5
 
@@ -112,31 +116,69 @@ class SpecificWorker(GenericWorker):
             ]
             self.o_color = np.array([1.0, 0.0, 1.0], dtype=np.float64)
 
-            # Add a floor
-            # self.floor = o3d.geometry.TriangleMesh.create_box(width=5, height=10, depth=0.1)
-            # self.floor.translate([-2.5, -5, -0.1])  # Adjust position
-            # self.floor.paint_uniform_color([1, 0.86, 0.58])  # Set color to light gray
-            # self.vis.add_geometry(self.floor)
+            # robot
+            self.robot_velocity = [0.0, 0.0, 0.0]  # [vx, vy, omega] in m/s and rad/s
+
+            # Command ring buffer: store (timestamp, vx, vy, omega)
+            self.cmd_buffer = deque(maxlen=300)  # ~3s at 100 Hz; adjust as needed
+            now = time.monotonic()
+            self.cmd_buffer.append((now, 0.0, 0.0, 0.0))
+
+            # PF tick timing
+            self.last_tick_time = time.monotonic()
+            self.last_pred_time = time.monotonic()  # last time we integrated odometry
+            self.cycle_time = 0.1  # initial guess
+
+            # Optional: smoothing factor if you want to low-pass joystick (1.0 = no smoothing)
+            self.vel_alpha = 1.0
 
             # Load the Shadow .obj mesh
             self.shadow_mesh = o3d.io.read_triangle_mesh("src/meshes/shadow.obj", print_progress=True)
             self.shadow_mesh.paint_uniform_color([1, 0, 1])
             self.vis.add_geometry(self.shadow_mesh)
 
+            # where to write the history JSON
+            self.plot_history_path = os.path.join(tempfile.gettempdir(), "pf_history.json")
+            #print(f"[SpecificWorker] Plot history path: {self.plot_history_path}")
+
+            # start the external plotter subprocess
+            plotter_py = os.path.join(os.path.dirname(__file__), "plotter.py")
+            self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
+                                                        stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL,
+                                                        start_new_session = True)
+
+            self.Period = 100
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
     def __del__(self):
         """Destructor"""
-
+        try:
+            if hasattr(self, "_plotter_proc") and self._plotter_proc and self._plotter_proc.poll() is None:
+                self._plotter_proc.terminate()
+        except Exception:
+            pass
 
     @QtCore.Slot()
     def compute(self):
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = self.read_lidar_data()
+        # Measure cycle time
+        now = time.monotonic()
+        t0, t1 = self.last_pred_time, now
+        self.last_pred_time = now
+        cycle = now - getattr(self, "last_tick_time", now)
+        self.cycle_time = 0.9 * getattr(self, "cycle_time", cycle) + 0.1 * cycle
+        #print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
 
-        # Get odometry
-        odometry_delta = (0.0, 0.0, 0.0)  # (dx, dy, dtheta)
+        # read lidar data
+        pcd = o3d.geometry.PointCloud()
+        if not (res := self.read_lidar_data()):
+            return False
+        pcd.points = res
+
+        # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
+        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms
+        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, 1.1*self.cycle_time)
+        odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step: Predict -> Detect -> Update -> Resample
         self.particle_filter.step(odometry_delta, self.plane_detector, pcd)
@@ -146,42 +188,67 @@ class SpecificWorker(GenericWorker):
         # Visualize results
         self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers)
 
+        # Send data to plotter
+        self.send_data_to_plotter()
+
         return True
 
     ############################# MY CODE HERE #############################
     def read_lidar_data(self):
         lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 10000, 3)
-        if not lidar_data.points:
+        if not lidar_data.points or len(lidar_data.points) == 0:
             console.log("[yellow]No lidar data received.[/yellow]")
-            return True
+            return False
 
         # Convert to open3d format
         points_list = [[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in lidar_data.points]
         return o3d.utility.Vector3dVector(points_list)
 
+    def send_data_to_plotter(self):
+        N = 5
+        self._tick_counter = getattr(self, "_tick_counter", 0) + 1
+        if self._tick_counter % N == 0:
+            try:
+                hist = self.particle_filter.get_history()
+                N = 600  # last N points
+                payload = {
+                    "tick": hist.get("tick", [])[-N:],
+                    "loss_best": hist.get("loss_best", [])[-N:],
+                    "num_features": hist.get("num_features", [])[-N:],
+                    "ess": hist.get("ess", [])[-N:],
+                    "births": hist.get("births", [])[-N:],
+                    "deaths": hist.get("deaths", [])[-N:],
+                    "n_particles": hist.get("n_particles", [])[-N:],
+                    "ess_pct": hist.get("ess_pct", [])[-N:],
+                    "weight_entropy": hist.get("weight_entropy", [])[-N:]
+                }
+                tmp = self.plot_history_path + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(payload, f)
+                os.replace(tmp, self.plot_history_path)  # atomic swap
+            except Exception:
+                pass
+
     def visualize_results(self, pcd, h_planes, v_planes, o_planes, outliers):
         """Create and display all visualization geometries (room-centric frame)"""
+        if self.current_best_particle is None:
+            return
+
         geometries_to_draw = []
         
         # Get transform to room-centric frame
-        if self.current_best_particle is not None:
-            p = self.current_best_particle
-            
-            # Create inverse transform (world -> room frame)
-            # Room is at origin, so we move everything by -particle pose
-            c, s = np.cos(-p.theta), np.sin(-p.theta)
-            R_inv = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-            translation = np.array([-p.x, -p.y, 0])
-            
-            # Transform point cloud to room frame
-            pcd_room = o3d.geometry.PointCloud(pcd)
-            pcd_room.translate(translation)
-            pcd_room.rotate(R_inv, center=(0, 0, 0))
-        else:
-            # No particle - show world frame
-            pcd_room = pcd
-            R_inv = np.eye(3)
-            translation = np.array([0, 0, 0])
+        p = self.current_best_particle
+
+        # Create inverse transform (world -> room frame)
+        # Room is at origin, so we move everything by -particle pose
+        c, s = np.cos(-p.theta), np.sin(-p.theta)
+        R_inv = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+        translation = np.array([-p.x, -p.y, 0])
+
+        # Transform point cloud to room frame
+        pcd_room = o3d.geometry.PointCloud(pcd)
+        pcd_room.translate(translation)
+        pcd_room.rotate(R_inv, center=(0, 0, 0))
         
         # Create plane visualizations (in room frame)
         all_planes = [(h_planes, self.h_color), (v_planes, self.v_colors), (o_planes, self.o_color)]
@@ -204,33 +271,37 @@ class SpecificWorker(GenericWorker):
                 geometries_to_draw.append(obb)
 
         # Create room box visualization (at origin in room frame)
-        if self.current_best_particle is not None:
-            p = self.current_best_particle
-            
-            # Room at origin with no rotation
-            center = [0, 0, p.z_center]
-            R = o3d.geometry.get_rotation_matrix_from_xyz([0, 0, 0])
-            extent = [p.length, p.width, p.height]
+        center = [0, 0, p.z_center]
+        R = o3d.geometry.get_rotation_matrix_from_xyz([0, 0, 0])
+        extent = [p.length, p.width, p.height]
+        room_box = o3d.geometry.OrientedBoundingBox(center, R, extent)
+        room_box_lines = o3d.geometry.LineSet.create_from_oriented_bounding_box(room_box)
+        room_box_lines.paint_uniform_color(np.array([1.0, 0.0, 1.0], dtype=np.float64))
+        geometries_to_draw.append(room_box_lines)
 
-            room_box = o3d.geometry.OrientedBoundingBox(center, R, extent)
-            room_box_lines = o3d.geometry.LineSet.create_from_oriented_bounding_box(room_box)
-            room_box_lines.paint_uniform_color(np.array([1.0, 0.0, 1.0], dtype=np.float64))
-            geometries_to_draw.append(room_box_lines)
-            
-            # Transform robot mesh to room frame
-            shadow_mesh_transformed = o3d.geometry.TriangleMesh(self.shadow_mesh)
-            shadow_mesh_transformed.translate(translation)
-            shadow_mesh_transformed.rotate(R_inv, center=(0, 0, 0))
-            geometries_to_draw.append(shadow_mesh_transformed)
-            
-            # Transform floor to room frame
-            floor_mesh = o3d.geometry.TriangleMesh.create_box(width=p.length,
-                                                              height=p.width,
-                                                              depth=0.02)
-            # center the floor at (0,0) in the room frame (Open3D box origin is at the corner)
-            floor_mesh.translate([-p.length / 2, -p.width / 2, 0.0])
-            floor_mesh.paint_uniform_color([1.0, 0.86, 0.58])
-            geometries_to_draw.append(floor_mesh)
+        # Transform robot mesh to room frame
+        shadow_mesh_transformed = o3d.geometry.TriangleMesh(self.shadow_mesh)
+        shadow_mesh_transformed.translate(translation)
+        shadow_mesh_transformed.rotate(R_inv, center=(0, 0, 0))
+        geometries_to_draw.append(shadow_mesh_transformed)
+
+        # floor in room frame
+        floor_mesh = o3d.geometry.TriangleMesh.create_box(width=p.length,
+                                                          height=p.width,
+                                                          depth=0.02)
+        floor_mesh.translate([-p.length / 2, -p.width / 2, 0.0])
+        floor_mesh.paint_uniform_color([1.0, 0.86, 0.58])
+        geometries_to_draw.append(floor_mesh)
+
+        # --- room_map from PF (L, W, features) ---
+        # room_map = self.particle_filter.get_map()
+        # L, W = room_map.L, room_map.W
+        #
+        # # draw features (in room frame, no transforms)
+        # for feat in room_map.features:
+        #     fmesh, flines = self._make_feature_mesh(L, W, feat, z0=0.0, thickness=0.02)
+        #     geometries_to_draw.append(fmesh)
+        #     geometries_to_draw.append(flines)
 
         # Create outlier visualization (in room frame)
         outlier_cloud = pcd_room.select_by_index(outliers)
@@ -239,7 +310,6 @@ class SpecificWorker(GenericWorker):
 
         # Update visualizer
         self.vis.clear_geometries()
-        
         for geom in geometries_to_draw:
             self.vis.add_geometry(geom)
 
@@ -250,6 +320,103 @@ class SpecificWorker(GenericWorker):
         self.camera_parameters = self.view_control.convert_to_pinhole_camera_parameters()
         self.vis.update_renderer()
 
+    def record_velocity_command(self, vx: float, vy: float, omega: float) -> None:
+        """
+        Call this whenever a new joystick command arrives.
+        It updates self.robot_velocity and appends to the ring buffer with timestamp.
+        """
+        now = time.monotonic()
+        # Optional low-pass
+        # vx = self.vel_alpha * vx + (1 - self.vel_alpha) * self.robot_velocity[0]
+        # vy = self.vel_alpha * vy + (1 - self.vel_alpha) * self.robot_velocity[1]
+        # omega = self.vel_alpha * omega + (1 - self.vel_alpha) * self.robot_velocity[2]
+        self.robot_velocity[:] = [vx, vy, omega]
+        self.cmd_buffer.append((now, vx, vy, omega))
+
+    def integrate_cmds_with_latency(self, t0, t1, tau):
+        start = t0 - tau
+        end = t1 - tau
+
+        # If the window is tiny or inverted, bail early
+        if end - start <= 1e-6:
+            return 0.0, 0.0, 0.0
+
+        buf = list(self.cmd_buffer)
+        if not buf:
+            return 0.0, 0.0, 0.0
+
+        # Ensure coverage until 'end' with last known command (stick held steady)
+        t_last, vx_last, vy_last, om_last = buf[-1]
+        if t_last < end:
+            buf.append((end, vx_last, vy_last, om_last))
+
+        dx = dy = dtheta = 0.0
+        for i in range(len(buf) - 1):
+            ts, vx, vy, om = buf[i]
+            te, _, _, _ = buf[i + 1]
+
+            # overlap with [start, end]
+            s = max(ts, start)
+            e = min(te, end)
+            dt = e - s
+            if dt <= 0:
+                continue
+
+            dx += vx * dt
+            dy += vy * dt
+            dtheta += om * dt
+
+        return dx, dy, dtheta
+
+    # --- Feature geometry helpers (room frame @ origin) ---
+
+    def _feature_box_params(self, L, W, feat):
+        """Return (cx, cy, sx, sy) for a feature box centered at (cx,cy) with sizes sx,sy."""
+        if feat.wall == "+x":  # right wall at x=+L/2
+            cx = L / 2 + (feat.depth / 2 if feat.kind == "extrusion" else -feat.depth / 2)
+            cy = -W / 2 + (feat.t0 + feat.t1) / 2.0
+            sx = feat.depth
+            sy = (feat.t1 - feat.t0)
+        elif feat.wall == "-x":  # left wall at x=-L/2
+            cx = -L / 2 - (feat.depth / 2 if feat.kind == "extrusion" else -feat.depth / 2)
+            cy = -W / 2 + (feat.t0 + feat.t1) / 2.0
+            sx = feat.depth
+            sy = (feat.t1 - feat.t0)
+        elif feat.wall == "+y":  # top wall at y=+W/2
+            cx = -L / 2 + (feat.t0 + feat.t1) / 2.0
+            cy = W / 2 + (feat.depth / 2 if feat.kind == "extrusion" else -feat.depth / 2)
+            sx = (feat.t1 - feat.t0)
+            sy = feat.depth
+        else:  # "-y": bottom wall at y=-W/2
+            cx = -L / 2 + (feat.t0 + feat.t1) / 2.0
+            cy = -W / 2 - (feat.depth / 2 if feat.kind == "extrusion" else -feat.depth / 2)
+            sx = (feat.t1 - feat.t0)
+            sy = feat.depth
+        return cx, cy, sx, sy
+
+    def _make_feature_mesh(self, L, W, feat, z0=0.0, thickness=0.02):
+        """Open3D mesh + (optional) outline for a feature (in room frame)."""
+        import open3d as o3d
+        cx, cy, sx, sy = self._feature_box_params(L, W, feat)
+        # Open3D boxes are anchored at a corner: shift to center
+        mesh = o3d.geometry.TriangleMesh.create_box(width=sx, height=sy, depth=thickness)
+        mesh.translate([cx - sx / 2.0, cy - sy / 2.0, z0])
+        color = (0.10, 0.80, 0.10) if feat.kind == "extrusion" else (0.10, 0.80, 0.80)
+        mesh.paint_uniform_color(color)
+
+        # Thin outline for clarity (optional)
+        # Four top corners (z=z0+thickness)
+        x0, x1 = cx - sx / 2.0, cx + sx / 2.0
+        y0, y1 = cy - sy / 2.0, cy + sy / 2.0
+        z = z0 + thickness
+        pts = [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]]
+        lines = [[0, 1], [1, 2], [2, 3], [3, 0]]
+        ls = o3d.geometry.LineSet(
+            points=o3d.utility.Vector3dVector(pts),
+            lines=o3d.utility.Vector2iVector(lines)
+        )
+        ls.colors = o3d.utility.Vector3dVector([color] * len(lines))
+        return mesh, ls
 
     #######################################################################################
 
@@ -268,36 +435,19 @@ class SpecificWorker(GenericWorker):
         test = ifaces.RoboCompOmniRobot.TMechParams()
         QTimer.singleShot(200, QApplication.instance().quit)
 
-    ######################
-    # From the RoboCompLidar3D you can call this methods:
-    # RoboCompLidar3D.TColorCloudData self.lidar3d_proxy.getColorCloudData()
-    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarData(str name, float start, float len, int decimationDegreeFactor)
-    # RoboCompLidar3D.TDataImage self.lidar3d_proxy.getLidarDataArrayProyectedInImage(str name)
-    # RoboCompLidar3D.TDataCategory self.lidar3d_proxy.getLidarDataByCategory(TCategories categories, long timestamp)
-    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarDataProyectedInImage(str name)
-    # RoboCompLidar3D.TData self.lidar3d_proxy.getLidarDataWithThreshold2d(str name, float distance, int decimationDegreeFactor)
+    # =============== Subscription Methods ================
+    # SUBSCRIPTION to sendData method from JoystickAdapter interface
 
-    ######################
-    # From the RoboCompLidar3D you can use this types:
-    # ifaces.RoboCompLidar3D.TPoint
-    # ifaces.RoboCompLidar3D.TDataImage
-    # ifaces.RoboCompLidar3D.TData
-    # ifaces.RoboCompLidar3D.TDataCategory
-    # ifaces.RoboCompLidar3D.TColorCloudData
-
-    ######################
-    # From the RoboCompOmniRobot you can call this methods:
-    # RoboCompOmniRobot.void self.omnirobot_proxy.correctOdometer(int x, int z, float alpha)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.getBasePose(int x, int z, float alpha)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.getBaseState(RoboCompGenericBase.TBaseState state)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.resetOdometer()
-    # RoboCompOmniRobot.void self.omnirobot_proxy.setOdometer(RoboCompGenericBase.TBaseState state)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.setOdometerPose(int x, int z, float alpha)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.setSpeedBase(float advx, float advz, float rot)
-    # RoboCompOmniRobot.void self.omnirobot_proxy.stopBase()
-
-    ######################
-    # From the RoboCompOmniRobot you can use this types:
-    # ifaces.RoboCompOmniRobot.TMechParams
+    def JoystickAdapter_sendData(self, data):
+        # start from previous command so missing axes don't zero things
+        vx, vy, omega = self.robot_velocity
+        for a in data.axes:
+            if a.name == "advance":
+                vy = a.value / 1000.0  # m/s
+            elif a.name == "side":
+                vx = a.value / 1000.0  # m/s
+            elif a.name == "rotate":
+                omega = a.value  # rad/s
+        self.record_velocity_command(vx, vy, omega)
 
 

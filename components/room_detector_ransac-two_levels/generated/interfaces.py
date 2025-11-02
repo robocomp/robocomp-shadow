@@ -6,10 +6,48 @@ console = Console()
 
 Ice.loadSlice("-I ./generated/ --all ./generated/GenericBase.ice")
 import RoboCompGenericBase
+Ice.loadSlice("-I ./generated/ --all ./generated/JoystickAdapter.ice")
+import RoboCompJoystickAdapter
 Ice.loadSlice("-I ./generated/ --all ./generated/Lidar3D.ice")
 import RoboCompLidar3D
 Ice.loadSlice("-I ./generated/ --all ./generated/OmniRobot.ice")
 import RoboCompOmniRobot
+
+class AxisList(list):
+    def __init__(self, iterable=list()):
+        super(AxisList, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.AxisParams)
+        super(AxisList, self).insert(index, item)
+setattr(RoboCompJoystickAdapter, "AxisList", AxisList)
+
+class ButtonsList(list):
+    def __init__(self, iterable=list()):
+        super(ButtonsList, self).__init__(iterable)
+
+    def append(self, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).append(item)
+
+    def extend(self, iterable):
+        for item in iterable:
+            assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).extend(iterable)
+
+    def insert(self, index, item):
+        assert isinstance(item, RoboCompJoystickAdapter.ButtonParams)
+        super(ButtonsList, self).insert(index, item)
+setattr(RoboCompJoystickAdapter, "ButtonsList", ButtonsList)
 
 class TCategories(list):
     def __init__(self, iterable=list()):
@@ -120,6 +158,7 @@ class TByteArray(list):
 setattr(RoboCompLidar3D, "TByteArray", TByteArray)
 
 
+import joystickadapterI
 
 class Publishes:
     def __init__(self, ice_connector:Ice.CommunicatorI, topic_manager, parameters):
@@ -181,6 +220,9 @@ class Subscribes:
         self.ice_connector = ice_connector
         self.topic_manager = topic_manager
 
+        self.JoystickAdapter = self.create_adapter("JoystickAdapter", parameters["Endpoints"]["JoystickAdapterPrefix"], 
+                                                joystickadapterI.JoystickAdapterI(default_handler, ""), parameters["Endpoints"]["JoystickAdapterTopic"])
+
     def create_adapter(self, topic_name, prefix, interface_handler, endpoint_string):
         topic_full_name = f"{prefix}/{topic_name}" if prefix else topic_name
 
@@ -233,7 +275,7 @@ class InterfaceManager:
 
         self.status = 0
 
-        needs_rcnode = False
+        needs_rcnode = True
         self.topic_manager = self.init_topic_manager(configData) if needs_rcnode else None
 
         self.requires = Requires(self.ice_connector, configData)
