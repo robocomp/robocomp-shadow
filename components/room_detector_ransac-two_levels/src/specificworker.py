@@ -91,7 +91,7 @@ class SpecificWorker(GenericWorker):
             ))
 
             # Initialize the particle filter
-            self.particle_filter = RoomParticleFilter(num_particles=50,
+            self.particle_filter = RoomParticleFilter(num_particles=100,
                                                       initial_hypothesis=ground_truth_particle,
                                                       device="cuda",
                                                       use_gradient_refinement=True,
@@ -151,9 +151,9 @@ class SpecificWorker(GenericWorker):
 
             # start the external plotter subprocess
             plotter_py = os.path.join(os.path.dirname(__file__), "plotter.py")
-            # self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
-            #                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            #                                       start_new_session=True)
+            self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
+                                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                   start_new_session=True)
 
             self.Period = 100
             self.timer.timeout.connect(self.compute)
@@ -268,7 +268,8 @@ class SpecificWorker(GenericWorker):
         geometries_to_draw = []
 
         # Get transform to room-centric frame
-        p = self.current_best_particle
+        #p = self.current_best_particle
+        p = self.particle_filter.mean_weighted_particle()
 
         # Create inverse transform (world -> room frame)
         # Room is at origin, so we move everything by -particle pose

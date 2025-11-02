@@ -2,7 +2,7 @@
 import sys, time, json, os, math
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use("QtAgg")
+matplotlib.use("TkAgg")
 
 def ensure_keys(d):
     for k in ["tick","loss_best","num_features","ess","births","deaths", "n_particles", "ess_pct", "weight_entropy"]:

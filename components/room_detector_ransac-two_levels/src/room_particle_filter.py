@@ -5,6 +5,7 @@ import torch
 from copy import deepcopy
 from dataclasses import dataclass
 
+
 # ---------------------------------------------------------------------
 # Particle definition
 # ---------------------------------------------------------------------
@@ -33,6 +34,7 @@ class RoomParticleFilter:
             adaptive_particles=True,
             min_particles=20,
             max_particles=300,
+            elite_count=5,  # Number of best particles to preserve during resampling
     ):
 
         assert num_particles > 0, "num_particles must be positive"
@@ -51,6 +53,7 @@ class RoomParticleFilter:
         self.max_particles = max_particles
         self.target_ess_pct = 75.0  # target ESS as percentage of N
         self.last_adaptation_tick = -10  # cooldown tracking
+        self.elite_count = elite_count  # elitism for resampling
 
         # initialize particles around the initial hypothesis
         base = deepcopy(initial_hypothesis)
@@ -74,12 +77,12 @@ class RoomParticleFilter:
 
         # Noise parameters
         self.trans_noise = 0.01
-        self.rot_noise = 0.0
-        self.trans_noise_stationary = 0.003
-        self.rot_noise_stationary = 0.004
+        self.rot_noise = 0.01
+        self.trans_noise_stationary = 0.000
+        self.rot_noise_stationary = 0.000
 
         # Resampling settings
-        self.ess_frac = 0.5  # resample when ESS < 0.5*N (was 0.75, too aggressive)
+        self.ess_frac = 0.15  # resample when ESS < 50% of N
         self.ess = float(getattr(self, "num_particles", 1))  # start with a sane value
         self.ess_pct = None
 
@@ -88,10 +91,10 @@ class RoomParticleFilter:
 
         # Gradient refinement settings
         self.lr = 0.05  #
-        self.num_steps = 30  # gradient steps per refinement
+        self.num_steps = 20  # gradient steps per refinement
         self.top_n = 3  # refine top-N particles
         self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
-        self.size_lambda = 0  # size prior strength
+        self.size_lambda = 1e-3  # size prior strength
 
         # loss history
         self.history = {
@@ -124,13 +127,14 @@ class RoomParticleFilter:
         # resample only if ESS below threshold
         if self.ess < self.ess_frac * len(self.particles):
             self.resample()
-            #self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
+            self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
+            print(f"[Resample] tick={self._tick}, ESS={self.ess:.1f} < {self.ess_frac * len(self.particles):.1f}")
 
             # Adaptive particle count adjustment
             if self.adaptive_particles:
                 self.adapt_particle_count()
         elif self._tick % 20 == 0:
-            #print(f"[No Resample] tick={self._tick}, ESS={self.ess:.1f} >= {self.ess_frac * len(self.particles):.1f}")
+            # print(f"[No Resample] tick={self._tick}, ESS={self.ess:.1f} >= {self.ess_frac * len(self.particles):.1f}")
             pass
 
         # Compute loss for logging
@@ -188,14 +192,7 @@ class RoomParticleFilter:
         med = np.median(losses)
         mad = np.median(np.abs(losses - med))
         eps = 1e-12
-
-        # if mad < eps:
-        #     weights = np.ones_like(losses) / len(losses)
-        # else:
-        #     alpha = 1
-        #     w = np.exp(- (losses - med) / (alpha * mad))
-        #     weights = w / w.sum()
-        alpha = 0.3
+        alpha = 0.5   # smaller alpha -> more peaked weights -> more aggressive resampling -> faster convergence
         scale = max(mad, eps)
         z = - (losses - med) / (alpha * scale)
         z = np.clip(z, -50.0, 50.0)
@@ -219,7 +216,7 @@ class RoomParticleFilter:
 
     # -----------------------------------------------------------------
     def resample(self):
-        """Systematic resampling."""
+        """Systematic resampling with elitism."""
         N = len(self.particles)
         weights = np.array([p.weight for p in self.particles], dtype=float)
 
@@ -228,24 +225,47 @@ class RoomParticleFilter:
         if wsum <= 0:
             weights = np.ones(N, dtype=float) / N
 
-        positions = (np.arange(N) + np.random.rand()) / N
-        cumulative_sum = np.cumsum(weights)
-        cumulative_sum[-1] = 1.0  # guard against roundoff
+        # ELITISM: Keep top elite_count particles
+        elite_count = min(self.elite_count, N // 4)  # Cap at 25% of population
 
-        indexes = np.zeros(N, dtype=int)
-        i = j = 0
-        while i < N:
-            if positions[i] < cumulative_sum[j]:
-                indexes[i] = j
-                i += 1
-            else:
-                j += 1
+        if elite_count > 0:
+            # Sort by weight and get top particles
+            sorted_indices = np.argsort(weights)[::-1]  # Descending order
+            elite_indices = sorted_indices[:elite_count]
+            elite_particles = [deepcopy(self.particles[i]) for i in elite_indices]
+        else:
+            elite_particles = []
 
-        # clone and RESET weights uniformly
-        new_particles = [deepcopy(self.particles[k]) for k in indexes]
+        # Resample remaining (N - elite_count) slots
+        n_resample = N - elite_count
+
+        if n_resample > 0:
+            positions = (np.arange(n_resample) + np.random.rand()) / n_resample
+            cumulative_sum = np.cumsum(weights)
+            cumulative_sum[-1] = 1.0  # guard against roundoff
+
+            indexes = np.zeros(n_resample, dtype=int)
+            i = j = 0
+            while i < n_resample:
+                if positions[i] < cumulative_sum[j]:
+                    indexes[i] = j
+                    i += 1
+                else:
+                    j += 1
+
+            # Clone resampled particles
+            resampled_particles = [deepcopy(self.particles[k]) for k in indexes]
+        else:
+            resampled_particles = []
+
+        # Combine elite + resampled
+        new_particles = elite_particles + resampled_particles
+
+        # RESET weights uniformly
         u = 1.0 / N
         for p in new_particles:
             p.weight = u
+
         self.particles = new_particles
 
     # -----------------------------------------------------------------
@@ -291,7 +311,7 @@ class RoomParticleFilter:
                         + self.size_lambda * ((L - L0) ** 2 + (W - W0) ** 2)
                 )
                 loss.backward()
-                #print if grads are non zero
+                # print if grads are non zero
                 # if(L.grad > 0 and W.grad > 0 and x.grad >0 and y.grad >0 and theta.grad >0):
                 #     print(f"  Grad L: {L.grad.item():.6f}, W: {W.grad.item():.6f}, x: {x.grad.item():.6f}, y: {y.grad.item():.6f}, theta: {theta.grad.item():.6f}")
                 opt.step()
@@ -302,7 +322,7 @@ class RoomParticleFilter:
                     W.data = torch.clamp(W.data, min=1.0)
 
                 # In refine_best_particles_gradient(), after the optimization loop:
-                #print(f"Refined: L={L.item():.3f}, W={W.item():.3f}, loss={loss.item():.6f}")
+                # print(f"Refined: L={L.item():.3f}, W={W.item():.3f}, loss={loss.item():.6f}")
 
             # commit updates
             p.x = float(x.item())
@@ -486,8 +506,8 @@ class RoomParticleFilter:
 
         sdf = self.sdf_rect(points_room, L, W)  # signed distance to rectangle
         # penalize inside and outside points
-        #r = torch.relu(sdf - margin)  # penalize outside walls
-        #absr = torch.abs(sdf)
+        # r = torch.relu(sdf - margin)  # penalize outside walls
+        # absr = torch.abs(sdf)
         absr = sdf
         quad = 0.5 * absr ** 2
         lin = delta * (absr - 0.5 * delta)
@@ -498,6 +518,35 @@ class RoomParticleFilter:
     def best_particle(self):
         """Return particle with max weight."""
         return max(self.particles, key=lambda p: p.weight)
+
+        # -----------------------------------------------------------------
+
+    def mean_weighted_particle(self):
+        """Return the weighted mean particle."""
+        N = len(self.particles)
+        if N == 0:
+            return None
+
+        x_mean = sum(p.x * p.weight for p in self.particles)
+        y_mean = sum(p.y * p.weight for p in self.particles)
+
+        # For theta, use circular mean
+        sin_sum = sum(math.sin(p.theta) * p.weight for p in self.particles)
+        cos_sum = sum(math.cos(p.theta) * p.weight for p in self.particles)
+        theta_mean = math.atan2(sin_sum, cos_sum)
+
+        length_mean = sum(p.length * p.weight for p in self.particles)
+        width_mean = sum(p.width * p.weight for p in self.particles)
+
+        return Particle(
+            x=x_mean,
+            y=y_mean,
+            theta=theta_mean,
+            length=length_mean,
+            width=width_mean,
+            weight=1.0 / N
+        )
+
 
     # -----------------------------------------------------------------
     def get_history(self):
