@@ -128,7 +128,7 @@ class RoomParticleFilter:
         if self.ess < self.ess_frac * len(self.particles):
             self.resample()
             self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
-            print(f"[Resample] tick={self._tick}, ESS={self.ess:.1f} < {self.ess_frac * len(self.particles):.1f}")
+            #print(f"[Resample] tick={self._tick}, ESS={self.ess:.1f} < {self.ess_frac * len(self.particles):.1f}")
 
             # Adaptive particle count adjustment
             if self.adaptive_particles:

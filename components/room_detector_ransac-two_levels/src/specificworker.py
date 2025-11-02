@@ -19,16 +19,6 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-
-# import typing
-# try:
-#     # Prefer typing_extensions.Self if present
-#     from typing_extensions import Self as _Self
-#     # Alias it into typing so uses like `from typing import Self` see a valid symbol
-#     setattr(typing, "Self", _Self)
-# except Exception:
-#     pass
-
 import os, sys, typing
 import time
 import torch
@@ -50,11 +40,12 @@ from room_particle_filter import RoomParticleFilter, Particle
 import numpy as np
 from collections import deque
 import subprocess, tempfile, json
+from regional_loss import RegionalizedRectLoss
+from open3d_hotzones import build_hot_patches_heatmap
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
-
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
@@ -155,6 +146,16 @@ class SpecificWorker(GenericWorker):
                                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                                    start_new_session=True)
 
+            # Regionalized loss for segmentation (if needed)
+            if not hasattr(self, "seg_loss"):
+                self.seg_loss = RegionalizedRectLoss(
+                    num_segments_per_side=16,
+                    band_outside=0.40,
+                    band_inside=0.25,
+                    huber_delta=0.03,
+                    device="cuda"
+                )
+
             self.Period = 100
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -201,7 +202,7 @@ class SpecificWorker(GenericWorker):
         self.current_best_particle = self.particle_filter.best_particle()
 
         # Visualize results using the already-detected planes
-        self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers)
+        self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
 
         # Send data to plotter
         self.send_data_to_plotter()
@@ -260,7 +261,7 @@ class SpecificWorker(GenericWorker):
             except Exception:
                 pass
 
-    def visualize_results(self, pcd, h_planes, v_planes, o_planes, outliers):
+    def visualize_results(self, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch):
         """Create and display all visualization geometries (room-centric frame)"""
         if self.current_best_particle is None:
             return
@@ -325,6 +326,20 @@ class SpecificWorker(GenericWorker):
         floor_mesh.paint_uniform_color([1.0, 0.86, 0.58])
         geometries_to_draw.append(floor_mesh)
 
+        ### Draw hotzones on lines (in room frame):
+        seg_list, heat = self.seg_loss.evaluate_segments(self.current_best_particle, wall_points_torch[:, :2])
+        # Build new ones
+        hotzone_meshes = build_hot_patches_heatmap(
+            seg_list, self.current_best_particle,
+            percentile_clip=90.0,  # ignore outliers when setting color range
+            min_norm=0.88,  # <- raise to show fewer patches
+            eps_in=5e-4,
+            eps_out=5e-4,
+            snap_mode="plane",
+        )
+        for m in hotzone_meshes:
+            geometries_to_draw.append(m)
+
         # --- room_map from PF (L, W, features) ---
         # room_map = self.particle_filter.get_map()
         # L, W = room_map.L, room_map.W
@@ -336,9 +351,9 @@ class SpecificWorker(GenericWorker):
         #     geometries_to_draw.append(flines)
 
         # Create outlier visualization (in room frame)
-        outlier_cloud = pcd_room.select_by_index(outliers)
-        outlier_cloud.paint_uniform_color(np.array([0.5, 0.5, 0.5], dtype=np.float64))
-        geometries_to_draw.append(outlier_cloud)
+        # outlier_cloud = pcd_room.select_by_index(outliers)
+        # outlier_cloud.paint_uniform_color(np.array([0.5, 0.5, 0.5], dtype=np.float64))
+        # geometries_to_draw.append(outlier_cloud)
 
         # Update visualizer
         self.vis.clear_geometries()
