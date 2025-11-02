@@ -70,7 +70,7 @@ class SpecificWorker(GenericWorker):
                 voxel_size=0.05,
                 angle_tolerance_deg=10.0,
                 ransac_threshold=0.01,
-                min_plane_points=100,
+                min_plane_points=200,
                 nms_normal_dot_threshold=0.99,
                 nms_distance_threshold=0.1,
                 plane_thickness=0.01
@@ -85,19 +85,20 @@ class SpecificWorker(GenericWorker):
                 y=0.0,
                 theta=0.0,  # 0 degrees
                 length=5.0,  # 5 meters long
-                width=10.0,  # 4 meters wide
+                width=9.0,  # 4 meters wide
                 height=2.5,  # 2.5 meters high
                 weight=1.0,
             ))
 
             # Initialize the particle filter
-            self.particle_filter = RoomParticleFilter(num_particles=1,
+            self.particle_filter = RoomParticleFilter(num_particles=50,
                                                       initial_hypothesis=ground_truth_particle,
                                                       device="cuda",
                                                       use_gradient_refinement=True,
                                                       adaptive_particles=False,
                                                       min_particles=20,
-                                                      max_particles=300)
+                                                      max_particles=300
+                                                      )
 
             self.current_best_particle = None
             self.room_box_height = 2.5
@@ -150,9 +151,9 @@ class SpecificWorker(GenericWorker):
 
             # start the external plotter subprocess
             plotter_py = os.path.join(os.path.dirname(__file__), "plotter.py")
-            self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
-                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                                  start_new_session=True)
+            # self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
+            #                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            #                                       start_new_session=True)
 
             self.Period = 100
             self.timer.timeout.connect(self.compute)
@@ -188,6 +189,7 @@ class SpecificWorker(GenericWorker):
         # Extract wall points ONCE (with fallback to all points)
         wall_points_np = self._extract_wall_points(pcd, v_planes)
         wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to('cuda')
+        #print(f"Wall points: {len(wall_points_np)}, planes: {len(v_planes)}")
 
         # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
         tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms

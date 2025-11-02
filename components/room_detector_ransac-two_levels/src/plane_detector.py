@@ -21,7 +21,7 @@ class PlaneDetector:
                  ransac_threshold=0.01,
                  ransac_n=3,
                  ransac_iterations=1000,
-                 min_plane_points=75,
+                 min_plane_points=100,
                  nms_normal_dot_threshold=0.99,
                  nms_distance_threshold=0.05,
                  plane_thickness=0.01):
@@ -60,8 +60,6 @@ class PlaneDetector:
 
         console.log(f"PlaneDetector initialized. Min points: {min_plane_points}, Voxel: {voxel_size}m")
         console.log(f"NMS Params: Normal Dot > {nms_normal_dot_threshold}, Distance < {nms_distance_threshold}m")
-
-
 
     def detect(self, pcd: o3d.geometry.PointCloud):
         """
@@ -297,7 +295,7 @@ class PlaneDetector:
                 dist_j = np.abs(P_j_model[3])
 
                 # Compare normals: dot product. Use abs for parallel but opposite normals.
-                normal_dot = np.abs(np.dot(normal_i, normal_j))
+                normal_dot = np.dot(normal_i, normal_j)
 
                 # Compare distances
                 dist_diff = np.abs(dist_i - dist_j)

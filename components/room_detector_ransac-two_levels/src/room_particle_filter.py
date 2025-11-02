@@ -5,45 +5,6 @@ import torch
 from copy import deepcopy
 from dataclasses import dataclass
 
-
-# ---------------------------------------------------------------------
-# Utility: Signed distance to a centered rectangle (length, width)
-# ---------------------------------------------------------------------
-def sdf_rect(points, length, width):
-    """
-    Analytic 2D signed distance to an axis-aligned rectangle centered at (0,0)
-    """
-    half = torch.tensor([
-        (length / 2.0).detach() if isinstance(length, torch.Tensor) else length / 2.0,
-        (width / 2.0).detach() if isinstance(width, torch.Tensor) else width / 2.0
-    ], device=points.device)
-    q = torch.abs(points) - half
-    outside = torch.clamp(q, min=0.0)
-    dist_out = outside.norm(dim=1)
-    dist_in = torch.clamp(torch.max(q[:, 0], q[:, 1]), max=0.0)
-    return dist_out + dist_in  # negative inside
-
-
-# ---------------------------------------------------------------------
-# Core smooth SDF loss (shared by PF & optimizer)
-# ---------------------------------------------------------------------
-def smooth_sdf_loss(points_room, L, W, margin=-0.02, delta=0.05):
-    """
-    Smooth, robust penalty for points outside the room rectangle.
-    Points are given in the room frame.
-    """
-    if points_room.numel() == 0:
-        return torch.tensor(0.0, device=points_room.device)
-
-    sdf = sdf_rect(points_room, L, W)
-    r = torch.relu(sdf - margin)  # penalize outside walls
-    absr = torch.abs(r)
-    quad = 0.5 * absr ** 2
-    lin = delta * (absr - 0.5 * delta)
-    hub = torch.where(absr <= delta, quad, lin)
-    return hub.mean()
-
-
 # ---------------------------------------------------------------------
 # Particle definition
 # ---------------------------------------------------------------------
@@ -126,11 +87,11 @@ class RoomParticleFilter:
         self.weight_entropy = 0
 
         # Gradient refinement settings
-        self.lr = 0.01  #
+        self.lr = 0.05  #
         self.num_steps = 30  # gradient steps per refinement
         self.top_n = 3  # refine top-N particles
         self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
-        self.size_lambda = 1e-4  # size prior strength
+        self.size_lambda = 0  # size prior strength
 
         # loss history
         self.history = {
@@ -169,7 +130,8 @@ class RoomParticleFilter:
             if self.adaptive_particles:
                 self.adapt_particle_count()
         elif self._tick % 20 == 0:
-            print(f"[No Resample] tick={self._tick}, ESS={self.ess:.1f} >= {self.ess_frac * len(self.particles):.1f}")
+            #print(f"[No Resample] tick={self._tick}, ESS={self.ess:.1f} >= {self.ess_frac * len(self.particles):.1f}")
+            pass
 
         # Compute loss for logging
         best_p = self.best_particle()
@@ -206,7 +168,7 @@ class RoomParticleFilter:
         points_room = (points - t) @ R.T
 
         #  Smooth loss
-        loss = smooth_sdf_loss(points_room, particle.length, particle.width)
+        loss = self.smooth_sdf_loss(points_room, particle.length, particle.width)
         return loss.item()
 
     # -----------------------------------------------------------------
@@ -320,7 +282,7 @@ class RoomParticleFilter:
                 R = torch.stack([torch.stack([c, -s]), torch.stack([s, c])])
                 t = torch.stack([x, y])
                 points_room = (wall_points - t) @ R.T
-                loss_data = smooth_sdf_loss(points_room, L, W)
+                loss_data = self.smooth_sdf_loss(points_room, L, W)
                 # small priors to keep stability
                 dth = ((theta - theta0 + math.pi) % (2 * math.pi)) - math.pi
                 loss = (
@@ -329,12 +291,18 @@ class RoomParticleFilter:
                         + self.size_lambda * ((L - L0) ** 2 + (W - W0) ** 2)
                 )
                 loss.backward()
+                #print if grads are non zero
+                # if(L.grad > 0 and W.grad > 0 and x.grad >0 and y.grad >0 and theta.grad >0):
+                #     print(f"  Grad L: {L.grad.item():.6f}, W: {W.grad.item():.6f}, x: {x.grad.item():.6f}, y: {y.grad.item():.6f}, theta: {theta.grad.item():.6f}")
                 opt.step()
 
                 with torch.no_grad():
                     theta.data = (theta.data + math.pi) % (2 * math.pi) - math.pi
                     L.data = torch.clamp(L.data, min=1.0)
                     W.data = torch.clamp(W.data, min=1.0)
+
+                # In refine_best_particles_gradient(), after the optimization loop:
+                #print(f"Refined: L={L.item():.3f}, W={W.item():.3f}, loss={loss.item():.6f}")
 
             # commit updates
             p.x = float(x.item())
@@ -486,6 +454,45 @@ class RoomParticleFilter:
 
         # Update cooldown
         self.last_adaptation_tick = self._tick
+
+    # ---------------------------------------------------------------------
+    # Utility: Signed distance to a centered rectangle (length, width)
+    # ---------------------------------------------------------------------
+    def sdf_rect(self, points, length, width):
+        """
+        Analytic 2D signed distance to an axis-aligned rectangle centered at (0,0)
+        """
+        # Line 463, replace with:
+        if isinstance(length, torch.Tensor):
+            half = torch.stack([length / 2.0, width / 2.0])
+        else:
+            half = torch.tensor([length / 2.0, width / 2.0], device=points.device)
+        q = torch.abs(points) - half
+        outside = torch.clamp(q, min=0.0)
+        dist_out = outside.norm(dim=1)
+        dist_in = torch.clamp(torch.max(q[:, 0], q[:, 1]), max=0.0)
+        return dist_out + dist_in  # negative inside
+
+    # ---------------------------------------------------------------------
+    # Core smooth SDF loss (shared by PF & optimizer)
+    # ---------------------------------------------------------------------
+    def smooth_sdf_loss(self, points_room, L, W, margin=-0.05, delta=0.03):
+        """
+        Smooth, robust penalty for points outside the room rectangle.
+        Points are given in the room frame.
+        """
+        if points_room.numel() == 0:
+            return torch.tensor(0.0, device=points_room.device)
+
+        sdf = self.sdf_rect(points_room, L, W)  # signed distance to rectangle
+        # penalize inside and outside points
+        #r = torch.relu(sdf - margin)  # penalize outside walls
+        #absr = torch.abs(sdf)
+        absr = sdf
+        quad = 0.5 * absr ** 2
+        lin = delta * (absr - 0.5 * delta)
+        hub = torch.where(absr <= delta, quad, lin)
+        return hub.mean()
 
     # -----------------------------------------------------------------
     def best_particle(self):
