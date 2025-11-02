@@ -14,7 +14,6 @@ def sdf_rect(points, length, width):
     """
     Analytic 2D signed distance to an axis-aligned rectangle centered at (0,0)
     """
-    #half = torch.tensor([length / 2.0, width / 2.0], device=points.device)
     half = torch.tensor([
         (length / 2.0).detach() if isinstance(length, torch.Tensor) else length / 2.0,
         (width / 2.0).detach() if isinstance(width, torch.Tensor) else width / 2.0
@@ -40,7 +39,7 @@ def smooth_sdf_loss(points_room, L, W, margin=-0.02, delta=0.05):
     sdf = sdf_rect(points_room, L, W)
     r = torch.relu(sdf - margin)  # penalize outside walls
     absr = torch.abs(r)
-    quad = 0.5 * absr**2
+    quad = 0.5 * absr ** 2
     lin = delta * (absr - 0.5 * delta)
     hub = torch.where(absr <= delta, quad, lin)
     return hub.mean()
@@ -60,22 +59,26 @@ class Particle:
     height: float = 2.5
     z_center: float = 1.25
 
+
 # ---------------------------------------------------------------------
 # RoomParticleFilter class
 # ---------------------------------------------------------------------
 class RoomParticleFilter:
     def __init__(
-        self,
-        num_particles,
-        initial_hypothesis,
-        device="cpu",
-        use_gradient_refinement=True,
+            self,
+            num_particles,
+            initial_hypothesis,
+            device="cpu",
+            use_gradient_refinement=True,
     ):
+
+        assert num_particles > 0, "num_particles must be positive"
+        assert initial_hypothesis.length > 0, "length must be positive"
+        assert initial_hypothesis.width > 0, "width must be positive"
 
         self.device = device
         self.num_particles = num_particles
         self.use_gradient_refinement = use_gradient_refinement
-        self.tau = 0.03  # temperature for weight scaling
 
         # initialize particles around the initial hypothesis
         base = deepcopy(initial_hypothesis)
@@ -99,7 +102,9 @@ class RoomParticleFilter:
 
         # Noise parameters
         self.trans_noise = 0.01
-        self.rot_noise = 0.01
+        self.rot_noise = 0.0
+        self.trans_noise_stationary = 0.003
+        self.rot_noise_stationary = 0.004
 
         # Resampling settings
         self.ess_frac = 0.75  # resample when ESS < 0.5*N
@@ -107,14 +112,14 @@ class RoomParticleFilter:
         self.ess_pct = None
 
         # entropy-based diversity
-        self.diversity = 0
+        self.weight_entropy = 0
 
         # Gradient refinement settings
-        self.lr = 0.01              #
-        self.num_steps = 10         # gradient steps per refinement
-        self.top_n = 3              # refine top-N particles
-        self.pose_lambda = 1e-2     # pose prior strength: constraint to original pose
-        self.size_lambda = 1e-4     # size prior strength
+        self.lr = 0.01  #
+        self.num_steps = 10  # gradient steps per refinement
+        self.top_n = 3  # refine top-N particles
+        self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
+        self.size_lambda = 1e-4  # size prior strength
 
         # loss history
         self.history = {
@@ -131,19 +136,28 @@ class RoomParticleFilter:
         self._tick = getattr(self, "_tick", 0)
 
     # -----------------------------------------------------------------
-    def step(self, odometry_delta, plane_detector, pcd):
-        """Main PF step: predict, update, refine, resample."""
+    def step(self, odometry_delta, wall_points):
+        """Main PF step: predict, update, refine, resample.
+
+        Args:
+            odometry_delta: (dx, dy, dtheta) motion since last step
+            wall_points: torch.Tensor of shape (N, 2) containing wall points in world frame
+        """
         self.predict(odometry_delta)
-        self.update(plane_detector, pcd)
+        self.update(wall_points)
+
         if self.use_gradient_refinement:
-            self.refine_best_particles_gradient(plane_detector, pcd)
+            self.refine_best_particles_gradient(wall_points)
 
         # resample only if ESS below threshold
         if self.ess < self.ess_frac * len(self.particles):
             self.resample()
             self.roughen_after_resample(sigma_xy=0.003, sigma_th=0.004)
 
-        self.log_history( float(self.compute_fitness_loss(self.best_particle(), plane_detector, pcd)))
+        # Compute loss for logging
+        best_p = self.best_particle()
+        loss_best = self.compute_fitness_loss_with_points(best_p, wall_points)
+        self.log_history(float(loss_best))
 
     # -----------------------------------------------------------------
     def predict(self, odometry_delta):
@@ -152,9 +166,9 @@ class RoomParticleFilter:
         for p in self.particles:
             speed = abs(dx) + abs(dy) + 0.2 * abs(dtheta)
             if speed < 1e-3:  # stationary
-                tn, rn = 0.003, 0.004
+                tn, rn = self.trans_noise_stationary, self.rot_noise_stationary
             else:  # moving
-                tn, rn = 0.01, 0.01     #TODO: move to class params
+                tn, rn = self.trans_noise, self.rot_noise
             ndx = dx + np.random.normal(0, tn)
             ndy = dy + np.random.normal(0, tn)
             ndtheta = dtheta + np.random.normal(0, rn)
@@ -165,37 +179,30 @@ class RoomParticleFilter:
             p.theta = (p.theta + ndtheta + math.pi) % (2 * math.pi) - math.pi
 
     # -----------------------------------------------------------------
-    def compute_fitness_loss(self, particle, plane_detector, pcd):
+    def compute_fitness_loss_with_points(self, particle, points):
         """Compute the smooth SDF loss for a given particle."""
-        # --- 1. Get wall inlier points (fallback to all points)
-        try:
-            wall_points = plane_detector.get_wall_inlier_points(pcd)
-            if wall_points is None or len(wall_points) == 0:
-                wall_points = np.asarray(pcd.points)
-        except Exception:
-            wall_points = np.asarray(pcd.points)
 
-        if len(wall_points) == 0:
-            return 0.0
-
-        points = torch.from_numpy(wall_points[:, :2]).float().to(self.device)
-
-        # --- 2. Transform points into the room frame of the particle
+        # Transform points into the room frame of the particle
         c, s = math.cos(-particle.theta), math.sin(-particle.theta)
         R = torch.tensor([[c, -s], [s, c]], dtype=torch.float32, device=self.device)
         t = torch.tensor([particle.x, particle.y], dtype=torch.float32, device=self.device)
         points_room = (points - t) @ R.T
 
-        # --- 3. Smooth loss
+        #  Smooth loss
         loss = smooth_sdf_loss(points_room, particle.length, particle.width)
         return loss.item()
 
     # -----------------------------------------------------------------
-    def update(self, plane_detector, pcd):
-        """Compute weights from SDF-based loss and normalize."""
+    def update(self, wall_points):
+        """Compute weights from SDF-based loss and normalize.
+
+        Args:
+            wall_points: torch.Tensor of shape (N, 2) containing wall points
+        """
+        # Compute losses for all particles
         losses = []
         for p in self.particles:
-            L = self.compute_fitness_loss(p, plane_detector, pcd)
+            L = self.compute_fitness_loss_with_points(p, wall_points)
             losses.append(L)
 
         losses = np.asarray(losses, dtype=np.float64)
@@ -214,7 +221,7 @@ class RoomParticleFilter:
         eps = 1e-12
         H = -np.sum(weights * np.log(weights + eps))  # nats
         H_max = np.log(len(weights) + eps)
-        self.diversity = float(H / max(H_max, eps)) # ∈ [0,1]
+        self.weight_entropy = float(H / max(H_max, eps))  # ∈ [0,1]
 
         # Compute effective sample size (ESS)
         self.ess = float(1.0 / np.maximum(1e-12, np.sum(weights * weights)))
@@ -224,19 +231,16 @@ class RoomParticleFilter:
         for p, w in zip(self.particles, weights):
             p.weight = float(w)
 
-
     # -----------------------------------------------------------------
     def resample(self):
         """Systematic resampling."""
         N = len(self.particles)
         weights = np.array([p.weight for p in self.particles], dtype=float)
 
-        # normalize defensively
+        # weights come normalized from update(), but guard anyway
         wsum = weights.sum()
         if wsum <= 0:
             weights = np.ones(N, dtype=float) / N
-        else:
-            weights /= wsum
 
         positions = (np.arange(N) + np.random.rand()) / N
         cumulative_sum = np.cumsum(weights)
@@ -259,20 +263,15 @@ class RoomParticleFilter:
         self.particles = new_particles
 
     # -----------------------------------------------------------------
-    def refine_best_particles_gradient(self, plane_detector, pcd):
-        """Gradient-based refinement of top-N particles."""
+    def refine_best_particles_gradient(self, wall_points):
+        """Gradient-based refinement of top-N particles.
+
+        Args:
+            wall_points: torch.Tensor of shape (N, 2) containing wall points
+        """
         # pick top-n by weight
         top_particles = sorted(self.particles, key=lambda p: p.weight, reverse=True)[: self.top_n]
 
-        # get wall points once (fallback safe)
-        try:
-            wall_points = plane_detector.get_wall_inlier_points(pcd)
-            if wall_points is None or len(wall_points) == 0:
-                wall_points = np.asarray(pcd.points)
-        except Exception:
-            wall_points = np.asarray(pcd.points)
-        points = torch.from_numpy(wall_points[:, :2]).float().to(self.device)
-        
         for p in top_particles:
             # initialize tensors
             x = torch.tensor(p.x, requires_grad=True, dtype=torch.float32, device=self.device)
@@ -296,14 +295,14 @@ class RoomParticleFilter:
                 c, s = torch.cos(-theta), torch.sin(-theta)
                 R = torch.stack([torch.stack([c, -s]), torch.stack([s, c])])
                 t = torch.stack([x, y])
-                points_room = (points - t) @ R.T
+                points_room = (wall_points - t) @ R.T
                 loss_data = smooth_sdf_loss(points_room, L, W)
                 # small priors to keep stability
                 dth = ((theta - theta0 + math.pi) % (2 * math.pi)) - math.pi
                 loss = (
-                    loss_data
-                    + self.pose_lambda * ((x - x0) ** 2 + (y - y0) ** 2 + dth**2)
-                    + self.size_lambda * ((L - L0) ** 2 + (W - W0) ** 2)
+                        loss_data
+                        + self.pose_lambda * ((x - x0) ** 2 + (y - y0) ** 2 + dth ** 2)
+                        + self.size_lambda * ((L - L0) ** 2 + (W - W0) ** 2)
                 )
                 loss.backward()
                 opt.step()
@@ -319,7 +318,6 @@ class RoomParticleFilter:
             p.theta = float(theta.item())
             p.length = float(L.item())
             p.width = float(W.item())
-
 
     # -----------------------------------------------------------------
     def roughen_after_resample(self, sigma_xy=0.01, sigma_th=0.01):
@@ -340,7 +338,8 @@ class RoomParticleFilter:
         The dict always has these keys, even if features are disabled.
         """
         # ensure keys exist so the plotter never crashes
-        for k in ["tick", "loss_best", "num_features", "ess", "births", "deaths", "n_particles", "ess_pct", "weight_entropy"]:
+        for k in ["tick", "loss_best", "num_features", "ess", "births", "deaths", "n_particles", "ess_pct",
+                  "weight_entropy"]:
             if k not in self.history:
                 self.history[k] = []
         return self.history
@@ -354,9 +353,5 @@ class RoomParticleFilter:
         self.history["births"].append(0)
         self.history["deaths"].append(0)
         self.history.setdefault("n_particles", []).append(int(len(self.particles)))
-        self.history.setdefault("weight_entropy", []).append(self.diversity)
+        self.history.setdefault("weight_entropy", []).append(self.weight_entropy)
         self.history.setdefault("ess_pct", []).append(self.ess_pct)
-
-
-
-

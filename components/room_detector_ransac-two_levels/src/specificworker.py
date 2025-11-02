@@ -31,8 +31,11 @@
 
 import os, sys, typing
 import time
+import torch
+
 sys.path.insert(0, os.path.dirname(__file__))
 import compat_typing_self
+
 if sys.version_info < (3, 11):
     has_self = hasattr(typing, "Self")
     print(f"[compat] Python {sys.version.split()[0]} | typing.Self present: {has_self}")
@@ -51,6 +54,7 @@ import subprocess, tempfile, json
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
@@ -77,20 +81,20 @@ class SpecificWorker(GenericWorker):
             # Default is 1.25m (half of 2.5m height). Adjust if walls are detected higher/lower.
             ground_truth_particle = (Particle
                 (
-                    x=0.0,
-                    y=0.0,
-                    theta=0.0,  # 0 degrees
-                    length=5.0,  # 5 meters long
-                    width=10.0,  # 4 meters wide
-                    height=2.5, # 2.5 meters high
-                    weight=1.0,
-                ))
+                x=0.0,
+                y=0.0,
+                theta=0.0,  # 0 degrees
+                length=5.0,  # 5 meters long
+                width=10.0,  # 4 meters wide
+                height=2.5,  # 2.5 meters high
+                weight=1.0,
+            ))
 
             # Initialize the particle filter
-            self.particle_filter = RoomParticleFilter( num_particles=100,
-                                                       initial_hypothesis=ground_truth_particle,
-                                                       device="cuda",
-                                                       use_gradient_refinement=True)
+            self.particle_filter = RoomParticleFilter(num_particles=100,
+                                                      initial_hypothesis=ground_truth_particle,
+                                                      device="cuda",
+                                                      use_gradient_refinement=True)
 
             self.current_best_particle = None
             self.room_box_height = 2.5
@@ -112,7 +116,7 @@ class SpecificWorker(GenericWorker):
                 np.array([0.0, 1.0, 0.0], dtype=np.float64),  # Green
                 np.array([1.0, 1.0, 0.0], dtype=np.float64),  # Yellow
                 np.array([0.0, 1.0, 1.0], dtype=np.float64),  # Cyan
-                np.array([1.0, 0.0, 1.0], dtype=np.float64)   # Magenta
+                np.array([1.0, 0.0, 1.0], dtype=np.float64)  # Magenta
             ]
             self.o_color = np.array([1.0, 0.0, 1.0], dtype=np.float64)
 
@@ -139,13 +143,13 @@ class SpecificWorker(GenericWorker):
 
             # where to write the history JSON
             self.plot_history_path = os.path.join(tempfile.gettempdir(), "pf_history.json")
-            #print(f"[SpecificWorker] Plot history path: {self.plot_history_path}")
+            # print(f"[SpecificWorker] Plot history path: {self.plot_history_path}")
 
             # start the external plotter subprocess
             plotter_py = os.path.join(os.path.dirname(__file__), "plotter.py")
             self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
-                                                        stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL,
-                                                        start_new_session = True)
+                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                  start_new_session=True)
 
             self.Period = 100
             self.timer.timeout.connect(self.compute)
@@ -167,7 +171,7 @@ class SpecificWorker(GenericWorker):
         self.last_pred_time = now
         cycle = now - getattr(self, "last_tick_time", now)
         self.cycle_time = 0.9 * getattr(self, "cycle_time", cycle) + 0.1 * cycle
-        #print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
+        # print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
 
         # read lidar data
         pcd = o3d.geometry.PointCloud()
@@ -175,23 +179,45 @@ class SpecificWorker(GenericWorker):
             return False
         pcd.points = res
 
-        # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
-        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms
-        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, 1.1*self.cycle_time)
-        odometry_delta = (dx, dy, dtheta)
-
-        # Run particle filter step: Predict -> Detect -> Update -> Resample
-        self.particle_filter.step(odometry_delta, self.plane_detector, pcd)
-        self.current_best_particle =  self.particle_filter.best_particle()
+        # Detect planes ONCE per iteration
         h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
 
-        # Visualize results
+        # Extract wall points ONCE (with fallback to all points)
+        wall_points_np = self._extract_wall_points(pcd, v_planes)
+        wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to('cuda')
+
+        # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
+        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms
+        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, 1.1 * self.cycle_time)
+        odometry_delta = (dx, dy, dtheta)
+
+        # Run particle filter step with pre-computed wall points
+        self.particle_filter.step(odometry_delta, wall_points_torch)
+        self.current_best_particle = self.particle_filter.best_particle()
+
+        # Visualize results using the already-detected planes
         self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers)
 
         # Send data to plotter
         self.send_data_to_plotter()
 
+        self.last_tick_time = now
         return True
+
+    def _extract_wall_points(self, pcd, v_planes):
+        """Extract wall inlier points from vertical planes (with fallback to all points)."""
+        if not v_planes:
+            return np.asarray(pcd.points)
+
+        all_indices = []
+        for _, indices in v_planes:
+            all_indices.extend(indices)
+
+        if not all_indices:
+            return np.asarray(pcd.points)
+
+        points = np.asarray(pcd.points)
+        return points[all_indices]
 
     ############################# MY CODE HERE #############################
     def read_lidar_data(self):
@@ -235,7 +261,7 @@ class SpecificWorker(GenericWorker):
             return
 
         geometries_to_draw = []
-        
+
         # Get transform to room-centric frame
         p = self.current_best_particle
 
@@ -249,7 +275,7 @@ class SpecificWorker(GenericWorker):
         pcd_room = o3d.geometry.PointCloud(pcd)
         pcd_room.translate(translation)
         pcd_room.rotate(R_inv, center=(0, 0, 0))
-        
+
         # Create plane visualizations (in room frame)
         all_planes = [(h_planes, self.h_color), (v_planes, self.v_colors), (o_planes, self.o_color)]
         for i, (plane_list, color_map) in enumerate(all_planes):
@@ -257,7 +283,7 @@ class SpecificWorker(GenericWorker):
                 inlier_pcd = pcd_room.select_by_index(indices)
                 if len(inlier_pcd.points) < 3:
                     continue
-                
+
                 obb = inlier_pcd.get_oriented_bounding_box()
                 new_extent = np.array(obb.extent)
                 new_extent[np.argmin(new_extent)] = self.plane_detector.plane_thickness
@@ -449,5 +475,3 @@ class SpecificWorker(GenericWorker):
             elif a.name == "rotate":
                 omega = a.value  # rad/s
         self.record_velocity_command(vx, vy, omega)
-
-

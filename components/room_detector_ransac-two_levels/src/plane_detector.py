@@ -25,6 +25,7 @@ class PlaneDetector:
                  nms_normal_dot_threshold=0.99,
                  nms_distance_threshold=0.05,
                  plane_thickness=0.01):
+
         """
         Initializes the plane detector.
 
@@ -307,3 +308,19 @@ class PlaneDetector:
                     suppressed_flags[j] = True
 
         return filtered_planes
+
+    def get_wall_inlier_points(self, pcd):
+        """Return points belonging to vertical planes only."""
+        _, vertical_planes, _, _ = self.detect(pcd)
+        if not vertical_planes:
+            return None
+
+        all_indices = []
+        for _, indices in vertical_planes:
+            all_indices.extend(indices)
+
+        if not all_indices:
+            return None
+
+        points = np.asarray(pcd.points)
+        return points[all_indices]
