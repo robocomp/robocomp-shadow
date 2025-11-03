@@ -362,6 +362,8 @@ class RoomParticleFilter:
             p.width = float(W.item())
 
     # -----------------------------------------------------------------
+    # AUXILIARY METHODS -----------------------------------------------
+    # -----------------------------------------------------------------
     def compute_pose_diversity(self):
         xs = [p.x for p in self.particles]
         ys = [p.y for p in self.particles]

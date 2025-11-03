@@ -193,7 +193,6 @@ class SpecificWorker(GenericWorker):
         self.last_pred_time = now
         cycle = now - getattr(self, "last_tick_time", now)
         self.cycle_time = 0.9 * getattr(self, "cycle_time", cycle) + 0.1 * cycle
-        print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
 
         # read lidar data
         pcd = o3d.geometry.PointCloud()
@@ -201,33 +200,39 @@ class SpecificWorker(GenericWorker):
             return False
         pcd.points = res
 
-        # Detect planes ONCE per iteration
-        #h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
+        # Detect planes ONCE per iteration WITH PRIOR
         h_planes, validated_v, unmatched_v, o_planes, outliers = \
             self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
-        v_planes = validated_v + unmatched_v  # if only validated_v is used, PF will see what it expects
 
-        # Extract wall points ONCE (with fallback to all points)
-        wall_points_np = self._extract_wall_points(pcd, v_planes)
+        # Use weighted extraction ===
+        wall_points_np = self._extract_wall_points_weighted(
+                                pcd, validated_v, unmatched_v,
+                                validated_weight=0.8,  # 80% from stabilized planes
+                                unmatched_weight=0.2  # 20% from novel/obstacle planes
+                            )
         wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to('cuda')
-        #print(f"Wall points: {len(wall_points_np)}, planes: {len(v_planes)}")
 
-        # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
-        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms
+        # Print diagnostics (optional)
+        # print(f"Wall points: {len(wall_points_np)} total, "
+        #       f"validated planes: {len(validated_v)}, unmatched planes: {len(unmatched_v)}")
+
+        # Estimate latency and integrate commands
+        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))
         dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, self.params.timing.latency_gain * self.cycle_time)
         odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step with pre-computed wall points
         self.particle_filter.step(odometry_delta, wall_points_torch, self.cycle_time)
-        self.current_best_particle, smooth_best_particle = self.particle_filter.best_particle()
+        self.current_best_particle, smoothed_particle = self.particle_filter.best_particle()
 
-        # Visualize results using the already-detected planes
-        self.visualize_results(smooth_best_particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
+        # Visualize results (combine for visualization)
+        v_planes = validated_v + unmatched_v
+        self.visualize_results(smoothed_particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
 
         # Send data to plotter
         self.send_data_to_plotter()
 
-        self.last_tick_time = now   #for cycle length measurement
+        self.last_tick_time = now
         return True
 
     def _extract_wall_points(self, pcd, v_planes):
@@ -407,6 +412,71 @@ class SpecificWorker(GenericWorker):
         self.vis.poll_events()
         self.camera_parameters = self.view_control.convert_to_pinhole_camera_parameters()
         self.vis.update_renderer()
+
+    def _extract_wall_points_weighted(self, pcd, validated_planes, unmatched_planes,
+                                      validated_weight=0.8, unmatched_weight=0.2):
+        """
+        Extract wall points with weighted sampling from validated and unmatched planes.
+
+        Args:
+            pcd: Point cloud
+            validated_planes: List of (model, indices) for validated (stabilized) planes
+            unmatched_planes: List of (model, indices) for unmatched (novel) planes
+            validated_weight: Proportion of points from validated planes (0-1)
+            unmatched_weight: Proportion of points from unmatched planes (0-1)
+
+        Returns:
+            numpy array of wall points (N, 3)
+        """
+        import numpy as np
+
+        # Extract points from validated planes
+        validated_points = self._extract_wall_points(pcd, validated_planes)
+
+        # Extract points from unmatched planes
+        unmatched_points = self._extract_wall_points(pcd, unmatched_planes)
+
+        # Handle empty cases
+        if len(validated_points) == 0 and len(unmatched_points) == 0:
+            # Fallback to all points if no planes detected
+            return np.asarray(pcd.points)
+
+        if len(validated_points) == 0:
+            # Only unmatched available
+            return unmatched_points
+
+        if len(unmatched_points) == 0:
+            # Only validated available
+            return validated_points
+
+        # Determine target sample sizes
+        total_target = min(len(validated_points) + len(unmatched_points), 10000)  # Cap at 10k points
+
+        n_validated_target = int(validated_weight * total_target)
+        n_unmatched_target = int(unmatched_weight * total_target)
+
+        # Adjust if we don't have enough points
+        n_validated = min(n_validated_target, len(validated_points))
+        n_unmatched = min(n_unmatched_target, len(unmatched_points))
+
+        # Sample from validated planes
+        if n_validated > 0 and n_validated < len(validated_points):
+            validated_indices = np.random.choice(len(validated_points), n_validated, replace=False)
+            validated_sample = validated_points[validated_indices]
+        else:
+            validated_sample = validated_points
+
+        # Sample from unmatched planes
+        if n_unmatched > 0 and n_unmatched < len(unmatched_points):
+            unmatched_indices = np.random.choice(len(unmatched_points), n_unmatched, replace=False)
+            unmatched_sample = unmatched_points[unmatched_indices]
+        else:
+            unmatched_sample = unmatched_points
+
+        # Combine
+        wall_points = np.vstack([validated_sample, unmatched_sample])
+
+        return wall_points
 
     def record_velocity_command(self, vx: float, vy: float, omega: float) -> None:
         """
