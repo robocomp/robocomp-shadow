@@ -331,12 +331,16 @@ class SpecificWorker(GenericWorker):
         # Build new ones
         hotzone_meshes = build_hot_patches_heatmap(
             seg_list, self.current_best_particle,
-            percentile_clip=90.0,  # ignore outliers when setting color range
-            min_norm=0.88,  # <- raise to show fewer patches
-            eps_in=5e-4,
-            eps_out=5e-4,
+            percentile_clip=50.0,  # ignore outliers when setting color range
+            min_norm=0.95,  # <- raise to show fewer patches
+            topk=10,
+            eps_in=0.001,
+            eps_out=0.001,
             snap_mode="plane",
+            thickness=0.001,
+            min_support_ratio=None,
         )
+
         for m in hotzone_meshes:
             geometries_to_draw.append(m)
 

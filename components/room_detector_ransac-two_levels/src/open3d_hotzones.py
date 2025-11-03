@@ -124,12 +124,10 @@ def _segment_patch_room(
              (x_out,y0,z0),(x_out,y1,z0),(x_out,y0,z1),(x_out,y1,z1)]
 
     elif side == "+y":
-        # wall plane at y = +W/2, inside of the room is toward -y
         y_plane = W / 2.0
         if snap_mode == "plane":
-            # straddle the wall plane by ±eps, but push toward -y (inside)
-            y_in = y_plane - eps_out  # slightly inside
-            y_out = y_plane - eps_in  # even more inside
+            y_in = y_plane - eps_in  # inside (toward -y)
+            y_out = y_plane + eps_out  # outside (toward +y)
         elif snap_mode == "inside":
             y_in = y_plane - eps_in
             y_out = y_in - 1e-6
@@ -146,12 +144,10 @@ def _segment_patch_room(
         ]
 
     else:  # "-y"
-        # wall plane at y = -W/2, inside of the room is toward +y
         y_plane = -W / 2.0
         if snap_mode == "plane":
-            # straddle the wall plane by ±eps, but push toward +y (inside)
-            y_in = y_plane + eps_out
-            y_out = y_plane + eps_in
+            y_in = y_plane + eps_in  # inside (toward +y)
+            y_out = y_plane - eps_out  # outside (toward -y)
         elif snap_mode == "inside":
             y_in = y_plane + eps_in
             y_out = y_in + 1e-6
@@ -167,6 +163,11 @@ def _segment_patch_room(
             (x0, y_out, z0), (x1, y_out, z0), (x0, y_out, z1), (x1, y_out, z1),
         ]
 
+    # print(f"[{side}] s0={s0:.3f}, s1={s1:.3f}, L={L:.3f}, W={W:.3f}")
+    # if side in ["+y", "-y"]:
+    #     print(f"  y_plane={y_plane:.3f}, y_in={y_in:.3f}, y_out={y_out:.3f}")
+    #     print(f"  x0={x0:.3f}, x1={x1:.3f}")
+    # print(f"  First vertex: {v[0]}")
     return v
 
 
@@ -180,13 +181,17 @@ def _make_quad_mesh_world(
     verts_room: 8 vertices (two parallel quads). We create two vertical faces.
     """
     verts_world = []
-    for (x, y, z) in verts_room:
-        X, Y = _room_to_world_xy(x, y, px, py, th)
-        verts_world.append([X, Y, z])
+    # for (x, y, z) in verts_room:
+    #     X, Y = _room_to_world_xy(x, y, px, py, th)
+    #     verts_world.append([X, Y, z])
+    verts_world = [[x, y, z] for (x, y, z) in verts_room]
 
     tris = np.array([
         [0, 1, 2], [2, 1, 3],   # inner face
         [4, 5, 6], [6, 5, 7],   # outer face
+        # add reversed faces for double-sided rendering
+        [2, 1, 0], [3, 1, 2],  # inner face reversed
+        [6, 5, 4], [7, 5, 6],
     ], dtype=np.int32)
 
     mesh = o3d.geometry.TriangleMesh(
@@ -207,7 +212,7 @@ def build_hot_patches_heatmap(
     topk: Optional[int] = None,
     min_norm: float = 0.85,
     min_points: int = 0,
-    # color scaling
+    min_support_ratio: Optional[float] = None,
     percentile_clip: Optional[float] = 90.0,
     vmin_override: Optional[float] = None,
     vmax_override: Optional[float] = None,
@@ -255,7 +260,7 @@ def build_hot_patches_heatmap(
         items = sorted(items, key=lambda x: x[1], reverse=True)[:topk]
 
     # 3) normalized filter to hide blues
-    filtered: List[tuple] = []
+    filtered = []
     for s, sc in items:
         if (s.n_points < min_points) and (min_points > 0):
             continue
@@ -265,6 +270,14 @@ def build_hot_patches_heatmap(
     items = filtered
     if not items:
         return []
+
+    # 3) Filter by support ratio (missing points)
+    if min_support_ratio is not None:
+        filtered = []
+        for s, sc in items:
+            if s.support_ratio < min_support_ratio:  # Less than expected
+                filtered.append((s, sc))
+        items = filtered
 
     # build meshes
     meshes: List[o3d.geometry.TriangleMesh] = []
