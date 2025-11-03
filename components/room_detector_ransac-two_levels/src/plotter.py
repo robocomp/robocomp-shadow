@@ -6,7 +6,7 @@ matplotlib.use("TkAgg")
 
 def ensure_keys(d):
     for k in ["tick","loss_best","num_features","ess","births","deaths", "n_particles", "ess_pct", "weight_entropy",
-              "x_std","y_std","theta_std"]:
+              "x_std","y_std","theta_std", "period"]:
         d.setdefault(k, [])
     return d
 
@@ -18,7 +18,7 @@ def main():
     print(f"[plotter] watching {path}")
 
     plt.ioff()
-    fig, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(6,1, figsize=(7,10), sharex=True)
+    fig, (ax1, ax2, ax3, ax4, ax5, ax6, ax7) = plt.subplots(7,1, figsize=(7,11), sharex=True)
     fig.canvas.manager.set_window_title("PF Diagnostics")
 
     (l1,) = ax1.plot([], [], label="loss_best")
@@ -47,6 +47,10 @@ def main():
     ax6.set_ylabel("std"); ax6.set_xlabel("tick")
     ax6.grid(True, alpha=0.3); ax6.legend(loc="upper right")
 
+    (l7,) = ax7.plot([], [], label="period")
+    ax7.set_ylabel("period (ms)"); ax7.set_xlabel("tick")
+    ax7.grid(True, alpha=0.3); ax7.legend(loc="upper right")
+
     last_mtime = 0
     while True:
         try:
@@ -67,6 +71,7 @@ def main():
                     l6y.set_data(t, hist["y_std"])
                     l6t.set_data(t, hist["theta_std"])
                     ax6.relim(); ax6.autoscale_view()
+                    l7.set_data(t, hist["period"]); ax7.relim(); ax7.autoscale_view()
 
                     # births/deaths markers on ax2
                     births_x = [ti for ti,b in zip(t, hist["births"]) if b>0]

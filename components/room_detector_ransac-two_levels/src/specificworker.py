@@ -218,7 +218,7 @@ class SpecificWorker(GenericWorker):
         odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step with pre-computed wall points
-        self.particle_filter.step(odometry_delta, wall_points_torch)
+        self.particle_filter.step(odometry_delta, wall_points_torch, self.cycle_time)
         self.current_best_particle, smooth_best_particle = self.particle_filter.best_particle()
 
         # Visualize results using the already-detected planes
@@ -276,6 +276,7 @@ class SpecificWorker(GenericWorker):
                     "x_std": hist.get("x_std", [])[-N:],
                     "y_std": hist.get("y_std", [])[-N:],
                     "theta_std": hist.get("theta_std", [])[-N:],
+                    "period": hist.get("period", [])[-N:],
                 }
                 tmp = self.plot_history_path + ".tmp"
                 with open(tmp, "w") as f:

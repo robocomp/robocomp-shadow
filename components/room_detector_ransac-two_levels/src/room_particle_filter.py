@@ -34,7 +34,7 @@ class RoomParticleFilter:
             adaptive_particles=True,
             min_particles=20,
             max_particles=300,
-            elite_count=5,  # Number of best particles to preserve during resampling
+            elite_count=1,  # Number of best particles to preserve during resampling
     ):
 
         assert num_particles > 0, "num_particles must be positive"
@@ -118,7 +118,7 @@ class RoomParticleFilter:
         self.smooth_particle = None
 
     # -----------------------------------------------------------------
-    def step(self, odometry_delta, wall_points):
+    def step(self, odometry_delta, wall_points, period):
         """Main PF step: predict, update, refine, resample.
 
         Args:
@@ -155,6 +155,7 @@ class RoomParticleFilter:
             pass
 
         # Compute loss for logging
+        self.history.setdefault("period", []).append(float(period))
         best_p, smoothed_best_p = self.best_particle()
         loss_best = self.compute_fitness_loss_with_points(smoothed_best_p, wall_points)
         self.log_history(float(loss_best))
