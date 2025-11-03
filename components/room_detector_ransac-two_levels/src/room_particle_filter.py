@@ -91,7 +91,7 @@ class RoomParticleFilter:
 
         # Gradient refinement settings
         self.lr = 0.05  #
-        self.num_steps = 20  # gradient steps per refinement
+        self.num_steps = 25  # gradient steps per refinement
         self.top_n = 3  # refine top-N particles
         self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
         self.size_lambda = 1e-3  # size prior strength

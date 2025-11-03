@@ -48,7 +48,6 @@ class RegionalizedRectLoss:
         self.band_outside = float(band_outside)
         self.band_inside = float(band_inside)
         self.delta = float(huber_delta)
-        self.margin = float(sdf_margin)
         self.device = device
         self.absence_alpha = float(absence_alpha)
         self.absence_curve_k = float(absence_curve_k)

@@ -260,16 +260,16 @@ def build_hot_patches_heatmap(
         items = sorted(items, key=lambda x: x[1], reverse=True)[:topk]
 
     # 3) normalized filter to hide blues
-    filtered = []
-    for s, sc in items:
-        if (s.n_points < min_points) and (min_points > 0):
-            continue
-        norm = (sc - vmin) / denom
-        if norm >= min_norm:
-            filtered.append((s, sc))
-    items = filtered
-    if not items:
-        return []
+    # filtered = []
+    # for s, sc in items:
+    #     if (s.n_points < min_points) and (min_points > 0):
+    #         continue
+    #     norm = (sc - vmin) / denom
+    #     if norm >= min_norm:
+    #         filtered.append((s, sc))
+    # items = filtered
+    # if not items:
+    #     return []
 
     # 3) Filter by support ratio (missing points)
     if min_support_ratio is not None:

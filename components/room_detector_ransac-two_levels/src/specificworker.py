@@ -151,8 +151,8 @@ class SpecificWorker(GenericWorker):
                 self.seg_loss = RegionalizedRectLoss(
                     num_segments_per_side=16,
                     band_outside=0.40,
-                    band_inside=0.25,
-                    huber_delta=0.03,
+                    band_inside=0.40,
+                    huber_delta=0.05,   # 3 cm
                     device="cuda"
                 )
 
@@ -338,7 +338,7 @@ class SpecificWorker(GenericWorker):
             eps_out=0.001,
             snap_mode="plane",
             thickness=0.001,
-            min_support_ratio=None,
+            min_support_ratio=0.2,
         )
 
         for m in hotzone_meshes:
