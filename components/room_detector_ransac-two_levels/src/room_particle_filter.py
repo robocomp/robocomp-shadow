@@ -93,6 +93,7 @@ class RoomParticleFilter:
         self.lr = 0.05  #
         self.num_steps = 25  # gradient steps per refinement
         self.top_n = 3  # refine top-N particles
+        self.top_n_max = 10  # max top-N for adaptive refinement
         self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
         self.size_lambda = 1e-3  # size prior strength
 
@@ -106,9 +107,15 @@ class RoomParticleFilter:
             "deaths": [],
             "n_particles": [],
             "ess_pct": [],
-            "weight_entropy": []
+            "weight_entropy": [],
+            "x_std": [],
+            "y_std": [],
+            "theta_std": [],
         }
         self._tick = getattr(self, "_tick", 0)
+
+        # smoother
+        self.smooth_particle = None
 
     # -----------------------------------------------------------------
     def step(self, odometry_delta, wall_points):
@@ -119,16 +126,26 @@ class RoomParticleFilter:
             wall_points: torch.Tensor of shape (N, 2) containing wall points in world frame
         """
         self.predict(odometry_delta)
+        if self.use_gradient_refinement:
+            # Adapt top_n based on convergence
+            pose_diversity = self.compute_pose_diversity()  # std of x, y, theta
+            if pose_diversity > 0.1:  # Exploration phase
+                top_n_adaptive = self.top_n_max  # Refine many to collapse distribution
+            else:  # Converged phase
+                top_n_adaptive = self.top_n  # Only refine top few (fast)
+            self.refine_best_particles_gradient(wall_points, top_n=top_n_adaptive)
         self.update(wall_points)
 
-        if self.use_gradient_refinement:
-            self.refine_best_particles_gradient(wall_points)
-
-        # resample only if ESS below threshold
+        best_loss = self.compute_fitness_loss_with_points(self.best_particle()[0], wall_points)
+        is_converged = (best_loss < 0.001 and self.weight_entropy < 0.2)  # Converged threshold
+        # More lenient ESS threshold when converged
+        ess_threshold = 0.3 if is_converged else 0.9
         if self.ess < self.ess_frac * len(self.particles):
             self.resample()
-            self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
-            #print(f"[Resample] tick={self._tick}, ESS={self.ess:.1f} < {self.ess_frac * len(self.particles):.1f}")
+
+            if not is_converged:
+                self.roughen_after_resample(sigma_xy=0.001, sigma_th=0.002)  # Much smaller noise
+                #print(f"[Resample] tick={self._tick}, ESS={self.ess:.1f} < {self.ess_frac * len(self.particles):.1f}")
 
             # Adaptive particle count adjustment
             if self.adaptive_particles:
@@ -138,8 +155,8 @@ class RoomParticleFilter:
             pass
 
         # Compute loss for logging
-        best_p = self.best_particle()
-        loss_best = self.compute_fitness_loss_with_points(best_p, wall_points)
+        best_p, smoothed_best_p = self.best_particle()
+        loss_best = self.compute_fitness_loss_with_points(smoothed_best_p, wall_points)
         self.log_history(float(loss_best))
 
     # -----------------------------------------------------------------
@@ -192,7 +209,7 @@ class RoomParticleFilter:
         med = np.median(losses)
         mad = np.median(np.abs(losses - med))
         eps = 1e-12
-        alpha = 0.5   # smaller alpha -> more peaked weights -> more aggressive resampling -> faster convergence
+        alpha = 0.05   # smaller alpha -> more peaked weights -> more aggressive resampling -> faster convergence
         scale = max(mad, eps)
         z = - (losses - med) / (alpha * scale)
         z = np.clip(z, -50.0, 50.0)
@@ -200,7 +217,7 @@ class RoomParticleFilter:
         w_sum = w.sum()
         weights = (w / w_sum) if w_sum > 0 else np.ones_like(w) / len(w)
 
-        # ---- entropy-based diversity in [0, 1] ----
+        # ---- entropy-based diversity in [0, 1] : 0 -> low diversity, 1 -> high diversity ----
         eps = 1e-12
         H = -np.sum(weights * np.log(weights + eps))  # nats
         H_max = np.log(len(weights) + eps)
@@ -269,14 +286,26 @@ class RoomParticleFilter:
         self.particles = new_particles
 
     # -----------------------------------------------------------------
-    def refine_best_particles_gradient(self, wall_points):
+    def refine_best_particles_gradient(self, wall_points, top_n=None):
         """Gradient-based refinement of top-N particles.
 
         Args:
             wall_points: torch.Tensor of shape (N, 2) containing wall points
         """
+        if top_n is None:
+            top_n = self.top_n
+
+        # Check if already converged - reduce refinement intensity
+        best_loss = self.compute_fitness_loss_with_points(self.best_particle()[0], wall_points)
+        if best_loss < 0.0005:  # Already excellent
+            num_steps_adaptive = 5  # Minimal refinement
+            lr_adaptive = 0.01  # Smaller steps
+        else:
+            num_steps_adaptive = self.num_steps
+            lr_adaptive = self.lr
+
         # pick top-n by weight
-        top_particles = sorted(self.particles, key=lambda p: p.weight, reverse=True)[: self.top_n]
+        top_particles = sorted(self.particles, key=lambda p: p.weight, reverse=True)[: top_n]
 
         for p in top_particles:
             # initialize tensors
@@ -286,7 +315,7 @@ class RoomParticleFilter:
             L = torch.tensor(p.length, requires_grad=True, dtype=torch.float32, device=self.device)
             W = torch.tensor(p.width, requires_grad=True, dtype=torch.float32, device=self.device)
 
-            opt = torch.optim.Adam([x, y, theta, L, W], lr=self.lr)
+            opt = torch.optim.Adam([x, y, theta, L, W], lr=lr_adaptive)
 
             x0, y0, theta0 = (
                 torch.tensor(p.x, device=self.device),
@@ -296,7 +325,7 @@ class RoomParticleFilter:
             L0 = torch.tensor(p.length, device=self.device)
             W0 = torch.tensor(p.width, device=self.device)
 
-            for _ in range(self.num_steps):
+            for _ in range(num_steps_adaptive):
                 opt.zero_grad()
                 c, s = torch.cos(-theta), torch.sin(-theta)
                 R = torch.stack([torch.stack([c, -s]), torch.stack([s, c])])
@@ -330,6 +359,13 @@ class RoomParticleFilter:
             p.theta = float(theta.item())
             p.length = float(L.item())
             p.width = float(W.item())
+
+    # -----------------------------------------------------------------
+    def compute_pose_diversity(self):
+        xs = [p.x for p in self.particles]
+        ys = [p.y for p in self.particles]
+        thetas = [p.theta for p in self.particles]
+        return np.std(xs) + np.std(ys) + np.std(thetas)
 
     # -----------------------------------------------------------------
     def roughen_after_resample(self, sigma_xy=0.01, sigma_th=0.01):
@@ -516,8 +552,22 @@ class RoomParticleFilter:
 
     # -----------------------------------------------------------------
     def best_particle(self):
-        """Return particle with max weight."""
-        return max(self.particles, key=lambda p: p.weight)
+        """Return particles with max weight and time smoothed version"""
+        best = max(self.particles, key=lambda p: p.weight)
+
+        # Smooth with previous best
+        if self.smooth_particle is None:
+            self.smooth_particle = deepcopy(best)
+        else:
+            alpha = 0.5  # smoothing factor
+            self.smooth_particle.x = alpha * best.x + (1 - alpha) * self.smooth_particle.x
+            self.smooth_particle.y = alpha * best.y + (1 - alpha) * self.smooth_particle.y
+            # Handle theta wrap-around
+            dtheta = ((best.theta - self.smooth_particle.theta + math.pi) % (2 * math.pi)) - math.pi
+            self.smooth_particle.theta += alpha * dtheta
+            self.smooth_particle.length = alpha * best.length + (1 - alpha) * self.smooth_particle.length
+            self.smooth_particle.width = alpha * best.width + (1 - alpha) * self.smooth_particle.width
+        return best, self.smooth_particle
 
         # -----------------------------------------------------------------
 
@@ -572,3 +622,10 @@ class RoomParticleFilter:
         self.history.setdefault("n_particles", []).append(int(len(self.particles)))
         self.history.setdefault("weight_entropy", []).append(self.weight_entropy)
         self.history.setdefault("ess_pct", []).append(self.ess_pct)
+        # Add pose diversity metrics
+        xs = [p.x for p in self.particles]
+        ys = [p.y for p in self.particles]
+        thetas = [p.theta for p in self.particles]
+        self.history.setdefault("x_std", []).append(float(np.std(xs)))
+        self.history.setdefault("y_std", []).append(float(np.std(ys)))
+        self.history.setdefault("theta_std", []).append(float(np.std(thetas)))

@@ -21,6 +21,8 @@
 
 import os, sys, typing
 import time
+from copy import deepcopy
+
 import torch
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -42,6 +44,7 @@ from collections import deque
 import subprocess, tempfile, json
 from regional_loss import RegionalizedRectLoss
 from open3d_hotzones import build_hot_patches_heatmap
+from params import AppParams
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -50,113 +53,127 @@ o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map, configData)
+        # one place to configure everything
+        self.params = AppParams()
+
         self.Period = configData["Period"]["Compute"]
         self.hide()
         if startup_check:
             self.startup_check()
         else:
 
-            # Create a PlaneDetector
+            # --- Plane detector (from params) ---
+            pp = self.params.plane
             self.plane_detector = PlaneDetector(
-                voxel_size=0.05,
-                angle_tolerance_deg=10.0,
-                ransac_threshold=0.01,
-                min_plane_points=200,
-                nms_normal_dot_threshold=0.99,
-                nms_distance_threshold=0.1,
-                plane_thickness=0.01
-            )
+                voxel_size=pp.voxel_size,
+                angle_tolerance_deg=pp.angle_tolerance_deg,
+                ransac_threshold=pp.ransac_threshold,
+                ransac_n=pp.ransac_n,
+                ransac_iterations=pp.ransac_iterations,
+                min_plane_points=pp.min_plane_points,
+                nms_normal_dot_threshold=pp.nms_normal_dot_threshold,
+                nms_distance_threshold=pp.nms_distance_threshold,
+                plane_thickness=pp.plane_thickness
+            )  # :contentReference[oaicite:0]{index=0}
 
-            # Initialize the ground truth particle (for reference)
-            # NOTE: z_center should be set to the vertical center of your room's walls
-            # Default is 1.25m (half of 2.5m height). Adjust if walls are detected higher/lower.
-            ground_truth_particle = (Particle
-                (
-                x=0.0,
-                y=0.0,
-                theta=0.0,  # 0 degrees
-                length=5.0,  # 5 meters long
-                width=9.0,  # 4 meters wide
-                height=2.5,  # 2.5 meters high
-                weight=1.0,
-            ))
+            # --- Initial hypothesis -> Particle ---
+            H = self.params.hypothesis
+            ground_truth_particle = Particle(
+                x=H.x, y=H.y, theta=H.theta,
+                length=H.length, width=H.width,
+                height=H.height, z_center=H.z_center, weight=H.weight
+            )  # :contentReference[oaicite:1]{index=1}
 
-            # Initialize the particle filter
-            self.particle_filter = RoomParticleFilter(num_particles=100,
-                                                      initial_hypothesis=ground_truth_particle,
-                                                      device="cuda",
-                                                      use_gradient_refinement=True,
-                                                      adaptive_particles=False,
-                                                      min_particles=20,
-                                                      max_particles=300
-                                                      )
+            # --- Particle Filter (constructed + tuned from params) ---
+            pfp = self.params.pf
+            self.particle_filter = RoomParticleFilter(
+                num_particles=pfp.num_particles,
+                initial_hypothesis=ground_truth_particle,
+                device=pfp.device,
+                use_gradient_refinement=pfp.use_gradient_refinement,
+                adaptive_particles=pfp.adaptive_particles,
+                min_particles=pfp.min_particles,
+                max_particles=pfp.max_particles,
+                elite_count=pfp.elite_count
+            )  # :contentReference[oaicite:2]{index=2}
+
+            # Optional per-instance knobs (keeps PF code untouched)
+            self.particle_filter.trans_noise = pfp.trans_noise
+            self.particle_filter.rot_noise = pfp.rot_noise
+            self.particle_filter.trans_noise_stationary = pfp.trans_noise_stationary
+            self.particle_filter.rot_noise_stationary = pfp.rot_noise_stationary
+            self.particle_filter.ess_frac = pfp.ess_frac
+            self.particle_filter.lr = pfp.lr
+            self.particle_filter.num_steps = pfp.num_steps
+            self.particle_filter.top_n = pfp.top_n
+            self.particle_filter.pose_lambda = pfp.pose_lambda
+            self.particle_filter.size_lambda = pfp.size_lambda  # :contentReference[oaicite:3]{index=3}
 
             self.current_best_particle = None
-            self.room_box_height = 2.5
+            self.current_best_smoothed_particle = None
+            self.room_box_height = H.height
 
-            # Create a visualizer object
+            # --- Open3D Visualizer from params ---
+            V = self.params.viz
             self.vis = o3d.visualization.Visualizer()
-            self.vis.create_window(width=600, height=600)
+            self.vis.create_window(width=V.window_size[0], height=V.window_size[1])
             self.view_control = self.vis.get_view_control()
-            self.view_control.set_front([5, -5, 20])
-            self.view_control.set_lookat([0, 0, 1.5])
-            self.view_control.set_up([0, 0, 1])
-            self.view_control.set_zoom(0.01)
-            # # To store the camera state between frames
+            self.view_control.set_front(list(V.view_front))
+            self.view_control.set_lookat(list(V.lookat))
+            self.view_control.set_up(list(V.up))
+            self.view_control.set_zoom(V.zoom)
             self.camera_parameters = self.view_control.convert_to_pinhole_camera_parameters()
-            # Use numpy arrays for colors to avoid Open3D warnings
-            self.h_color = np.array([0.0, 0.0, 1.0])
-            self.v_colors = [
-                np.array([1.0, 0.0, 0.0], dtype=np.float64),  # Red
-                np.array([0.0, 1.0, 0.0], dtype=np.float64),  # Green
-                np.array([1.0, 1.0, 0.0], dtype=np.float64),  # Yellow
-                np.array([0.0, 1.0, 1.0], dtype=np.float64),  # Cyan
-                np.array([1.0, 0.0, 1.0], dtype=np.float64)  # Magenta
-            ]
-            self.o_color = np.array([1.0, 0.0, 1.0], dtype=np.float64)
 
-            # robot
-            self.robot_velocity = [0.0, 0.0, 0.0]  # [vx, vy, omega] in m/s and rad/s
+            # colors as numpy arrays
+            import numpy as np
+            self.h_color = np.array(V.h_color, dtype=np.float64)
+            self.v_colors = [np.array(c, dtype=np.float64) for c in V.v_colors]
+            self.o_color = np.array(V.o_color, dtype=np.float64)
 
-            # Command ring buffer: store (timestamp, vx, vy, omega)
-            self.cmd_buffer = deque(maxlen=300)  # ~3s at 100 Hz; adjust as needed
+            # robot state
+            self.robot_velocity = [0.0, 0.0, 0.0]
+
+            from collections import deque
+            self.cmd_buffer = deque(maxlen=300)
             now = time.monotonic()
             self.cmd_buffer.append((now, 0.0, 0.0, 0.0))
 
             # PF tick timing
             self.last_tick_time = time.monotonic()
-            self.last_pred_time = time.monotonic()  # last time we integrated odometry
-            self.cycle_time = 0.1  # initial guess
+            self.last_pred_time = time.monotonic()
+            self.cycle_time = 0.1
 
-            # Optional: smoothing factor if you want to low-pass joystick (1.0 = no smoothing)
-            self.vel_alpha = 1.0
+            # joystick smoothing
+            self.vel_alpha = self.params.timing.vel_alpha
 
-            # Load the Shadow .obj mesh
+            # Load Shadow mesh
             self.shadow_mesh = o3d.io.read_triangle_mesh("src/meshes/shadow.obj", print_progress=True)
             self.shadow_mesh.paint_uniform_color([1, 0, 1])
             self.vis.add_geometry(self.shadow_mesh)
 
-            # where to write the history JSON
+            # plotter
+            import tempfile, subprocess, json, os, sys
             self.plot_history_path = os.path.join(tempfile.gettempdir(), "pf_history.json")
-            # print(f"[SpecificWorker] Plot history path: {self.plot_history_path}")
-
-            # start the external plotter subprocess
             plotter_py = os.path.join(os.path.dirname(__file__), "plotter.py")
             self._plotter_proc = subprocess.Popen([sys.executable, "-u", plotter_py, self.plot_history_path],
-                                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                                   start_new_session=True)
+                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                  start_new_session=True)  # :contentReference[oaicite:4]{index=4}
 
-            # Regionalized loss for segmentation (if needed)
+            # --- Regionalized loss (segmentation) from params ---
+            RL = self.params.regional
             if not hasattr(self, "seg_loss"):
                 self.seg_loss = RegionalizedRectLoss(
-                    num_segments_per_side=16,
-                    band_outside=0.40,
-                    band_inside=0.40,
-                    huber_delta=0.05,   # 3 cm
-                    device="cuda"
-                )
+                    num_segments_per_side=RL.num_segments_per_side,
+                    band_outside=RL.band_outside,
+                    band_inside=RL.band_inside,
+                    huber_delta=RL.huber_delta,
+                    device=RL.device,
+                    absence_alpha=RL.absence_alpha,
+                    absence_curve_k=RL.absence_curve_k
+                )  # :contentReference[oaicite:5]{index=5}
 
-            self.Period = 100
+            # Period from params (keep configData if you prefer)
+            self.Period = self.params.timing.period_ms
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
@@ -176,7 +193,7 @@ class SpecificWorker(GenericWorker):
         self.last_pred_time = now
         cycle = now - getattr(self, "last_tick_time", now)
         self.cycle_time = 0.9 * getattr(self, "cycle_time", cycle) + 0.1 * cycle
-        # print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
+        print(f"[SpecificWorker] Cycle time: {self.cycle_time*1000:.1f} ms")
 
         # read lidar data
         pcd = o3d.geometry.PointCloud()
@@ -185,7 +202,10 @@ class SpecificWorker(GenericWorker):
         pcd.points = res
 
         # Detect planes ONCE per iteration
-        h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
+        #h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
+        h_planes, validated_v, unmatched_v, o_planes, outliers = \
+            self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
+        v_planes = validated_v + unmatched_v  # if only validated_v is used, PF will see what it expects
 
         # Extract wall points ONCE (with fallback to all points)
         wall_points_np = self._extract_wall_points(pcd, v_planes)
@@ -194,20 +214,20 @@ class SpecificWorker(GenericWorker):
 
         # Estimate latency tau (s) and integrate commands over [t0-tau, t1-tau]
         tau = min(0.20, max(0.0, 1.0 * self.cycle_time))  # e.g., 1× cycle, ≤200 ms
-        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, 1.1 * self.cycle_time)
+        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, self.params.timing.latency_gain * self.cycle_time)
         odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step with pre-computed wall points
         self.particle_filter.step(odometry_delta, wall_points_torch)
-        self.current_best_particle = self.particle_filter.best_particle()
+        self.current_best_particle, smooth_best_particle = self.particle_filter.best_particle()
 
         # Visualize results using the already-detected planes
-        self.visualize_results(pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
+        self.visualize_results(smooth_best_particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
 
         # Send data to plotter
         self.send_data_to_plotter()
 
-        self.last_tick_time = now
+        self.last_tick_time = now   #for cycle length measurement
         return True
 
     def _extract_wall_points(self, pcd, v_planes):
@@ -252,7 +272,10 @@ class SpecificWorker(GenericWorker):
                     "deaths": hist.get("deaths", [])[-N:],
                     "n_particles": hist.get("n_particles", [])[-N:],
                     "ess_pct": hist.get("ess_pct", [])[-N:],
-                    "weight_entropy": hist.get("weight_entropy", [])[-N:]
+                    "weight_entropy": hist.get("weight_entropy", [])[-N:],
+                    "x_std": hist.get("x_std", [])[-N:],
+                    "y_std": hist.get("y_std", [])[-N:],
+                    "theta_std": hist.get("theta_std", [])[-N:],
                 }
                 tmp = self.plot_history_path + ".tmp"
                 with open(tmp, "w") as f:
@@ -261,16 +284,16 @@ class SpecificWorker(GenericWorker):
             except Exception:
                 pass
 
-    def visualize_results(self, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch):
+    def visualize_results(self, particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch):
         """Create and display all visualization geometries (room-centric frame)"""
-        if self.current_best_particle is None:
+        if particle is None:
             return
 
         geometries_to_draw = []
 
         # Get transform to room-centric frame
-        #p = self.current_best_particle
-        p = self.particle_filter.mean_weighted_particle()
+        #p = self.particle_filter.mean_weighted_particle()
+        p = particle
 
         # Create inverse transform (world -> room frame)
         # Room is at origin, so we move everything by -particle pose
@@ -321,24 +344,37 @@ class SpecificWorker(GenericWorker):
         # floor in room frame
         floor_mesh = o3d.geometry.TriangleMesh.create_box(width=p.length,
                                                           height=p.width,
-                                                          depth=0.02)
+                                                          depth=self.params.viz.floor_thickness)
         floor_mesh.translate([-p.length / 2, -p.width / 2, 0.0])
         floor_mesh.paint_uniform_color([1.0, 0.86, 0.58])
         geometries_to_draw.append(floor_mesh)
 
         ### Draw hotzones on lines (in room frame):
-        seg_list, heat = self.seg_loss.evaluate_segments(self.current_best_particle, wall_points_torch[:, :2])
-        # Build new ones
+        seg_list, heat = self.seg_loss.evaluate_segments(p, wall_points_torch[:, :2])
+        HZ = self.params.hotzones
         hotzone_meshes = build_hot_patches_heatmap(
-            seg_list, self.current_best_particle,
-            percentile_clip=50.0,  # ignore outliers when setting color range
-            min_norm=0.95,  # <- raise to show fewer patches
-            topk=10,
-            eps_in=0.001,
-            eps_out=0.001,
-            snap_mode="plane",
-            thickness=0.001,
-            min_support_ratio=0.2,
+            seg_list, p,
+            threshold=None,
+            topk=HZ.topk,
+            min_norm=HZ.min_norm,
+            min_points=0,
+            min_support_ratio=HZ.min_support_ratio,
+            percentile_clip=HZ.percentile_clip,
+            # color range overrides not used by default
+            vmin_override=None,
+            vmax_override=None,
+            # geometry
+            thickness=HZ.thickness,
+            outward_eps=0.0,
+            height=HZ.height,
+            lift=HZ.lift,
+            inside_frac=HZ.inside_frac,
+            gap_in=HZ.gap_in,
+            gap_out=HZ.gap_out,
+            # snapping
+            snap_mode=HZ.snap_mode,
+            eps_in=HZ.eps_in,
+            eps_out=HZ.eps_out,
         )
 
         for m in hotzone_meshes:

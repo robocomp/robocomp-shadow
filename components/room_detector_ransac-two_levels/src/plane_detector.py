@@ -3,8 +3,9 @@ import open3d as o3d
 import numpy as np
 from rich.console import Console
 
-#console = Console(highlight=False)
+# console = Console(highlight=False)
 console = Console(quiet=True, highlight=False)
+
 
 class PlaneDetector:
     """
@@ -209,7 +210,8 @@ class PlaneDetector:
 
         # 2. Define colors
         h_color = [0.0, 0.0, 1.0]  # Blue
-        v_colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 0.0]]  # Red, Green, Yellow, Cyan
+        v_colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 1.0],
+                    [0.0, 1.0, 0.0]]  # Red, Green, Yellow, Cyan
         o_color = [1.0, 0.0, 1.0]  # Magenta
 
         # 3. Process Horizontal planes
@@ -315,6 +317,205 @@ class PlaneDetector:
 
         all_indices = []
         for _, indices in vertical_planes:
+            all_indices.extend(indices)
+
+        if not all_indices:
+            return None
+
+        points = np.asarray(pcd.points)
+        return points[all_indices]
+
+    # ========== SOFT PRIOR METHODS ==========
+
+    def _get_expected_walls(self, particle):
+        """
+        Get expected wall plane equations from particle.
+        Returns list of (normal, distance) for 4 walls in world frame.
+        """
+        import math
+        if particle is None:
+            return None
+
+        L, W = particle.length, particle.width
+        x, y, theta = particle.x, particle.y, particle.theta
+
+        c, s = math.cos(theta), math.sin(theta)
+
+        # Four walls in local frame: +x, -x, +y, -y
+        # Format: (normal_x, normal_y, distance_from_origin)
+        walls_local = [
+            (1.0, 0.0, L / 2),  # +x wall
+            (-1.0, 0.0, L / 2),  # -x wall
+            (0.0, 1.0, W / 2),  # +y wall
+            (0.0, -1.0, W / 2),  # -y wall
+        ]
+
+        walls_world = []
+        for (nx_l, ny_l, d_l) in walls_local:
+            # Rotate normal to world frame
+            nx_w = c * nx_l - s * ny_l
+            ny_w = s * nx_l + c * ny_l
+
+            # Wall position in world frame
+            wx_l = nx_l * d_l
+            wy_l = ny_l * d_l
+            wx_w = c * wx_l - s * wy_l + x
+            wy_w = s * wx_l + c * wy_l + y
+
+            # Distance from origin in world frame
+            d_w = nx_w * wx_w + ny_w * wy_w
+
+            walls_world.append(([nx_w, ny_w, 0.0], abs(d_w)))
+
+        return walls_world
+
+    def _planes_compatible(self, plane_model, expected_normal, expected_dist,
+                           angular_tolerance, distance_tolerance):
+        """
+        Check if detected plane is compatible with expected wall.
+
+        Args:
+            plane_model: [A, B, C, D] from RANSAC
+            expected_normal: [nx, ny, nz] expected normal
+            expected_dist: expected distance from origin
+            angular_tolerance: max angle difference in degrees
+            distance_tolerance: max distance difference in meters
+        """
+        # Extract and normalize detected normal
+        detected_normal = np.array(plane_model[:3])
+        detected_normal = detected_normal / np.linalg.norm(detected_normal)
+
+        # Normalize expected normal
+        expected_normal = np.array(expected_normal)
+        expected_normal = expected_normal / np.linalg.norm(expected_normal)
+
+        # Check angular alignment (allow opposite directions)
+        dot = abs(np.dot(detected_normal, expected_normal))
+        angle_deg = np.rad2deg(np.arccos(np.clip(dot, -1.0, 1.0)))
+
+        if angle_deg > angular_tolerance:
+            return False
+
+        # Check distance alignment
+        detected_dist = abs(plane_model[3])
+        dist_diff = abs(detected_dist - expected_dist)
+
+        if dist_diff > distance_tolerance:
+            return False
+
+        return True
+
+    def _refine_toward_expected(self, plane_model, expected_normal, expected_dist, alpha=0.7):
+        """
+        Refine detected plane toward expected plane.
+
+        Args:
+            plane_model: [A, B, C, D] detected plane
+            expected_normal: [nx, ny, nz] expected normal
+            expected_dist: expected distance
+            alpha: blend factor (1.0=fully expected, 0.0=fully detected)
+
+        Returns:
+            Refined plane model [A', B', C', D']
+        """
+        # Blend normals
+        detected_normal = np.array(plane_model[:3])
+        detected_normal = detected_normal / np.linalg.norm(detected_normal)
+
+        expected_normal = np.array(expected_normal)
+        expected_normal = expected_normal / np.linalg.norm(expected_normal)
+
+        # Ensure same direction (not opposite)
+        if np.dot(detected_normal, expected_normal) < 0:
+            expected_normal = -expected_normal
+
+        refined_normal = (1 - alpha) * detected_normal + alpha * expected_normal
+        refined_normal = refined_normal / np.linalg.norm(refined_normal)
+
+        # Blend distances
+        detected_dist = plane_model[3]
+        refined_dist = (1 - alpha) * detected_dist + alpha * expected_dist
+
+        # Ensure correct sign
+        if detected_dist < 0:
+            refined_dist = -abs(refined_dist)
+        else:
+            refined_dist = abs(refined_dist)
+
+        return [refined_normal[0], refined_normal[1], refined_normal[2], refined_dist]
+
+    def detect_with_prior(self, pcd, particle,
+                          angular_tolerance=15.0,
+                          distance_tolerance=0.3,
+                          refine_alpha=0.7):
+        """
+        Detect planes with soft prior from room model.
+
+        Strategy:
+        - Detect planes normally (unchanged)
+        - Validate vertical planes against expected walls
+        - Refine matching planes toward model (stability)
+        - Keep unmatched planes separate (obstacles/new geometry)
+
+        Args:
+            pcd: Point cloud
+            particle: Current best particle with room estimate
+            angular_tolerance: Max angle difference for matching (degrees)
+            distance_tolerance: Max distance difference for matching (meters)
+            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
+
+        Returns:
+            (horizontal_planes, validated_vertical, unmatched_vertical,
+             oblique_planes, outliers)
+        """
+        if particle is None:
+            return [[],[],[],[],[]]
+
+        # 1. Normal detection (unchanged)
+        h_planes, v_planes, o_planes, outliers = self.detect(pcd)
+
+        # 2. Get expected wall planes from particle
+        expected_walls = self._get_expected_walls(particle)
+
+        # 3. Validate vertical planes against model
+        validated_v = []
+        unmatched_v = []
+
+        for plane_model, indices in v_planes:
+            matched = False
+
+            for exp_normal, exp_dist in expected_walls:
+                if self._planes_compatible(plane_model, exp_normal, exp_dist,
+                                           angular_tolerance, distance_tolerance):
+                    # Snap to expected (soft correction)
+                    refined_model = self._refine_toward_expected(
+                        plane_model, exp_normal, exp_dist, alpha=refine_alpha)
+                    validated_v.append((refined_model, indices))
+                    matched = True
+                    console.log(f"[cyan]Matched wall plane[/cyan]: refined toward model")
+                    break
+
+            if not matched:
+                unmatched_v.append((plane_model, indices))
+                console.log(f"[yellow]Unmatched plane[/yellow]: keeping as obstacle/new geometry")
+
+        console.log(f"Prior validation: {len(validated_v)} validated, {len(unmatched_v)} unmatched")
+
+        return h_planes, validated_v, unmatched_v, o_planes, outliers
+
+    def get_wall_inlier_points_with_prior(self, pcd, particle, **kwargs):
+        """
+        Get wall inlier points using prior-validated planes.
+        Returns points from both validated and unmatched vertical planes.
+        """
+        _, validated_v, unmatched_v, _, _ = self.detect_with_prior(pcd, particle, **kwargs)
+
+        all_planes = validated_v + unmatched_v
+        if not all_planes:
+            return None
+
+        all_indices = []
+        for _, indices in all_planes:
             all_indices.extend(indices)
 
         if not all_indices:
