@@ -132,6 +132,7 @@ class SpecificWorker(GenericWorker):
 
             # robot state
             self.robot_velocity = [0.0, 0.0, 0.0]
+            self.best_loss = 9999999
 
             from collections import deque
             self.cmd_buffer = deque(maxlen=300)
@@ -200,7 +201,15 @@ class SpecificWorker(GenericWorker):
             return False
         pcd.points = res
 
-        # Detect planes ONCE per iteration WITH PRIOR
+        # print(self.best_loss)
+        if self.best_loss < 0.001:  # Converged
+             # Use seeded RANSAC for rock-solid stability
+             h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                 self.plane_detector.detect_with_prior_seeded(pcd, self.current_best_particle)
+         else:  # Still exploring
+            # Use normal validation for flexibility
+            h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
         h_planes, validated_v, unmatched_v, o_planes, outliers = \
             self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
 
@@ -233,6 +242,10 @@ class SpecificWorker(GenericWorker):
         self.send_data_to_plotter()
 
         self.last_tick_time = now
+        self.best_loss = self.particle_filter.compute_fitness_loss_with_points(
+            self.current_best_particle, wall_points_torch
+        )
+
         return True
 
     def _extract_wall_points(self, pcd, v_planes):
