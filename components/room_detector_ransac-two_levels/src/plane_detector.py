@@ -3,8 +3,8 @@ import open3d as o3d
 import numpy as np
 from rich.console import Console
 
-# console = Console(highlight=False)
-console = Console(quiet=True, highlight=False)
+console = Console(highlight=True)
+#console = Console(quiet=True, highlight=False)
 
 
 class PlaneDetector:
@@ -140,6 +140,234 @@ class PlaneDetector:
         console.log(f"{len(outlier_indices)} points remaining as outliers.")
 
         return horizontal_planes, vertical_planes, oblique_planes, outlier_indices
+
+    def detect_with_prior(self, pcd, particle,
+                          angular_tolerance=15.0,
+                          distance_tolerance=0.3,
+                          refine_alpha=0.7):
+        """
+        Detect planes with soft prior from room model.
+
+        Strategy:
+        - Detect planes normally (unchanged)
+        - Validate vertical planes against expected walls
+        - Refine matching planes toward model (stability)
+        - Keep unmatched planes separate (obstacles/new geometry)
+
+        Args:
+            pcd: Point cloud
+            particle: Current best particle with room estimate
+            angular_tolerance: Max angle difference for matching (degrees)
+            distance_tolerance: Max distance difference for matching (meters)
+            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
+
+        Returns:
+            (horizontal_planes, validated_vertical, unmatched_vertical,
+             oblique_planes, outliers)
+        """
+        if particle is None:
+            return [[], [], [], [], []]
+
+        # 1. Normal detection (unchanged)
+        h_planes, v_planes, o_planes, outliers = self.detect(pcd)
+
+        # 2. Get expected wall planes from particle
+        expected_walls = self._get_expected_walls(particle)
+
+        # 3. Validate vertical planes against model
+        validated_v = []
+        unmatched_v = []
+
+        for plane_model, indices in v_planes:
+            matched = False
+
+            for exp_normal, exp_dist in expected_walls:
+                if self._planes_compatible(plane_model, exp_normal, exp_dist,
+                                           angular_tolerance, distance_tolerance):
+                    # Snap to expected (soft correction)
+                    refined_model = self._refine_toward_expected(
+                        plane_model, exp_normal, exp_dist, alpha=refine_alpha)
+                    validated_v.append((refined_model, indices))
+                    matched = True
+                    console.log(f"[cyan]Matched wall plane[/cyan]: refined toward model")
+                    break
+
+            if not matched:
+                unmatched_v.append((plane_model, indices))
+                console.log(f"[yellow]Unmatched plane[/yellow]: keeping as obstacle/new geometry")
+
+        console.log(f"Prior validation: {len(validated_v)} validated, {len(unmatched_v)} unmatched")
+
+        return h_planes, validated_v, unmatched_v, o_planes, outliers
+
+    """
+    This version SEEDS RANSAC with expected walls first, then discovers additional planes.
+    """
+
+    def detect_with_prior_seeded(self, pcd, particle,
+                                 angular_tolerance=10.0,
+                                 distance_tolerance=0.1,
+                                 refine_alpha=0.7,
+                                 seed_threshold_factor=0.8):
+        """
+        Detect planes with STRONG prior from room model.
+
+        Strategy:
+        1. Get expected walls from particle
+        2. SEED RANSAC: Test each expected wall directly against point cloud
+        3. Accept expected walls with sufficient inliers (remove from pcd)
+        4. Run RANSAC on remaining points to find novel planes
+        5. Validate/refine all detected planes
+
+        This is more aggressive than detect_with_prior() - it FORCES the expected
+        walls to be tested first before random sampling.
+
+        Args:
+            pcd: Point cloud
+            particle: Current best particle with room estimate
+            angular_tolerance: Max angle difference for matching (degrees)
+            distance_tolerance: Max distance difference for matching (meters)
+            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
+            seed_threshold_factor: Multiplier for min_plane_points when seeding
+                                   (0.8 means expected walls need 80% of normal threshold)
+
+        Returns:
+            (horizontal_planes, validated_vertical, unmatched_vertical,
+             oblique_planes, outliers)
+        """
+        if particle is None:
+            return [[], [], [], [], []]
+
+        import numpy as np
+
+        # 1. Get expected wall planes from particle
+        expected_walls = self._get_expected_walls(particle)
+        if not expected_walls:
+            # No model available, fall back to normal detection
+            return self.detect(pcd)
+
+        console.log(f"[blue]Seeded RANSAC: Testing {len(expected_walls)} expected walls first[/blue]")
+
+        # 2. SEED PHASE: Test each expected wall directly
+        seeded_planes = []
+        remaining_pcd = pcd
+        remaining_indices = np.arange(len(pcd.points))
+
+        min_seed_inliers = int(self.min_plane_points * seed_threshold_factor)
+
+        for i, (exp_normal, exp_dist) in enumerate(expected_walls):
+            if len(remaining_pcd.points) < min_seed_inliers:
+                break
+
+            # Construct plane model [A, B, C, D] from normal and distance
+            # Plane equation: Ax + By + Cz + D = 0, where [A,B,C] is normalized
+            plane_model = [exp_normal[0], exp_normal[1], exp_normal[2], -exp_dist]
+
+            # Find inliers for this expected plane
+            inliers_relative = self._find_inliers(remaining_pcd, plane_model, self.ransac_threshold)
+
+            if len(inliers_relative) >= min_seed_inliers:
+                # Accept this expected wall
+                inliers_original = remaining_indices[inliers_relative]
+
+                # Classify as horizontal/vertical/oblique
+                normal_vector = np.array(exp_normal)
+                normal_vector = normal_vector / np.linalg.norm(normal_vector)
+                dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
+
+                if dot_product > self.horizontal_cos_tolerance:
+                    # Horizontal (shouldn't happen for walls, but check anyway)
+                    pass  # We'll handle this later
+                elif dot_product < self.vertical_cos_cutoff:
+                    # Vertical - this is what we expect for walls
+                    seeded_planes.append((plane_model, inliers_original))
+                    console.log(f"[green]✓ Seeded wall {i + 1}[/green]: {len(inliers_original)} inliers")
+
+                    # Remove inliers from remaining point cloud
+                    remaining_pcd = remaining_pcd.select_by_index(inliers_relative, invert=True)
+                    remaining_indices = np.delete(remaining_indices, inliers_relative)
+
+        # 3. DISCOVERY PHASE: Run normal RANSAC on remaining points
+        console.log(f"[blue]Discovery phase: RANSAC on {len(remaining_pcd.points)} remaining points[/blue]")
+
+        discovered_h = []
+        discovered_v = []
+        discovered_o = []
+
+        while len(remaining_pcd.points) > self.min_plane_points:
+            plane_model, inliers_relative = remaining_pcd.segment_plane(
+                distance_threshold=self.ransac_threshold,
+                ransac_n=self.ransac_n,
+                num_iterations=self.ransac_iterations
+            )
+
+            if len(inliers_relative) < self.min_plane_points:
+                break
+
+            inliers_original = remaining_indices[inliers_relative]
+
+            # Classify discovered plane
+            normal_vector = plane_model[:3]
+            normal_vector = normal_vector / np.linalg.norm(normal_vector)
+            dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
+
+            if dot_product > self.horizontal_cos_tolerance:
+                if plane_model[2] < 0:
+                    plane_model = [-x for x in plane_model]
+                discovered_h.append((plane_model, inliers_original))
+                console.log(f"[blue]Discovered Horizontal[/blue]: {len(inliers_original)} points")
+            elif dot_product < self.vertical_cos_cutoff:
+                discovered_v.append((plane_model, inliers_original))
+                console.log(f"[yellow]Discovered Vertical[/yellow]: {len(inliers_original)} points")
+            else:
+                discovered_o.append((plane_model, inliers_original))
+                console.log(f"[magenta]Discovered Oblique[/magenta]: {len(inliers_original)} points")
+
+            # Remove inliers
+            remaining_pcd = remaining_pcd.select_by_index(inliers_relative, invert=True)
+            remaining_indices = np.delete(remaining_indices, inliers_relative)
+
+        outlier_indices = remaining_indices
+
+        # 4. Apply NMS to all planes
+        all_h = discovered_h
+        all_v = seeded_planes + discovered_v
+        all_o = discovered_o
+
+        console.log(f"Before NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
+
+        all_h = self._non_maximum_suppression(all_h)
+        all_v = self._non_maximum_suppression(all_v)
+        all_o = self._non_maximum_suppression(all_o)
+
+        console.log(f"After NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
+
+        # 5. Validate vertical planes against expected walls
+        validated_v = []
+        unmatched_v = []
+
+        for plane_model, indices in all_v:
+            matched = False
+
+            for exp_normal, exp_dist in expected_walls:
+                if self._planes_compatible(plane_model, exp_normal, exp_dist,
+                                           angular_tolerance, distance_tolerance):
+                    # Refine toward expected
+                    refined_model = self._refine_toward_expected(
+                        plane_model, exp_normal, exp_dist, alpha=refine_alpha
+                    )
+                    validated_v.append((refined_model, indices))
+                    matched = True
+                    console.log(f"[cyan]Validated plane[/cyan]: refined toward model")
+                    break
+
+            if not matched:
+                unmatched_v.append((plane_model, indices))
+                console.log(f"[yellow]Unmatched plane[/yellow]: novel geometry")
+
+        console.log(f"Final: {len(validated_v)} validated, {len(unmatched_v)} unmatched")
+
+        return all_h, validated_v, unmatched_v, all_o, outlier_indices
 
     def get_colored_geometries(self, pcd: o3d.geometry.PointCloud):
         """
@@ -443,234 +671,6 @@ class PlaneDetector:
             refined_dist = abs(refined_dist)
 
         return [refined_normal[0], refined_normal[1], refined_normal[2], refined_dist]
-
-    def detect_with_prior(self, pcd, particle,
-                          angular_tolerance=15.0,
-                          distance_tolerance=0.3,
-                          refine_alpha=0.7):
-        """
-        Detect planes with soft prior from room model.
-
-        Strategy:
-        - Detect planes normally (unchanged)
-        - Validate vertical planes against expected walls
-        - Refine matching planes toward model (stability)
-        - Keep unmatched planes separate (obstacles/new geometry)
-
-        Args:
-            pcd: Point cloud
-            particle: Current best particle with room estimate
-            angular_tolerance: Max angle difference for matching (degrees)
-            distance_tolerance: Max distance difference for matching (meters)
-            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
-
-        Returns:
-            (horizontal_planes, validated_vertical, unmatched_vertical,
-             oblique_planes, outliers)
-        """
-        if particle is None:
-            return [[],[],[],[],[]]
-
-        # 1. Normal detection (unchanged)
-        h_planes, v_planes, o_planes, outliers = self.detect(pcd)
-
-        # 2. Get expected wall planes from particle
-        expected_walls = self._get_expected_walls(particle)
-
-        # 3. Validate vertical planes against model
-        validated_v = []
-        unmatched_v = []
-
-        for plane_model, indices in v_planes:
-            matched = False
-
-            for exp_normal, exp_dist in expected_walls:
-                if self._planes_compatible(plane_model, exp_normal, exp_dist,
-                                           angular_tolerance, distance_tolerance):
-                    # Snap to expected (soft correction)
-                    refined_model = self._refine_toward_expected(
-                        plane_model, exp_normal, exp_dist, alpha=refine_alpha)
-                    validated_v.append((refined_model, indices))
-                    matched = True
-                    console.log(f"[cyan]Matched wall plane[/cyan]: refined toward model")
-                    break
-
-            if not matched:
-                unmatched_v.append((plane_model, indices))
-                console.log(f"[yellow]Unmatched plane[/yellow]: keeping as obstacle/new geometry")
-
-        console.log(f"Prior validation: {len(validated_v)} validated, {len(unmatched_v)} unmatched")
-
-        return h_planes, validated_v, unmatched_v, o_planes, outliers
-
-    """
-    This version SEEDS RANSAC with expected walls first, then discovers additional planes.
-    """
-
-    def detect_with_prior_seeded(self, pcd, particle,
-                                 angular_tolerance=15.0,
-                                 distance_tolerance=0.3,
-                                 refine_alpha=0.7,
-                                 seed_threshold_factor=0.8):
-        """
-        Detect planes with STRONG prior from room model.
-
-        Strategy:
-        1. Get expected walls from particle
-        2. SEED RANSAC: Test each expected wall directly against point cloud
-        3. Accept expected walls with sufficient inliers (remove from pcd)
-        4. Run RANSAC on remaining points to find novel planes
-        5. Validate/refine all detected planes
-
-        This is more aggressive than detect_with_prior() - it FORCES the expected
-        walls to be tested first before random sampling.
-
-        Args:
-            pcd: Point cloud
-            particle: Current best particle with room estimate
-            angular_tolerance: Max angle difference for matching (degrees)
-            distance_tolerance: Max distance difference for matching (meters)
-            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
-            seed_threshold_factor: Multiplier for min_plane_points when seeding
-                                   (0.8 means expected walls need 80% of normal threshold)
-
-        Returns:
-            (horizontal_planes, validated_vertical, unmatched_vertical,
-             oblique_planes, outliers)
-        """
-        if particle is None:
-            return [[], [], [], [], []]
-
-        import numpy as np
-
-        # 1. Get expected wall planes from particle
-        expected_walls = self._get_expected_walls(particle)
-        if not expected_walls:
-            # No model available, fall back to normal detection
-            return self.detect(pcd)
-
-        console.log(f"[blue]Seeded RANSAC: Testing {len(expected_walls)} expected walls first[/blue]")
-
-        # 2. SEED PHASE: Test each expected wall directly
-        seeded_planes = []
-        remaining_pcd = pcd
-        remaining_indices = np.arange(len(pcd.points))
-
-        min_seed_inliers = int(self.min_plane_points * seed_threshold_factor)
-
-        for i, (exp_normal, exp_dist) in enumerate(expected_walls):
-            if len(remaining_pcd.points) < min_seed_inliers:
-                break
-
-            # Construct plane model [A, B, C, D] from normal and distance
-            # Plane equation: Ax + By + Cz + D = 0, where [A,B,C] is normalized
-            plane_model = [exp_normal[0], exp_normal[1], exp_normal[2], -exp_dist]
-
-            # Find inliers for this expected plane
-            inliers_relative = self._find_inliers(remaining_pcd, plane_model, self.ransac_threshold)
-
-            if len(inliers_relative) >= min_seed_inliers:
-                # Accept this expected wall
-                inliers_original = remaining_indices[inliers_relative]
-
-                # Classify as horizontal/vertical/oblique
-                normal_vector = np.array(exp_normal)
-                normal_vector = normal_vector / np.linalg.norm(normal_vector)
-                dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
-
-                if dot_product > self.horizontal_cos_tolerance:
-                    # Horizontal (shouldn't happen for walls, but check anyway)
-                    pass  # We'll handle this later
-                elif dot_product < self.vertical_cos_cutoff:
-                    # Vertical - this is what we expect for walls
-                    seeded_planes.append((plane_model, inliers_original))
-                    console.log(f"[green]✓ Seeded wall {i + 1}[/green]: {len(inliers_original)} inliers")
-
-                    # Remove inliers from remaining point cloud
-                    remaining_pcd = remaining_pcd.select_by_index(inliers_relative, invert=True)
-                    remaining_indices = np.delete(remaining_indices, inliers_relative)
-
-        # 3. DISCOVERY PHASE: Run normal RANSAC on remaining points
-        console.log(f"[blue]Discovery phase: RANSAC on {len(remaining_pcd.points)} remaining points[/blue]")
-
-        discovered_h = []
-        discovered_v = []
-        discovered_o = []
-
-        while len(remaining_pcd.points) > self.min_plane_points:
-            plane_model, inliers_relative = remaining_pcd.segment_plane(
-                distance_threshold=self.ransac_threshold,
-                ransac_n=self.ransac_n,
-                num_iterations=self.ransac_iterations
-            )
-
-            if len(inliers_relative) < self.min_plane_points:
-                break
-
-            inliers_original = remaining_indices[inliers_relative]
-
-            # Classify discovered plane
-            normal_vector = plane_model[:3]
-            normal_vector = normal_vector / np.linalg.norm(normal_vector)
-            dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
-
-            if dot_product > self.horizontal_cos_tolerance:
-                if plane_model[2] < 0:
-                    plane_model = [-x for x in plane_model]
-                discovered_h.append((plane_model, inliers_original))
-                console.log(f"[blue]Discovered Horizontal[/blue]: {len(inliers_original)} points")
-            elif dot_product < self.vertical_cos_cutoff:
-                discovered_v.append((plane_model, inliers_original))
-                console.log(f"[yellow]Discovered Vertical[/yellow]: {len(inliers_original)} points")
-            else:
-                discovered_o.append((plane_model, inliers_original))
-                console.log(f"[magenta]Discovered Oblique[/magenta]: {len(inliers_original)} points")
-
-            # Remove inliers
-            remaining_pcd = remaining_pcd.select_by_index(inliers_relative, invert=True)
-            remaining_indices = np.delete(remaining_indices, inliers_relative)
-
-        outlier_indices = remaining_indices
-
-        # 4. Apply NMS to all planes
-        all_h = discovered_h
-        all_v = seeded_planes + discovered_v
-        all_o = discovered_o
-
-        console.log(f"Before NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
-
-        all_h = self._non_maximum_suppression(all_h)
-        all_v = self._non_maximum_suppression(all_v)
-        all_o = self._non_maximum_suppression(all_o)
-
-        console.log(f"After NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
-
-        # 5. Validate vertical planes against expected walls
-        validated_v = []
-        unmatched_v = []
-
-        for plane_model, indices in all_v:
-            matched = False
-
-            for exp_normal, exp_dist in expected_walls:
-                if self._planes_compatible(plane_model, exp_normal, exp_dist,
-                                           angular_tolerance, distance_tolerance):
-                    # Refine toward expected
-                    refined_model = self._refine_toward_expected(
-                        plane_model, exp_normal, exp_dist, alpha=refine_alpha
-                    )
-                    validated_v.append((refined_model, indices))
-                    matched = True
-                    console.log(f"[cyan]Validated plane[/cyan]: refined toward model")
-                    break
-
-            if not matched:
-                unmatched_v.append((plane_model, indices))
-                console.log(f"[yellow]Unmatched plane[/yellow]: novel geometry")
-
-        console.log(f"Final: {len(validated_v)} validated, {len(unmatched_v)} unmatched")
-
-        return all_h, validated_v, unmatched_v, all_o, outlier_indices
 
     def _find_inliers(self, pcd, plane_model, threshold):
         """

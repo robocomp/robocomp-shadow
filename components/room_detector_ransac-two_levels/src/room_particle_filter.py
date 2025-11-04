@@ -29,14 +29,31 @@ class RoomParticleFilter:
             self,
             num_particles,
             initial_hypothesis,
+            *,
             device="cpu",
             use_gradient_refinement=True,
             adaptive_particles=True,
             min_particles=20,
             max_particles=300,
-            elite_count=1,  # Number of best particles to preserve during resampling
-    ):
+            elite_count=5,  # Number of best particles to preserve during resampling
 
+            # NEW: motion noise (moving vs. stationary)
+            trans_noise=0.01,
+            rot_noise=0.01,
+            trans_noise_stationary=0.00,
+            rot_noise_stationary=0.00,
+
+            # NEW: resampling/ESS
+            ess_frac=0.15,  # resample when ESS < ess_frac * N
+            target_ess_pct=75.0,  # target ESS% for adaptive particles
+
+            # NEW: gradient refinement
+            lr=0.05,
+            num_steps=25,
+            top_n=3,
+            pose_lambda=1e-2,
+            size_lambda=1e-3,
+    ):
         assert num_particles > 0, "num_particles must be positive"
         assert initial_hypothesis.length > 0, "length must be positive"
         assert initial_hypothesis.width > 0, "width must be positive"
@@ -51,19 +68,16 @@ class RoomParticleFilter:
         self.adaptive_particles = adaptive_particles
         self.min_particles = min_particles
         self.max_particles = max_particles
-        self.target_ess_pct = 75.0  # target ESS as percentage of N
-        self.last_adaptation_tick = -10  # cooldown tracking
-        self.elite_count = elite_count  # elitism for resampling
+        self.target_ess_pct = target_ess_pct
+        self.last_adaptation_tick = -10
+        self.elite_count = elite_count
 
         # initialize particles around the initial hypothesis
         base = deepcopy(initial_hypothesis)
         rng = np.random.default_rng()
 
         def jitter():
-            # very small spread; adjust if needed
-            return (rng.normal(0, 0.05),  # x [m]
-                    rng.normal(0, 0.05),  # y [m]
-                    rng.normal(0, 0.05))  # theta [rad]
+            return (rng.normal(0, 0.05), rng.normal(0, 0.05), rng.normal(0, 0.05))
 
         self.particles = []
         for _ in range(self.num_particles):
@@ -75,42 +89,31 @@ class RoomParticleFilter:
             p.weight = 1.0 / self.num_particles
             self.particles.append(p)
 
-        # Noise parameters
-        self.trans_noise = 0.01
-        self.rot_noise = 0.01
-        self.trans_noise_stationary = 0.000
-        self.rot_noise_stationary = 0.000
+        # Motion noise
+        self.trans_noise = float(trans_noise)
+        self.rot_noise = float(rot_noise)
+        self.trans_noise_stationary = float(trans_noise_stationary)
+        self.rot_noise_stationary = float(rot_noise_stationary)
 
-        # Resampling settings
-        self.ess_frac = 0.15  # resample when ESS < 50% of N
-        self.ess = float(getattr(self, "num_particles", 1))  # start with a sane value
+        # Resampling settings / diagnostics
+        self.ess_frac = float(ess_frac)
+        self.ess = float(getattr(self, "num_particles", 1))
         self.ess_pct = None
+        self.weight_entropy = 0.0
 
-        # entropy-based diversity
-        self.weight_entropy = 0
-
-        # Gradient refinement settings
-        self.lr = 0.05  #
-        self.num_steps = 25  # gradient steps per refinement
-        self.top_n = 3  # refine top-N particles
-        self.top_n_max = 10  # max top-N for adaptive refinement
-        self.pose_lambda = 1e-2  # pose prior strength: constraint to original pose
-        self.size_lambda = 1e-3  # size prior strength
+        # Gradient refinement
+        self.lr = float(lr)
+        self.num_steps = int(num_steps)
+        self.top_n = int(top_n)
+        self.top_n_max = 3 * int(top_n)  # for exploration phase
+        self.pose_lambda = float(pose_lambda)
+        self.size_lambda = float(size_lambda)
 
         # loss history
         self.history = {
-            "tick": [],
-            "loss_best": [],
-            "num_features": [],
-            "ess": [],
-            "births": [],
-            "deaths": [],
-            "n_particles": [],
-            "ess_pct": [],
-            "weight_entropy": [],
-            "x_std": [],
-            "y_std": [],
-            "theta_std": [],
+            "tick": [], "loss_best": [], "num_features": [], "ess": [],
+            "births": [], "deaths": [], "n_particles": [], "ess_pct": [],
+            "weight_entropy": [],  "x_std": [], "y_std": [], "theta_std": [],
         }
         self._tick = getattr(self, "_tick", 0)
 

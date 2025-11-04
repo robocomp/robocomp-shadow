@@ -94,20 +94,18 @@ class SpecificWorker(GenericWorker):
                 adaptive_particles=pfp.adaptive_particles,
                 min_particles=pfp.min_particles,
                 max_particles=pfp.max_particles,
-                elite_count=pfp.elite_count
-            )  # :contentReference[oaicite:2]{index=2}
-
-            # Optional per-instance knobs (keeps PF code untouched)
-            self.particle_filter.trans_noise = pfp.trans_noise
-            self.particle_filter.rot_noise = pfp.rot_noise
-            self.particle_filter.trans_noise_stationary = pfp.trans_noise_stationary
-            self.particle_filter.rot_noise_stationary = pfp.rot_noise_stationary
-            self.particle_filter.ess_frac = pfp.ess_frac
-            self.particle_filter.lr = pfp.lr
-            self.particle_filter.num_steps = pfp.num_steps
-            self.particle_filter.top_n = pfp.top_n
-            self.particle_filter.pose_lambda = pfp.pose_lambda
-            self.particle_filter.size_lambda = pfp.size_lambda  # :contentReference[oaicite:3]{index=3}
+                elite_count=pfp.elite_count,
+                trans_noise=pfp.trans_noise,
+                rot_noise=pfp.rot_noise,
+                trans_noise_stationary=pfp.trans_noise_stationary,
+                rot_noise_stationary=pfp.rot_noise_stationary,
+                ess_frac=pfp.ess_frac,
+                lr=pfp.lr,
+                num_steps=pfp.num_steps,
+                top_n=pfp.top_n,
+                pose_lambda=pfp.pose_lambda,
+                size_lambda=pfp.size_lambda,
+            )
 
             self.current_best_particle = None
             self.current_best_smoothed_particle = None
@@ -188,6 +186,7 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
+
         # Measure cycle time
         now = time.monotonic()
         t0, t1 = self.last_pred_time, now
@@ -202,16 +201,13 @@ class SpecificWorker(GenericWorker):
         pcd.points = res
 
         # print(self.best_loss)
-        if self.best_loss < 0.001:  # Converged
-             # Use seeded RANSAC for rock-solid stability
+        if self.best_loss < self.params.pf.min_loss_for_locking_ransac:  # Converged. Use seeded RANSAC for rock-solid stability
+              h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                  self.plane_detector.detect_with_prior_seeded(pcd, self.current_best_particle)
+        else:  # Still exploring.  # Use normal validation for flexibility
              h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                 self.plane_detector.detect_with_prior_seeded(pcd, self.current_best_particle)
-         else:  # Still exploring
-            # Use normal validation for flexibility
-            h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
-        h_planes, validated_v, unmatched_v, o_planes, outliers = \
-            self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
+                 self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
+        #h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
 
         # Use weighted extraction ===
         wall_points_np = self._extract_wall_points_weighted(
@@ -221,19 +217,18 @@ class SpecificWorker(GenericWorker):
                             )
         wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to('cuda')
 
-        # Print diagnostics (optional)
-        # print(f"Wall points: {len(wall_points_np)} total, "
-        #       f"validated planes: {len(validated_v)}, unmatched planes: {len(unmatched_v)}")
-
         # Estimate latency and integrate commands
-        tau = min(0.20, max(0.0, 1.0 * self.cycle_time))
-        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, self.params.timing.latency_gain * self.cycle_time)
+        tau = min(0.20, max(0.0, self.cycle_time))   # cap at 200ms?
+        dx, dy, dtheta = self.integrate_cmds_with_latency(t0, t1, self.params.timing.latency_gain * tau)
         odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step with pre-computed wall points
         self.particle_filter.step(odometry_delta, wall_points_torch, self.cycle_time)
-        self.current_best_particle, smoothed_particle = self.particle_filter.best_particle()
 
+        # best particle and loss
+        self.current_best_particle, smoothed_particle = self.particle_filter.best_particle()
+        self.best_loss = self.particle_filter.compute_fitness_loss_with_points(self.current_best_particle,
+                                                                               wall_points_torch)
         # Visualize results (combine for visualization)
         v_planes = validated_v + unmatched_v
         self.visualize_results(smoothed_particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
@@ -242,12 +237,10 @@ class SpecificWorker(GenericWorker):
         self.send_data_to_plotter()
 
         self.last_tick_time = now
-        self.best_loss = self.particle_filter.compute_fitness_loss_with_points(
-            self.current_best_particle, wall_points_torch
-        )
-
         return True
 
+
+    ############################# MY CODE HERE #############################
     def _extract_wall_points(self, pcd, v_planes):
         """Extract wall inlier points from vertical planes (with fallback to all points)."""
         if not v_planes:
@@ -263,7 +256,6 @@ class SpecificWorker(GenericWorker):
         points = np.asarray(pcd.points)
         return points[all_indices]
 
-    ############################# MY CODE HERE #############################
     def read_lidar_data(self):
         lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 10000, 3)
         if not lidar_data.points or len(lidar_data.points) == 0:

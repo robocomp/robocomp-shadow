@@ -8,10 +8,10 @@ from typing import Tuple
 class PlaneParams:
     voxel_size: float = 0.05
     angle_tolerance_deg: float = 10.0
-    ransac_threshold: float = 0.01
+    ransac_threshold: float = 0.05     # to accept inliers
     ransac_n: int = 3
     ransac_iterations: int = 1000
-    min_plane_points: int = 200
+    min_plane_points: int = 100
     nms_normal_dot_threshold: float = 0.99
     nms_distance_threshold: float = 0.10
     plane_thickness: float = 0.01
@@ -38,6 +38,7 @@ class PFParams:
     min_particles: int = 20
     max_particles: int = 300
     elite_count: int = 1
+    min_loss_for_locking_ransac: float = 0.01
     # Optional tuning we set on the instance after construction
     trans_noise: float = 0.01
     rot_noise: float = 0.01
@@ -104,7 +105,7 @@ class VizParams:
 class TimingParams:
     period_ms: int = 100
     vel_alpha: float = 1.0
-    latency_gain: float = 1.1  # multiply cycle time to integrate commands
+    latency_gain: float = 1.2  # multiply cycle time to integrate commands
 
 # ---- App-level container bundling all sections ----
 @dataclass(frozen=True)
