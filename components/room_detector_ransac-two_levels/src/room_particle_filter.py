@@ -4,9 +4,7 @@ import numpy as np
 import torch
 from copy import deepcopy
 from dataclasses import dataclass
-from params import Pose2D
 from src.params import Pose2D
-
 
 # ---------------------------------------------------------------------
 # Particle definition

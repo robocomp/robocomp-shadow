@@ -130,7 +130,7 @@ class SpecificWorker(GenericWorker):
 
             # robot state
             self.robot_velocity = [0.0, 0.0, 0.0]
-            self.best_loss = 9999999
+            self.best_loss = 1.0
 
             from collections import deque
             self.cmd_buffer = deque(maxlen=300)
@@ -200,13 +200,32 @@ class SpecificWorker(GenericWorker):
             return False
         pcd.points = res
 
-        # print(self.best_loss)
-        if self.best_loss < self.params.pf.min_loss_for_locking_ransac:  # Converged. Use seeded RANSAC for rock-solid stability
-              h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                  self.plane_detector.detect_with_prior_seeded(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle)) #dependency inversion
-        else:  # Still exploring.  # Use normal validation for flexibility
-             h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                 self.plane_detector.detect_with_prior(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle))
+        # Adaptive plane detection based on convergence
+        if self.best_loss < 0.001:  # Fully converged → Maximum efficiency
+            h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                self.plane_detector.detect_with_bayesian_filtering(
+                    pcd,
+                    self.current_best_particle,
+                    wall_band_width=0.15,  # Points within 15cm of wall
+                    refine_alpha=0.8
+                )
+        elif self.best_loss < 0.01:  # Converging → Balanced
+            h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                self.plane_detector.detect_with_prior_seeded(
+                    pcd, self.current_best_particle
+                )
+        else:  # Exploring → Flexible
+            h_planes, validated_v, unmatched_v, o_planes, outliers = \
+                self.plane_detector.detect_with_prior(
+                    pcd, self.current_best_particle
+                )
+
+        # if self.best_loss < self.params.pf.min_loss_for_locking_ransac:  # Converged. Use seeded RANSAC for rock-solid stability
+        #       h_planes, validated_v, unmatched_v, o_planes, outliers = \
+        #           self.plane_detector.detect_with_prior_seeded(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle)) #dependency inversion
+        # else:  # Still exploring.  # Use normal validation for flexibility
+        #      h_planes, validated_v, unmatched_v, o_planes, outliers = \
+        #          self.plane_detector.detect_with_prior(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle))
 
         # if no unmatched vertical planes and outliers are few, skip this frame
         # if (not unmatched_v) and (len(outliers) < self.params.plane.min_plane_points):
@@ -242,11 +261,34 @@ class SpecificWorker(GenericWorker):
         # Send data to plotter
         self.send_data_to_plotter()
 
+        # move robot under model contraints
+        self.move_robot()
+
         self.last_tick_time = now
         return True
 
 
     ############################# MY CODE HERE #############################
+    def move_robot(self):
+        '''
+            move robot under model constraints
+            if loss is high, reduce speed to avoid going out of bounds
+        '''
+
+        loss = self.best_loss
+        speed_factor = max(0.0, min(1.0, 1.0 - loss * 100.0))  # linearly reduce speed for loss in [0.0, 0.1]
+        self.robot_velocity[0] *= speed_factor
+        self.robot_velocity[1] *= speed_factor
+        self.robot_velocity[2] *= speed_factor
+        # print velocity with two decimals before and after speed factor correction
+        console.log(f"[green]Sending speed command: vx={self.robot_velocity[0]:.2f} m/s, vy={self.robot_velocity[1]:.2f} m/s, omega={self.robot_velocity[2]:.2f} rad/s (speed factor: {speed_factor:.2f})[/green]")
+
+        # send command to robot (convert m/s to mm/s)
+        try:
+            self.omnirobot_proxy.setSpeedBase(self.robot_velocity[0] * 1000.0, self.robot_velocity[1] * 1000.0, self.robot_velocity[2])
+        except Exception as e:
+            console.log(f"[red]Error sending speed command: {e}[/red]")
+
     def _extract_wall_points(self, pcd, v_planes):
         """Extract wall inlier points from vertical planes (with fallback to all points)."""
         if not v_planes:
@@ -268,8 +310,8 @@ class SpecificWorker(GenericWorker):
             console.log("[yellow]No lidar data received.[/yellow]")
             return False
 
-        # Convert to open3d format
-        points_list = [[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in lidar_data.points]
+        # Convert to open3d format filtering out those with z lower than 1.5m
+        points_list = [[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in lidar_data.points if p.z >= 1500.0]
         return o3d.utility.Vector3dVector(points_list)
 
     def send_data_to_plotter(self):

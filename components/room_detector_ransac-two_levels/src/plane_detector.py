@@ -4,8 +4,8 @@ import numpy as np
 from rich.console import Console
 from params import Pose2D
 
-console = Console(highlight=True)
-#console = Console(quiet=True, highlight=False)
+#console = Console(highlight=True)
+console = Console(quiet=True, highlight=False)
 
 
 class PlaneDetector:
@@ -421,6 +421,178 @@ class PlaneDetector:
 
         return geometries_to_draw
 
+    def detect_with_bayesian_filtering(self, pcd, particle,
+                                       wall_band_width=0.15,  # Distance band around walls
+                                       angular_tolerance=15.0,
+                                       distance_tolerance=0.3,
+                                       refine_alpha=0.8):
+        """
+        Three-level Bayesian plane detection.
+
+        Strategy:
+        1. Get expected walls from room model (Level 1 → Level 2)
+        2. Classify raw points: wall vs residual (Level 2 → Level 3)
+        3. Directly assign wall points (no RANSAC needed!)
+        4. Run RANSAC only on residual points (furniture, obstacles)
+        5. Validate residual planes against model
+
+        This is MUCH faster than seeded RANSAC because we skip RANSAC entirely
+        for 90-95% of points that clearly belong to walls.
+
+        Args:
+            pcd: Point cloud
+            particle: Current best particle with room estimate
+            wall_band_width: Distance from wall to consider a point as "wall inlier" (meters)
+            angular_tolerance: Max angle difference for validation (degrees)
+            distance_tolerance: Max distance difference for validation (meters)
+            refine_alpha: Blend toward expected (0=no change, 1=fully snap)
+
+        Returns:
+            (horizontal_planes, validated_vertical, unmatched_vertical,
+             oblique_planes, outliers)
+        """
+        if particle is None:
+            return [[], [], [], [], []]
+
+        import numpy as np
+
+        console.log(f"[magenta]═══ BAYESIAN FILTERING ═══[/magenta]")
+
+        # LEVEL 1 → LEVEL 2: Get expected wall planes from room model
+        expected_walls = self._get_expected_walls(particle)
+        if not expected_walls:
+            return self.detect(pcd)
+
+        console.log(f"[blue]Level 1→2: Room model predicts {len(expected_walls)} walls[/blue]")
+
+        # LEVEL 2 → LEVEL 3: Classify points as wall vs residual
+        points = np.asarray(pcd.points)
+        n_total = len(points)
+
+        wall_classifications = self._classify_wall_points(
+            points, expected_walls, particle, wall_band_width
+        )
+
+        # Separate wall points by which wall they belong to
+        wall_assignments = {}  # wall_idx → list of point indices
+        residual_mask = np.ones(n_total, dtype=bool)  # True = not assigned to any wall
+
+        for point_idx, wall_idx in enumerate(wall_classifications):
+            if wall_idx >= 0:  # Assigned to a wall
+                if wall_idx not in wall_assignments:
+                    wall_assignments[wall_idx] = []
+                wall_assignments[wall_idx].append(point_idx)
+                residual_mask[point_idx] = False
+
+        residual_indices = np.where(residual_mask)[0]
+
+        n_wall = n_total - len(residual_indices)
+        n_residual = len(residual_indices)
+        pct_wall = 100.0 * n_wall / n_total if n_total > 0 else 0
+
+        console.log(f"[green]Level 2→3: {n_wall} wall points ({pct_wall:.1f}%), "
+                    f"{n_residual} residual points ({100 - pct_wall:.1f}%)[/green]")
+
+        # LEVEL 3: Create wall planes directly (no RANSAC!)
+        wall_planes = []
+        for wall_idx, point_indices in wall_assignments.items():
+            if len(point_indices) >= self.min_plane_points:
+                # Use the expected wall model (already refined)
+                exp_normal, exp_dist = expected_walls[wall_idx]
+                plane_model = [exp_normal[0], exp_normal[1], exp_normal[2], -exp_dist]
+
+                wall_planes.append((plane_model, np.array(point_indices)))
+                console.log(f"[cyan]✓ Wall {wall_idx}: {len(point_indices)} points (direct assignment)[/cyan]")
+
+        # LEVEL 3: RANSAC only on residual points
+        discovered_h = []
+        discovered_v = []
+        discovered_o = []
+
+        if len(residual_indices) >= self.min_plane_points:
+            console.log(f"[yellow]RANSAC on {len(residual_indices)} residual points (anomalies only)[/yellow]")
+
+            residual_pcd = pcd.select_by_index(residual_indices.tolist())
+            remaining_residual = residual_pcd
+            remaining_local_idx = np.arange(len(residual_indices))
+
+            while len(remaining_residual.points) > self.min_plane_points:
+                plane_model, inliers_local = remaining_residual.segment_plane(
+                    distance_threshold=self.ransac_threshold,
+                    ransac_n=self.ransac_n,
+                    num_iterations=self.ransac_iterations
+                )
+
+                if len(inliers_local) < self.min_plane_points:
+                    break
+
+                # Map back to original indices
+                inliers_global = residual_indices[remaining_local_idx[inliers_local]]
+
+                # Classify discovered plane
+                normal_vector = plane_model[:3]
+                normal_vector = normal_vector / np.linalg.norm(normal_vector)
+                dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
+
+                if dot_product > self.horizontal_cos_tolerance:
+                    if plane_model[2] < 0:
+                        plane_model = [-x for x in plane_model]
+                    discovered_h.append((plane_model, inliers_global))
+                    console.log(f"[blue]  Discovered Horizontal[/blue]: {len(inliers_global)} points")
+                elif dot_product < self.vertical_cos_cutoff:
+                    discovered_v.append((plane_model, inliers_global))
+                    console.log(f"[yellow]  Discovered Vertical[/yellow]: {len(inliers_global)} points")
+                else:
+                    discovered_o.append((plane_model, inliers_global))
+                    console.log(f"[magenta]  Discovered Oblique[/magenta]: {len(inliers_global)} points")
+
+                # Remove inliers from residual set
+                remaining_residual = remaining_residual.select_by_index(inliers_local, invert=True)
+                remaining_local_idx = np.delete(remaining_local_idx, inliers_local)
+
+            outliers = residual_indices[remaining_local_idx]
+        else:
+            console.log(f"[yellow]Skipping RANSAC: insufficient residual points[/yellow]")
+            outliers = residual_indices
+
+        # Apply NMS
+        all_h = discovered_h
+        all_v = wall_planes + discovered_v  # Wall planes already good, add discoveries
+        all_o = discovered_o
+
+        console.log(f"Before NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
+        all_h = self._non_maximum_suppression(all_h)
+        all_v = self._non_maximum_suppression(all_v)
+        all_o = self._non_maximum_suppression(all_o)
+        console.log(f"After NMS: {len(all_h)}H, {len(all_v)}V, {len(all_o)}O")
+
+        # Validate vertical planes (both wall and discovered)
+        validated_v = []
+        unmatched_v = []
+
+        for plane_model, indices in all_v:
+            matched = False
+
+            for exp_normal, exp_dist in expected_walls:
+                if self._planes_compatible(plane_model, exp_normal, exp_dist,
+                                           angular_tolerance, distance_tolerance):
+                    # Refine toward expected
+                    refined_model = self._refine_toward_expected(
+                        plane_model, exp_normal, exp_dist, alpha=refine_alpha
+                    )
+                    validated_v.append((refined_model, indices))
+                    matched = True
+                    break
+
+            if not matched:
+                unmatched_v.append((plane_model, indices))
+                console.log(f"[yellow]Unmatched plane[/yellow]: {len(indices)} points (novel geometry)")
+
+        console.log(f"[green]Final: {len(validated_v)} validated, {len(unmatched_v)} unmatched[/green]")
+        console.log(f"[magenta]═══════════════════════════[/magenta]")
+
+        return all_h, validated_v, unmatched_v, all_o, outliers
+
     def get_plane_primitives(self, pcd: o3d.geometry.PointCloud):
         """
         A helper function to downsample, detect planes, and return a list
@@ -739,3 +911,101 @@ class PlaneDetector:
             n = -n;
             d = -d
         return [float(n[0]), float(n[1]), float(n[2]), float(d / norm)]
+
+    def _classify_wall_points(self, points, expected_walls, particle, band_width):
+        """
+        Classify each point as belonging to a wall or residual.
+
+        This is the key Level 2→3 filter: use expected walls to "explain away"
+        points that clearly belong to walls.
+
+        Args:
+            points: (N, 3) array of points
+            expected_walls: List of (normal, distance) tuples
+            particle: Particle with room geometry
+            band_width: Distance threshold to consider point as wall inlier
+
+        Returns:
+            Array of length N, where:
+            - classifications[i] = wall_idx if point i belongs to wall_idx
+            - classifications[i] = -1 if point i is residual (doesn't belong to any wall)
+        """
+        import numpy as np
+        import math
+
+        n_points = len(points)
+        classifications = -np.ones(n_points, dtype=int)  # -1 = residual
+        distances = np.full(n_points, np.inf)  # Track minimum distance to any wall
+
+        # Transform points to room frame for easier classification
+        c, s = math.cos(-particle.theta), math.sin(-particle.theta)
+        R = np.array([[c, -s], [s, c]])
+        t = np.array([particle.x, particle.y])
+        points_room = (points[:, :2] - t) @ R.T
+
+        L, W = particle.length, particle.width
+
+        # For each expected wall, find points within band_width
+        for wall_idx, (exp_normal, exp_dist) in enumerate(expected_walls):
+            # Compute distance from each point to this wall plane
+            # Plane equation in world frame: nx*x + ny*y + nz*z + D = 0
+            A, B, C = exp_normal[0], exp_normal[1], exp_normal[2]
+            D = -exp_dist
+
+            # Distance = |Ax + By + Cz + D| / sqrt(A² + B² + C²)
+            numerator = np.abs(A * points[:, 0] + B * points[:, 1] + C * points[:, 2] + D)
+            denominator = np.sqrt(A ** 2 + B ** 2 + C ** 2)
+            dist_to_wall = numerator / denominator
+
+            # Additional constraint: point must be within wall bounds in room frame
+            # This prevents assigning points to "wall extensions" beyond the room
+            within_bounds = self._point_within_wall_bounds(points_room, wall_idx, L, W, band_width)
+
+            # Assign to this wall if closest and within band
+            candidates = (dist_to_wall < band_width) & within_bounds & (dist_to_wall < distances)
+            classifications[candidates] = wall_idx
+            distances[candidates] = dist_to_wall[candidates]
+
+        n_classified = np.sum(classifications >= 0)
+        console.log(f"[cyan]  Classified {n_classified}/{n_points} points to walls[/cyan]")
+
+        return classifications
+
+    def _point_within_wall_bounds(self, points_room, wall_idx, L, W, band_width):
+        """
+        Check if points are within the physical bounds of a wall.
+        Prevents assigning points to wall "extensions" beyond the room.
+
+        Args:
+            points_room: (N, 2) points in room frame
+            wall_idx: Wall index (0=+x, 1=-x, 2=+y, 3=-y)
+            L, W: Room dimensions
+            band_width: Distance band
+
+        Returns:
+            Boolean array of length N
+        """
+        import numpy as np
+
+        x, y = points_room[:, 0], points_room[:, 1]
+
+        if wall_idx == 0:  # +x wall (right)
+            # Wall at x = +L/2, spans y ∈ [-W/2, W/2]
+            within_x = (x > L / 2 - band_width) & (x < L / 2 + band_width)
+            within_y = (y > -W / 2 - band_width) & (y < W / 2 + band_width)
+            return within_x & within_y
+
+        elif wall_idx == 1:  # -x wall (left)
+            within_x = (x > -L / 2 - band_width) & (x < -L / 2 + band_width)
+            within_y = (y > -W / 2 - band_width) & (y < W / 2 + band_width)
+            return within_x & within_y
+
+        elif wall_idx == 2:  # +y wall (front)
+            within_x = (x > -L / 2 - band_width) & (x < L / 2 + band_width)
+            within_y = (y > W / 2 - band_width) & (y < W / 2 + band_width)
+            return within_x & within_y
+
+        else:  # wall_idx == 3, -y wall (back)
+            within_x = (x > -L / 2 - band_width) & (x < L / 2 + band_width)
+            within_y = (y > -W / 2 - band_width) & (y < -W / 2 + band_width)
+            return within_x & within_y
