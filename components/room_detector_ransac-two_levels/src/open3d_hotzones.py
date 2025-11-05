@@ -19,7 +19,7 @@ def _heat_range(values: np.ndarray, percentile_clip: Optional[float]) -> Tuple[f
         lo, hi = float(values.min()), float(values.max())
     else:
         lo = float(np.percentile(values, 100 - percentile_clip)) if percentile_clip > 50 else float(values.min())
-        hi = float(np.percentile(values, percentile_clip))
+        hi = float(np.percentile(values, 100- percentile_clip))
     if not np.isfinite(lo): lo = 0.0
     if not np.isfinite(hi) or hi <= lo: hi = lo + 1e-6
     return lo, hi

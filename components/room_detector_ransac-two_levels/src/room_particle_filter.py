@@ -4,6 +4,8 @@ import numpy as np
 import torch
 from copy import deepcopy
 from dataclasses import dataclass
+from params import Pose2D
+from src.params import Pose2D
 
 
 # ---------------------------------------------------------------------
@@ -162,6 +164,7 @@ class RoomParticleFilter:
         best_p, smoothed_best_p = self.best_particle()
         loss_best = self.compute_fitness_loss_with_points(smoothed_best_p, wall_points)
         self.log_history(float(loss_best))
+        return float(loss_best), best_p, smoothed_best_p
 
     # -----------------------------------------------------------------
     def predict(self, odometry_delta):
@@ -540,7 +543,7 @@ class RoomParticleFilter:
     # ---------------------------------------------------------------------
     def smooth_sdf_loss(self, points_room, L, W, margin=-0.05, delta=0.03):
         """
-        Smooth, robust penalty for points outside the room rectangle.
+        Smooth, robust penalty for points inside and outside the room rectangle.
         Points are given in the room frame.
         """
         if points_room.numel() == 0:
@@ -603,6 +606,18 @@ class RoomParticleFilter:
             weight=1.0 / N
         )
 
+    # -----------------------------------------------------------------
+    @staticmethod
+    def particle_to_pose(particle) -> Pose2D | None:
+        if particle is None:
+            return None
+        return Pose2D(
+            x=particle.x,
+            y=particle.y,
+            theta=particle.theta,
+            length=particle.length,
+            width=particle.width,
+        )
 
     # -----------------------------------------------------------------
     def get_history(self):

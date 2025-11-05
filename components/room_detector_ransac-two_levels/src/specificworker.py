@@ -203,11 +203,21 @@ class SpecificWorker(GenericWorker):
         # print(self.best_loss)
         if self.best_loss < self.params.pf.min_loss_for_locking_ransac:  # Converged. Use seeded RANSAC for rock-solid stability
               h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                  self.plane_detector.detect_with_prior_seeded(pcd, self.current_best_particle)
+                  self.plane_detector.detect_with_prior_seeded(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle)) #dependency inversion
         else:  # Still exploring.  # Use normal validation for flexibility
              h_planes, validated_v, unmatched_v, o_planes, outliers = \
-                 self.plane_detector.detect_with_prior(pcd, self.current_best_particle)
-        #h_planes, v_planes, o_planes, outliers = self.plane_detector.detect(pcd)
+                 self.plane_detector.detect_with_prior(pcd, RoomParticleFilter.particle_to_pose(self.current_best_particle))
+
+        # if no unmatched vertical planes and outliers are few, skip this frame
+        # if (not unmatched_v) and (len(outliers) < self.params.plane.min_plane_points):
+        #     console.log("[yellow]Skipping PF update: no new vertical planes detected.[/yellow]")
+        #     self.visualize_results(self.current_best_particle, pcd, h_planes,
+        #                            validated_v + unmatched_v, o_planes, outliers,
+        #                            torch.from_numpy(self._extract_wall_points(pcd, validated_v)[:, :2]).float().to('cuda'))
+        #     self.send_data_to_plotter()
+        #     self.last_tick_time = now
+        #     return True
+
 
         # Use weighted extraction ===
         wall_points_np = self._extract_wall_points_weighted(
@@ -215,7 +225,7 @@ class SpecificWorker(GenericWorker):
                                 validated_weight=0.8,  # 80% from stabilized planes
                                 unmatched_weight=0.2  # 20% from novel/obstacle planes
                             )
-        wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to('cuda')
+        wall_points_torch = torch.from_numpy(wall_points_np[:, :2]).float().to(self.particle_filter.device)
 
         # Estimate latency and integrate commands
         tau = min(0.20, max(0.0, self.cycle_time))   # cap at 200ms?
@@ -223,12 +233,8 @@ class SpecificWorker(GenericWorker):
         odometry_delta = (dx, dy, dtheta)
 
         # Run particle filter step with pre-computed wall points
-        self.particle_filter.step(odometry_delta, wall_points_torch, self.cycle_time)
+        self.best_loss, self.current_best_particle, smoothed_particle = self.particle_filter.step(odometry_delta, wall_points_torch, self.cycle_time)
 
-        # best particle and loss
-        self.current_best_particle, smoothed_particle = self.particle_filter.best_particle()
-        self.best_loss = self.particle_filter.compute_fitness_loss_with_points(self.current_best_particle,
-                                                                               wall_points_torch)
         # Visualize results (combine for visualization)
         v_planes = validated_v + unmatched_v
         self.visualize_results(smoothed_particle, pcd, h_planes, v_planes, o_planes, outliers, wall_points_torch)
@@ -490,9 +496,9 @@ class SpecificWorker(GenericWorker):
         """
         now = time.monotonic()
         # Optional low-pass
-        # vx = self.vel_alpha * vx + (1 - self.vel_alpha) * self.robot_velocity[0]
-        # vy = self.vel_alpha * vy + (1 - self.vel_alpha) * self.robot_velocity[1]
-        # omega = self.vel_alpha * omega + (1 - self.vel_alpha) * self.robot_velocity[2]
+        vx = self.vel_alpha * vx + (1 - self.vel_alpha) * self.robot_velocity[0]
+        vy = self.vel_alpha * vy + (1 - self.vel_alpha) * self.robot_velocity[1]
+        omega = self.vel_alpha * omega + (1 - self.vel_alpha) * self.robot_velocity[2]
         self.robot_velocity[:] = [vx, vy, omega]
         self.cmd_buffer.append((now, vx, vy, omega))
 

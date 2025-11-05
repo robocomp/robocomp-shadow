@@ -2,6 +2,7 @@
 import open3d as o3d
 import numpy as np
 from rich.console import Console
+from params import Pose2D
 
 console = Console(highlight=True)
 #console = Console(quiet=True, highlight=False)
@@ -78,12 +79,17 @@ class PlaneDetector:
                 - 'outlier_indices' are the indices of points not
                    belonging to any significant plane.
         """
+        if self.voxel_size > 0:
+            pcd = pcd.voxel_down_sample(self.voxel_size)
+            console.log(f"Downsampled to {len(pcd.points)} points.")
+
         horizontal_planes = []
         vertical_planes = []
         oblique_planes = []
 
         remaining_pcd = pcd
         original_indices = np.arange(len(pcd.points))
+        keep_mask = np.ones(len(pcd.points), dtype=bool)
 
         console.log(f"Starting iterative plane detection on {len(pcd.points)} points...")
 
@@ -97,14 +103,18 @@ class PlaneDetector:
                 console.log(f"Next best plane has {len(inliers_relative)} points. Stopping.")
                 break
 
+            plane_model = self._normalize_plane(plane_model)
             normal_vector = plane_model[:3]
-            normal_vector = normal_vector / np.linalg.norm(normal_vector)
             inliers_original = original_indices[inliers_relative]
+            keep_mask[inliers_original] = False
+            remaining_indices = np.flatnonzero(keep_mask)
+            if len(remaining_indices) < self.min_plane_points:
+                break
+            remaining_pcd = pcd.select_by_index(remaining_indices)
+            original_indices = remaining_indices  # keep indices aligned
             dot_product = np.abs(np.dot(normal_vector, self.gravity_vector))
 
             if dot_product > self.horizontal_cos_tolerance:
-                if plane_model[2] < 0:
-                    plane_model = [-x for x in plane_model]
                 console.log(f"[blue]Found Horizontal Plane[/blue]: {len(inliers_original)} points.")
                 horizontal_planes.append((plane_model, inliers_original))
 
@@ -115,10 +125,6 @@ class PlaneDetector:
             else:
                 console.log(f"[magenta]Found Oblique Plane[/magenta]: {len(inliers_original)} points.")
                 oblique_planes.append((plane_model, inliers_original))
-
-            # Remove the inliers and prepare for next iteration
-            remaining_pcd = remaining_pcd.select_by_index(inliers_relative, invert=True)
-            original_indices = np.delete(original_indices, inliers_relative)
 
         outlier_indices = original_indices
         console.log(
@@ -141,7 +147,7 @@ class PlaneDetector:
 
         return horizontal_planes, vertical_planes, oblique_planes, outlier_indices
 
-    def detect_with_prior(self, pcd, particle,
+    def detect_with_prior(self, pcd, prior: Pose2D,
                           angular_tolerance=15.0,
                           distance_tolerance=0.3,
                           refine_alpha=0.7):
@@ -165,14 +171,14 @@ class PlaneDetector:
             (horizontal_planes, validated_vertical, unmatched_vertical,
              oblique_planes, outliers)
         """
-        if particle is None:
+        if prior is None:
             return [[], [], [], [], []]
 
         # 1. Normal detection (unchanged)
         h_planes, v_planes, o_planes, outliers = self.detect(pcd)
 
         # 2. Get expected wall planes from particle
-        expected_walls = self._get_expected_walls(particle)
+        expected_walls = self._get_expected_walls(prior)
 
         # 3. Validate vertical planes against model
         validated_v = []
@@ -204,7 +210,7 @@ class PlaneDetector:
     This version SEEDS RANSAC with expected walls first, then discovers additional planes.
     """
 
-    def detect_with_prior_seeded(self, pcd, particle,
+    def detect_with_prior_seeded(self, pcd: o3d.geometry.PointCloud, prior: Pose2D,
                                  angular_tolerance=10.0,
                                  distance_tolerance=0.1,
                                  refine_alpha=0.7,
@@ -235,13 +241,13 @@ class PlaneDetector:
             (horizontal_planes, validated_vertical, unmatched_vertical,
              oblique_planes, outliers)
         """
-        if particle is None:
+        if prior is None:
             return [[], [], [], [], []]
 
         import numpy as np
 
         # 1. Get expected wall planes from particle
-        expected_walls = self._get_expected_walls(particle)
+        expected_walls = self._get_expected_walls(prior)
         if not expected_walls:
             # No model available, fall back to normal detection
             return self.detect(pcd)
@@ -525,7 +531,7 @@ class PlaneDetector:
                 dist_j = np.abs(P_j_model[3])
 
                 # Compare normals: dot product. Use abs for parallel but opposite normals.
-                normal_dot = np.dot(normal_i, normal_j)
+                normal_dot = np.abs(np.dot(normal_i, normal_j))
 
                 # Compare distances
                 dist_diff = np.abs(dist_i - dist_j)
@@ -555,17 +561,17 @@ class PlaneDetector:
 
     # ========== SOFT PRIOR METHODS ==========
 
-    def _get_expected_walls(self, particle):
+    def _get_expected_walls(self, prior: Pose2D):
         """
         Get expected wall plane equations from particle.
         Returns list of (normal, distance) for 4 walls in world frame.
         """
         import math
-        if particle is None:
+        if prior is None:
             return None
 
-        L, W = particle.length, particle.width
-        x, y, theta = particle.x, particle.y, particle.theta
+        L, W = prior.length, prior.width
+        x, y, theta = prior.x, prior.y, prior.theta
 
         c, s = math.cos(theta), math.sin(theta)
 
@@ -610,22 +616,24 @@ class PlaneDetector:
             distance_tolerance: max distance difference in meters
         """
         # Extract and normalize detected normal
-        detected_normal = np.array(plane_model[:3])
-        detected_normal = detected_normal / np.linalg.norm(detected_normal)
+        detected_normal = np.array(plane_model[:3], dtype=float)
+        norm = np.linalg.norm(detected_normal)
+        if norm <= 1e-12:
+            return False
+        detected_normal /= norm
 
         # Normalize expected normal
         expected_normal = np.array(expected_normal)
-        expected_normal = expected_normal / np.linalg.norm(expected_normal)
+        expected_normal /= np.linalg.norm(expected_normal)
 
         # Check angular alignment (allow opposite directions)
         dot = abs(np.dot(detected_normal, expected_normal))
         angle_deg = np.rad2deg(np.arccos(np.clip(dot, -1.0, 1.0)))
-
         if angle_deg > angular_tolerance:
             return False
 
         # Check distance alignment
-        detected_dist = abs(plane_model[3])
+        detected_dist = abs(float(plane_model[3]) / float(norm))
         dist_diff = abs(detected_dist - expected_dist)
 
         if dist_diff > distance_tolerance:
@@ -718,3 +726,16 @@ class PlaneDetector:
 
         points = np.asarray(pcd.points)
         return points[all_indices]
+
+    def _normalize_plane(self, model):
+        n = np.asarray(model[:3], dtype=float)
+        d = float(model[3])
+        norm = np.linalg.norm(n)
+        if norm <= 1e-12:
+            return list(model)  # keep as-is; degenerate
+        n = n / norm
+        # keep sign convention so horizontal planes point +Z
+        if n[2] < 0:
+            n = -n;
+            d = -d
+        return [float(n[0]), float(n[1]), float(n[2]), float(d / norm)]

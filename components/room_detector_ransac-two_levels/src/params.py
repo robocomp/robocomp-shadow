@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple
 
+# ---- 2D Pose + Size ----
+@dataclass(frozen=True)
+class Pose2D:
+    x: float
+    y: float
+    theta: float
+    length: float
+    width: float
 # ---- Plane detector ----
 @dataclass(frozen=True)
 class PlaneParams:
@@ -42,8 +50,8 @@ class PFParams:
     # Optional tuning we set on the instance after construction
     trans_noise: float = 0.01
     rot_noise: float = 0.01
-    trans_noise_stationary: float = 0.00
-    rot_noise_stationary: float = 0.00
+    trans_noise_stationary: float = 0.0001
+    rot_noise_stationary: float = 0.0001
     ess_frac: float = 0.3
     # Gradient refinement
     lr: float = 0.02
@@ -104,7 +112,7 @@ class VizParams:
 @dataclass(frozen=True)
 class TimingParams:
     period_ms: int = 100
-    vel_alpha: float = 1.0
+    vel_alpha: float = 0.8
     latency_gain: float = 1.2  # multiply cycle time to integrate commands
 
 # ---- App-level container bundling all sections ----
