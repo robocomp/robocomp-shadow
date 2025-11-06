@@ -11,6 +11,17 @@ class Pose2D:
     theta: float
     length: float
     width: float
+
+# ---- Robot params ----
+@dataclass(frozen=True)
+class Robot:
+    width: float = 0.5
+    length: float = 0.5
+    radius: float = 0.35
+    max_vel: float = 1.0          # m/s
+    max_angular_vel: float = 1.0  # rad/s
+    loss_vel_restricion: float = 200.0  # multiplicative loss factor for velocity loss
+
 # ---- Plane detector ----
 @dataclass(frozen=True)
 class PlaneParams:
@@ -125,3 +136,4 @@ class AppParams:
     hotzones: HotzonesParams = HotzonesParams()
     viz: VizParams = VizParams()
     timing: TimingParams = TimingParams()
+    robot: Robot = Robot()

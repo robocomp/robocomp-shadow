@@ -45,6 +45,7 @@ import subprocess, tempfile, json
 from regional_loss import RegionalizedRectLoss
 from open3d_hotzones import build_hot_patches_heatmap
 from params import AppParams
+from src.helios_model import RealisticHeliosRaycaster
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -171,6 +172,18 @@ class SpecificWorker(GenericWorker):
                     absence_curve_k=RL.absence_curve_k
                 )  # :contentReference[oaicite:5]{index=5}
 
+            # Helios raycaster for visibility checking BORRAR
+            self.visibility_checker = RealisticHeliosRaycaster(
+                num_horizontal_rays=180,  # 2° resolution
+                num_vertical_samples=8,  # Sample 32 beams with 8
+                lidar_height=1.1,  # 160cm above floor
+                min_z=1.5,  # Filter z<1.5m
+                max_range=10.0,  # Max range
+                min_pitch_deg=-11.0,  # Bottom beam angle
+                max_pitch_deg=55.0,  # Top beam angle
+                min_ray_hits=10  # Need 10+ valid hits
+            )
+
             # Period from params (keep configData if you prefer)
             self.Period = self.params.timing.period_ms
             self.timer.timeout.connect(self.compute)
@@ -239,7 +252,7 @@ class SpecificWorker(GenericWorker):
 
 
         # Use weighted extraction ===
-        wall_points_np = self._extract_wall_points_weighted(
+        wall_points_np = self.plane_detector._extract_wall_points_weighted(
                                 pcd, validated_v, unmatched_v,
                                 validated_weight=0.8,  # 80% from stabilized planes
                                 unmatched_weight=0.2  # 20% from novel/obstacle planes
@@ -276,7 +289,7 @@ class SpecificWorker(GenericWorker):
         '''
 
         loss = self.best_loss
-        speed_factor = max(0.0, min(1.0, 1.0 - loss * 100.0))  # linearly reduce speed for loss in [0.0, 0.1]
+        speed_factor = max(0.0, min(1.0, 1.0 - loss * self.params.robot.loss_vel_restricion))  # linearly reduce speed for loss in [0.0, 0.1]
         self.robot_velocity[0] *= speed_factor
         self.robot_velocity[1] *= speed_factor
         self.robot_velocity[2] *= speed_factor
@@ -289,23 +302,9 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             console.log(f"[red]Error sending speed command: {e}[/red]")
 
-    def _extract_wall_points(self, pcd, v_planes):
-        """Extract wall inlier points from vertical planes (with fallback to all points)."""
-        if not v_planes:
-            return np.asarray(pcd.points)
-
-        all_indices = []
-        for _, indices in v_planes:
-            all_indices.extend(indices)
-
-        if not all_indices:
-            return np.asarray(pcd.points)
-
-        points = np.asarray(pcd.points)
-        return points[all_indices]
 
     def read_lidar_data(self):
-        lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 10000, 3)
+        lidar_data = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 20000, 3)
         if not lidar_data.points or len(lidar_data.points) == 0:
             console.log("[yellow]No lidar data received.[/yellow]")
             return False
@@ -454,6 +453,23 @@ class SpecificWorker(GenericWorker):
         # outlier_cloud.paint_uniform_color(np.array([0.5, 0.5, 0.5], dtype=np.float64))
         # geometries_to_draw.append(outlier_cloud)
 
+        # Draw all points in pcd_room as light gray
+        all_points_cloud = o3d.geometry.PointCloud(pcd_room)
+        all_points_cloud.paint_uniform_color(np.array([0.8, 0.8, 0.8], dtype=np.float64))
+        geometries_to_draw.append(all_points_cloud)
+
+        # borrar
+        _, __, sim_points = self.visibility_checker.raycast_wall_visibility(self.current_best_particle)
+        # draw sim points in blue
+        if len(sim_points) > 0:
+            sim_points_cloud = o3d.geometry.PointCloud()
+            sim_points_cloud.points = o3d.utility.Vector3dVector(sim_points)
+            # Transform from world frame to room frame (same as pcd_room)
+            sim_points_cloud.translate(translation)  # ← ADD THIS LINE
+            sim_points_cloud.rotate(R_inv, center=(0, 0, 0))  # ← ADD THIS LINE
+            sim_points_cloud.paint_uniform_color(np.array([0.0, 0.0, 1.0], dtype=np.float64))
+            geometries_to_draw.append(sim_points_cloud)
+
         # Update visualizer
         self.vis.clear_geometries()
         for geom in geometries_to_draw:
@@ -465,71 +481,6 @@ class SpecificWorker(GenericWorker):
         self.vis.poll_events()
         self.camera_parameters = self.view_control.convert_to_pinhole_camera_parameters()
         self.vis.update_renderer()
-
-    def _extract_wall_points_weighted(self, pcd, validated_planes, unmatched_planes,
-                                      validated_weight=0.8, unmatched_weight=0.2):
-        """
-        Extract wall points with weighted sampling from validated and unmatched planes.
-
-        Args:
-            pcd: Point cloud
-            validated_planes: List of (model, indices) for validated (stabilized) planes
-            unmatched_planes: List of (model, indices) for unmatched (novel) planes
-            validated_weight: Proportion of points from validated planes (0-1)
-            unmatched_weight: Proportion of points from unmatched planes (0-1)
-
-        Returns:
-            numpy array of wall points (N, 3)
-        """
-        import numpy as np
-
-        # Extract points from validated planes
-        validated_points = self._extract_wall_points(pcd, validated_planes)
-
-        # Extract points from unmatched planes
-        unmatched_points = self._extract_wall_points(pcd, unmatched_planes)
-
-        # Handle empty cases
-        if len(validated_points) == 0 and len(unmatched_points) == 0:
-            # Fallback to all points if no planes detected
-            return np.asarray(pcd.points)
-
-        if len(validated_points) == 0:
-            # Only unmatched available
-            return unmatched_points
-
-        if len(unmatched_points) == 0:
-            # Only validated available
-            return validated_points
-
-        # Determine target sample sizes
-        total_target = min(len(validated_points) + len(unmatched_points), 10000)  # Cap at 10k points
-
-        n_validated_target = int(validated_weight * total_target)
-        n_unmatched_target = int(unmatched_weight * total_target)
-
-        # Adjust if we don't have enough points
-        n_validated = min(n_validated_target, len(validated_points))
-        n_unmatched = min(n_unmatched_target, len(unmatched_points))
-
-        # Sample from validated planes
-        if n_validated > 0 and n_validated < len(validated_points):
-            validated_indices = np.random.choice(len(validated_points), n_validated, replace=False)
-            validated_sample = validated_points[validated_indices]
-        else:
-            validated_sample = validated_points
-
-        # Sample from unmatched planes
-        if n_unmatched > 0 and n_unmatched < len(unmatched_points):
-            unmatched_indices = np.random.choice(len(unmatched_points), n_unmatched, replace=False)
-            unmatched_sample = unmatched_points[unmatched_indices]
-        else:
-            unmatched_sample = unmatched_points
-
-        # Combine
-        wall_points = np.vstack([validated_sample, unmatched_sample])
-
-        return wall_points
 
     def record_velocity_command(self, vx: float, vy: float, omega: float) -> None:
         """

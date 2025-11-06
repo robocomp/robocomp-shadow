@@ -1009,3 +1009,83 @@ class PlaneDetector:
             within_x = (x > -L / 2 - band_width) & (x < L / 2 + band_width)
             within_y = (y > -W / 2 - band_width) & (y < -W / 2 + band_width)
             return within_x & within_y
+
+    def _extract_wall_points(self, pcd, v_planes):
+        """Extract wall inlier points from vertical planes (with fallback to all points)."""
+        if not v_planes:
+            return np.asarray(pcd.points)
+
+        all_indices = []
+        for _, indices in v_planes:
+            all_indices.extend(indices)
+
+        if not all_indices:
+            return np.asarray(pcd.points)
+
+        points = np.asarray(pcd.points)
+        return points[all_indices]
+
+    def _extract_wall_points_weighted(self, pcd, validated_planes, unmatched_planes,
+                                      validated_weight=0.8, unmatched_weight=0.2):
+        """
+        Extract wall points with weighted sampling from validated and unmatched planes.
+
+        Args:
+            pcd: Point cloud
+            validated_planes: List of (model, indices) for validated (stabilized) planes
+            unmatched_planes: List of (model, indices) for unmatched (novel) planes
+            validated_weight: Proportion of points from validated planes (0-1)
+            unmatched_weight: Proportion of points from unmatched planes (0-1)
+
+        Returns:
+            numpy array of wall points (N, 3)
+        """
+        import numpy as np
+
+        # Extract points from validated planes
+        validated_points = self._extract_wall_points(pcd, validated_planes)
+
+        # Extract points from unmatched planes
+        unmatched_points = self._extract_wall_points(pcd, unmatched_planes)
+
+        # Handle empty cases
+        if len(validated_points) == 0 and len(unmatched_points) == 0:
+            # Fallback to all points if no planes detected
+            return np.asarray(pcd.points)
+
+        if len(validated_points) == 0:
+            # Only unmatched available
+            return unmatched_points
+
+        if len(unmatched_points) == 0:
+            # Only validated available
+            return validated_points
+
+        # Determine target sample sizes
+        total_target = min(len(validated_points) + len(unmatched_points), 10000)  # Cap at 10k points
+
+        n_validated_target = int(validated_weight * total_target)
+        n_unmatched_target = int(unmatched_weight * total_target)
+
+        # Adjust if we don't have enough points
+        n_validated = min(n_validated_target, len(validated_points))
+        n_unmatched = min(n_unmatched_target, len(unmatched_points))
+
+        # Sample from validated planes
+        if n_validated > 0 and n_validated < len(validated_points):
+            validated_indices = np.random.choice(len(validated_points), n_validated, replace=False)
+            validated_sample = validated_points[validated_indices]
+        else:
+            validated_sample = validated_points
+
+        # Sample from unmatched planes
+        if n_unmatched > 0 and n_unmatched < len(unmatched_points):
+            unmatched_indices = np.random.choice(len(unmatched_points), n_unmatched, replace=False)
+            unmatched_sample = unmatched_points[unmatched_indices]
+        else:
+            unmatched_sample = unmatched_points
+
+        # Combine
+        wall_points = np.vstack([validated_sample, unmatched_sample])
+
+        return wall_points
