@@ -1,0 +1,11 @@
+Component python_ui_test 
+{
+    Communications
+    {
+    };
+    language python;
+    gui  Qt(QMainWindow);
+    options dsr;
+
+};
+
