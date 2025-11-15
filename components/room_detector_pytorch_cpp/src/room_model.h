@@ -94,6 +94,28 @@ public:
      */
     void print_info() const;
 
+    /**
+     * @brief Freeze room parameters (stop optimizing room shape)
+     * Sets requires_grad = false for half_extents
+     */
+    void freeze_room_parameters();
+
+    /**
+     * @brief Unfreeze room parameters (resume optimizing room shape)
+     * Sets requires_grad = true for half_extents
+     */
+    void unfreeze_room_parameters();
+
+    /**
+     * @brief Check if room parameters are frozen
+     */
+    bool are_room_parameters_frozen() const;
+
+    /**
+     * @brief Get only robot parameters (for selective optimization)
+     */
+    std::vector<torch::Tensor> get_robot_parameters() const;
+
 private:
     // Room parameters (FIXED at origin)
     // No trainable center - it's always (0, 0)
@@ -137,18 +159,28 @@ public:
  * @brief Uncertainty estimation using Laplace approximation
  *
  * Computes covariance matrix of the MAP estimate.
- * Now only 5×5 matrix (room size + robot pose).
+ * Adapts to frozen/unfrozen parameters:
+ * - MAPPING state: 5×5 matrix (room + robot)
+ * - LOCALIZED state: 3×3 matrix (robot only)
  */
 class UncertaintyEstimator
 {
 public:
     /**
-     * @brief Compute covariance matrix using Laplace approximation
+     * @brief Compute covariance matrix using Laplace approximation (ADAPTIVE)
+     *
+     * Automatically detects which parameters require gradients and computes
+     * covariance only for those parameters.
+     *
+     * When room is frozen (LOCALIZED):
+     *   - Returns 3×3 covariance for [robot_x, robot_y, robot_theta]
+     * When room is unfrozen (MAPPING):
+     *   - Returns 5×5 covariance for [half_width, half_height, robot_x, robot_y, robot_theta]
      *
      * @param points LiDAR points tensor [N, 2] in robot frame
      * @param room Room model at MAP estimate
      * @param wall_thickness Same as used in loss computation
-     * @return Covariance matrix [5, 5] for all parameters
+     * @return Covariance matrix [n, n] where n = number of unfrozen parameters
      */
     static torch::Tensor compute_covariance(const torch::Tensor& points,
                                            RoomModel& room,
@@ -157,23 +189,25 @@ public:
     /**
      * @brief Extract standard deviations (sqrt of diagonal of covariance)
      *
-     * @param covariance Covariance matrix [5, 5]
-     * @return Vector of std devs: [σ_hw, σ_hh, σ_rx, σ_ry, σ_rθ]
+     * @param covariance Covariance matrix [n, n]
+     * @return Vector of std devs (size depends on frozen state)
      */
     static std::vector<float> get_std_devs(const torch::Tensor& covariance);
 
     /**
      * @brief Extract correlation matrix from covariance matrix
      *
-     * @param covariance Covariance matrix [5, 5]
-     * @return Correlation matrix [5, 5] with values in [-1, 1]
+     * @param covariance Covariance matrix [n, n]
+     * @return Correlation matrix [n, n] with values in [-1, 1]
      */
     static torch::Tensor get_correlation_matrix(const torch::Tensor& covariance);
 
     /**
-     * @brief Print uncertainty information in readable format
+     * @brief Print uncertainty information in readable format (ADAPTIVE)
      *
-     * @param covariance Covariance matrix [5, 5]
+     * Adapts output based on whether room is frozen or not.
+     *
+     * @param covariance Covariance matrix [n, n]
      * @param room Room model to label parameters
      */
     static void print_uncertainty(const torch::Tensor& covariance, const RoomModel& room);

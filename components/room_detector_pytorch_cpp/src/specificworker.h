@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -38,7 +36,8 @@
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <Eigen/Dense>
 #include "room_model.h"
-
+#include "door_detector.h"
+#include "room_freezing_manager.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -64,7 +63,10 @@ class SpecificWorker final : public GenericWorker
 
 		void initialize();
 		void compute();
-		void emergency();
+
+	void optimize_room_and_robot(const RoboCompLidar3D::TPoints &points);
+
+	void emergency();
 		void restore();
 		int startup_check();
 
@@ -106,11 +108,15 @@ class SpecificWorker final : public GenericWorker
 
 		// room
 		RoomModel room;
+		RoomFreezingManager room_freezing_manager;
 
 		// aux
 		RoboCompLidar3D::TPoints read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
-		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
+
+	void update_viewers();
+
+	std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
 		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);
 		RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
@@ -123,6 +129,9 @@ class SpecificWorker final : public GenericWorker
 
 		// plotter
 		std::unique_ptr<TimeSeriesPlotter> time_series_plotter;
+
+		// door
+		DoorDetector door_detector;
 
 	Q_SIGNALS:
 		//void customSignal();

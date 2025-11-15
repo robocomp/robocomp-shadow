@@ -105,6 +105,7 @@ void SpecificWorker::initialize()
 	viewer_room = new AbstractGraphicViewer(this->frame_room, params.GRID_MAX_DIM);
 	auto [rr, re] = viewer_room->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
 	robot_room_draw = rr;
+	this->resize(900, 600);
 	show();
 
 	// initialise robot pose
@@ -161,14 +162,16 @@ void SpecificWorker::initialize()
 	room.init(half_width, half_height, robot_x, robot_y, robot_theta);
 
 	// time series plotter for match error
-	TimeSeriesPlotter::Config plotConfig;
+	TimeSeriesPlotter::Config plotConfig;  // all fields have to be initialized, otherwise garbage values get to the constructor
 	plotConfig.title = "Maximum Match Error Over Time";
 	plotConfig.yAxisLabel = "Error (mm)";
 	plotConfig.xAxisLabel = "";
-	plotConfig.timeWindowSeconds = 15.0; // Show a 15-second window
+	plotConfig.timeWindowSeconds = 10.0; // Show a 15-second window
 	plotConfig.autoScaleY = true;       // We will set a fixed range
 	plotConfig.yMin = -0.1;
 	plotConfig.yMax = 0.5;
+	plotConfig.showLegend = false;            // Show graph legend
+	plotConfig.maxDataPoints = 10000;         // Maximum points per graph (for memory management)
 	time_series_plotter = std::make_unique<TimeSeriesPlotter>(frame_plot_error, plotConfig);
 	time_series_plotter->addGraph("", Qt::blue);
 
@@ -195,6 +198,24 @@ void SpecificWorker::compute()
 	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
 	draw_lidar(points, &viewer->scene);
 
+	optimize_room_and_robot(points);
+
+	// update robot pose and draw robot in viewer
+	const auto robot_pose = room.get_robot_pose();
+	robot_pose_final.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
+	robot_pose_final.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
+
+	update_viewers();
+
+	last_time = std::chrono::high_resolution_clock::now();;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::optimize_room_and_robot(const RoboCompLidar3D::TPoints &points)
+{
+	if (points.empty()) return;
+
 	// Convert LiDAR points to PyTorch tensor [N, 2]
 	// Keep points in ROBOT FRAME - the model will transform them
 	std::vector<float> points_data;
@@ -211,16 +232,33 @@ void SpecificWorker::compute()
 		torch::kFloat32
 	).clone();
 
+	// ADAPTIVE PARAMETER SELECTION
+	std::vector<torch::Tensor> params_to_optimize;
+	bool is_localized = room_freezing_manager.should_freeze_room();
+
+	if (room_freezing_manager.should_freeze_room())
+	{
+		// Only optimize robot pose
+		params_to_optimize = room.get_robot_parameters();
+		room.freeze_room_parameters();
+		qInfo() << "🔒 LOCALIZED: Optimizing robot pose only";
+	} else
+	{
+		// Optimize everything
+		params_to_optimize = room.parameters();
+		room.unfreeze_room_parameters();
+		qInfo() << "🗺️  MAPPING: Optimizing room + robot pose";
+	}
+
 	// Setup optimizer
-	std::vector<torch::Tensor> params = room.parameters();
-	torch::optim::Adam optimizer(params, torch::optim::AdamOptions(0.01));
+	torch::optim::Adam optimizer(params_to_optimize, torch::optim::AdamOptions(0.01));
 
 	// Optimization loop
 	const int num_iterations = 150;
+	float final_loss = 0.0f;
 	const int print_every = 30;
 	// Set a threshold for early stopping (e.g., for Huber loss)
 	const float min_loss_threshold = 0.01f;
-
 
 	for (int iter = 0; iter < num_iterations; ++iter)
 	{
@@ -235,7 +273,8 @@ void SpecificWorker::compute()
 		// Update parameters
 		optimizer.step();
 
-		// Print progress
+		if (iter == num_iterations - 1)
+			final_loss = loss.item<float>();
 		const bool is_last_iter = (iter == num_iterations - 1);
 		time_series_plotter->addDataPoint(loss.item<float>(), 1.f);
 
@@ -248,7 +287,7 @@ void SpecificWorker::compute()
 			// Print the final state if it wasn't just printed
 			if (iter % print_every != 0 && !is_last_iter)
 			{
-				auto robot_pose = room.get_robot_pose();
+				const auto robot_pose = room.get_robot_pose();
 				std::cout << "  Final State " << std::setw(3) << iter
 						  << " | Loss: " << std::fixed << std::setprecision(6)
 						  << loss.item<float>()
@@ -261,13 +300,12 @@ void SpecificWorker::compute()
 		if (iter % print_every == 0 || iter == num_iterations - 1)
 		{
 			auto robot_pose = room.get_robot_pose();
-			std::cout << "  Iteration " << std::setw(3) << iter
-					  << " | Loss: " << std::fixed << std::setprecision(6)
-					  << loss.item<float>()
-					  << " | Robot: (" << std::setprecision(2)
-					  << robot_pose[0] << ", " << robot_pose[1] << ", "
-					  << robot_pose[2] << ")\n";
-
+			// std::cout << "  Iteration " << std::setw(3) << iter
+			// 		  << " | Loss: " << std::fixed << std::setprecision(6)
+			// 		  << loss.item<float>()
+			// 		  << " | Robot: (" << std::setprecision(2)
+			// 		  << robot_pose[0] << ", " << robot_pose[1] << ", "
+			// 		  << robot_pose[2] << ")\n";
 		}
 	}
 
@@ -282,76 +320,123 @@ void SpecificWorker::compute()
 	//torch::Tensor covariance = UncertaintyEstimator::compute_covariance(points_tensor, room, 0.1f);
 	//UncertaintyEstimator::print_uncertainty(covariance, room);
 
-	// update robot pose and draw robot in viewer
-	const auto robot_pose = room.get_robot_pose();
-	robot_pose_final.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
-	robot_pose_final.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
-	qInfo() << "Final robot pose " << robot_pose_final.translation().x() << ", "<< robot_pose_final.translation().y() << ", "
-			<< robot_pose[2];
-	std::cout << "========================================\n\n";
-	robot_room_draw->setPos(robot_pose_final.translation().x()*1000, robot_pose_final.translation().y()*1000);
-	const double angle = qRadiansToDegrees(std::atan2(robot_pose_final.rotation()(1, 0), robot_pose_final.rotation()(0, 0)));
-	robot_room_draw->setRotation(angle);
-	// draw room in viewer_room given the current robot pose
-	if (room_draw != nullptr) { viewer_room->scene.removeItem(room_draw); delete room_draw;}
-	room_draw = viewer_room->scene.addRect(-room.get_room_parameters()[0]*1000,
-	                                       -room.get_room_parameters()[1]*1000,
-	                                        room.get_room_parameters()[0]*2*1000,
-	                                        room.get_room_parameters()[1]*2*1000,
-	                                        QPen(QColor(200,200,200), 30));
+	///  UPDATE FREEZING MANAGER
+	// Compute uncertainties
+	const torch::Tensor covariance = UncertaintyEstimator::compute_covariance (points_tensor, room, 0.1f);
+	const auto std_devs = UncertaintyEstimator::get_std_devs(covariance);
 
-	// draw room in robot viewer
-	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
-	// compute room corners in robot frame
-	Eigen::Vector2f top_left(-room.get_room_parameters()[0], room.get_room_parameters()[1]);
-	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
-	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
-	Eigen::Vector2f bottom_right(room.get_room_parameters()[0], -room.get_room_parameters()[1]);
-	Eigen::Matrix2f R = robot_pose_final.rotation().transpose();
-	Eigen::Vector2f t = -R * robot_pose_final.translation();
-	top_left = R * top_left + t;
-	top_right = R * top_right + t;
-	bottom_left = R * bottom_left + t;
-	bottom_right = R * bottom_right + t;
-	QPolygonF polygon;
-	polygon << QPointF(top_left.x()*1000, top_left.y()*1000)
-	        << QPointF(top_right.x()*1000, top_right.y()*1000)
-	        << QPointF(bottom_right.x()*1000, bottom_right.y()*1000)
-	        << QPointF(bottom_left.x()*1000, bottom_left.y()*1000);
-	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 30));
+	std::vector<float> room_std_devs;
+	std::vector<float> robot_std_devs;
 
+	if (is_localized)
+	{
+		// LOCALIZED: covariance is 3x3 (robot only)
+		// std_devs = [robot_x_std, robot_y_std, robot_theta_std]
+		robot_std_devs = {std_devs[0], std_devs[1], std_devs[2]};
 
-	// update GUI
-	time_series_plotter->update();
-	//lcdNumber_adv->display(adv);
-	//lcdNumber_rot->display(rot);
-	lcdNumber_x->display(robot_pose_final.translation().x());
-	lcdNumber_y->display(robot_pose_final.translation().y());
-	//lcdNumber_room->display(current_room);
-	lcdNumber_angle->display(qRadiansToDegrees(angle));
-	last_time = std::chrono::high_resolution_clock::now();;
+		// Room uncertainty is zero (frozen)
+		room_std_devs = {0.0f, 0.0f};
+
+		qInfo() << "Robot uncertainty: X=" << robot_std_devs[0]
+				<< " Y=" << robot_std_devs[1]
+				<< " θ=" << robot_std_devs[2];
+	}
+	else
+	{
+		// MAPPING: covariance is 5x5 (room + robot)
+		// std_devs = [half_width_std, half_height_std, robot_x_std, robot_y_std, robot_theta_std]
+		room_std_devs = {std_devs[0], std_devs[1]};
+		robot_std_devs = {std_devs[2], std_devs[3], std_devs[4]};
+
+		qInfo() << "Room uncertainty: W=" << room_std_devs[0]
+				<< " H=" << room_std_devs[1];
+		qInfo() << "Robot uncertainty: X=" << robot_std_devs[0]
+				<< " Y=" << robot_std_devs[1]
+				<< " θ=" << robot_std_devs[2];
+	}
+
+	// =========================================================================
+	// UPDATE FREEZING MANAGER
+	// =========================================================================
+
+	const auto room_params = room.get_room_parameters();
+	const bool state_changed = room_freezing_manager.update(
+		room_params,
+		room_std_devs,
+		robot_std_devs,
+		final_loss,
+		num_iterations
+	);
+
+	if (state_changed) {
+		room_freezing_manager.print_status();
+		UncertaintyEstimator::print_uncertainty(covariance, room);
+	}
+
+	// viewer update
+	update_viewers();
+
 }
-
-
-///////////////////////////////////////////////////////////////////////////////
 RoboCompLidar3D::TPoints SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
 	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);}
 	catch (const Ice::Exception &e) { std::cout << e << " " << "No lidar data from sensor" << std::endl; return {};}
+	if (ldata.points.empty()) return {};
 
-	// filter out all points with z < 1500
-	RoboCompLidar3D::TPoints filtered;
-	for	(const auto &p : ldata.points)
-		if (p.z >= 1000)
-			filtered.push_back(p);
-	ldata.points = filtered;
+	//filter out invalid points (z <= 1000 or z > 2000)
+	RoboCompLidar3D::TPoints valid_points;
+	valid_points.reserve(ldata.points.size());
+	for (const auto &p : ldata.points)
+		if (p.z > 1000 and p.z <= 2000)
+			valid_points.push_back(p);
+	ldata.points = std::move(valid_points);
+
+	// // compute the mean and variance of points and reject outliers beyond 3 stddevs
+	// // Compute mean and variance (Welford) only over valid z (>1000)
+	double mean = 0.0;
+	double M2 = 0.0;
+	std::size_t count = 0;
+	for (const auto &p : ldata.points)
+	{
+		if (p.z <= 1000 or p.z > 2000) continue; // keep same validity criterion
+		++count;
+		const double delta = p.r - mean;
+		mean += delta / static_cast<double>(count);
+		M2 += delta * (p.r - mean);
+	}
+
+	if (count == 0) { return {};}
+
+	// population variance to match original behavior (divide by N)
+	const double var = M2 / static_cast<double>(count);
+	const double stddev = std::sqrt(var);
+	if (stddev == 0.0)
+	{ qInfo() << __FUNCTION__ << "Zero variance in range data, all points have same r: " << mean; return {};}
+
+	// filter out points with r beyond 3 stddevs (apply only if stddev > 0)
+	RoboCompLidar3D::TPoints no_outliers;
+	no_outliers.reserve(ldata.points.size());
+	const double threshold = 2.0 * stddev;
+	for (const auto &p : ldata.points)
+		if (std::fabs(p.r - mean) <= threshold)
+			no_outliers.push_back(p);
+
+	// qInfo() << __FUNCTION__ << "Filtered out "
+	// 		<< (ldata.points.size() - no_outliers.size())
+	// 		<< " outliers based on range statistics (mean: "
+	// 		<< mean << ", stddev: " << stddev << ")";
+	ldata.points = std::move(no_outliers);
 
 	//ldata.points = filter_same_phi(ldata.points);
-	return filter_isolated_points(ldata.points, 200);
-}
+	//return filter_isolated_points(ldata.points, 200);
 
+	// Use door detector to filter points (removes points near detected doors)
+	ldata.points = door_detector.filter_points(ldata.points);
+
+	return ldata.points;
+}
 // Filter isolated points: keep only points with at least one neighbor within distance d
 RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d)
 {
@@ -401,7 +486,6 @@ std::expected<int, std::string> SpecificWorker::closest_lidar_index_to_given_ang
 	else
 		return std::unexpected("No closest value found in method <closest_lidar_index_to_given_angle>");
 }
-
 RoboCompLidar3D::TPoints SpecificWorker::filter_same_phi(const RoboCompLidar3D::TPoints& points)
 {
 	if (points.empty())
@@ -438,6 +522,48 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 		item->setPos(p.x, p.y);
 		items.push_back(item);
 	}
+}
+void SpecificWorker::update_viewers()
+{
+	robot_room_draw->setPos(robot_pose_final.translation().x()*1000, robot_pose_final.translation().y()*1000);
+	const double angle = qRadiansToDegrees(std::atan2(robot_pose_final.rotation()(1, 0), robot_pose_final.rotation()(0, 0)));
+	robot_room_draw->setRotation(angle);
+	// draw room in viewer_room given the current robot pose
+	if (room_draw != nullptr) { viewer_room->scene.removeItem(room_draw); delete room_draw;}
+	room_draw = viewer_room->scene.addRect(-room.get_room_parameters()[0]*1000,
+	                                       -room.get_room_parameters()[1]*1000,
+	                                        room.get_room_parameters()[0]*2*1000,
+	                                        room.get_room_parameters()[1]*2*1000,
+	                                        QPen(QColor(200,200,200), 30));
+
+	// draw room in robot viewer
+	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
+	// compute room corners in robot frame
+	Eigen::Vector2f top_left(-room.get_room_parameters()[0], room.get_room_parameters()[1]);
+	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
+	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
+	Eigen::Vector2f bottom_right(room.get_room_parameters()[0], -room.get_room_parameters()[1]);
+	Eigen::Matrix2f R = robot_pose_final.rotation().transpose();
+	Eigen::Vector2f t = -R * robot_pose_final.translation();
+	top_left = R * top_left + t;
+	top_right = R * top_right + t;
+	bottom_left = R * bottom_left + t;
+	bottom_right = R * bottom_right + t;
+	QPolygonF polygon;
+	polygon << QPointF(top_left.x()*1000, top_left.y()*1000)
+	        << QPointF(top_right.x()*1000, top_right.y()*1000)
+	        << QPointF(bottom_right.x()*1000, bottom_right.y()*1000)
+	        << QPointF(bottom_left.x()*1000, bottom_left.y()*1000);
+	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 30));
+
+	// update GUI
+	time_series_plotter->update();
+	//lcdNumber_adv->display(adv);
+	//lcdNumber_rot->display(rot);
+	lcdNumber_x->display(robot_pose_final.translation().x());
+	lcdNumber_y->display(robot_pose_final.translation().y());
+	//lcdNumber_room->display(current_room);
+	lcdNumber_angle->display(qRadiansToDegrees(angle));
 }
 ///////////////////////////////////////////////////////////////////////////////
 
