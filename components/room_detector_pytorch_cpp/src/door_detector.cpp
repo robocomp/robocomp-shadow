@@ -104,7 +104,7 @@ std::expected<Door, std::string> DoorDetector::get_current_door() const
     return doors_cache[0];
 }
 
-void DoorDetector::draw_doors(bool localised, QGraphicsScene *scene_robot, QGraphicsScene *scene_room, const Eigen::Affine2d &robot_pose)
+void DoorDetector::draw_doors(bool localised, QGraphicsScene *scene_robot, QGraphicsScene *scene_room, const Eigen::Affine2f &robot_pose)
 {
     // draw doors in robot viewer
     static std::vector<QGraphicsItem *> doors_draw;
@@ -141,8 +141,8 @@ void DoorDetector::draw_doors(bool localised, QGraphicsScene *scene_robot, QGrap
         for (const auto &d : doors_cache)
         {
             // transform door points to room frame
-            Eigen::Vector2d p1_room = robot_pose * d.p1.cast<double>();
-            Eigen::Vector2d p2_room = robot_pose * d.p2.cast<double>();
+            Eigen::Vector2f p1_room = robot_pose * d.p1;
+            Eigen::Vector2f p2_room = robot_pose * d.p2;
             const auto peak_A_draw = scene_room->addEllipse(-100, -100, 200, 200, pen, QBrush(color));
             const auto peak_B_draw = scene_room->addEllipse(-100, -100, 200, 200, pen, QBrush(color));
             peak_A_draw->setPos(p1_room.x(), p1_room.y());

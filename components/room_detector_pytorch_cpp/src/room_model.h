@@ -150,7 +150,7 @@ public:
      * @param wall_thickness Expected thickness of walls for robust fitting
      * @return Scalar tensor with the loss value
      */
-    static torch::Tensor compute(const torch::Tensor& points,
+    static torch::Tensor compute_loss(const torch::Tensor& points,
                                   RoomModel& room,
                                   float wall_thickness = 0.1f);
 };

@@ -15,15 +15,15 @@
 
 /**
  * @brief Manages adaptive freezing of room parameters with hysteresis
- * 
+ *
  * State machine:
  * MAPPING: Optimize both room shape and robot pose (initial exploration)
  * LOCALIZED: Optimize only robot pose (confident in room shape)
- * 
+ *
  * Transitions:
  * MAPPING → LOCALIZED: When room estimate is confident and stable
  * LOCALIZED → MAPPING: When structural changes detected (anomaly)
- * 
+ *
  * Uses hysteresis to prevent oscillation between states.
  */
 class RoomFreezingManager
@@ -41,32 +41,58 @@ public:
         // Thresholds for MAPPING → LOCALIZED (freezing)
         float uncertainty_freeze_threshold = 0.05f;    // Max std dev for room params (meters)
         float stability_freeze_threshold = 0.02f;      // Max change in room params between updates
-        int min_observations_to_freeze = 100;           // Min number of optimization iterations
+        int min_observations_to_freeze = 50;           // Min number of optimization iterations
         float confidence_freeze_threshold = 0.95f;     // Confidence level (0-1)
-        
+
+        // Movement-based constraints (NEW)
+        float min_distance_traveled = 2.0f;            // Minimum meters traveled before freeze
+        float min_rotation_traveled = 1.0f;            // Minimum radians rotated before freeze (cumulative)
+
         // Thresholds for LOCALIZED → MAPPING (unfreezing)
         float residual_unfreeze_threshold = 0.15f;     // Max acceptable mean residual
         float uncertainty_unfreeze_threshold = 0.15f;   // If robot pose uncertainty gets too high
         float structural_change_threshold = 0.20f;     // Significant change in room shape detected
-        
+
         // Hysteresis factors (prevent oscillation)
         float freeze_hysteresis = 1.2f;                // Unfreeze threshold = freeze threshold * hysteresis
-        
+
         // History tracking
         int history_size = 20;                         // Number of past estimates to track
-        
+
         // Time-based constraints
         float min_time_in_state = 5.0f;                // Minimum seconds before state change
-    };
-    RoomFreezingManager() = default;
 
+        // Constructor with default values
+        Params()
+            : uncertainty_freeze_threshold(0.05f)
+            , stability_freeze_threshold(0.02f)
+            , min_observations_to_freeze(50)
+            , confidence_freeze_threshold(0.95f)
+            , min_distance_traveled(2.0f)
+            , min_rotation_traveled(1.0f)
+            , residual_unfreeze_threshold(0.15f)
+            , uncertainty_unfreeze_threshold(0.15f)
+            , structural_change_threshold(0.20f)
+            , freeze_hysteresis(1.2f)
+            , history_size(20)
+            , min_time_in_state(5.0f)
+        {}
+    };
+
+    RoomFreezingManager(const Params& params = Params())
+        : params_(params), state_(State::MAPPING), observation_count_(0),
+          cumulative_distance_(0.0f), cumulative_rotation_(0.0f)
+    {
+        state_entry_time_ = std::chrono::steady_clock::now();
+    }
 
     /**
      * @brief Update state based on current room estimate and optimization results
-     * 
+     *
      * @param room_params Current room parameters [half_width, half_height]
      * @param room_std_devs Uncertainty in room parameters
      * @param robot_std_devs Uncertainty in robot pose
+     * @param robot_pose Current robot pose [x, y, theta] in room frame
      * @param mean_residual Mean SDF residual (loss value)
      * @param iteration Current optimization iteration
      * @return true if state changed, false otherwise
@@ -74,6 +100,7 @@ public:
     bool update(const std::vector<float>& room_params,
                 const std::vector<float>& room_std_devs,
                 const std::vector<float>& robot_std_devs,
+                const std::vector<float>& robot_pose,
                 float mean_residual,
                 int iteration);
 
@@ -113,7 +140,7 @@ public:
     {
         if (state_ != new_state)
         {
-            std::cout << "🔧 Forcing state change: " << get_state_string() 
+            std::cout << "🔧 Forcing state change: " << get_state_string()
                       << " → " << state_to_string(new_state) << "\n";
             state_ = new_state;
             state_entry_time_ = std::chrono::steady_clock::now();
@@ -129,6 +156,10 @@ public:
         observation_count_ = 0;
         room_history_.clear();
         residual_history_.clear();
+        robot_pose_history_.clear();
+        pose_at_state_change_.clear();
+        cumulative_distance_ = 0.0f;
+        cumulative_rotation_ = 0.0f;
         state_entry_time_ = std::chrono::steady_clock::now();
     }
 
@@ -143,38 +174,14 @@ public:
         float mean_robot_uncertainty;
         float mean_residual;
         float room_stability;
+        float distance_traveled;
+        float rotation_traveled;
         bool can_freeze;
         bool should_unfreeze;
     };
-    
+
     Statistics get_statistics() const;
 
-private:
-    Params params_;
-    State state_ = State::MAPPING;
-    int observation_count_;
-    
-    // History tracking
-    std::deque<std::vector<float>> room_history_;     // Past room parameters
-    std::deque<float> residual_history_;              // Past residuals
-    
-    // Timing
-    std::chrono::steady_clock::time_point state_entry_time_;
-
-    // Helper methods
-    bool check_freeze_conditions(const std::vector<float>& room_params,
-                                  const std::vector<float>& room_std_devs,
-                                  float mean_residual);
-    
-    bool check_unfreeze_conditions(const std::vector<float>& room_params,
-                                    const std::vector<float>& robot_std_devs,
-                                    float mean_residual);
-    
-    float compute_room_stability() const;
-    float compute_mean_uncertainty(const std::vector<float>& std_devs) const;
-    bool check_structural_change(const std::vector<float>& room_params) const;
-    float get_time_in_current_state() const;
-    
     static std::string state_to_string(State s)
     {
         switch(s)
@@ -185,6 +192,46 @@ private:
             default: return "UNKNOWN";
         }
     }
+
+private:
+    Params params_;
+    State state_;
+    int observation_count_;
+
+    // History tracking
+    std::deque<std::vector<float>> room_history_;     // Past room parameters
+    std::deque<float> residual_history_;              // Past residuals
+
+    // Robot movement tracking (NEW)
+    std::deque<std::vector<float>> robot_pose_history_;  // Past robot poses [x, y, theta]
+    float cumulative_distance_;                          // Total distance traveled since state change
+    float cumulative_rotation_;                          // Total rotation since state change
+    std::vector<float> pose_at_state_change_;           // Robot pose when state last changed
+
+    // Timing
+    std::chrono::steady_clock::time_point state_entry_time_;
+
+    // Helper methods
+    bool check_freeze_conditions(const std::vector<float>& room_params,
+                                  const std::vector<float>& room_std_devs,
+                                  float mean_residual);
+
+    bool check_unfreeze_conditions(const std::vector<float>& room_params,
+                                    const std::vector<float>& robot_std_devs,
+                                    float mean_residual);
+
+    float compute_room_stability() const;
+    float compute_mean_uncertainty(const std::vector<float>& std_devs) const;
+    bool check_structural_change(const std::vector<float>& room_params) const;
+    float get_time_in_current_state() const;
+
+    // Movement tracking helpers (NEW)
+    void update_movement_tracking(const std::vector<float>& robot_pose);
+    float compute_distance_traveled() const { return cumulative_distance_; }
+    float compute_rotation_traveled() const { return cumulative_rotation_; }
+    void reset_movement_tracking(const std::vector<float>& robot_pose);
+
+
 };
 
 #endif // ROOM_FREEZING_MANAGER_H

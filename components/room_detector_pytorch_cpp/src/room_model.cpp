@@ -138,10 +138,11 @@ void RoomModel::print_info() const {
               << (robot_pose[2] * 180.0 / M_PI) << " deg)\n";
 }
 
-torch::Tensor RoomLoss::compute(const torch::Tensor& points,
+torch::Tensor RoomLoss::compute_loss(const torch::Tensor& points,
                                  RoomModel& room,
-                                 float wall_thickness) {
-    torch::Tensor sdf_values = room.sdf(points);
+                                 float wall_thickness)
+{
+    const torch::Tensor sdf_values = room.sdf(points);
     torch::Tensor loss = torch::mean(torch::square(sdf_values));
     return loss;
 }
@@ -176,7 +177,7 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor& poin
     }
 
     // Compute loss (ensure requires_grad is true)
-    torch::Tensor loss = RoomLoss::compute(points, room, wall_thickness);
+    torch::Tensor loss = RoomLoss::compute_loss(points, room, wall_thickness);
 
     // Compute gradients (first derivatives)
     auto gradients = torch::autograd::grad({loss}, params,
@@ -221,12 +222,50 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor& poin
         hessian[i] = second_vector;
     }
 
-    // Add regularization
-    float reg = 1e-6;
-    hessian = hessian + reg * torch::eye(total_params, torch::kFloat32);
+    // // Add regularization
+    // const float reg = 1e-6;
+    // hessian = hessian + reg * torch::eye(total_params, torch::kFloat32);
+    //
+    // // Covariance is inverse of Hessian
+    // // check for positive definiteness so it can be inverted
+    //
+    // torch::Tensor covariance = torch::inverse(hessian);
 
-    // Covariance is inverse of Hessian
-    torch::Tensor covariance = torch::inverse(hessian);
+    // Ensure numerical symmetry
+    hessian = 0.5 * (hessian + hessian.transpose(0, 1));
+
+    // Robust inversion strategy
+    torch::Tensor covariance;
+    torch::Tensor I = torch::eye(total_params, hessian.options());
+    double reg = 1e-6;
+    const int max_attempts = 6;
+    bool success = false;
+
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        torch::Tensor h_reg = hessian + reg * I;
+        try {
+            // Try Cholesky and build inverse from the factor
+            auto L = torch::cholesky(h_reg, /*upper=*/false);
+            covariance = torch::cholesky_inverse(L, /*upper=*/false);
+            success = true;
+            break;
+        } catch (const c10::Error& e) {
+            reg *= 10.0;
+        }
+    }
+
+    if (!success) {
+        // First fallback: pseudo-inverse (can handle singular/indefinite matrices)
+        try {
+            covariance = torch::pinverse(hessian + reg * I);
+        } catch (const c10::Error& e) {
+            // Last-resort fallback: safe diagonal inverse
+            torch::Tensor diag = torch::diag(hessian).clone();
+            diag = torch::clamp(diag, 1e-12, 1e12);
+            covariance = torch::diag(1.0 / diag);
+        }
+    }
+
     covariance = covariance / static_cast<float>(points.size(0));
 
     return covariance.detach();

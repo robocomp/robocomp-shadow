@@ -161,42 +161,31 @@ void SpecificWorker::initialize()
 	// Create room model with FIXED room at origin (5 parameters)
 	room.init(half_width, half_height, robot_x, robot_y, robot_theta);
 
+	// Room freezing manager
+	RoomFreezingManager::Params freezing_params;
+
 	// time series plotter for match error
 	TimeSeriesPlotter::Config plotConfig;  // all fields have to be initialized, otherwise garbage values get to the constructor
 	plotConfig.title = "Maximum Match Error Over Time";
 	plotConfig.yAxisLabel = "Error (mm)";
 	plotConfig.xAxisLabel = "";
-	plotConfig.timeWindowSeconds = 10.0; // Show a 15-second window
+	plotConfig.timeWindowSeconds = 7.0; // Show a 15-second window
 	plotConfig.autoScaleY = true;       // We will set a fixed range
-	plotConfig.yMin = -0.1;
-	plotConfig.yMax = 0.5;
 	plotConfig.showLegend = false;            // Show graph legend
-	plotConfig.maxDataPoints = 10000;         // Maximum points per graph (for memory management)
+	plotConfig.yMin = 0;
+	plotConfig.yMax = 0.4;
 	time_series_plotter = std::make_unique<TimeSeriesPlotter>(frame_plot_error, plotConfig);
 	time_series_plotter->addGraph("", Qt::blue);
 
-	// // Create a simple tensor
-	// torch::Tensor tensor = torch::rand({2, 3});
-	// std::cout << "\nRandom tensor (2x3):\n" << tensor << "\n\n";
-	//
-	// // Create a simple neural network module
-	// torch::nn::Linear linear(3, 1);
-	// std::cout << "Created a Linear layer (3 -> 1)\n";
-	//
-	// // Forward pass
-	// torch::Tensor input = torch::randn({5, 3});
-	// torch::Tensor output = linear->forward(input);
-	//
-	// std::cout << "\nInput tensor (5x3):\n" << input << "\n";
-	// std::cout << "\nOutput tensor (5x1):\n" << output << "\n";
 }
 
 void SpecificWorker::compute()
 {
 	// Read LiDAR data (in robot frame)
-	auto points = read_data();
+	const auto points = read_data();
 	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
 	draw_lidar(points, &viewer->scene);
+	door_detector.draw_doors(false, &viewer->scene, &viewer_room->scene, robot_pose_final);
 
 	optimize_room_and_robot(points);
 
@@ -265,7 +254,7 @@ void SpecificWorker::optimize_room_and_robot(const RoboCompLidar3D::TPoints &poi
 		optimizer.zero_grad();
 
 		// Compute loss (points are in robot frame)
-		torch::Tensor loss = RoomLoss::compute(points_tensor, room, 0.1f);
+		torch::Tensor loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
 
 		// Backward pass
 		loss.backward();
@@ -276,7 +265,7 @@ void SpecificWorker::optimize_room_and_robot(const RoboCompLidar3D::TPoints &poi
 		if (iter == num_iterations - 1)
 			final_loss = loss.item<float>();
 		const bool is_last_iter = (iter == num_iterations - 1);
-		time_series_plotter->addDataPoint(loss.item<float>(), 1.f);
+		time_series_plotter->addDataPoint(0, loss.item<double>());
 
 		// early stopping
 		if (loss.item<float>() < min_loss_threshold)
@@ -364,6 +353,7 @@ void SpecificWorker::optimize_room_and_robot(const RoboCompLidar3D::TPoints &poi
 		room_params,
 		room_std_devs,
 		robot_std_devs,
+		room.get_robot_pose(),
 		final_loss,
 		num_iterations
 	);
@@ -564,6 +554,7 @@ void SpecificWorker::update_viewers()
 	lcdNumber_y->display(robot_pose_final.translation().y());
 	//lcdNumber_room->display(current_room);
 	lcdNumber_angle->display(qRadiansToDegrees(angle));
+	label_state->setText(room_freezing_manager.state_to_string(room_freezing_manager.get_state()).data());
 }
 ///////////////////////////////////////////////////////////////////////////////
 

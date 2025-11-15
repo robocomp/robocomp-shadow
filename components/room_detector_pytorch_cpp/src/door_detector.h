@@ -16,7 +16,7 @@ class DoorDetector
         DoorDetector() = default;
         ~DoorDetector() = default;
 
-    Doors detect(const RoboCompLidar3D::TPoints &points,
+        Doors detect(const RoboCompLidar3D::TPoints &points,
                        const Eigen::Affine2d &robot_pose = Eigen::Affine2d::Identity(),
                        bool localised = false,
                        QGraphicsScene *robot_scene = nullptr,
@@ -24,7 +24,7 @@ class DoorDetector
         RoboCompLidar3D::TPoints filter_points(const RoboCompLidar3D::TPoints &points);
         [[nodiscard]] Doors doors() const { return doors_cache; };
         [[nodiscard]] std::expected<Door, std::string> get_current_door() const;
-        void draw_doors(bool localised, QGraphicsScene *scene_robot, QGraphicsScene *scene_room, const Eigen::Affine2d &robot_pose);
+        void draw_doors(bool localised, QGraphicsScene *scene_robot, QGraphicsScene *scene_room, const Eigen::Affine2f &robot_pose);
 
     private:
         Doors doors_cache;
