@@ -39,9 +39,9 @@ public:
     struct Params
     {
         // Thresholds for MAPPING → LOCALIZED (freezing)
-        float uncertainty_freeze_threshold = 0.05f;    // Max std dev for room params (meters)
+        float uncertainty_freeze_threshold = 0.02f;    // Max std dev for room params (meters)
         float stability_freeze_threshold = 0.02f;      // Max change in room params between updates
-        int min_observations_to_freeze = 50;           // Min number of optimization iterations
+        int min_observations_to_freeze = 100;           // Min number of optimization iterations
         float confidence_freeze_threshold = 0.95f;     // Confidence level (0-1)
 
         // Movement-based constraints (NEW)

@@ -72,9 +72,15 @@ RoomOptimizer::Result RoomOptimizer::optimize(
         optimizer.zero_grad();
 
         // Using your existing RoomLoss class
-        torch::Tensor loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
+        torch::Tensor loss = RoomLoss::compute_loss(points_tensor, room, wall_thickness);
 
         loss.backward();
+        for (auto& p : params_to_optimize)
+            if (p.grad().defined()) 
+                p.grad().clamp_(-10.0f, 10.0f);
+
+        optimizer.step();
+
         optimizer.step();
 
         final_loss = loss.item<float>();
