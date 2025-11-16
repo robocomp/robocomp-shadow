@@ -3,6 +3,14 @@ Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
 Proxies.OmniRobot = "omnirobot:tcp -h localhost -p 10004"
 
 
+# Endpoints for subscriptions interfaces
+Endpoints.JoystickAdapterTopic = "tcp -p 0"
+Endpoints.JoystickAdapterPrefix = ""
+
+
+
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 
 Period.Compute = 100
 Period.Emergency = 500

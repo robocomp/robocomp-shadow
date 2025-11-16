@@ -20,6 +20,9 @@ LIST(APPEND SOURCES
         ../src/room_freezing_manager.cpp
         ../src/qt3d_visualizer.cpp
         ../src/room_optimizer.cpp
+        ../src/uncertainty_manager.cpp
+        ../src/room_loss.cpp
+        ../src/uncertainty_estimator.cpp
 )
 
 # Headers set
@@ -31,6 +34,7 @@ LIST(APPEND HEADERS
         ../src/room_freezing_manager.h
         ../src/qt3d_visualizer.h
         ../src/room_optimizer.h
+        ../src/uncertainty_manager.h
 )
 
 

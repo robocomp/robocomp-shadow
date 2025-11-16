@@ -35,19 +35,19 @@ SET (SOURCES
   $ENV{ROBOCOMP}/classes/ConfigLoader/ConfigLoader.cpp
   main.cpp
   genericworker.cpp
+  joystickadapterI.cpp
 )
 
 
 #ROBOCOMP
 ROBOCOMP_INITIALIZE( $ENV{ROBOCOMP}/ )
-ROBOCOMP_IDSL_TO_ICE(GenericBase Lidar3D OmniRobot)
-ROBOCOMP_ICE_TO_SRC(GenericBase Lidar3D OmniRobot)
+ROBOCOMP_IDSL_TO_ICE(OmniRobot JoystickAdapter GenericBase Lidar3D)
+ROBOCOMP_ICE_TO_SRC(OmniRobot JoystickAdapter GenericBase Lidar3D)
 SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 # Specify construction and link process
 ADD_EXECUTABLE( room_detector_pytorch_cpp ${SOURCES} ${MOC_SOURCES} ${RC_SOURCES} ${UI_HEADERS} )
-
 TARGET_LINK_LIBRARIES( room_detector_pytorch_cpp ${LIBS}  ${STATIC_LIBS} ${SPECIFIC_LIBS} ${QT_LIBRARIES} ${Ice_LIBRARIES} )
 SET_TARGET_PROPERTIES(room_detector_pytorch_cpp
         PROPERTIES

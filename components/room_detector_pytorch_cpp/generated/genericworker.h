@@ -42,6 +42,7 @@
 
 
 #include <GenericBase.h>
+#include <JoystickAdapter.h>
 #include <Lidar3D.h>
 #include <OmniRobot.h>
 
@@ -68,6 +69,8 @@ public:
 
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
+
+	virtual void JoystickAdapter_sendData (RoboCompJoystickAdapter::TData data) = 0;
 
 
 protected:

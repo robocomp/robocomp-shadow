@@ -56,6 +56,7 @@ class SpecificWorker final : public GenericWorker
 	     * \param startup_check Indicates whether to perform startup checks.
 	     */
 		SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check);
+		void JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data);
 
 		/**
 	     * \brief Destructor for SpecificWorker.
@@ -66,8 +67,6 @@ class SpecificWorker final : public GenericWorker
 
 		void initialize();
 		void compute();
-
-	void optimize_room_and_robot(const RoboCompLidar3D::TPoints &points);
 
 	void emergency();
 		void restore();

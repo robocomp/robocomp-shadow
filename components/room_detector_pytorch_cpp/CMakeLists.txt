@@ -1,9 +1,6 @@
 cmake_minimum_required( VERSION 3.10 )
 PROJECT( room_detector_pytorch_cpp )
 
-# Prevent Qt from including OpenGL headers (incompatible with GLEW/Open3D)
-
-
 IF ( "$ENV{ROBOCOMP}" STREQUAL "")
   MESSAGE(WARNING "ROBOCOMP variable not set. Using the default value: /home/robocomp/robocomp")
   SET (ENV{ROBOCOMP} "/home/robocomp/robocomp/")
