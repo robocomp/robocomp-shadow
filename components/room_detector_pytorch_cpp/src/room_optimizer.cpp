@@ -14,13 +14,13 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-RoomOptimizer::Result RoomOptimizer::optimize(
-    const RoboCompLidar3D::TPoints& points,
-    RoomModel& room,
-    std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
-    int num_iterations,
-    float min_loss_threshold,
-    float learning_rate)
+RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& points,
+                                               RoomModel& room,
+                                               std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
+                                               int num_iterations,
+                                               float min_loss_threshold,
+                                               float learning_rate,
+                                               const OdometryPrior& odometry_prior)
 {
     Result res;
 
@@ -59,40 +59,80 @@ RoomOptimizer::Result RoomOptimizer::optimize(
         qInfo() << "🗺️  MAPPING: Optimizing room + robot pose";
     }
 
-    // ===== STEP 3: RUN OPTIMIZATION LOOP =====
-    torch::optim::Adam optimizer(
-        params_to_optimize,
-        torch::optim::AdamOptions(learning_rate)
-    );
+    // ===== STEP 2.5: GET PRIOR FROM VELOCITY INTEGRATION =====
 
+    bool use_odometry = odometry_prior.valid and is_localized;  // Only in LOCALIZED mode
+    torch::Tensor prior_loss = torch::zeros(1, torch::kFloat32);
+    torch::Tensor predicted_pose;
+
+    if (use_odometry)
+    {
+        // Predict robot pose: previous_pose + odometry_delta
+        auto prev_pose = room.get_robot_pose();
+        predicted_pose = torch::tensor(
+        {
+            prev_pose[0] + odometry_prior.delta_pose[0],
+            prev_pose[1] + odometry_prior.delta_pose[1],
+            prev_pose[2] + odometry_prior.delta_pose[2]
+        }, torch::kFloat32).clone().requires_grad_(false);
+
+        qDebug() << "Odometry prior active. Predicted pose:"
+                 << predicted_pose[0].item<float>()
+                 << predicted_pose[1].item<float>()
+                 << predicted_pose[2].item<float>();
+    }
+
+    // ===== STEP 3: RUN OPTIMIZATION LOOP =====
+    torch::optim::Adam optimizer(params_to_optimize, torch::optim::AdamOptions(learning_rate));
     float final_loss = 0.0f;
     const int print_every = 30;
 
-    for (int iter = 0; iter < num_iterations; ++iter) {
+    for (int iter = 0; iter < num_iterations; ++iter)
+    {
         optimizer.zero_grad();
 
-        // Using your existing RoomLoss class
-        torch::Tensor loss = RoomLoss::compute_loss(points_tensor, room, wall_thickness);
+        // Measurement likelihood (SDF loss)
+        torch::Tensor measurement_loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
 
-        loss.backward();
-        for (auto& p : params_to_optimize)
-            if (p.grad().defined()) 
-                p.grad().clamp_(-10.0f, 10.0f);
+        // Combined loss
+        torch::Tensor total_loss = measurement_loss;
 
-        optimizer.step();
+        // Add odometry prior if available
+        if (use_odometry)
+        {
+            auto current_pose = torch::tensor(room.get_robot_pose(), torch::kFloat32);
+            auto pose_diff = current_pose - predicted_pose;
 
-        optimizer.step();
+            // Mahalanobis distance: (x-μ)^T Σ^{-1} (x-μ)
+            torch::Tensor reg_cov = odometry_prior.covariance + 1e-6 * torch::eye(3);
+            torch::Tensor info_matrix = torch::inverse(reg_cov);
 
-        final_loss = loss.item<float>();
+            prior_loss = 0.5 * torch::matmul(
+                pose_diff.unsqueeze(0),
+                torch::matmul(info_matrix, pose_diff.unsqueeze(1))
+            ).squeeze();
 
-        // Plot loss
-        if (time_series_plotter) {
-            time_series_plotter->addDataPoint(0, loss.item<double>());
+            const float prior_weight = 0.5f;  // Tune this: 0.1=loose, 1.0=tight
+            total_loss = total_loss + prior_weight * prior_loss;
         }
 
+        total_loss.backward();
+        optimizer.step();
+        for (auto& p : params_to_optimize)
+            if (p.grad().defined())
+                p.grad().clamp_(-10.0f, 10.0f);
+
+        final_loss = total_loss.item<float>();
+
+        // Plot loss
+        if (time_series_plotter)
+            time_series_plotter->addDataPoint(0, total_loss.item<double>());
+
         // Early stopping
-        if (final_loss < min_loss_threshold) {
-            if (iter % print_every != 0 && iter != num_iterations - 1) {
+        if (final_loss < min_loss_threshold)
+        {
+            if (iter % print_every != 0 && iter != num_iterations - 1)
+            {
                 const auto robot_pose = room.get_robot_pose();
                 std::cout << "  Final State " << std::setw(3) << iter
                          << " | Loss: " << std::fixed << std::setprecision(6) << final_loss

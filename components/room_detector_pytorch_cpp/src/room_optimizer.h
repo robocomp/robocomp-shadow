@@ -28,13 +28,13 @@ class RoomOptimizer
          * Main optimization function
          * Runs adaptive optimization (MAPPING or LOCALIZED mode) and computes uncertainty
          */
-        Result optimize(
-            const RoboCompLidar3D::TPoints& points,
-            RoomModel& room,
-            std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
-            int num_iterations = 150,
-            float min_loss_threshold = 0.001f,
-            float learning_rate = 0.005f
+        Result optimize(const RoboCompLidar3D::TPoints& points,
+                        RoomModel& room,
+                        std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
+                        int num_iterations = 150,
+                        float min_loss_threshold = 0.001f,
+                        float learning_rate = 0.005f,
+                        const OdometryPrior& odometry_prior = {}
         );
 
         // Public components

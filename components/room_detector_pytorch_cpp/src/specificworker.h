@@ -29,7 +29,6 @@
 // If you want to reduce the period automatically due to lack of use, you must uncomment the following line
 //#define HIBERNATION_ENABLED
 
-
 #include "time_series_plotter.h"
 #include <genericworker.h>
 #include <expected>
@@ -97,8 +96,15 @@ class SpecificWorker final : public GenericWorker
 			std::string LIDAR_NAME_LOW = "bpearl";
 			std::string LIDAR_NAME_HIGH = "helios";
 			QRectF GRID_MAX_DIM{-5000, 2500, 10000, -5000};
+			float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
+			float NOISE_ROT = 0.1f;     // 0.1 rad
 		};
 		Params params;
+
+		// velocity commands
+		boost::circular_buffer<VelocityCommand> velocity_history_{10}; // Keep last 10 commands
+		OdometryPrior compute_odometry_prior() const;
+		Eigen::Vector3f integrate_velocity(const VelocityCommand& cmd, float dt) const;
 
 		// viewer
 		AbstractGraphicViewer *viewer, *viewer_room;

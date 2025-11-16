@@ -33,7 +33,7 @@
 #include "specificworker.h"
 #include <iostream>
 #include <iomanip>
-
+#include "common_types.h"
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/groupby.hpp>
 
@@ -190,11 +190,33 @@ void SpecificWorker::compute()
 {
 	// Read LiDAR data (in robot frame)
 	const auto points = read_data();
+	auto current_time = std::chrono::high_resolution_clock::now();
 	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
 	draw_lidar(points, &viewer->scene);
 	door_detector.draw_doors(false, &viewer->scene, nullptr, robot_pose_final);
 
-	const auto result = optimizer.optimize(points, room, time_series_plotter, /*num_iter*/150, /*min_loss*/0.01f, /*lr*/0.01f);
+	// Compute odometry prior
+	const auto odom_prior = compute_odometry_prior();
+
+	// Optimize with prior
+	const auto result = optimizer.optimize(points,
+							   			 room,
+											time_series_plotter,
+											150,
+											0.01f,
+											0.01f,
+											 odom_prior);
+
+	// Propagate covariance using velocity (only if prior is valid)
+	if (odom_prior.valid)
+	{
+		const auto dt = std::chrono::duration<float>(current_time - last_time).count();
+		torch::Tensor propagated_cov = optimizer.uncertainty_manager.propagate_with_velocity(
+			velocity_history_.back(), dt, result.covariance, room.are_room_parameters_frozen()
+		);
+		// Store propagated_cov for next iteration
+		optimizer.uncertainty_manager.set_previous_cov(propagated_cov);
+	}
 
 	// update robot pose
 	const auto robot_pose = room.get_robot_pose();
@@ -208,7 +230,6 @@ void SpecificWorker::compute()
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
 	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
 
-	// Optional: show uncertainty
 	// Show uncertainty when localized
 	if (room.are_room_parameters_frozen())
 	{
@@ -272,11 +293,7 @@ RoboCompLidar3D::TPoints SpecificWorker::read_data()
 	for (const auto &p : ldata.points)
 		if (std::fabs(p.r - mean) <= threshold)
 			no_outliers.push_back(p);
-
-	// qInfo() << __FUNCTION__ << "Filtered out "
-	// 		<< (ldata.points.size() - no_outliers.size())
-	// 		<< " outliers based on range statistics (mean: "
-	// 		<< mean << ", stddev: " << stddev << ")";
+	
 	ldata.points = std::move(no_outliers);
 
 	//ldata.points = filter_same_phi(ldata.points);
@@ -416,16 +433,85 @@ void SpecificWorker::update_viewers()
 	lcdNumber_angle->display(qRadiansToDegrees(angle));
 	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
 }
+
+Eigen::Vector3f SpecificWorker::integrate_velocity(const VelocityCommand& cmd, float dt) const
+{
+    // Integrate in robot's local frame
+    float dx_local = (cmd.adv_x * dt) / 1000.0f;  // Convert mm → m
+    float dy_local = (cmd.adv_z * dt) / 1000.0f;
+    float dtheta   = cmd.rot * dt;
+
+    // Transform to global frame using current robot heading
+    float theta = std::atan2(robot_pose_final.rotation()(1, 0),
+                             robot_pose_final.rotation()(0, 0));
+
+    Eigen::Vector3f delta_global;
+    delta_global[0] = dx_local * std::cos(theta) - dy_local * std::sin(theta);
+    delta_global[1] = dx_local * std::sin(theta) + dy_local * std::cos(theta);
+    delta_global[2] = dtheta;
+
+    return delta_global;
+}
+
+OdometryPrior SpecificWorker::compute_odometry_prior() const
+{
+    OdometryPrior prior;
+    prior.valid = false;
+
+    if (velocity_history_.empty())
+    {
+        qWarning() << "No velocity commands in buffer";
+        return prior;
+    }
+
+    // Use the most recent command (arrived just before LiDAR scan)
+    const auto& latest_cmd = velocity_history_.back();
+
+    // Time since last compute() call (typical RoboComp period: 10-100ms)
+    static auto last_compute_time = std::chrono::steady_clock::now();
+    auto current_time = std::chrono::steady_clock::now();
+    float dt = std::chrono::duration<float>(current_time - last_compute_time).count();
+    last_compute_time = current_time;
+
+    // Reject if dt is unreasonable
+    if (dt <= 0 || dt > 0.5f) {
+        qWarning() << "Invalid dt for odometry:" << dt << "s";
+        return prior;
+    }
+
+    // Integrate velocity to get pose delta
+    prior.delta_pose = integrate_velocity(latest_cmd, dt);
+
+    // Compute process noise covariance (proportional to command magnitude)
+    float trans_noise_std = params.NOISE_TRANS *
+        (std::abs(latest_cmd.adv_x) + std::abs(latest_cmd.adv_z)) / 1000.0f * dt;
+    float rot_noise_std   = params.NOISE_ROT * std::abs(latest_cmd.rot) * dt;
+
+    prior.covariance = torch::eye(3, torch::kFloat32);
+    prior.covariance[0][0] = trans_noise_std * trans_noise_std;
+    prior.covariance[1][1] = trans_noise_std * trans_noise_std;
+    prior.covariance[2][2] = rot_noise_std * rot_noise_std;
+
+    prior.valid = true;
+    return prior;
+}
 ///////////////////////////////////////////////////////////////////////////////
 /////SUBSCRIPTION to sendData method from JoystickAdapter interface
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)
 {
-	// print joystick data
-	std::cout << "Joystick data received: ";
-	std::cout << "Axes: ";
-	for (const auto &axis : data.axes)
-		std::cout << axis.name << "=" << axis.value << " ";
-	std::cout << std::endl;
+	// Parse velocity command (assuming axes[0]=adv_x, axes[1]=adv_z, axes[2]=rot)
+	VelocityCommand cmd;
+	cmd.adv_x = data.axes[0].value;  //mm/sg
+	cmd.adv_z = data.axes[1].value;
+	cmd.rot = data.axes[2].value;
+	cmd.timestamp = std::chrono::high_resolution_clock::now();
+	velocity_history_.push_back(cmd);
+
+	qDebug() << "Velocity stored:" << cmd.adv_x << "mm/s," << cmd.rot << "rad/s";
+	// Predict next pose for visualization
+	//const auto dt = std::chrono::duration<float>(cmd.timestamp - last_time).count();
+	//auto delta = integrate_odometry(cmd, dt);
+	// Could show predicted pose as ghost overlay
 }
 
 ///////////////////////////////////////////////////////////////////////////////

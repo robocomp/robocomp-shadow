@@ -5,12 +5,14 @@
 #ifndef COMMON_TYPES_H
 #define COMMON_TYPES_H
 
+#include <torch/torch.h>
 #include <vector>
 #include <QPointF>
 #include <Eigen/Dense>
 #include <boost/circular_buffer.hpp>
 #include <QLineF>
 #include <Eigen/src/Geometry/ParametrizedLine.h>
+#include <chrono>
 
 
 // types for the features
@@ -101,4 +103,18 @@ struct Door
     }
 };
 using Doors = std::vector<Door>;
+struct VelocityCommand
+{
+    float adv_x = 0.0f;  // mm/s
+    float adv_z = 0.0f;  // mm/s
+    float rot = 0.0f;    // rad/s
+    std::chrono::time_point<std::chrono::high_resolution_clock> timestamp;
+};
+struct OdometryPrior
+{
+    bool valid = false;
+    Eigen::Vector3f delta_pose;  // [dx, dy, dtheta] in meters & radians
+    torch::Tensor covariance;      // 3x3 covariance matrix
+    OdometryPrior() : delta_pose(Eigen::Vector3f::Zero()), covariance(torch::zeros({3,3}, torch::kFloat32)) {};
+};
 #endif //COMMON_TYPES_H
