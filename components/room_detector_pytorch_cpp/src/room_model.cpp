@@ -241,20 +241,20 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor& poin
     const int max_attempts = 6;
     bool success = false;
 
-    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+    for (int attempt = 0; attempt < max_attempts; ++attempt)
+    {
         torch::Tensor h_reg = hessian + reg * I;
         try {
             // Try Cholesky and build inverse from the factor
-            auto L = torch::cholesky(h_reg, /*upper=*/false);
+            auto L = torch::linalg_cholesky(h_reg, /*upper=*/false);
             covariance = torch::cholesky_inverse(L, /*upper=*/false);
             success = true;
             break;
-        } catch (const c10::Error& e) {
-            reg *= 10.0;
-        }
+        } catch (const c10::Error& e) { reg *= 10.0; }
     }
 
-    if (!success) {
+    if (!success)
+    {
         // First fallback: pseudo-inverse (can handle singular/indefinite matrices)
         try {
             covariance = torch::pinverse(hessian + reg * I);

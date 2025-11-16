@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1026</width>
-    <height>435</height>
+    <width>1432</width>
+    <height>442</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -19,7 +19,7 @@
      <property name="orientation">
       <enum>Qt::Vertical</enum>
      </property>
-     <widget class="QWidget" name="">
+     <widget class="QWidget" name="layoutWidget">
       <layout class="QHBoxLayout" name="horizontalLayout_17">
        <item>
         <widget class="QFrame" name="frame">
@@ -31,7 +31,7 @@
          </property>
          <property name="minimumSize">
           <size>
-           <width>500</width>
+           <width>400</width>
            <height>300</height>
           </size>
          </property>
@@ -53,6 +53,22 @@
          </property>
          <property name="minimumSize">
           <size>
+           <width>400</width>
+           <height>300</height>
+          </size>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::StyledPanel</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Raised</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frame_3d">
+         <property name="minimumSize">
+          <size>
            <width>500</width>
            <height>300</height>
           </size>
@@ -67,7 +83,7 @@
        </item>
       </layout>
      </widget>
-     <widget class="QWidget" name="">
+     <widget class="QWidget" name="layoutWidget">
       <layout class="QHBoxLayout" name="horizontalLayout_7">
        <item>
         <widget class="QFrame" name="frame_3">

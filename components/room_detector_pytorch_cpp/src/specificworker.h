@@ -29,6 +29,7 @@
 // If you want to reduce the period automatically due to lack of use, you must uncomment the following line
 //#define HIBERNATION_ENABLED
 
+
 #include "time_series_plotter.h"
 #include <genericworker.h>
 #include <expected>
@@ -38,6 +39,8 @@
 #include "room_model.h"
 #include "door_detector.h"
 #include "room_freezing_manager.h"
+#include "qt3d_visualizer.h"
+#include "room_optimizer.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -108,15 +111,15 @@ class SpecificWorker final : public GenericWorker
 
 		// room
 		RoomModel room;
-		RoomFreezingManager room_freezing_manager;
+		//RoomFreezingManager room_freezing_manager;
 
 		// aux
 		RoboCompLidar3D::TPoints read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 
-	void update_viewers();
+		void update_viewers();
 
-	std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
+		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
 		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);
 		RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
@@ -128,10 +131,16 @@ class SpecificWorker final : public GenericWorker
 		std::chrono::time_point<std::chrono::high_resolution_clock> last_time = std::chrono::high_resolution_clock::now();
 
 		// plotter
-		std::unique_ptr<TimeSeriesPlotter> time_series_plotter;
+		std::shared_ptr<TimeSeriesPlotter> time_series_plotter;
 
 		// door
 		DoorDetector door_detector;
+
+		// qt3d
+		std::unique_ptr<RoomVisualizer3D> viewer3d;
+
+		// optimizer
+		RoomOptimizer optimizer;
 
 	Q_SIGNALS:
 		//void customSignal();
