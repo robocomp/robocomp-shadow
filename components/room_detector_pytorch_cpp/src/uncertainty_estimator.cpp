@@ -3,6 +3,7 @@
 //
 
 #include "uncertainty_estimator.h"
+#include <QDebug>
 
 // ============================================================================
 // Uncertainty Estimation using Laplace Approximation - ADAPTIVE VERSION
@@ -115,15 +116,45 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor& poin
         // First fallback: pseudo-inverse (can handle singular/indefinite matrices)
         try {
             covariance = torch::pinverse(hessian + reg * I);
-        } catch (const c10::Error& e) {
-            // Last-resort fallback: safe diagonal inverse
-            torch::Tensor diag = torch::diag(hessian).clone();
-            diag = torch::clamp(diag, 1e-12, 1e12);
+
+            // Check if result is valid
+            if (torch::any(torch::isnan(covariance)).item<bool>() ||
+                torch::any(torch::isinf(covariance)).item<bool>()) {
+                throw std::runtime_error("Pinverse produced NaN/Inf");
+            }
+
+        } catch (const std::exception& e) {
+            // Last-resort fallback: conservative diagonal covariance
+            qWarning() << "Pinverse failed, using diagonal fallback";
+            torch::Tensor diag = torch::abs(torch::diag(hessian)).clone();
+
+            // Replace zeros/small values with conservative estimate
+            auto diag_acc = diag.accessor<float, 1>();
+            for (int i = 0; i < diag.size(0); ++i) {
+                if (diag_acc[i] < 1e-6) {
+                    diag_acc[i] = 1e-2;  // Conservative: high uncertainty
+                }
+            }
+
             covariance = torch::diag(1.0 / diag);
         }
     }
 
+    // Final validation before returning
+    if (torch::any(torch::isnan(covariance)).item<bool>() ||
+        torch::any(torch::isinf(covariance)).item<bool>()) {
+        qWarning() << "Covariance computation produced NaN/Inf, using identity fallback";
+        covariance = torch::eye(total_params, torch::kFloat32) * 0.01f;  // 10cm variance
+    }
+
     covariance = covariance / static_cast<float>(points.size(0));
+
+    // One more check after normalization
+    if (torch::any(torch::isnan(covariance)).item<bool>() ||
+        torch::any(torch::isinf(covariance)).item<bool>()) {
+        qWarning() << "NaN after normalization, using safe fallback";
+        covariance = torch::eye(total_params, torch::kFloat32) * 0.01f;
+    }
 
     return covariance.detach();
 }

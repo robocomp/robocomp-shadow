@@ -32,6 +32,7 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
 
     // ===== STEP 0: PROPAGATE COVARIANCE BEFORE OPTIMIZATION =====
     bool is_localized = room_freezing_manager.should_freeze_room();
+    // Covariance dimension: 3 for robot pose in LOCALIZED, 5 for room+pose in MAPPING
     const int expected_dim = is_localized ? 3 : 5;
 
     torch::Tensor propagated_cov;
@@ -41,16 +42,23 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         // Get previous covariance
         auto prev_cov = uncertainty_manager.get_previous_cov();
 
-        // Propagate using velocity command
-        propagated_cov = uncertainty_manager.propagate_with_velocity(
-            odometry_prior.velocity_cmd,  // Pass velocity command
-            odometry_prior.dt,             // Time delta
-            prev_cov,
-            is_localized
-        );
+        // Check for dimension mismatch (state transition)
+        if (prev_cov.size(0) != expected_dim) {
+            qDebug() << "State transition detected: resetting uncertainty history"
+                     << "(" << prev_cov.size(0) << "D → " << expected_dim << "D)";
+            uncertainty_manager.reset();
+        } else {
+            // Propagate using velocity command
+            propagated_cov = uncertainty_manager.propagate_with_velocity(
+                odometry_prior.velocity_cmd,  // Pass velocity command
+                odometry_prior.dt,             // Time delta
+                prev_cov,
+                is_localized
+            );
 
-        have_propagated = true;
-        qDebug() << "Propagated covariance before optimization";
+            have_propagated = true;
+            //qDebug() << "Propagated covariance before optimization";
+        }
     }
 
     // ===== STEP 1: CONVERT POINTS TO TENSOR =====
@@ -128,6 +136,7 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     // ===== STEP 3: RUN OPTIMIZATION LOOP =====
     torch::optim::Adam optimizer(params_to_optimize, torch::optim::AdamOptions(learning_rate));
     float final_loss = 0.0f;
+    float final_measurement_loss = 0.0f;
     const int print_every = 30;
 
     for (int iter = 0; iter < num_iterations; ++iter)
@@ -136,6 +145,7 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
 
         // Measurement likelihood (SDF loss)
         torch::Tensor measurement_loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
+        final_measurement_loss = measurement_loss.item<float>();
 
         // Combined loss: likelihood + prior
         torch::Tensor total_loss = measurement_loss;
@@ -161,6 +171,18 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
 
             const float prior_weight = 1.0f;
             total_loss = total_loss + prior_weight * prior_loss;
+
+            // Add calibration regularization to keep parameters near 1.0
+            // This prevents wild oscillations and encourages conservative calibration
+            auto calib_params = room.get_calibration_parameters();
+            if (!calib_params.empty()) {
+                torch::Tensor calib_reg_loss = torch::zeros(1, torch::kFloat32);
+                for (const auto& p : calib_params) {
+                    // Penalize deviation from 1.0
+                    calib_reg_loss = calib_reg_loss + torch::square(p.squeeze() - 1.0f);
+                }
+                total_loss = total_loss + calib_config.regularization_weight * calib_reg_loss;
+            }
         }
 
         // Backward pass and optimization step
@@ -180,15 +202,11 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
             torch::NoGradGuard no_grad;
             auto calib_params = room.get_calibration_parameters();
             for (auto& p : calib_params) {
-                p.clamp_(0.5f, 2.0f);  // Allow 50%-200% scaling
+                p.clamp_(calib_config.min_value, calib_config.max_value);
             }
         }
 
         final_loss = total_loss.item<float>();
-
-        // Plot loss
-        if (time_series_plotter)
-            time_series_plotter->addDataPoint(0, total_loss.item<double>());
 
         // Early stopping
         if (final_loss < min_loss_threshold)
@@ -217,38 +235,108 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         // }
     }
 
-    // Print learned calibration (if optimized)
-    if (is_localized) {
-        auto calib = room.get_odometry_calibration();
-        static int print_counter = 0;
-        if (print_counter++ % 50 == 0) {  // Print every 50 frames
-            qInfo() << "🎯 Odometry calibration: k_trans=" << calib[0]
-                    << ", k_rot=" << calib[1];
-        }
+    // Plot loss
+    if (time_series_plotter)
+    {
+        time_series_plotter->addDataPoint(0, final_loss);
+        time_series_plotter->addDataPoint(1, prior_loss.item<float>());
+        time_series_plotter->addDataPoint(2, final_measurement_loss);
     }
 
+
+
     // ===== STEP 4: COMPUTE MEASUREMENT COVARIANCE =====
+    // NOTE: We only compute uncertainty for robot pose, not calibration parameters.
+    // Calibration parameters don't affect measurement likelihood (SDF), so their
+    // uncertainty can't be estimated from Hessian of measurement loss.
     torch::Tensor measurement_cov;
     try {
+        // Temporarily get only robot parameters for uncertainty computation
+        auto robot_params = room.get_robot_parameters();
+
+        // Freeze calibration during uncertainty computation (always)
+        // Calibration doesn't affect measurement likelihood, so it can't have
+        // uncertainty estimated from Hessian
+        bool calib_was_trainable = false;
+        auto calib_params = room.get_calibration_parameters();
+        if (!calib_params.empty() && calib_params[0].requires_grad()) {
+            calib_was_trainable = true;
+            room.freeze_odometry_calibration();
+        }
+
         measurement_cov = UncertaintyEstimator::compute_covariance(
             points_tensor, room, 0.1f
         );
 
+        // Restore calibration state
+        if (calib_was_trainable) {
+            room.unfreeze_odometry_calibration();
+        }
+
+        // Check for NaN/Inf before inflation
+        if (torch::any(torch::isnan(measurement_cov)).item<bool>() ||
+            torch::any(torch::isinf(measurement_cov)).item<bool>()) {
+            qWarning() << "Covariance contains NaN/Inf, using conservative fallback";
+            // Use conservative estimate: larger uncertainty = safer
+            float base_uncertainty = 0.1f;  // 10cm base uncertainty
+            measurement_cov = torch::eye(expected_dim, torch::kFloat32) * (base_uncertainty * base_uncertainty);
+        }
+
+        // Inflate covariance to account for modeling errors and be more conservative
+        // The Laplace approximation tends to be overconfident
+        measurement_cov = measurement_cov * calib_config.uncertainty_inflation;
+
         // ===== STEP 5: FUSE WITH PROPAGATED COVARIANCE =====
         if (have_propagated) {
-            // Information form fusion
-            res.covariance = uncertainty_manager.fuse_covariances(
-                propagated_cov,
-                measurement_cov
-            );
-            res.used_fusion = true;
+            // Both should have same dimension now
+            if (propagated_cov.size(0) == measurement_cov.size(0)) {
+                // Information form fusion
+                res.covariance = uncertainty_manager.fuse_covariances(
+                    propagated_cov,
+                    measurement_cov
+                );
+                res.used_fusion = true;
+            } else {
+                qWarning() << "Dimension mismatch in fusion:"
+                          << propagated_cov.size(0) << "vs" << measurement_cov.size(0);
+                res.covariance = measurement_cov;
+            }
         } else {
-            // First frame - use measurement only
+            // First frame or state transition - use measurement only
             res.covariance = measurement_cov;
         }
 
         res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
-        res.uncertainty_valid = true;
+
+        // Final validation: check for NaN in std_devs
+        bool has_nan = false;
+        for (const auto& val : res.std_devs) {
+            if (std::isnan(val) || std::isinf(val)) {
+                has_nan = true;
+                break;
+            }
+        }
+
+        if (has_nan)
+        {
+            qWarning() << "NaN detected in std_devs after computation, using safe fallback";
+            float safe_pos_std = 0.05f;  // 5cm after inflation (0.5mm before)
+            float safe_ang_std = 0.02f;  // ~1.1 degrees after inflation
+
+            if (expected_dim == 3) {
+                // LOCALIZED: [x, y, theta]
+                res.std_devs = {safe_pos_std, safe_pos_std, safe_ang_std};
+            } else {
+                // MAPPING: [width, height, x, y, theta]
+                res.std_devs = {safe_pos_std, safe_pos_std, safe_pos_std, safe_pos_std, safe_ang_std};
+            }
+
+            // Reconstruct covariance from std_devs
+            res.covariance = torch::diag(torch::tensor(res.std_devs).square()) * calib_config.uncertainty_inflation;
+            res.uncertainty_valid = false;
+        } else {
+            res.uncertainty_valid = true;
+        }
 
     } catch (const std::exception& e) {
         qWarning() << "Uncertainty computation failed:" << e.what();
@@ -266,27 +354,14 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     std::vector<float> robot_std_devs;
 
     if (is_localized) {
-        // LOCALIZED: std_devs may include calibration params
-        // Always use first 3 for robot pose
-        robot_std_devs = {res.std_devs[0], res.std_devs[1], res.std_devs[2]};
-        room_std_devs = {0.0f, 0.0f};  // Room frozen
-
-        // Log calibration uncertainty if present
-        if (res.std_devs.size() >= 5) {
-            static int calib_log_counter = 0;
-            if (calib_log_counter++ % 100 == 0) {
-                qInfo() << "Calibration uncertainty: k_trans ±" << res.std_devs[3]
-                        << ", k_rot ±" << res.std_devs[4];
-            }
-        }
+        // LOCALIZED: Covariance is always 3x3 (robot pose only)
+        // Calibration uncertainty not computed (doesn't affect measurement likelihood)
+        robot_std_devs = res.std_devs;  // All 3 values are robot pose
+        room_std_devs = {0.0f, 0.0f};   // Room frozen
     } else {
         // MAPPING: std_devs = [half_width, half_height, robot_x, robot_y, robot_theta]
         room_std_devs = {res.std_devs[0], res.std_devs[1]};
         robot_std_devs = {res.std_devs[2], res.std_devs[3], res.std_devs[4]};
-
-        // qInfo() << "Robot uncertainty: X=" << robot_std_devs[0]
-        //         << " Y=" << robot_std_devs[1]
-        //         << " θ=" << robot_std_devs[2];
     }
 
     const auto room_params = room.get_room_parameters();

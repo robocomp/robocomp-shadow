@@ -145,6 +145,7 @@ class SpecificWorker final : public GenericWorker
 
 		// plotter
 		std::shared_ptr<TimeSeriesPlotter> time_series_plotter;
+		std::vector<int> graphs;
 
 		// door
 		DoorDetector door_detector;

@@ -160,16 +160,18 @@ void SpecificWorker::initialize()
 
 	// time series plotter for match error
 	TimeSeriesPlotter::Config plotConfig;  // all fields have to be initialized, otherwise garbage values get to the constructor
-	plotConfig.title = "Loss as likelihoos + prior";
-	plotConfig.yAxisLabel = "Error (mm)";
+	plotConfig.title = "Loss (likelihood + prior)";
+	plotConfig.yAxisLabel = "Error";
 	plotConfig.xAxisLabel = "";
 	plotConfig.timeWindowSeconds = 7.0; // Show a 15-second window
 	plotConfig.autoScaleY = true;       // We will set a fixed range
-	plotConfig.showLegend = false;            // Show graph legend
+	plotConfig.showLegend = true;            // Show graph legend
 	plotConfig.yMin = 0;
 	plotConfig.yMax = 0.4;
 	time_series_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error, plotConfig);
-	time_series_plotter->addGraph("", Qt::blue);
+	graphs.push_back(time_series_plotter->addGraph("post", Qt::blue));
+	graphs.push_back(time_series_plotter->addGraph("like", Qt::green));
+	graphs.push_back(time_series_plotter->addGraph("prior", Qt::red));
 
 	// Create 3D viewer
 	viewer3d = std::make_unique<RoomVisualizer3D>("src/meshes/shadow.obj");
@@ -200,11 +202,12 @@ void SpecificWorker::compute()
 										   0.01f,0.01f, odom_prior, frame_counter);
 
 	update_viewers(points, lidar_timestamp, result, &viewer->scene);
-	print_status(odom_prior, result);
+	//print_status(odom_prior, result);
 
 	last_time = std::chrono::high_resolution_clock::now();;
 }
 
+///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const RoboCompLidar3D::TPoints &points,
 									const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp,
@@ -376,14 +379,13 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 	if (stddev == 0.0)
 	{ qInfo() << __FUNCTION__ << "Zero variance in range data, all points have same r: " << mean; return {};}
 
-	// filter out points with r beyond 3 stddevs (apply only if stddev > 0)
+	// filter out points with r beyond 2 stddevs (apply only if stddev > 0)
 	RoboCompLidar3D::TPoints no_outliers;
 	no_outliers.reserve(ldata.points.size());
 	const double threshold = 2.0 * stddev;
 	for (const auto &p : ldata.points)
 		if (std::fabs(p.r - mean) <= threshold)
 			no_outliers.push_back(p);
-
 	ldata.points = std::move(no_outliers);
 
 	//ldata.points = filter_same_phi(ldata.points);
@@ -482,7 +484,6 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 }
 void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 {
-	const double angle = qRadiansToDegrees(std::atan2(robot_pose.rotation()(1, 0), robot_pose.rotation()(0, 0)));
 	// draw room in robot viewer
 	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
 	// compute room corners in robot frame
@@ -490,8 +491,8 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_right(room.get_room_parameters()[0], -room.get_room_parameters()[1]);
-	Eigen::Matrix2f R = robot_pose.rotation().transpose();
-	Eigen::Vector2f t = -R * robot_pose.translation();
+	const Eigen::Matrix2f R = robot_pose.rotation().transpose();
+	const Eigen::Vector2f t = -R * robot_pose.translation();
 	top_left = R * top_left + t;
 	top_right = R * top_right + t;
 	bottom_left = R * bottom_left + t;
@@ -505,12 +506,23 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 
 	// update GUI
 	time_series_plotter->update();
-	//lcdNumber_adv->display(adv);
-	//lcdNumber_rot->display(rot);
+	// get last adv and rot commands from buffer
+	float adv = 0.0f;
+	float rot = 0.0f;
+	if (not velocity_history_.empty())
+	{
+		const auto v = velocity_history_.back();
+		adv = v.adv_z;
+		rot = v.rot;
+	}
+	lcdNumber_adv->display(adv);
+	lcdNumber_rot->display(rot);
 	lcdNumber_x->display(robot_pose.translation().x());
 	lcdNumber_y->display(robot_pose.translation().y());
 	//lcdNumber_room->display(current_room);
-	lcdNumber_angle->display(qRadiansToDegrees(angle));
+	//const double angle = qRadiansToDegrees(std::atan2(robot_pose.rotation()(1, 0), robot_pose.rotation()(0, 0)));
+	const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
+	lcdNumber_angle->display(angle);
 	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
 }
 
