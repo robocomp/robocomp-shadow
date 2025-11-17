@@ -117,10 +117,10 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         // Measurement likelihood (SDF loss)
         torch::Tensor measurement_loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
 
-        // Combined loss
+        // Combined loss: likelihood + prior
         torch::Tensor total_loss = measurement_loss;
 
-        if (use_odometry)
+        if (use_odometry)   // compute prior loss as the Mahalanobis distance between predicted and current pose
         {
             // Build pose_diff from actual parameter tensors (connected to computation graph)
             torch::Tensor predicted_pos = predicted_pose.slice(0, 0, 2);     // [x, y]
@@ -160,12 +160,12 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         {
             if (iter % print_every != 30 && iter != num_iterations - 1)
             {
-                const auto robot_pose = room.get_robot_pose();
-                std::cout << "  Final State " << std::setw(3) << iter
-                         << " | Loss: " << std::fixed << std::setprecision(6) << final_loss
-                         << " | Robot: (" << std::setprecision(2)
-                         << robot_pose[0] << ", " << robot_pose[1] << ", "
-                         << robot_pose[2] << ")\n";
+                // const auto robot_pose = room.get_robot_pose();
+                // std::cout << "  Final State " << std::setw(3) << iter
+                //          << " | Loss: " << std::fixed << std::setprecision(6) << final_loss
+                //          << " | Robot: (" << std::setprecision(2)
+                //          << robot_pose[0] << ", " << robot_pose[1] << ", "
+                //          << robot_pose[2] << ")\n";
             }
             break;
         }

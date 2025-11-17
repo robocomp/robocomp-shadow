@@ -103,8 +103,13 @@ class SpecificWorker final : public GenericWorker
 
 		// velocity commands
 		boost::circular_buffer<VelocityCommand> velocity_history_{10}; // Keep last 10 commands
-		OdometryPrior compute_odometry_prior() const;
+		OdometryPrior compute_odometry_prior(
+					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
+					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
 		Eigen::Vector3f integrate_velocity(const VelocityCommand& cmd, float dt) const;
+		Eigen::Vector3f integrate_velocity_over_window(
+					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
+					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
 
 		// viewer
 		AbstractGraphicViewer *viewer, *viewer_room;
@@ -119,7 +124,7 @@ class SpecificWorker final : public GenericWorker
 		//RoomFreezingManager room_freezing_manager;
 
 		// aux
-		RoboCompLidar3D::TPoints read_data();
+		std::tuple<RoboCompLidar3D::TPoints, long> read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 
 		void update_viewers();
@@ -152,6 +157,9 @@ class SpecificWorker final : public GenericWorker
 		// optimizer
 		RoomOptimizer optimizer;
 		int frame_counter = 0;
+
+		std::chrono::time_point<std::chrono::high_resolution_clock> last_lidar_timestamp_;
+		bool first_frame_ = true;
 
 	Q_SIGNALS:
 		//void customSignal();
