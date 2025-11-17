@@ -116,9 +116,6 @@ class SpecificWorker final : public GenericWorker
 		QGraphicsPolygonItem *robot_draw, *robot_room_draw;
 		QGraphicsItem *room_draw = nullptr, *room_draw_robot = nullptr;
 
-		// robot
-		Eigen::Affine2f robot_pose_final;
-
 		// room
 		RoomModel room;
 		//RoomFreezingManager room_freezing_manager;
@@ -126,8 +123,11 @@ class SpecificWorker final : public GenericWorker
 		// aux
 		std::tuple<RoboCompLidar3D::TPoints, long> read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
-
-		void update_viewers();
+		void update_robot_view(const Eigen::Affine2f &robot_pose);
+		void update_viewers(const RoboCompLidar3D::TPoints &points,
+							const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp,
+							const RoomOptimizer::Result &result,
+							QGraphicsScene *scene);
 
 		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
 		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);
@@ -135,9 +135,7 @@ class SpecificWorker final : public GenericWorker
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
 		void print_status(const OdometryPrior &odom_prior,
-						  const RoomOptimizer::Result &result,
-						  bool have_prediction,
-						  const Eigen::Vector3f &predicted_pose);
+						  const RoomOptimizer::Result &result);
 
 		// random number generator
 		std::random_device rd;

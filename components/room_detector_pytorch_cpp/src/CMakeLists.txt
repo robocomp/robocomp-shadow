@@ -4,7 +4,7 @@ find_package(Qt6 COMPONENTS 3DCore 3DRender 3DExtras REQUIRED)
 
 
 # Set LibTorch path
-set(CMAKE_PREFIX_PATH "/absolute/path/to/libtorch")
+set(CMAKE_PREFIX_PATH "/home/robocomp/software/libtorch")
 
 # Find PyTorch
 find_package(Torch REQUIRED)

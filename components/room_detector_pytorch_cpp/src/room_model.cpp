@@ -19,6 +19,7 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <QDebug>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -88,6 +89,59 @@ torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot)
     );
 
     return outside_distance + inside_distance;
+}
+
+// In room_model.cpp:
+
+void RoomModel::init_odometry_calibration(float k_trans, float k_rot)
+{
+    k_translation_ = torch::tensor({k_trans}, torch::requires_grad(false)); // Start frozen
+    k_rotation_ = torch::tensor({k_rot}, torch::requires_grad(false));
+
+    register_parameter("k_translation", k_translation_);
+    register_parameter("k_rotation", k_rotation_);
+
+    qInfo() << "Odometry calibration initialized: k_trans=" << k_trans
+            << "k_rot=" << k_rot;
+}
+
+std::vector<float> RoomModel::get_odometry_calibration() const
+{
+    return {k_translation_.item<float>(), k_rotation_.item<float>()};
+}
+
+void RoomModel::freeze_odometry_calibration()
+{
+    if (k_translation_.defined()) k_translation_.set_requires_grad(false);
+    if (k_rotation_.defined()) k_rotation_.set_requires_grad(false);
+}
+
+void RoomModel::unfreeze_odometry_calibration()
+{
+    if (k_translation_.defined()) k_translation_.set_requires_grad(true);
+    if (k_rotation_.defined()) k_rotation_.set_requires_grad(true);
+}
+
+Eigen::Vector3f RoomModel::calibrate_velocity(const VelocityCommand& cmd, float dt) const
+{
+    float k_t = k_translation_.item<float>();
+    float k_r = k_rotation_.item<float>();
+
+    // Apply calibration
+    float dx_local = (cmd.adv_x * k_t * dt) / 1000.0f;
+    float dy_local = (cmd.adv_z * k_t * dt) / 1000.0f;
+    float dtheta = -cmd.rot * k_r * dt;
+
+    // Transform to room frame
+    auto current_pose = get_robot_pose();
+    float theta = current_pose[2];
+
+    Eigen::Vector3f delta;
+    delta[0] = dx_local * std::cos(theta) - dy_local * std::sin(theta);
+    delta[1] = dx_local * std::sin(theta) + dy_local * std::cos(theta);
+    delta[2] = dtheta;
+
+    return delta;
 }
 
 std::vector<float> RoomModel::get_room_parameters() const

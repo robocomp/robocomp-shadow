@@ -108,10 +108,6 @@ void SpecificWorker::initialize()
 	this->resize(1000, 600);
 	show();
 
-	// initialise robot pose
-	robot_pose_final.setIdentity();
-	robot_pose_final.translate(Eigen::Vector2f(0.0,0.0));
-
 	// Initialize RoomModel
 	// Compute initial guess for room SIZE from point cloud bounds
 	const auto &[points, lidar_time] = read_data();
@@ -158,11 +154,9 @@ void SpecificWorker::initialize()
 	std::cout << "  Robot pose (relative to room): (" << robot_x << ", " << robot_y << ", " << robot_theta << ")\n";
 	std::cout << "----------------------------------------\n";
 
-	// Create room model with FIXED room at origin (5 parameters)
+	// Create room model
 	room.init(half_width, half_height, robot_x, robot_y, robot_theta);
-
-	//optimizer
-	//optimizer.enable_motion_propagation(true);
+	room.init_odometry_calibration(1.0f, 1.0f);  // Start with no correction
 
 	// time series plotter for match error
 	TimeSeriesPlotter::Config plotConfig;  // all fields have to be initialized, otherwise garbage values get to the constructor
@@ -190,77 +184,58 @@ void SpecificWorker::compute()
 {
 	// Read LiDAR data (in robot frame)
 	const auto &[points, lidar_t] = read_data();
-	auto lidar_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(lidar_t));
-	// get current time as elapsed milliseconds since epoch
-	const auto current_time = std::chrono::high_resolution_clock::now();
-  	// qInfo() << "Lidar time - current time (ms):"
-    //          << std::chrono::duration_cast<std::chrono::milliseconds>(current_time - std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(lidar_time))).count();
+	const auto lidar_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(lidar_t));
 	frame_counter++;
 	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
 
-	// Compute odometry prior BETWEEN LIDAR TIMESTAMPS
+	// Compute odometry prior betweeen lidar timestamps
 	OdometryPrior odom_prior;
-	if (!first_frame_) {
+	if (not first_frame_)
 		odom_prior = compute_odometry_prior(last_lidar_timestamp_, lidar_timestamp);
-	} else {
-		odom_prior.valid = false;
-		first_frame_ = false;
-	}
-
-	// Store for next iteration
+	else { odom_prior.valid = false; first_frame_ = false;}
 	last_lidar_timestamp_ = lidar_timestamp;
-	bool have_prediction = false;
 
-	// Store predicted pose for later comparison
-	Eigen::Vector3f predicted_pose = Eigen::Vector3f::Zero();
-
-	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
-	{
-		auto current_pose = room.get_robot_pose();
-		predicted_pose[0] = current_pose[0] + odom_prior.delta_pose[0];
-		predicted_pose[1] = current_pose[1] + odom_prior.delta_pose[1];
-		predicted_pose[2] = current_pose[2] + odom_prior.delta_pose[2];
-		have_prediction = true;
-	}
-
-	// Optimize with prior
+	// Optimize SDF likelihood + odometry prior
 	const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
-										   0.01f,0.01f, odom_prior, frame_counter );
+										   0.01f,0.01f, odom_prior, frame_counter);
 
-	// update robot pose
+	update_viewers(points, lidar_timestamp, result, &viewer->scene);
+	print_status(odom_prior, result);
+
+	last_time = std::chrono::high_resolution_clock::now();;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::update_viewers(const RoboCompLidar3D::TPoints &points,
+									const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp,
+									const RoomOptimizer::Result &result,
+									QGraphicsScene *scene)
+{
 	const auto robot_pose = room.get_robot_pose();
 
 	// Extrapolate from LiDAR timestamp to current time FOR DISPLAY ONLY
 	Eigen::Vector3f display_pose(robot_pose[0], robot_pose[1], robot_pose[2]);
+	const auto current_time = std::chrono::high_resolution_clock::now();
+	const float dt_latency = std::chrono::duration<float>(current_time - lidar_timestamp).count();
+	if (dt_latency > 0 and dt_latency < 0.5f) // Integrate from LiDAR time to now for smooth display
+		display_pose += integrate_velocity_over_window(lidar_timestamp, current_time);
+	//qDebug() << "Display extrapolation:" << dt_latency*1000 << "ms";
 
-	float dt_latency = std::chrono::duration<float>(current_time - lidar_timestamp).count();
+	Eigen::Affine2f robot_pose_display;
+	robot_pose_display.translation() = Eigen::Vector2f(display_pose[0], display_pose[1]);
+	robot_pose_display.linear() = Eigen::Rotation2Df(display_pose[2]).toRotationMatrix();
 
-	if (dt_latency > 0 && dt_latency < 0.5f)
-	{
-		// Integrate from LiDAR time to now for smooth display
-		auto delta = integrate_velocity_over_window(lidar_timestamp, current_time);
+	draw_lidar(points, scene);
+	door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
 
-		display_pose[0] += delta[0];
-		display_pose[1] += delta[1];
-		display_pose[2] += delta[2];
-
-		qDebug() << "Display extrapolation:" << dt_latency*1000 << "ms";
-	}
-
-	robot_pose_final.translation() = Eigen::Vector2f(display_pose[0], display_pose[1]);
-	robot_pose_final.linear() = Eigen::Rotation2Df(display_pose[2]).toRotationMatrix();
-
-	// update viewers
-	draw_lidar(points, &viewer->scene);
-	door_detector.draw_doors(false, &viewer->scene, nullptr, robot_pose_final);
-	update_viewers();
+	update_robot_view(robot_pose_display);
 	//viewer3d->updatePointCloud(points);
 	const auto room_params = room.get_room_parameters();
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
 	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
 
 	// Show uncertainty when localized
-	if (room.are_room_parameters_frozen())	// TODO: move to update_viewers()
+	if (room.are_room_parameters_frozen())
 	{
 		viewer3d->updateUncertainty(
 			result.std_devs[0],  // X stddev
@@ -270,18 +245,22 @@ void SpecificWorker::compute()
 		viewer3d->showUncertainty(true);
 	} else
 		viewer3d->showUncertainty(false);  // Hide during mapping
-
-	//print_status(odom_prior, result, have_prediction, predicted_pose);
-
-	last_time = std::chrono::high_resolution_clock::now();;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-void SpecificWorker::print_status(const OdometryPrior &odom_prior,
-								  const RoomOptimizer::Result &result,
-								  bool have_prediction,
-								  const Eigen::Vector3f &predicted_pose)
+void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOptimizer::Result &result)
 {
+	// Store predicted pose for later comparison
+	Eigen::Vector3f predicted_pose = Eigen::Vector3f::Zero();
+	bool have_prediction = false;
+	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
+	{
+		const auto current_pose = room.get_robot_pose();
+		predicted_pose[0] = current_pose[0] + odom_prior.delta_pose[0];
+		predicted_pose[1] = current_pose[1] + odom_prior.delta_pose[1];
+		predicted_pose[2] = current_pose[2] + odom_prior.delta_pose[2];
+		have_prediction = true;
+	}
+
 	// ===== COMPREHENSIVE DEBUG OUTPUT =====
 	auto robot_pose = room.get_robot_pose();
 	auto room_params = room.get_room_parameters();
@@ -376,16 +355,7 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 	catch (const Ice::Exception &e) { std::cout << e << " " << "No lidar data from sensor" << std::endl; return {};}
 	if (ldata.points.empty()) return {};
 
-	//filter out invalid points (z <= 1000 or z > 2000)
-	// RoboCompLidar3D::TPoints valid_points;
-	// valid_points.reserve(ldata.points.size());
-	// for (const auto &p : ldata.points)
-	// 	if (p.z > 1000 and p.z <= 2000)
-	// 		valid_points.push_back(p);
-	// ldata.points = std::move(valid_points);
-
-	// // compute the mean and variance of points and reject outliers beyond 3 stddevs
-	// // Compute mean and variance (Welford) only over valid z (>1000)
+	// // Compute mean and variance (Welford) only over valid z (>1000 <2000)
 	double mean = 0.0;
 	double M2 = 0.0;
 	std::size_t count = 0;
@@ -397,7 +367,6 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 		mean += delta / static_cast<double>(count);
 		M2 += delta * (p.r - mean);
 	}
-
 	if (count == 0) { return {};}
 
 	// population variance to match original behavior (divide by N)
@@ -417,7 +386,7 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 	ldata.points = std::move(no_outliers);
 
 	//ldata.points = filter_same_phi(ldata.points);
-	//return filter_isolated_points(ldata.points, 200);
+	ldata.points = filter_isolated_points(ldata.points, 200);
 
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
@@ -510,9 +479,9 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 		items.push_back(item);
 	}
 }
-void SpecificWorker::update_viewers()
+void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 {
-	const double angle = qRadiansToDegrees(std::atan2(robot_pose_final.rotation()(1, 0), robot_pose_final.rotation()(0, 0)));
+	const double angle = qRadiansToDegrees(std::atan2(robot_pose.rotation()(1, 0), robot_pose.rotation()(0, 0)));
 	// draw room in robot viewer
 	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
 	// compute room corners in robot frame
@@ -520,8 +489,8 @@ void SpecificWorker::update_viewers()
 	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_right(room.get_room_parameters()[0], -room.get_room_parameters()[1]);
-	Eigen::Matrix2f R = robot_pose_final.rotation().transpose();
-	Eigen::Vector2f t = -R * robot_pose_final.translation();
+	Eigen::Matrix2f R = robot_pose.rotation().transpose();
+	Eigen::Vector2f t = -R * robot_pose.translation();
 	top_left = R * top_left + t;
 	top_right = R * top_right + t;
 	bottom_left = R * bottom_left + t;
@@ -537,8 +506,8 @@ void SpecificWorker::update_viewers()
 	time_series_plotter->update();
 	//lcdNumber_adv->display(adv);
 	//lcdNumber_rot->display(rot);
-	lcdNumber_x->display(robot_pose_final.translation().x());
-	lcdNumber_y->display(robot_pose_final.translation().y());
+	lcdNumber_x->display(robot_pose.translation().x());
+	lcdNumber_y->display(robot_pose.translation().y());
 	//lcdNumber_room->display(current_room);
 	lcdNumber_angle->display(qRadiansToDegrees(angle));
 	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
@@ -576,7 +545,7 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
 
     if (velocity_history_.empty())
     {
-        qWarning() << "No velocity commands in buffer";
+        //qWarning() << "No velocity commands in buffer";
         return prior;
     }
 
@@ -592,9 +561,9 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
     prior.delta_pose = integrate_velocity_over_window(t_start, t_end);
 
     // For storing in prior structure (if needed by optimizer)
-    if (!velocity_history_.empty()) {
+    if (not velocity_history_.empty())
         prior.velocity_cmd = velocity_history_.back();
-    }
+
     prior.dt = dt;
 
     // Compute process noise - proportional to motion magnitude
@@ -630,7 +599,7 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
     prior.valid = true;
     return prior;
 }
-// In specificworker.cpp - add this method:
+
 
 Eigen::Vector3f SpecificWorker::integrate_velocity_over_window(
 	std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
