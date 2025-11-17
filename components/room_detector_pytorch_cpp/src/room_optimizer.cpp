@@ -71,13 +71,20 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     std::vector<torch::Tensor> params_to_optimize;
     if (is_localized)
     {
-        // LOCALIZED: Only optimize robot pose
+        // LOCALIZED: Optimize robot pose + odometry calibration
         params_to_optimize = room.get_robot_parameters();
+
+        // Add calibration parameters
+        auto calib_params = room.get_calibration_parameters();
+        params_to_optimize.insert(params_to_optimize.end(),
+                                  calib_params.begin(),
+                                  calib_params.end());
+
         room.freeze_room_parameters();
-        //qInfo() << "🔒 LOCALIZED: Optimizing robot pose only";
+        //qInfo() << "🔒 LOCALIZED: Optimizing robot pose + calibration";
     } else
     {
-        // MAPPING: Optimize everything
+        // MAPPING: Optimize everything (room + robot)
         params_to_optimize = room.parameters();
         room.unfreeze_room_parameters();
         //qInfo() << "🗺️  MAPPING: Optimizing room + robot pose";
@@ -90,19 +97,32 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
 
     if (use_odometry)
     {
-        // Predict robot pose: previous_pose + odometry_delta
+        // Get previous pose as tensor (detached - not part of optimization yet)
         auto prev_pose = room.get_robot_pose();
-        predicted_pose = torch::tensor(
-        {
-            prev_pose[0] + odometry_prior.delta_pose[0],
-            prev_pose[1] + odometry_prior.delta_pose[1],
-            prev_pose[2] + odometry_prior.delta_pose[2]
-        }, torch::kFloat32).clone().requires_grad_(false);
+        torch::Tensor prev_pose_tensor = torch::tensor(
+            {prev_pose[0], prev_pose[1], prev_pose[2]},
+            torch::kFloat32
+        ).requires_grad_(false);
+
+        // Predict using CALIBRATED motion model
+        // This maintains gradients w.r.t. calibration parameters
+        predicted_pose = room.predict_pose_tensor(
+            prev_pose_tensor,
+            odometry_prior.velocity_cmd,
+            odometry_prior.dt
+        );
+
+        // NOTE: predicted_pose has gradients w.r.t. k_translation, k_rotation
+        // but NOT w.r.t. prev_pose_tensor (which is detached)
+        // We'll use retain_graph=True in backward() to avoid "backward twice" error
 
         // qDebug() << "Odometry prior active. Predicted pose:"
         //          << predicted_pose[0].item<float>()
         //          << predicted_pose[1].item<float>()
         //          << predicted_pose[2].item<float>();
+        //
+        // auto calib = room.get_odometry_calibration();
+        // qDebug() << "Calibration: k_trans=" << calib[0] << ", k_rot=" << calib[1];
     }
 
     // ===== STEP 3: RUN OPTIMIZATION LOOP =====
@@ -143,11 +163,26 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
             total_loss = total_loss + prior_weight * prior_loss;
         }
 
-        total_loss.backward();
+        // Backward pass and optimization step
+        // Retain graph if using odometry prior (predicted_pose has gradients w.r.t. calibration)
+        if (use_odometry && iter < num_iterations - 1) {
+            total_loss.backward({}, /*retain_graph=*/true);
+        } else {
+            total_loss.backward();
+        }
         optimizer.step();
         for (auto& p : params_to_optimize)
             if (p.grad().defined())
                 p.grad().clamp_(-10.0f, 10.0f);
+
+        // Clamp calibration parameters to reasonable range
+        if (is_localized) {
+            torch::NoGradGuard no_grad;
+            auto calib_params = room.get_calibration_parameters();
+            for (auto& p : calib_params) {
+                p.clamp_(0.5f, 2.0f);  // Allow 50%-200% scaling
+            }
+        }
 
         final_loss = total_loss.item<float>();
 
@@ -170,12 +205,26 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
             break;
         }
 
-        // if (use_odometry && iter % 10 == 0) {
+        // Debug calibration learning
+        // if (use_odometry && iter % 20 == 0) {
+        //     auto calib = room.get_odometry_calibration();
         //     qDebug() << "Iter" << iter
-        //              << "Meas loss:" << measurement_loss.item<float>()
-        //              << "Prior loss:" << prior_loss.item<float>()
-        //              << "Total:" << total_loss.item<float>();
+        //              << "Meas:" << measurement_loss.item<float>()
+        //              << "Prior:" << prior_loss.item<float>()
+        //              << "Total:" << total_loss.item<float>()
+        //              << "k_trans:" << calib[0]
+        //              << "k_rot:" << calib[1];
         // }
+    }
+
+    // Print learned calibration (if optimized)
+    if (is_localized) {
+        auto calib = room.get_odometry_calibration();
+        static int print_counter = 0;
+        if (print_counter++ % 50 == 0) {  // Print every 50 frames
+            qInfo() << "🎯 Odometry calibration: k_trans=" << calib[0]
+                    << ", k_rot=" << calib[1];
+        }
     }
 
     // ===== STEP 4: COMPUTE MEASUREMENT COVARIANCE =====
@@ -217,9 +266,19 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     std::vector<float> robot_std_devs;
 
     if (is_localized) {
-        // LOCALIZED: std_devs = [robot_x, robot_y, robot_theta]
+        // LOCALIZED: std_devs may include calibration params
+        // Always use first 3 for robot pose
         robot_std_devs = {res.std_devs[0], res.std_devs[1], res.std_devs[2]};
         room_std_devs = {0.0f, 0.0f};  // Room frozen
+
+        // Log calibration uncertainty if present
+        if (res.std_devs.size() >= 5) {
+            static int calib_log_counter = 0;
+            if (calib_log_counter++ % 100 == 0) {
+                qInfo() << "Calibration uncertainty: k_trans ±" << res.std_devs[3]
+                        << ", k_rot ±" << res.std_devs[4];
+            }
+        }
     } else {
         // MAPPING: std_devs = [half_width, half_height, robot_x, robot_y, robot_theta]
         room_std_devs = {res.std_devs[0], res.std_devs[1]};

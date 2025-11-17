@@ -119,6 +119,19 @@ class RoomModel : public torch::nn::Module
          */
         std::vector<torch::Tensor> get_robot_parameters() const;
 
+        /**
+         * @brief Get calibration parameters as tensors (for optimization)
+         */
+        std::vector<torch::Tensor> get_calibration_parameters() const;
+
+        /**
+         * @brief Predict pose using calibrated motion model (differentiable)
+         * This version returns tensors and maintains gradients for optimization
+         */
+        torch::Tensor predict_pose_tensor(const torch::Tensor& current_pose_tensor,
+                                          const VelocityCommand& cmd,
+                                          float dt) const;
+
         // Odometry calibration
         void init_odometry_calibration(float k_trans = 1.0f, float k_rot = 1.0f);
         std::vector<float> get_odometry_calibration() const;

@@ -95,14 +95,14 @@ torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot)
 
 void RoomModel::init_odometry_calibration(float k_trans, float k_rot)
 {
-    k_translation_ = torch::tensor({k_trans}, torch::requires_grad(false)); // Start frozen
-    k_rotation_ = torch::tensor({k_rot}, torch::requires_grad(false));
+    k_translation_ = torch::tensor({k_trans}, torch::requires_grad(true)); // Start trainable
+    k_rotation_ = torch::tensor({k_rot}, torch::requires_grad(true));
 
     register_parameter("k_translation", k_translation_);
     register_parameter("k_rotation", k_rotation_);
 
     qInfo() << "Odometry calibration initialized: k_trans=" << k_trans
-            << "k_rot=" << k_rot;
+            << "k_rot=" << k_rot << "(trainable)";
 }
 
 std::vector<float> RoomModel::get_odometry_calibration() const
@@ -182,6 +182,55 @@ std::vector<torch::Tensor> RoomModel::get_robot_parameters() const {
     return {robot_pos_, robot_theta_};
 }
 
+std::vector<torch::Tensor> RoomModel::get_calibration_parameters() const {
+    std::vector<torch::Tensor> params;
+    if (k_translation_.defined() && k_translation_.requires_grad())
+        params.push_back(k_translation_);
+    if (k_rotation_.defined() && k_rotation_.requires_grad())
+        params.push_back(k_rotation_);
+    return params;
+}
+
+torch::Tensor RoomModel::predict_pose_tensor(const torch::Tensor& current_pose_tensor,
+                                             const VelocityCommand& cmd,
+                                             float dt) const
+{
+    // Ensure calibration params are scalars (but keep gradients!)
+    auto k_t = k_translation_.squeeze();  // [1] -> scalar, keeps requires_grad
+    auto k_r = k_rotation_.squeeze();     // [1] -> scalar, keeps requires_grad
+
+    // Convert velocity commands to tensors for autodiff
+    auto v_x_raw = torch::tensor(cmd.adv_x / 1000.0f, torch::kFloat32);  // mm/s -> m/s
+    auto v_z_raw = torch::tensor(cmd.adv_z / 1000.0f, torch::kFloat32);
+    auto w_raw = torch::tensor(-cmd.rot, torch::kFloat32);
+    auto dt_tensor = torch::tensor(dt, torch::kFloat32);
+
+    // Apply calibration (maintains gradients)
+    auto v_x = v_x_raw * k_t * dt_tensor;
+    auto v_z = v_z_raw * k_t * dt_tensor;
+    auto w = w_raw * k_r * dt_tensor;
+
+    // Extract current pose (scalars)
+    auto x = current_pose_tensor[0];
+    auto y = current_pose_tensor[1];
+    auto theta = current_pose_tensor[2];
+
+    // Transform local velocities to global frame (all tensor ops)
+    auto cos_theta = torch::cos(theta);
+    auto sin_theta = torch::sin(theta);
+
+    auto dx_global = v_x * cos_theta - v_z * sin_theta;
+    auto dy_global = v_x * sin_theta + v_z * cos_theta;
+
+    // Build predicted pose ensuring 1D shape [3]
+    auto new_x = (x + dx_global).reshape({1});
+    auto new_y = (y + dy_global).reshape({1});
+    auto new_theta = (theta + w).reshape({1});
+
+    // Concatenate to form [3] tensor
+    return torch::cat({new_x, new_y, new_theta}, 0);
+}
+
 void RoomModel::print_info() const {
     auto room_params = get_room_parameters();
     auto robot_pose = get_robot_pose();
@@ -196,5 +245,13 @@ void RoomModel::print_info() const {
     std::cout << "  Position: (" << robot_pose[0] << ", " << robot_pose[1] << ") m\n";
     std::cout << "  Orientation: " << robot_pose[2] << " rad ("
               << (robot_pose[2] * 180.0 / M_PI) << " deg)\n";
-}
 
+    if (k_translation_.defined() && k_rotation_.defined()) {
+        auto calib = get_odometry_calibration();
+        std::cout << "\n=== ODOMETRY CALIBRATION ===\n";
+        std::cout << "  Translation scale: " << calib[0] << " "
+                  << (k_translation_.requires_grad() ? "(trainable)" : "(frozen)") << "\n";
+        std::cout << "  Rotation scale: " << calib[1] << " "
+                  << (k_rotation_.requires_grad() ? "(trainable)" : "(frozen)") << "\n";
+    }
+}

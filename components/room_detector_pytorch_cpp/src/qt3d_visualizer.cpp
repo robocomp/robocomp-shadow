@@ -517,9 +517,8 @@ void RoomVisualizer3D::updateUncertainty(float pos_std_x, float pos_std_y, float
 
 void RoomVisualizer3D::showPointCloud(bool visible)
 {
-    for (auto* entity : pointEntities) {
+    for (auto* entity : pointEntities)
         entity->setEnabled(visible);
-    }
 }
 
 void RoomVisualizer3D::showRoom(bool visible)

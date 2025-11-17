@@ -316,6 +316,7 @@ void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOpt
 	qInfo() << "  Size:" << QString::number(room_params[0]*2, 'f', 2) << "x"
 	        << QString::number(room_params[1]*2, 'f', 2) << "m";
 	qInfo() << "  Status:" << (optimizer.room_freezing_manager.should_freeze_room() ? "FROZEN" : "OPTIMIZING");
+	room.print_info();
 
 	// Loss and uncertainty
 	qInfo() << "METRICS:";
@@ -340,8 +341,8 @@ void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOpt
 	}
 
 	// Distance to walls
-	float dist_to_wall_x = room_params[0] - std::abs(robot_pose[0]);
-	float dist_to_wall_y = room_params[1] - std::abs(robot_pose[1]);
+	const float dist_to_wall_x = room_params[0] - std::abs(robot_pose[0]);
+	const float dist_to_wall_y = room_params[1] - std::abs(robot_pose[1]);
 	qInfo() << "  Distance to walls: X=" << QString::number(dist_to_wall_x, 'f', 2) << "m,"
 	        << "Y=" << QString::number(dist_to_wall_y, 'f', 2) << "m";
 
@@ -550,7 +551,7 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
     }
 
     // Time delta BETWEEN LIDAR SCANS
-    float dt = std::chrono::duration<float>(t_end - t_start).count();
+    const float dt = std::chrono::duration<float>(t_end - t_start).count();
 
     if (dt <= 0 || dt > 0.5f) {
         qWarning() << "Invalid dt for odometry:" << dt << "s";
@@ -567,11 +568,11 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
     prior.dt = dt;
 
     // Compute process noise - proportional to motion magnitude
-    float trans_magnitude = std::sqrt(
+    const float trans_magnitude = std::sqrt(
         prior.delta_pose[0]*prior.delta_pose[0] +
         prior.delta_pose[1]*prior.delta_pose[1]
     );
-    float rot_magnitude = std::abs(prior.delta_pose[2]);
+    const float rot_magnitude = std::abs(prior.delta_pose[2]);
 
     float trans_noise_std = params.NOISE_TRANS * trans_magnitude;
     float rot_noise_std = params.NOISE_ROT * rot_magnitude;
@@ -591,10 +592,10 @@ OdometryPrior SpecificWorker::compute_odometry_prior(
     prior.covariance[1][1] = trans_noise_std * trans_noise_std;
     prior.covariance[2][2] = rot_noise_std * rot_noise_std;
 
-    qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
-    qDebug() << "dt:" << dt << "s";
-    qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
-    qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
+    // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
+    // qDebug() << "dt:" << dt << "s";
+    // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
+    // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
 
     prior.valid = true;
     return prior;
