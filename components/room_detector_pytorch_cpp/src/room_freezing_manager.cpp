@@ -18,6 +18,9 @@ bool RoomFreezingManager::update(const std::vector<float>& room_params,
 {
     observation_count_ = iteration;
 
+    //std::cout << "Frame " << observation_count_ << ", dist=" << cumulative_distance_
+    //          << "m, can_freeze=" << check_freeze_conditions(room_params, room_std_devs, mean_residual) << "\n";
+
     // Update movement tracking
     update_movement_tracking(robot_pose);
 
@@ -131,11 +134,26 @@ bool RoomFreezingManager::check_unfreeze_conditions(const std::vector<float>& ro
                                                      const std::vector<float>& robot_std_devs,
                                                      float mean_residual)
 {
+    // Compute mean of recent residuals
+    float recent_mean_residual = 0.0f;
+    if (not residual_history_.empty())
+        recent_mean_residual = std::accumulate(residual_history_.begin(),
+                                               residual_history_.end(), 0.0f)
+                              / residual_history_.size();
+
+
+    // Use RELATIVE threshold: unfreeze if current residual is much worse than recent average
+    const float relative_threshold = std::max(
+        params_.residual_unfreeze_threshold,  // Absolute minimum (0.25)
+        recent_mean_residual * 2.0f           // Or 2x recent average
+    );
+
     // Condition 1: High residual (poor fit with current room model)
-    // Use hysteresis: unfreeze threshold > freeze threshold
-    if (mean_residual > params_.residual_unfreeze_threshold * params_.freeze_hysteresis)
+    if (mean_residual > relative_threshold)
     {
-        std::cout << "   ⚠️  High residual detected: " << mean_residual << "\n";
+        std::cout << "   ⚠️  High residual: " << mean_residual
+                  << " (threshold: " << relative_threshold
+                  << ", recent avg: " << recent_mean_residual << ")\n";
         return true;
     }
 
@@ -153,9 +171,9 @@ bool RoomFreezingManager::check_unfreeze_conditions(const std::vector<float>& ro
         std::cout << "   ⚠️  Structural change detected\n";
         return true;
     }
-
     return false;
 }
+
 
 float RoomFreezingManager::compute_room_stability() const
 {

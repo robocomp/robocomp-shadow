@@ -64,7 +64,8 @@ torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_rob
     return points_room;
 }
 
-torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot) {
+torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot)
+{
     // Transform points from robot frame to room frame
     torch::Tensor points_room = transform_to_room_frame(points_robot);
 
@@ -89,27 +90,32 @@ torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot) {
     return outside_distance + inside_distance;
 }
 
-std::vector<float> RoomModel::get_room_parameters() const {
+std::vector<float> RoomModel::get_room_parameters() const
+{
     auto extents_acc = half_extents_.accessor<float, 1>();
     return {extents_acc[0], extents_acc[1]};
 }
 
-std::vector<float> RoomModel::get_robot_pose() const {
+std::vector<float> RoomModel::get_robot_pose() const
+{
     auto pos_acc = robot_pos_.accessor<float, 1>();
     auto theta_acc = robot_theta_.accessor<float, 1>();
     return {pos_acc[0], pos_acc[1], theta_acc[0]};
 }
 
-std::vector<torch::Tensor> RoomModel::parameters() const {
+std::vector<torch::Tensor> RoomModel::parameters() const
+{
     return {half_extents_, robot_pos_, robot_theta_};
 }
 
-void RoomModel::freeze_room_parameters() {
+void RoomModel::freeze_room_parameters()
+{
     if (half_extents_.defined())
         half_extents_.set_requires_grad(false);
 }
 
-void RoomModel::unfreeze_room_parameters() {
+void RoomModel::unfreeze_room_parameters()
+{
     if (half_extents_.defined())
         half_extents_.set_requires_grad(true);
 }

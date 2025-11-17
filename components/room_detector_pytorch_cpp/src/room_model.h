@@ -117,14 +117,16 @@ class RoomModel : public torch::nn::Module
          */
         std::vector<torch::Tensor> get_robot_parameters() const;
 
+        // Robot pose (relative to room at origin)
+        torch::Tensor robot_pos_;     // [robot_x, robot_y]
+        torch::Tensor robot_theta_;   // [theta] in radians
+
     private:
         // Room parameters (FIXED at origin)
         // No trainable center - it's always (0, 0)
         torch::Tensor half_extents_;  // [half_width, half_height]
 
-        // Robot pose (relative to room at origin)
-        torch::Tensor robot_pos_;     // [robot_x, robot_y]
-        torch::Tensor robot_theta_;   // [theta] in radians
+
 
         /**
          * @brief Transform points from robot frame to room frame (at origin)

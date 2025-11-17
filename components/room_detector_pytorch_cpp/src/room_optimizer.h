@@ -33,8 +33,9 @@ class RoomOptimizer
                         std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
                         int num_iterations = 150,
                         float min_loss_threshold = 0.001f,
-                        float learning_rate = 0.005f,
-                        const OdometryPrior& odometry_prior = {}
+                        float learning_rate = 0.01f,
+                        const OdometryPrior& odometry_prior = {},
+                        int frame_number = 0
         );
 
         // Public components

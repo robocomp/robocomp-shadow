@@ -129,6 +129,11 @@ class SpecificWorker final : public GenericWorker
 		RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
+		void print_status(const OdometryPrior &odom_prior,
+						  const RoomOptimizer::Result &result,
+						  bool have_prediction,
+						  const Eigen::Vector3f &predicted_pose);
+
 		// random number generator
 		std::random_device rd;
 
@@ -146,6 +151,7 @@ class SpecificWorker final : public GenericWorker
 
 		// optimizer
 		RoomOptimizer optimizer;
+		int frame_counter = 0;
 
 	Q_SIGNALS:
 		//void customSignal();

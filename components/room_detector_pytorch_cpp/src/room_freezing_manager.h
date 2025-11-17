@@ -41,7 +41,7 @@ public:
         // Thresholds for MAPPING → LOCALIZED (freezing)
         float uncertainty_freeze_threshold = 0.02f;    // Max std dev for room params (meters)
         float stability_freeze_threshold = 0.02f;      // Max change in room params between updates
-        int min_observations_to_freeze = 100;           // Min number of optimization iterations
+        int min_observations_to_freeze = 50;           // Min number of optimization iterations
         float confidence_freeze_threshold = 0.95f;     // Confidence level (0-1)
 
         // Movement-based constraints (NEW)
@@ -49,7 +49,7 @@ public:
         float min_rotation_traveled = 1.0f;            // Minimum radians rotated before freeze (cumulative)
 
         // Thresholds for LOCALIZED → MAPPING (unfreezing)
-        float residual_unfreeze_threshold = 0.15f;     // Max acceptable mean residual
+        float residual_unfreeze_threshold = 0.25f;     // Max acceptable mean residual
         float uncertainty_unfreeze_threshold = 0.15f;   // If robot pose uncertainty gets too high
         float structural_change_threshold = 0.20f;     // Significant change in room shape detected
 
@@ -57,7 +57,7 @@ public:
         float freeze_hysteresis = 1.2f;                // Unfreeze threshold = freeze threshold * hysteresis
 
         // History tracking
-        int history_size = 20;                         // Number of past estimates to track
+        size_t history_size = 20;                         // Number of past estimates to track
 
         // Time-based constraints
         float min_time_in_state = 5.0f;                // Minimum seconds before state change
