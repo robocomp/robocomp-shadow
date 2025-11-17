@@ -32,11 +32,10 @@ public:
      * @param is_localized True if room is frozen (3x3 cov), false if mapping (5x5 cov)
      */
     Result compute(
-        const torch::Tensor& points,
-        RoomModel& room,
-        float huber_delta,
-        bool is_localized
-    );
+                    const torch::Tensor& points,
+                    RoomModel& room,
+                    float huber_delta,
+                    bool is_localized);
 
     // Configuration
     void set_motion_noise(float translation_per_meter, float rotation_per_radian);
@@ -45,11 +44,14 @@ public:
     // State management
     void reset(); // Clear history (e.g., when switching mapping/localized states)
     bool has_history() const { return has_history_; }
-    void set_previous_cov(const torch::Tensor& cov)
-    { previous_cov_ = cov.clone(); }
+    void set_previous_cov(const torch::Tensor& cov);
+    void set_previous_pose(const std::vector<float>& pose);
     torch::Tensor propagate_with_velocity( const VelocityCommand& cmd, float dt,
                                            const torch::Tensor& prev_cov,
                                            bool is_localized);
+    torch::Tensor get_previous_cov() const ;
+    // Fuse propagated and measurement covariances using information form
+    torch::Tensor fuse_covariances(const torch::Tensor& propagated,const torch::Tensor& measurement );
 
 private:
     // ===== STATE =====
@@ -85,13 +87,6 @@ private:
     );
 
 
-    /**
-     * Fuse propagated and measurement covariances using information form
-     */
-    torch::Tensor fuse_covariances(
-        const torch::Tensor& propagated,
-        const torch::Tensor& measurement
-    );
 
     /**
      * Validate covariance matrix (check for NaN, Inf, wrong dimensions)

@@ -30,28 +30,28 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         return res;
     }
 
-    // // ===== STEP 0: PROPAGATE COVARIANCE BEFORE OPTIMIZATION =====
-    // bool is_localized = room_freezing_manager.should_freeze_room();
-    // const int expected_dim = is_localized ? 3 : 5;
-    //
-    // torch::Tensor propagated_cov;
-    // bool have_propagated = false;
-    //
-    // if (odometry_prior.valid && uncertainty_manager.has_history()) {
-    //     // Get previous covariance
-    //     auto prev_cov = uncertainty_manager.get_previous_cov();
-    //
-    //     // Propagate using velocity command
-    //     propagated_cov = uncertainty_manager.propagate_with_velocity(
-    //         odometry_prior.velocity_cmd,  // Pass velocity command
-    //         odometry_prior.dt,             // Time delta
-    //         prev_cov,
-    //         is_localized
-    //     );
-    //
-    //     have_propagated = true;
-    //     qDebug() << "Propagated covariance before optimization";
-    // }
+    // ===== STEP 0: PROPAGATE COVARIANCE BEFORE OPTIMIZATION =====
+    bool is_localized = room_freezing_manager.should_freeze_room();
+    const int expected_dim = is_localized ? 3 : 5;
+
+    torch::Tensor propagated_cov;
+    bool have_propagated = false;
+
+    if (odometry_prior.valid && uncertainty_manager.has_history()) {
+        // Get previous covariance
+        auto prev_cov = uncertainty_manager.get_previous_cov();
+
+        // Propagate using velocity command
+        propagated_cov = uncertainty_manager.propagate_with_velocity(
+            odometry_prior.velocity_cmd,  // Pass velocity command
+            odometry_prior.dt,             // Time delta
+            prev_cov,
+            is_localized
+        );
+
+        have_propagated = true;
+        qDebug() << "Propagated covariance before optimization";
+    }
 
     // ===== STEP 1: CONVERT POINTS TO TENSOR =====
     std::vector<float> points_data;
@@ -69,8 +69,6 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
 
     // ===== STEP 2: SELECT PARAMETERS (MAPPING vs LOCALIZED) =====
     std::vector<torch::Tensor> params_to_optimize;
-    bool is_localized = room_freezing_manager.should_freeze_room();
-
     if (is_localized)
     {
         // LOCALIZED: Only optimize robot pose
@@ -86,7 +84,6 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     }
 
     // ===== STEP 2.5: GET PRIOR FROM VELOCITY INTEGRATION =====
-
     bool use_odometry = odometry_prior.valid and is_localized;  // Only in LOCALIZED mode
     torch::Tensor prior_loss = torch::zeros(1, torch::kFloat32);
     torch::Tensor predicted_pose;
@@ -181,42 +178,41 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         // }
     }
 
-    // ===== STEP 4: COMPUTE UNCERTAINTY (using new UncertaintyManager) =====
+    // ===== STEP 4: COMPUTE MEASUREMENT COVARIANCE =====
+    torch::Tensor measurement_cov;
     try {
-            auto uncertainty_result = uncertainty_manager.compute(
-                points_tensor,
-                room,
-                0.1f,  // huber_delta
-                is_localized
+        measurement_cov = UncertaintyEstimator::compute_covariance(
+            points_tensor, room, 0.1f
+        );
+
+        // ===== STEP 5: FUSE WITH PROPAGATED COVARIANCE =====
+        if (have_propagated) {
+            // Information form fusion
+            res.covariance = uncertainty_manager.fuse_covariances(
+                propagated_cov,
+                measurement_cov
             );
-
-            res.covariance = uncertainty_result.covariance;
-            res.std_devs = uncertainty_result.std_devs;
-            res.uncertainty_valid = uncertainty_result.is_valid;
-
-            if (!uncertainty_result.is_valid) {
-                qWarning() << "Uncertainty computation issue:"
-                          << QString::fromStdString(uncertainty_result.error_message);
-            }
-
-            // Optional debug info
-            if (uncertainty_result.used_propagation) {
-                qDebug() << "Used motion propagation";
-            }
-            if (uncertainty_result.used_fusion) {
-                qDebug() << "Used covariance fusion";
-            }
-
-        }
-        catch (const std::exception& e)
-        {
-            qWarning() << "Uncertainty computation failed:" << e.what();
-            res.covariance = torch::eye(is_localized ? 3 : 5, torch::kFloat32) * 0.01f;
-            res.std_devs = std::vector<float>(is_localized ? 3 : 5, 0.1f);
-            res.uncertainty_valid = false;
+            res.used_fusion = true;
+        } else {
+            // First frame - use measurement only
+            res.covariance = measurement_cov;
         }
 
-    // ===== STEP 5: UPDATE FREEZING MANAGER =====
+        res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
+        res.uncertainty_valid = true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Uncertainty computation failed:" << e.what();
+        res.covariance = torch::eye(expected_dim, torch::kFloat32) * 0.01f;
+        res.std_devs = std::vector<float>(expected_dim, 0.1f);
+        res.uncertainty_valid = false;
+    }
+
+    // ===== STEP 6: UPDATE HISTORY =====
+    uncertainty_manager.set_previous_cov(res.covariance);
+    uncertainty_manager.set_previous_pose(room.get_robot_pose());
+
+    // ===== STEP 7: UPDATE FREEZING MANAGER =====
     std::vector<float> room_std_devs;
     std::vector<float> robot_std_devs;
 
@@ -228,7 +224,6 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
         // MAPPING: std_devs = [half_width, half_height, robot_x, robot_y, robot_theta]
         room_std_devs = {res.std_devs[0], res.std_devs[1]};
         robot_std_devs = {res.std_devs[2], res.std_devs[3], res.std_devs[4]};
-
 
         // qInfo() << "Robot uncertainty: X=" << robot_std_devs[0]
         //         << " Y=" << robot_std_devs[1]

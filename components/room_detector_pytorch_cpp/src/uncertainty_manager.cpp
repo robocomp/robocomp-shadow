@@ -288,3 +288,19 @@ void UncertaintyManager::reset()
     has_history_ = false;
     qInfo() << "UncertaintyManager history reset";
 }
+
+void UncertaintyManager::set_previous_cov(const torch::Tensor& cov)
+{
+    previous_cov_ = cov.clone();
+}
+
+void UncertaintyManager::set_previous_pose(const std::vector<float>& pose)
+{
+    previous_pose_ = pose;
+    has_history_ = true;
+}
+
+torch::Tensor UncertaintyManager::get_previous_cov() const
+{
+    return previous_cov_;
+}

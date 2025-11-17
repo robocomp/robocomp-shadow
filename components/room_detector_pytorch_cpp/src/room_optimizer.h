@@ -20,6 +20,7 @@ class RoomOptimizer
             std::vector<float> std_devs;         // flat std dev vector
             float final_loss = 0.0f;
             bool uncertainty_valid = true;
+            bool used_fusion = false;
         };
 
         RoomOptimizer() = default;

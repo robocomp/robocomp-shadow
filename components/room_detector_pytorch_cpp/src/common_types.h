@@ -113,8 +113,15 @@ struct VelocityCommand
 struct OdometryPrior
 {
     bool valid = false;
-    Eigen::Vector3f delta_pose;  // [dx, dy, dtheta] in meters & radians
-    torch::Tensor covariance;      // 3x3 covariance matrix
-    OdometryPrior() : delta_pose(Eigen::Vector3f::Zero()), covariance(torch::zeros({3,3}, torch::kFloat32)) {};
+    Eigen::Vector3f delta_pose;      // [dx, dy, dtheta] in meters & radians
+    torch::Tensor covariance;        // 3x3 covariance matrix
+    VelocityCommand velocity_cmd;    // ADD: The actual velocity command
+    float dt;                        // ADD: Time delta
+
+    OdometryPrior()
+        : delta_pose(Eigen::Vector3f::Zero())
+        , covariance(torch::zeros({3,3}, torch::kFloat32))
+        , dt(0.0f)
+    {}
 };
 #endif //COMMON_TYPES_H

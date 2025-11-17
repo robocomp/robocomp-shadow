@@ -203,33 +203,18 @@ void SpecificWorker::compute()
 	Eigen::Vector3f predicted_pose = Eigen::Vector3f::Zero();
 	bool have_prediction = false;
 
-	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room()) {
+	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
+	{
 		auto current_pose = room.get_robot_pose();
 		predicted_pose[0] = current_pose[0] + odom_prior.delta_pose[0];
 		predicted_pose[1] = current_pose[1] + odom_prior.delta_pose[1];
 		predicted_pose[2] = current_pose[2] + odom_prior.delta_pose[2];
 		have_prediction = true;
-
-		qDebug() << "Before optimization - Current pose:"
-				 << current_pose[0] << current_pose[1] << current_pose[2];
-		qDebug() << "Predicted pose:"
-				 << predicted_pose[0] << predicted_pose[1] << predicted_pose[2];
 	}
 
 	// Optimize with prior
 	const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
 										   0.01f,0.01f, odom_prior, frame_counter );
-
-	// Propagate covariance using velocity (only if prior is valid)
-	if (odom_prior.valid)
-	{
-		const auto dt = std::chrono::duration<float>(current_time - last_time).count();
-		torch::Tensor propagated_cov = optimizer.uncertainty_manager.propagate_with_velocity(
-			velocity_history_.back(), dt, result.covariance, room.are_room_parameters_frozen()
-		);
-		// Store propagated_cov for next iteration
-		optimizer.uncertainty_manager.set_previous_cov(propagated_cov);
-	}
 
 	// update robot pose
 	const auto robot_pose = room.get_robot_pose();
@@ -550,32 +535,26 @@ Eigen::Vector3f SpecificWorker::integrate_velocity(const VelocityCommand& cmd, f
 
 OdometryPrior SpecificWorker::compute_odometry_prior() const
 {
-    OdometryPrior prior;
-    prior.valid = false;
+	OdometryPrior prior;
+	prior.valid = false;
 
-    if (velocity_history_.empty())
-    {
-        qWarning() << "No velocity commands in buffer";
-        return prior;
-    }
+	if (velocity_history_.empty()) return prior;
 
-    // Use the most recent command (arrived just before LiDAR scan)
-    const auto& latest_cmd = velocity_history_.back();
+	const auto& latest_cmd = velocity_history_.back();
 
-    // Time since last compute() call (typical RoboComp period: 10-100ms)
-    static auto last_compute_time = std::chrono::steady_clock::now();
-    auto current_time = std::chrono::steady_clock::now();
-    float dt = std::chrono::duration<float>(current_time - last_compute_time).count();
-    last_compute_time = current_time;
+	static auto last_compute_time = std::chrono::steady_clock::now();
+	auto current_time = std::chrono::steady_clock::now();
+	float dt = std::chrono::duration<float>(current_time - last_compute_time).count();
+	last_compute_time = current_time;
 
-    // Reject if dt is unreasonable
-    if (dt <= 0 || dt > 0.5f) {
-        qWarning() << "Invalid dt for odometry:" << dt << "s";
-        return prior;
-    }
+	if (dt <= 0 || dt > 0.5f) return prior;
 
-    // Integrate velocity to get pose delta
-    prior.delta_pose = integrate_velocity(latest_cmd, dt);
+	// Store velocity command and dt for propagation
+	prior.velocity_cmd = latest_cmd;  // ADD
+	prior.dt = dt;                    // ADD
+
+	// Integrate velocity to get pose delta
+	prior.delta_pose = integrate_velocity(latest_cmd, dt);
     // Compute process noise covariance (proportional to command magnitude)
 	float trans_noise_std = params.NOISE_TRANS *
 		(std::abs(latest_cmd.adv_x) + std::abs(latest_cmd.adv_z)) / 1000.0f * dt;
