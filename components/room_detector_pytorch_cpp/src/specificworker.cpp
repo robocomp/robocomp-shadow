@@ -395,7 +395,7 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
-	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);}
+	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 1);}
 	catch (const Ice::Exception &e) { std::cout << e << " " << "No lidar data from sensor" << std::endl; return {};}
 	if (ldata.points.empty()) return {};
 

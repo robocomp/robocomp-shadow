@@ -79,7 +79,7 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     // ===== STEP 0.5: TOP-DOWN PREDICTION: FILTER POINTS BASED ON MODEL FIT =====
     auto residual  = top_down_prediction(points, room, have_propagated, propagated_cov);
     auto residual_points = residual.filtered_set;
-    //if (residual.explained_ratio > 99) return res;  // Nothing to optimize
+    if (residual.explained_ratio > 99) return res;  // Nothing to optimize
 
     // ===== STEP 1: CONVERT POINTS TO TENSOR =====
     std::vector<float> points_data;
