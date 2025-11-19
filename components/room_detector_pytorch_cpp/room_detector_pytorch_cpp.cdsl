@@ -1,12 +1,13 @@
 import "Lidar3D.idsl";
 import "OmniRobot.idsl";
 import "JoystickAdapter.idsl";
+import "Camera360RGB.idsl";
 
 Component room_detector_pytorch_cpp
 {
     Communications
     {
-        requires Lidar3D, OmniRobot;
+        requires Lidar3D, OmniRobot, Camera360RGB;
         subscribesTo JoystickAdapter;
     };
     language Cpp11;

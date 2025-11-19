@@ -24,19 +24,6 @@ public:
 
     UncertaintyManager() = default;
 
-    /**
-     * Compute uncertainty for current state
-     * @param points Current LiDAR measurements as tensor [N,2]
-     * @param room Room model
-     * @param huber_delta Loss function parameter
-     * @param is_localized True if room is frozen (3x3 cov), false if mapping (5x5 cov)
-     */
-    Result compute(
-                    const torch::Tensor& points,
-                    RoomModel& room,
-                    float huber_delta,
-                    bool is_localized);
-
     // Configuration
     void set_motion_noise(float translation_per_meter, float rotation_per_radian);
     void enable_motion_propagation(bool enable) { use_propagation_ = enable; }
@@ -76,17 +63,6 @@ private:
         float huber_delta,
         bool is_localized
     );
-
-    /**
-     * Propagate covariance through motion model
-     */
-    torch::Tensor propagate_with_motion(
-        const std::vector<float>& current_pose,
-        const torch::Tensor& previous_cov,
-        bool is_localized
-    );
-
-
 
     /**
      * Validate covariance matrix (check for NaN, Inf, wrong dimensions)

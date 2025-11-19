@@ -79,6 +79,7 @@
 
 #include <joystickadapterI.h>
 
+#include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <JoystickAdapter.h>
 #include <Lidar3D.h>
@@ -235,11 +236,14 @@ int room_detector_pytorch_cpp::run(int argc, char* argv[])
 	std::shared_ptr<IceStorm::TopicPrx> joystickadapter_topic;
 	Ice::ObjectPrxPtr joystickadapter;
 
+	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 
 
 	//Require code
+	require<RoboCompCamera360RGB::Camera360RGBPrx, RoboCompCamera360RGB::Camera360RGBPrxPtr>(communicator(),
+	                    configLoader.get<std::string>("Proxies.Camera360RGB"), "Camera360RGBProxy", camera360rgb_proxy);
 	require<RoboCompLidar3D::Lidar3DPrx, RoboCompLidar3D::Lidar3DPrxPtr>(communicator(),
 	                    configLoader.get<std::string>("Proxies.Lidar3D"), "Lidar3DProxy", lidar3d_proxy);
 	require<RoboCompOmniRobot::OmniRobotPrx, RoboCompOmniRobot::OmniRobotPrxPtr>(communicator(),
@@ -264,7 +268,7 @@ int room_detector_pytorch_cpp::run(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	tprx = std::make_tuple(lidar3d_proxy,omnirobot_proxy);
+	tprx = std::make_tuple(camera360rgb_proxy,lidar3d_proxy,omnirobot_proxy);
 	SpecificWorker *worker = new SpecificWorker(this->configLoader, tprx, startup_check_flag);
 	QObject::connect(worker, SIGNAL(kill()), &a, SLOT(quit()));
 

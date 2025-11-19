@@ -41,6 +41,7 @@
 #include <unordered_map>
 
 
+#include <Camera360RGB.h>
 #include <GenericBase.h>
 #include <JoystickAdapter.h>
 #include <Lidar3D.h>
@@ -48,7 +49,7 @@
 
 #define BASIC_PERIOD 100
 
-using TuplePrx = std::tuple<RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
+using TuplePrx = std::tuple<RoboCompCamera360RGB::Camera360RGBPrxPtr,RoboCompLidar3D::Lidar3DPrxPtr,RoboCompOmniRobot::OmniRobotPrxPtr>;
 
 
 class GenericWorker : public QWidget, public Ui_guiDlg
@@ -67,6 +68,7 @@ public:
 	std::atomic_bool hibernation = false;
 
 
+	RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
 	RoboCompLidar3D::Lidar3DPrxPtr lidar3d_proxy;
 	RoboCompOmniRobot::OmniRobotPrxPtr omnirobot_proxy;
 

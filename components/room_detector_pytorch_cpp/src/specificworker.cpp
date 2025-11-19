@@ -180,29 +180,46 @@ void SpecificWorker::initialize()
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
+
+	// Yolo door detector
+	std::string model_path = "best.torchscript";
+	yolo_detector = std::make_unique<YOLODetector>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
 }
 
 void SpecificWorker::compute()
 {
+	//auto init_time = std::chrono::high_resolution_clock::now();
 	// Read LiDAR data (in robot frame)
 	const auto &[points, lidar_t] = read_data();
 	const auto lidar_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(lidar_t));
 	frame_counter++;
 	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
 
+	auto now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt1" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+
 	// Compute odometry prior betweeen lidar timestamps
 	OdometryPrior odom_prior;
-	if (not first_frame_)
-		odom_prior = compute_odometry_prior(last_lidar_timestamp_, lidar_timestamp);
-	else { odom_prior.valid = false; first_frame_ = false;}
+	if (last_lidar_timestamp_.has_value())
+		odom_prior = compute_odometry_prior(last_lidar_timestamp_.value(), lidar_timestamp);
+	else { odom_prior.valid = false;}
 	last_lidar_timestamp_ = lidar_timestamp;
+
+	//now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	// Optimize SDF likelihood + odometry prior
 	const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
 										   0.01f,0.01f, odom_prior, frame_counter);
 
+	//now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+
 	update_viewers(points, lidar_timestamp, result, &viewer->scene);
 	//print_status(odom_prior, result);
+
+	//now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	last_time = std::chrono::high_resolution_clock::now();;
 }
@@ -351,6 +368,29 @@ void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOpt
 
 	qInfo() << "================================\n";
 }
+
+cv::Mat SpecificWorker::read_image()
+{
+	RoboCompCamera360RGB::TImage img;
+	try{ img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);}
+	catch (const Ice::Exception &e){ std::cout << e.what() << " Error reading 360 camera " << std::endl; return cv::Mat{}; }
+
+	// convert to cv::Mat
+	cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
+
+	// extract a ROI leaving out borders (same as original logic)
+	const int left_offset = cv_img.cols / 8; const int vert_offset = cv_img.rows / 4;
+	const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
+	if (roi.width <= 0 || roi.height <= 0) return cv::Mat{};
+	cv_img = cv_img(roi);
+
+	// Convert BGR -> RGB for display
+	cv::Mat display_img;
+	cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
+
+	return display_img.clone();
+}
+
 std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
@@ -526,28 +566,25 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
 }
 
-Eigen::Vector3f SpecificWorker::integrate_velocity(const VelocityCommand& cmd, float dt) const
-{
-	// Robot frame: X=side (lateral), Y=forward (advance)
-	const float dx_local = (cmd.adv_x * dt) / 1000.0f;  // Side motion (lateral)
-	const float dy_local = (cmd.adv_z * dt) / 1000.0f;  // Forward motion (advance)
-	const float dtheta   = -cmd.rot * dt;
-
-	// Get CURRENT robot pose from room model
-	const auto current_pose = room.get_robot_pose();
-	const float theta = current_pose[2];
-
-	// Transform from robot frame to room frame
-	Eigen::Vector3f delta_global;
-	delta_global[0] = dx_local * std::cos(theta) - dy_local * std::sin(theta);
-	delta_global[1] = dx_local * std::sin(theta) + dy_local * std::cos(theta);
-	delta_global[2] = dtheta;
-
-	return delta_global;
-}
-
-
-// In specificworker.cpp - replace compute_odometry_prior:
+// Eigen::Vector3f SpecificWorker::integrate_velocity(const VelocityCommand& cmd, float dt) const
+// {
+// 	// Robot frame: X=side (lateral), Y=forward (advance)
+// 	const float dx_local = (cmd.adv_x * dt) / 1000.0f;  // Side motion (lateral)
+// 	const float dy_local = (cmd.adv_z * dt) / 1000.0f;  // Forward motion (advance)
+// 	const float dtheta   = -cmd.rot * dt;
+//
+// 	// Get CURRENT robot pose from room model
+// 	const auto current_pose = room.get_robot_pose();
+// 	const float theta = current_pose[2];
+//
+// 	// Transform from robot frame to room frame
+// 	Eigen::Vector3f delta_global;
+// 	delta_global[0] = dx_local * std::cos(theta) - dy_local * std::sin(theta);
+// 	delta_global[1] = dx_local * std::sin(theta) + dy_local * std::cos(theta);
+// 	delta_global[2] = dtheta;
+//
+// 	return delta_global;
+// }
 
 OdometryPrior SpecificWorker::compute_odometry_prior(
     std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
@@ -647,7 +684,7 @@ Eigen::Vector3f SpecificWorker::integrate_velocity_over_window(
 		// Integrate this segment
 		float dx_local = (cmd.adv_x * dt) / 1000.0f;
 		float dy_local = (cmd.adv_z * dt) / 1000.0f;
-		float dtheta = -cmd.rot * dt;
+		float dtheta = -cmd.rot * dt;  // Negative for right-hand rule
 
 		// Transform to global frame using RUNNING theta
 		total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);

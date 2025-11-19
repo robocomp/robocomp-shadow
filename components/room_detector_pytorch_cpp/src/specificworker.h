@@ -40,6 +40,7 @@
 #include "room_freezing_manager.h"
 #include "qt3d_visualizer.h"
 #include "room_optimizer.h"
+#include "yolo_detector.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -106,7 +107,7 @@ class SpecificWorker final : public GenericWorker
 		OdometryPrior compute_odometry_prior(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
-		Eigen::Vector3f integrate_velocity(const VelocityCommand& cmd, float dt) const;
+		//Eigen::Vector3f integrate_velocity(const VelocityCommand& cmd, float dt) const;
 		Eigen::Vector3f integrate_velocity_over_window(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
@@ -157,8 +158,11 @@ class SpecificWorker final : public GenericWorker
 		RoomOptimizer optimizer;
 		int frame_counter = 0;
 
-		std::chrono::time_point<std::chrono::high_resolution_clock> last_lidar_timestamp_;
-		bool first_frame_ = true;
+		std::optional<std::chrono::time_point<std::chrono::high_resolution_clock>> last_lidar_timestamp_;
+
+		// Yolo detector
+		std::unique_ptr<YOLODetector> yolo_detector;
+		cv::Mat read_image();
 
 	Q_SIGNALS:
 		//void customSignal();

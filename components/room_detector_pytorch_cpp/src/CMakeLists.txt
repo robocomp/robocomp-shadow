@@ -23,6 +23,8 @@ LIST(APPEND SOURCES
         ../src/uncertainty_manager.cpp
         ../src/room_loss.cpp
         ../src/uncertainty_estimator.cpp
+        ../src/yolo_detector.cpp
+        ../src/model_based_filter.cpp
 )
 
 # Headers set
@@ -35,8 +37,14 @@ LIST(APPEND HEADERS
         ../src/qt3d_visualizer.h
         ../src/room_optimizer.h
         ../src/uncertainty_manager.h
+        ../src/room_loss.h
+        ../src/uncertainty_estimator.h
+        ../src/yolo_detector.h
+        ../src/model_based_filter.h
 )
 
+# Include OpenCV
+INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
 
 LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport)
 

@@ -42,22 +42,23 @@ void RoomModel::init(float half_width, float half_height,
     register_parameter("robot_theta", robot_theta_);
 }
 
-torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_robot) {
+torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_robot)
+{
     // Transform points from robot frame to room frame (at origin)
     // p_room = R(theta) * p_robot + robot_pos
 
     // Get rotation angle
-    torch::Tensor cos_theta = torch::cos(robot_theta_);
-    torch::Tensor sin_theta = torch::sin(robot_theta_);
+    const torch::Tensor cos_theta = torch::cos(robot_theta_);
+    const torch::Tensor sin_theta = torch::sin(robot_theta_);
 
     // Create rotation matrix [2x2]
-    torch::Tensor rotation = torch::stack({
+    const torch::Tensor rotation = torch::stack({
         torch::stack({cos_theta.squeeze(), -sin_theta.squeeze()}),
         torch::stack({sin_theta.squeeze(), cos_theta.squeeze()})
     });
 
     // Apply rotation: [N, 2] @ [2, 2]^T = [N, 2]
-    torch::Tensor rotated = torch::matmul(points_robot, rotation.transpose(0, 1));
+    const torch::Tensor rotated = torch::matmul(points_robot, rotation.transpose(0, 1));
 
     // Add translation: [N, 2] + [2] (broadcast)
     torch::Tensor points_room = rotated + robot_pos_;
@@ -68,22 +69,22 @@ torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_rob
 torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot)
 {
     // Transform points from robot frame to room frame
-    torch::Tensor points_room = transform_to_room_frame(points_robot);
+    const torch::Tensor points_room = transform_to_room_frame(points_robot);
 
     // Compute absolute distances from origin in each dimension
-    torch::Tensor abs_points = torch::abs(points_room);
+    const torch::Tensor abs_points = torch::abs(points_room);
 
     // Distance from each point to the box in each dimension
-    torch::Tensor d = abs_points - half_extents_;
+    const torch::Tensor d = abs_points - half_extents_;
 
     // SDF for axis-aligned box at origin
-    torch::Tensor outside_distance = torch::norm(
+    const torch::Tensor outside_distance = torch::norm(
         torch::max(d, torch::zeros_like(d)),
         2,
         /*dim=*/1
     );
 
-    torch::Tensor inside_distance = torch::clamp_max(
+    const torch::Tensor inside_distance = torch::clamp_max(
         torch::max(d.select(1, 0), d.select(1, 1)),
         0.0
     );
@@ -196,31 +197,31 @@ torch::Tensor RoomModel::predict_pose_tensor(const torch::Tensor& current_pose_t
                                              float dt) const
 {
     // Ensure calibration params are scalars (but keep gradients!)
-    auto k_t = k_translation_.squeeze();  // [1] -> scalar, keeps requires_grad
-    auto k_r = k_rotation_.squeeze();     // [1] -> scalar, keeps requires_grad
+    const auto k_t = k_translation_.squeeze();  // [1] -> scalar, keeps requires_grad
+    const auto k_r = k_rotation_.squeeze();     // [1] -> scalar, keeps requires_grad
 
     // Convert velocity commands to tensors for autodiff
-    auto v_x_raw = torch::tensor(cmd.adv_x / 1000.0f, torch::kFloat32);  // mm/s -> m/s
-    auto v_z_raw = torch::tensor(cmd.adv_z / 1000.0f, torch::kFloat32);
-    auto w_raw = torch::tensor(-cmd.rot, torch::kFloat32);
-    auto dt_tensor = torch::tensor(dt, torch::kFloat32);
+    const auto v_x_raw = torch::tensor(cmd.adv_x / 1000.0f, torch::kFloat32);  // mm/s -> m/s
+    const auto v_z_raw = torch::tensor(cmd.adv_z / 1000.0f, torch::kFloat32);
+    const auto w_raw = torch::tensor(-cmd.rot, torch::kFloat32);
+    const auto dt_tensor = torch::tensor(dt, torch::kFloat32);
 
     // Apply calibration (maintains gradients)
-    auto v_x = v_x_raw * k_t * dt_tensor;
-    auto v_z = v_z_raw * k_t * dt_tensor;
-    auto w = w_raw * k_r * dt_tensor;
+    const auto v_x = v_x_raw * k_t * dt_tensor;
+    const auto v_z = v_z_raw * k_t * dt_tensor;
+    const auto w = w_raw * k_r * dt_tensor;
 
     // Extract current pose (scalars)
-    auto x = current_pose_tensor[0];
-    auto y = current_pose_tensor[1];
-    auto theta = current_pose_tensor[2];
+    const auto x = current_pose_tensor[0];
+    const auto y = current_pose_tensor[1];
+    const auto theta = current_pose_tensor[2];
 
     // Transform local velocities to global frame (all tensor ops)
-    auto cos_theta = torch::cos(theta);
-    auto sin_theta = torch::sin(theta);
+    const auto cos_theta = torch::cos(theta);
+    const auto sin_theta = torch::sin(theta);
 
-    auto dx_global = v_x * cos_theta - v_z * sin_theta;
-    auto dy_global = v_x * sin_theta + v_z * cos_theta;
+    const auto dx_global = v_x * cos_theta - v_z * sin_theta;
+    const auto dy_global = v_x * sin_theta + v_z * cos_theta;
 
     // Build predicted pose ensuring 1D shape [3]
     auto new_x = (x + dx_global).reshape({1});
@@ -231,9 +232,10 @@ torch::Tensor RoomModel::predict_pose_tensor(const torch::Tensor& current_pose_t
     return torch::cat({new_x, new_y, new_theta}, 0);
 }
 
-void RoomModel::print_info() const {
-    auto room_params = get_room_parameters();
-    auto robot_pose = get_robot_pose();
+void RoomModel::print_info() const
+{
+    const auto room_params = get_room_parameters();
+    const auto robot_pose = get_robot_pose();
 
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "=== ROOM MODEL ===\n";
@@ -246,8 +248,9 @@ void RoomModel::print_info() const {
     std::cout << "  Orientation: " << robot_pose[2] << " rad ("
               << (robot_pose[2] * 180.0 / M_PI) << " deg)\n";
 
-    if (k_translation_.defined() && k_rotation_.defined()) {
-        auto calib = get_odometry_calibration();
+    if (k_translation_.defined() && k_rotation_.defined())
+    {
+        const auto calib = get_odometry_calibration();
         std::cout << "\n=== ODOMETRY CALIBRATION ===\n";
         std::cout << "  Translation scale: " << calib[0] << " "
                   << (k_translation_.requires_grad() ? "(trainable)" : "(frozen)") << "\n";
