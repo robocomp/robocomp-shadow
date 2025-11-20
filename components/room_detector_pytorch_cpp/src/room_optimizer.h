@@ -27,11 +27,11 @@ class RoomOptimizer
 
         struct CalibrationConfig
         {
-            float regularization_weight = 0.1f;  // Weight for keeping calibration near 1.0
-            float min_value = 0.8f;              // Minimum calibration value (80%)
-            float max_value = 1.2f;              // Maximum calibration value (120%)
+            float regularization_weight = 0.001f;  // Reduced from 0.1 - was too strong!
+            float min_value = 0.1f;               // Expanded: allow 10%-300% (for units issues)
+            float max_value = 3.0f;
             float uncertainty_inflation = 100.0f; // Inflate covariance (overconfidence correction)
-        };
+        };;
 
         struct PredictionParameters
         {
@@ -110,7 +110,7 @@ class RoomOptimizer
          */
         float run_optimization_loop(const torch::Tensor &points_tensor,
                                    RoomModel &room,
-                                   const torch::Tensor &predicted_pose,
+                                   const torch::Tensor &prev_pose_tensor,
                                    const OdometryPrior &odometry_prior,
                                    torch::optim::Optimizer &optimizer,
                                    bool use_odometry_prior,

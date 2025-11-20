@@ -281,7 +281,7 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	// ===== COMPREHENSIVE DEBUG OUTPUT =====
 	auto robot_pose = room.get_robot_pose();
 	auto room_params = room.get_room_parameters();
-
+	qInfo() << "=====================================================";
 	qInfo() << "\n========== FRAME" << frame_counter++ << "==========";
 
 	// Current state
@@ -295,7 +295,9 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	        << "(" << QString::number(qRadiansToDegrees(robot_pose[2]), 'f', 1) << "°)";
 
 	// Predicted pose (if odometry was used)
-	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room()) {
+	qInfo() << odom_prior.valid << optimizer.room_freezing_manager.should_freeze_room();
+	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
+	{
 	    auto prev_pose = room.get_robot_pose();  // This is AFTER optimization
 	    // Calculate what the predicted pose was
 	    float pred_x = prev_pose[0] - odom_prior.delta_pose[0];
@@ -392,7 +394,7 @@ TimePoints SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
-	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 1);}
+	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);}
 	catch (const Ice::Exception &e) { std::cout << e << " " << "No lidar data from sensor" << std::endl; return {};}
 	if (ldata.points.empty()) return {};
 

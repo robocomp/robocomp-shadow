@@ -33,11 +33,11 @@ RoomOptimizer::Result RoomOptimizer::optimize(
         return {};
     }
 
+    // Check if in LOCALIZED mode
+    const bool is_localized = room_freezing_manager.should_freeze_room();
+
     // Compute odometry prior between lidar timestamps
     auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
-
-    // check if in LOCALIZED mode
-    const bool is_localized = room_freezing_manager.should_freeze_room();
 
     // ===== PREDICT STEP =====
     const PredictionState prediction = predict_step(room, odometry_prior, is_localized);
@@ -53,6 +53,9 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     // ===== UPDATE STEP =====
     Result res = update_step(points_tensor, room, odometry_prior, is_localized,
                              num_iterations, min_loss_threshold, learning_rate, time_series_plotter);
+
+    // Store the prior for debugging
+    res.prior = odometry_prior;
 
     // ===== UPDATE STATE MANAGEMENT =====
     update_state_management(res, room, is_localized, res.final_loss);
@@ -164,22 +167,54 @@ RoomOptimizer::Result RoomOptimizer::update_step(
 
     // Prepare odometry prior for optimization
     bool use_odometry_prior = odometry_prior.valid && is_localized;
-    torch::Tensor predicted_pose;
+    torch::Tensor prev_pose_tensor;
 
-    if (use_odometry_prior) {
+    // Check if there's meaningful motion for calibration learning
+    bool has_meaningful_motion = false;
+    if (use_odometry_prior)
+    {
+        const float trans_magnitude = std::sqrt(
+            odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
+            odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+        );
+        const float rot_magnitude = std::abs(odometry_prior.delta_pose[2]);
+
+        // INCREASED THRESHOLDS for more stable calibration learning:
+        // Require at least 20mm translation OR 2 degrees rotation
+        // AND dt must be at least 100ms (avoid noisy short intervals)
+        const float min_translation = 0.02f;  // 20mm
+        const float min_rotation = 0.035f;     // ~2 degrees
+        const float min_dt = 0.09f;             // 100ms
+
+        has_meaningful_motion = (trans_magnitude > min_translation || rot_magnitude > min_rotation)
+                              && odometry_prior.dt > min_dt;
+
+        if (!has_meaningful_motion)
+        {
+            if (odometry_prior.dt < min_dt)
+            {
+                qDebug() << "⚠️ Time interval too small ("
+                        << QString::number(odometry_prior.dt * 1000.0f, 'f', 1)
+                        << "ms < " << (min_dt * 1000.0f) << "ms) - skipping calibration";
+            } else {
+                //qDebug() << "⚠️ Robot motion too small - skipping calibration optimization";
+            }
+            use_odometry_prior = false;  // Disable prior, optimize only from measurements
+        }
+    }
+
+    use_odometry_prior = false;
+    if (use_odometry_prior)
+    {
         // Get previous pose (detached from computation graph)
         auto prev_pose = room.get_robot_pose();
-        torch::Tensor prev_pose_tensor = torch::tensor(
+        prev_pose_tensor = torch::tensor(
             {prev_pose[0], prev_pose[1], prev_pose[2]},
             torch::kFloat32
         ).requires_grad_(false);
 
-        // Predict using calibrated motion model
-        predicted_pose = room.predict_pose_tensor(
-            prev_pose_tensor,
-            odometry_prior.velocity_cmd,
-            odometry_prior.dt
-        );
+        // Note: predicted_pose will be computed INSIDE the optimization loop
+        // to allow gradients to flow through calibration parameters
     }
 
     // Run optimization loop
@@ -188,7 +223,7 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     float final_loss = run_optimization_loop(
         points_tensor,
         room,
-        predicted_pose,
+        prev_pose_tensor,
         odometry_prior,
         optimizer,
         use_odometry_prior,
@@ -232,7 +267,7 @@ std::vector<torch::Tensor> RoomOptimizer::select_optimization_parameters(
 float RoomOptimizer::run_optimization_loop(
     const torch::Tensor &points_tensor,
     RoomModel &room,
-    const torch::Tensor &predicted_pose,
+    const torch::Tensor &prev_pose_tensor,
     const OdometryPrior &odometry_prior,
     torch::optim::Optimizer &optimizer,
     bool use_odometry_prior,
@@ -251,30 +286,77 @@ float RoomOptimizer::run_optimization_loop(
         torch::Tensor total_loss = measurement_loss;
 
         // Add prior loss if using odometry
+        torch::Tensor prior_loss;
+        torch::Tensor calib_reg;
         if (use_odometry_prior) {
-            torch::Tensor prior_loss = compute_prior_loss(room, predicted_pose, odometry_prior);
+            // CRITICAL FIX: Recompute predicted_pose INSIDE the loop
+            // This allows gradients to flow through calibration parameters on each iteration
+            torch::Tensor predicted_pose = room.predict_pose_tensor(
+                prev_pose_tensor,
+                odometry_prior.velocity_cmd,
+                odometry_prior.dt
+            );
+
+            prior_loss = compute_prior_loss(room, predicted_pose, odometry_prior);
             constexpr float prior_weight = 1.0f;
             total_loss = total_loss + prior_weight * prior_loss;
-        }
 
-        // Add calibration regularization
-        torch::Tensor calib_reg = compute_calibration_regularization(room);
-        total_loss = total_loss + calib_reg;
+            // Add calibration regularization (with proper gradients!)
+            calib_reg = compute_calibration_regularization(room);
+            total_loss = total_loss + calib_reg;
+        }
 
         // Backward pass
         total_loss.backward();
 
-        // Clip gradients for stability
-        torch::nn::utils::clip_grad_norm_(room.parameters(), 1.0);
+        // Clip gradients for stability (more lenient to allow calibration learning)
+        torch::nn::utils::clip_grad_norm_(room.parameters(), 5.0);
 
         optimizer.step();
 
         // Enforce calibration bounds
         auto calib = room.get_odometry_calibration();
+        bool hit_bounds = false;
+
         if (calib[0] < calib_config.min_value || calib[0] > calib_config.max_value ||
             calib[1] < calib_config.min_value || calib[1] > calib_config.max_value) {
+
+            // Only warn on first iteration when hitting bounds
+            if (iter == 0) {
+                if (calib[0] <= calib_config.min_value && room.k_translation_.grad().item<float>() > 0.1f) {
+                    qWarning() << "⚠️  k_translation at MIN bound (" << calib_config.min_value
+                              << ") - likely units mismatch";
+                    hit_bounds = true;
+                }
+
+                if (calib[0] >= calib_config.max_value && room.k_translation_.grad().item<float>() < -0.1f) {
+                    qWarning() << "⚠️  k_translation at MAX bound (" << calib_config.max_value
+                              << ") - likely units mismatch";
+                    hit_bounds = true;
+                }
+            }
+
             room.k_translation_.data().clamp_(calib_config.min_value, calib_config.max_value);
             room.k_rotation_.data().clamp_(calib_config.min_value, calib_config.max_value);
+        }
+
+        if (hit_bounds && iter == 0) {
+            // Show expected vs actual motion for diagnosis
+            const float trans_mag = std::sqrt(
+                odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
+                odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+            );
+
+            const float cmd_x = odometry_prior.velocity_cmd.adv_x * odometry_prior.dt / 1000.0f;
+            const float cmd_z = odometry_prior.velocity_cmd.adv_z * odometry_prior.dt / 1000.0f;
+            const float cmd_mag = std::sqrt(cmd_x * cmd_x + cmd_z * cmd_z);
+
+            if (cmd_mag > 0.001f) {
+                float apparent_scale = trans_mag / cmd_mag;
+                qWarning() << "  Commanded:" << QString::number(cmd_mag * 1000.0f, 'f', 1)
+                          << "mm, Actual:" << QString::number(trans_mag * 1000.0f, 'f', 1)
+                          << "mm, Scale:" << QString::number(apparent_scale, 'f', 3);
+            }
         }
 
         final_loss = total_loss.item<float>();
@@ -282,11 +364,6 @@ float RoomOptimizer::run_optimization_loop(
         // Plot if requested
         if (time_series_plotter && iter % 5 == 0) {
             time_series_plotter->addDataPoint(0, measurement_loss.item<float>());
-        }
-
-        // Verbose logging
-        if (iter % print_every == 0) {
-            // qDebug() << "Iter" << iter << "| Loss:" << final_loss;
         }
 
         // Early stopping
@@ -336,17 +413,24 @@ torch::Tensor RoomOptimizer::compute_prior_loss(
 
 torch::Tensor RoomOptimizer::compute_calibration_regularization(RoomModel &room)
 {
-    auto calib = room.get_odometry_calibration();
-    float k_trans = calib[0];
-    float k_rot = calib[1];
+    // CRITICAL FIX: Use tensor operations to maintain gradients!
+    // Previous version used float operations which broke the gradient flow
 
-    // Penalize deviation from 1.0
-    float reg_loss = calib_config.regularization_weight * (
-        (k_trans - 1.0f) * (k_trans - 1.0f) +
-        (k_rot - 1.0f) * (k_rot - 1.0f)
-    );
+    // Get calibration parameters as tensors (maintain gradients)
+    torch::Tensor k_trans = room.k_translation_;
+    torch::Tensor k_rot = room.k_rotation_;
 
-    return torch::tensor(reg_loss, torch::kFloat32);
+    // Target value (1.0)
+    torch::Tensor target = torch::ones(1, torch::kFloat32);
+
+    // Compute squared deviation from 1.0 (maintains gradients)
+    torch::Tensor trans_dev = torch::pow(k_trans - target, 2);
+    torch::Tensor rot_dev = torch::pow(k_rot - target, 2);
+
+    // Sum and scale by regularization weight
+    torch::Tensor reg_loss = calib_config.regularization_weight * (trans_dev + rot_dev);
+
+    return reg_loss.squeeze();  // Return scalar tensor with gradients
 }
 
 // ============================================================================
@@ -531,19 +615,29 @@ OdometryPrior RoomOptimizer::compute_odometry_prior(
     OdometryPrior prior;
     prior.valid = false;
 
+    // Check 1: First frame (no previous timestamp)
     if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{}) {
+        last_lidar_timestamp = lidar_timestamp;
         return prior;
     }
 
+    // Check 2: Empty velocity history
     if (velocity_history.empty()) {
         return prior;
     }
 
-    // Time delta between LiDAR scans
+    // Check 3: Time delta between LiDAR scans
     const float dt = std::chrono::duration<float>(lidar_timestamp - last_lidar_timestamp).count();
 
-    if (dt <= 0 || dt > 0.5f) {
-        qWarning() << "Invalid dt for odometry:" << dt << "s";
+    if (dt <= 0) {
+        qWarning() << "Invalid dt <= 0 (" << dt << "s) - timestamp not advancing!";
+        last_lidar_timestamp = lidar_timestamp;
+        return prior;
+    }
+
+    if (dt > 0.5f) {
+        qWarning() << "Large dt (" << dt << "s) - possible frame skip";
+        last_lidar_timestamp = lidar_timestamp;
         return prior;
     }
 
@@ -569,13 +663,13 @@ OdometryPrior RoomOptimizer::compute_odometry_prior(
     float rot_noise_std = prediction_params.NOISE_ROT * rot_magnitude;
 
     // Minimum uncertainty
-    trans_noise_std = std::max(trans_noise_std, 0.1f);
-    rot_noise_std = std::max(rot_noise_std, 0.15f);
+    trans_noise_std = std::max(trans_noise_std, 0.01f);
+    rot_noise_std = std::max(rot_noise_std, 0.02f);
 
     // Extra uncertainty for pure rotation
     if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
         rot_noise_std *= 2.0f;
-        trans_noise_std = 0.2f;
+        trans_noise_std = 0.05f;
     }
 
     prior.covariance = torch::eye(3, torch::kFloat32);
