@@ -14,24 +14,26 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& points,
-                                               RoomModel& room,
-                                               std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
-                                               int num_iterations,
-                                               float min_loss_threshold,
-                                               float learning_rate,
-                                               const OdometryPrior& odometry_prior,
-                                               int frame_number)
+RoomOptimizer::Result RoomOptimizer::optimize(  const TimePoints &points_,
+                                                RoomModel &room,
+                                                const VelocityHistory &velocity_history,
+                                                std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
+                                                int num_iterations,
+                                                float min_loss_threshold,
+                                                float learning_rate)
 {
     Result res;
-    if (points.empty()) { qWarning() << "No points to optimize";  return {};}
+    const auto &[points_r, lidar_timestamp] = points_;
+    if (points_r.empty()) { qWarning() << "No points to optimize";  return {};}
+
+    // Compute odometry prior betweeen lidar timestamps
+    auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
 
     bool is_localized = room_freezing_manager.should_freeze_room();
 
     // ===== STEP 0: PROPAGATE COVARIANCE BEFORE OPTIMIZATION =====
     // Covariance dimension: 3 for robot pose in LOCALIZED, 5 for room+pose in MAPPING
     const int expected_dim = is_localized ? 3 : 5;
-
     torch::Tensor propagated_cov;
     bool have_propagated = false;
 
@@ -55,31 +57,33 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     }
 
     // STEP 0.3 The model should be at predicted pose when filtering
-    // std::vector<float> original_pose;  // Save original for restoration if needed
-    // if (odometry_prior.valid && is_localized)
-    // {
-    //     // Save current pose
-    //     original_pose = room.get_robot_pose();
-    //
-    //     // Update model to predicted pose
-    //     auto predicted_pose = room.get_robot_pose();
-    //     predicted_pose[0] += odometry_prior.delta_pose[0];
-    //     predicted_pose[1] += odometry_prior.delta_pose[1];
-    //     predicted_pose[2] += odometry_prior.delta_pose[2];
-    //
-    //     // Update model to predicted pose using .data (bypasses autograd)
-    //     room.robot_pos_.data()[0] = predicted_pose[0];
-    //     room.robot_pos_.data()[1] = predicted_pose[1];
-    //     room.robot_theta_.data()[0] = predicted_pose[2];
-    //
-    //     //    qDebug() << "Updated model to predicted pose for filtering:"
-    //     //             << predicted_pose[0] << predicted_pose[1] << predicted_pose[2];
-    // }
+    std::vector<float> original_pose;  // Save original for restoration if needed
+    if (odometry_prior.valid && is_localized)
+    {
+        // Save current pose
+        original_pose = room.get_robot_pose();
+
+        // Update model to predicted pose
+        auto predicted_pose = room.get_robot_pose();
+        predicted_pose[0] += odometry_prior.delta_pose[0];
+        predicted_pose[1] += odometry_prior.delta_pose[1];
+        predicted_pose[2] += odometry_prior.delta_pose[2];
+
+        // Update model to predicted pose using .data (bypasses autograd)
+        room.robot_pos_.data()[0] = predicted_pose[0];
+        room.robot_pos_.data()[1] = predicted_pose[1];
+        room.robot_theta_.data()[0] = predicted_pose[2];
+
+        //    qDebug() << "Updated model to predicted pose for filtering:"
+        //             << predicted_pose[0] << predicted_pose[1] << predicted_pose[2];
+    }
 
     // ===== STEP 0.5: TOP-DOWN PREDICTION: FILTER POINTS BASED ON MODEL FIT =====
-    auto residual  = top_down_prediction(points, room, have_propagated, propagated_cov);
-    auto residual_points = residual.filtered_set;
-    if (residual.explained_ratio > 99) return res;  // Nothing to optimize
+    auto residual  = top_down_prediction(points_r, room, have_propagated, propagated_cov);
+    //auto residual_points = residual.filtered_set;
+    auto points = points_r;
+
+    //if (residual.explained_ratio > 99) return res;  // Nothing to optimize
 
     // ===== STEP 1: CONVERT POINTS TO TENSOR =====
     std::vector<float> points_data;
@@ -415,7 +419,124 @@ RoomOptimizer::Result RoomOptimizer::optimize( const RoboCompLidar3D::TPoints& p
     //                    << "- Wheel slip or dynamic motion";
     //     }
     // }
+    frame_number++;
     return res;
+}
+
+Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window( const RoomModel& room,
+                                                               const boost::circular_buffer<VelocityCommand> &velocity_history,
+                                                               const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
+                                                               const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end)
+{
+    Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
+
+    const auto current_pose = room.get_robot_pose();
+    float running_theta = current_pose[2];
+
+    // Integrate over all velocity commands in [t_start, t_end]
+    for (size_t i = 0; i < velocity_history.size(); ++i)
+    {
+        const auto&[adv_x, adv_z, rot, timestamp] = velocity_history[i];
+
+        // Get time window for this command
+        auto cmd_start = timestamp;
+        auto cmd_end = (i + 1 < velocity_history.size())
+                        ? velocity_history[i + 1].timestamp
+                        : t_end;
+
+        // Clip to [t_start, t_end]
+        if (cmd_end < t_start) continue;
+        if (cmd_start > t_end) break;
+
+        auto effective_start = std::max(cmd_start, t_start);
+        auto effective_end = std::min(cmd_end, t_end);
+
+        const float dt = std::chrono::duration<float>(effective_end - effective_start).count();
+        if (dt <= 0) continue;
+
+        // Integrate this segment
+        const float dx_local = (adv_x * dt) / 1000.0f;
+        const float dy_local = (adv_z * dt) / 1000.0f;
+        const float dtheta = -rot * dt;  // Negative for right-hand rule
+
+        // Transform to global frame using RUNNING theta
+        total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);
+        total_delta[1] += dx_local * std::sin(running_theta) + dy_local * std::cos(running_theta);
+        total_delta[2] += dtheta;
+
+        // Update running theta for next segment
+        running_theta += dtheta;
+    }
+
+    return total_delta;
+}
+
+OdometryPrior RoomOptimizer::compute_odometry_prior(const RoomModel &room,
+                                                    const boost::circular_buffer<VelocityCommand>& velocity_history,
+                                                    const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
+{
+    OdometryPrior prior;
+    prior.valid = false;
+
+    if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{})
+        return prior;
+
+    if (velocity_history.empty())
+    {
+        //qWarning() << "No velocity commands in buffer";
+        return prior;
+    }
+
+    // Time delta BETWEEN LIDAR SCANS
+    const float dt = std::chrono::duration<float>(lidar_timestamp - last_lidar_timestamp).count();
+
+    if (dt <= 0 or dt > 0.5f)
+    {
+        qWarning() << "Invalid dt for odometry:" << dt << "s";
+        return prior;
+    }
+
+    // Integrate velocity over the time window [t_start, t_end]
+    prior.delta_pose = integrate_velocity_over_window(room, velocity_history, last_lidar_timestamp, lidar_timestamp);
+
+    // For storing in prior structure (if needed by optimizer)
+    if (not velocity_history.empty())
+        prior.velocity_cmd = velocity_history.back();
+
+    prior.dt = dt;
+
+    // Compute process noise - proportional to motion magnitude
+    const float trans_magnitude = std::sqrt(
+        prior.delta_pose[0]*prior.delta_pose[0] +
+        prior.delta_pose[1]*prior.delta_pose[1]
+    );
+    const float rot_magnitude = std::abs(prior.delta_pose[2]);
+    float trans_noise_std = prediction_params.NOISE_TRANS * trans_magnitude;
+    float rot_noise_std = prediction_params.NOISE_ROT * rot_magnitude;
+
+    // Minimum uncertainty
+    trans_noise_std = std::max(trans_noise_std, 0.1f);
+    rot_noise_std = std::max(rot_noise_std, 0.15f);
+
+    // Extra uncertainty for pure rotation
+    if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
+        rot_noise_std *= 2.0f;
+        trans_noise_std = 0.2f;
+    }
+
+    prior.covariance = torch::eye(3, torch::kFloat32);
+    prior.covariance[0][0] = trans_noise_std * trans_noise_std;
+    prior.covariance[1][1] = trans_noise_std * trans_noise_std;
+    prior.covariance[2][2] = rot_noise_std * rot_noise_std;
+
+    // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
+    // qDebug() << "dt:" << dt << "s";
+    // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
+    // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
+
+    prior.valid = true;
+    last_lidar_timestamp = lidar_timestamp; // Update last timestamp
+    return prior;
 }
 
 ModelBasedFilter::Result RoomOptimizer::top_down_prediction(const RoboCompLidar3D::TPoints &points,

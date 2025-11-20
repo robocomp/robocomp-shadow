@@ -108,7 +108,7 @@ bool RoomFreezingManager::check_freeze_conditions(const std::vector<float>& room
         return false;
 
     // Condition 4: Good fit (low residual)
-    if (mean_residual > params_.residual_unfreeze_threshold * 0.5f)  // Stricter for freezing
+    if (mean_residual > params_.residual_unfreeze_threshold)
         return false;
 
     // Condition 5 (NEW): Robot has moved enough to explore the room

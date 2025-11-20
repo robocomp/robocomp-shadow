@@ -190,32 +190,27 @@ void SpecificWorker::compute()
 {
 	//auto init_time = std::chrono::high_resolution_clock::now();
 	// Read LiDAR data (in robot frame)
-	const auto &[points, lidar_t] = read_data();
-	const auto lidar_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(lidar_t));
-	frame_counter++;
-	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
-
-	auto now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt1" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	// Compute odometry prior betweeen lidar timestamps
-	OdometryPrior odom_prior;
-	if (last_lidar_timestamp_.has_value())
-		odom_prior = compute_odometry_prior(last_lidar_timestamp_.value(), lidar_timestamp);
-	else { odom_prior.valid = false;}
-	last_lidar_timestamp_ = lidar_timestamp;
+	const auto time_points = read_data();
+	//frame_counter++;
+	if (std::get<0>(time_points).empty()) { std::cout << "No LiDAR points available\n"; return;}
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	// Optimize SDF likelihood + odometry prior
-	const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
-										   0.01f,0.01f, odom_prior, frame_counter);
+	//const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
+	//									   0.01f,0.01f, odom_prior, frame_counter);
+	const auto result = optimizer.optimize( time_points,
+											room, velocity_history_,
+								  		    time_series_plotter,
+										    150,
+										    0.01f,
+										    0.01f);
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	update_viewers(points, lidar_timestamp, result, &viewer->scene);
+	update_viewers(time_points, result, &viewer->scene);
 	//print_status(odom_prior, result);
 
 	//now = std::chrono::high_resolution_clock::now();
@@ -226,24 +221,24 @@ void SpecificWorker::compute()
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-void SpecificWorker::update_viewers(const RoboCompLidar3D::TPoints &points,
-									const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp,
+void SpecificWorker::update_viewers(const TimePoints &points_,
 									const RoomOptimizer::Result &result,
 									QGraphicsScene *scene)
 {
+	const auto &[points, lidar_timestamp] = points_;
 	const auto robot_pose = room.get_robot_pose();
 
 	// Extrapolate from LiDAR timestamp to current time FOR DISPLAY ONLY
-	Eigen::Vector3f display_pose(robot_pose[0], robot_pose[1], robot_pose[2]);
-	const auto current_time = std::chrono::high_resolution_clock::now();
-	const float dt_latency = std::chrono::duration<float>(current_time - lidar_timestamp).count();
-	if (dt_latency > 0 and dt_latency < 0.5f) // Integrate from LiDAR time to now for smooth display
-		display_pose += integrate_velocity_over_window(lidar_timestamp, current_time);
-	//qDebug() << "Display extrapolation:" << dt_latency*1000 << "ms";
+	// Eigen::Vector3f display_pose(robot_pose[0], robot_pose[1], robot_pose[2]);
+	// const auto current_time = std::chrono::high_resolution_clock::now();
+	// const float dt_latency = std::chrono::duration<float>(current_time - lidar_timestamp).count();
+	// if (dt_latency > 0 and dt_latency < 0.5f) // Integrate from LiDAR time to now for smooth display
+	// 	display_pose += integrate_velocity_over_window(lidar_timestamp, current_time);
+	// //qDebug() << "Display extrapolation:" << dt_latency*1000 << "ms";
 
 	Eigen::Affine2f robot_pose_display;
-	robot_pose_display.translation() = Eigen::Vector2f(display_pose[0], display_pose[1]);
-	robot_pose_display.linear() = Eigen::Rotation2Df(display_pose[2]).toRotationMatrix();
+	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
+	robot_pose_display.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
 
 	draw_lidar(points, scene);
 	door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
@@ -269,6 +264,7 @@ void SpecificWorker::update_viewers(const RoboCompLidar3D::TPoints &points,
 
 void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOptimizer::Result &result)
 {
+	static int frame_counter = 0;
 	// Store predicted pose for later comparison
 	Eigen::Vector3f predicted_pose = Eigen::Vector3f::Zero();
 	bool have_prediction = false;
@@ -285,7 +281,7 @@ void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOpt
 	auto robot_pose = room.get_robot_pose();
 	auto room_params = room.get_room_parameters();
 
-	qInfo() << "\n========== FRAME" << frame_counter << "==========";
+	qInfo() << "\n========== FRAME" << frame_counter++ << "==========";
 
 	// Current state
 	qInfo() << "STATE:" << optimizer.room_freezing_manager.get_state_string().data();
@@ -391,7 +387,7 @@ cv::Mat SpecificWorker::read_image()
 	return display_img.clone();
 }
 
-std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
+TimePoints SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
@@ -434,8 +430,9 @@ std::tuple<RoboCompLidar3D::TPoints, long> SpecificWorker::read_data()
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
 
-	return {ldata.points, ldata.timestamp};
+	return {ldata.points, std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(ldata.timestamp))};
 }
+
 // Filter isolated points: keep only points with at least one neighbor within distance d
 RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d)
 {
@@ -586,117 +583,117 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 // 	return delta_global;
 // }
 
-OdometryPrior SpecificWorker::compute_odometry_prior(
-    std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
-    std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
-{
-    OdometryPrior prior;
-    prior.valid = false;
+// OdometryPrior SpecificWorker::compute_odometry_prior(
+//     std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
+//     std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
+// {
+//     OdometryPrior prior;
+//     prior.valid = false;
+//
+//     if (velocity_history_.empty())
+//     {
+//         //qWarning() << "No velocity commands in buffer";
+//         return prior;
+//     }
+//
+//     // Time delta BETWEEN LIDAR SCANS
+//     const float dt = std::chrono::duration<float>(t_end - t_start).count();
+//
+//     if (dt <= 0 || dt > 0.5f) {
+//         qWarning() << "Invalid dt for odometry:" << dt << "s";
+//         return prior;
+//     }
+//
+//     // Integrate velocity over the time window [t_start, t_end]
+//     prior.delta_pose = integrate_velocity_over_window(t_start, t_end);
+//
+//     // For storing in prior structure (if needed by optimizer)
+//     if (not velocity_history_.empty())
+//         prior.velocity_cmd = velocity_history_.back();
+//
+//     prior.dt = dt;
+//
+//     // Compute process noise - proportional to motion magnitude
+//     const float trans_magnitude = std::sqrt(
+//         prior.delta_pose[0]*prior.delta_pose[0] +
+//         prior.delta_pose[1]*prior.delta_pose[1]
+//     );
+//     const float rot_magnitude = std::abs(prior.delta_pose[2]);
+//
+//     float trans_noise_std = params.NOISE_TRANS * trans_magnitude;
+//     float rot_noise_std = params.NOISE_ROT * rot_magnitude;
+//
+//     // Minimum uncertainty
+//     trans_noise_std = std::max(trans_noise_std, 0.1f);
+//     rot_noise_std = std::max(rot_noise_std, 0.15f);
+//
+//     // Extra uncertainty for pure rotation
+//     if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
+//         rot_noise_std *= 2.0f;
+//         trans_noise_std = 0.2f;
+//     }
+//
+//     prior.covariance = torch::eye(3, torch::kFloat32);
+//     prior.covariance[0][0] = trans_noise_std * trans_noise_std;
+//     prior.covariance[1][1] = trans_noise_std * trans_noise_std;
+//     prior.covariance[2][2] = rot_noise_std * rot_noise_std;
+//
+//     // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
+//     // qDebug() << "dt:" << dt << "s";
+//     // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
+//     // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
+//
+//     prior.valid = true;
+//     return prior;
+// }
 
-    if (velocity_history_.empty())
-    {
-        //qWarning() << "No velocity commands in buffer";
-        return prior;
-    }
 
-    // Time delta BETWEEN LIDAR SCANS
-    const float dt = std::chrono::duration<float>(t_end - t_start).count();
-
-    if (dt <= 0 || dt > 0.5f) {
-        qWarning() << "Invalid dt for odometry:" << dt << "s";
-        return prior;
-    }
-
-    // Integrate velocity over the time window [t_start, t_end]
-    prior.delta_pose = integrate_velocity_over_window(t_start, t_end);
-
-    // For storing in prior structure (if needed by optimizer)
-    if (not velocity_history_.empty())
-        prior.velocity_cmd = velocity_history_.back();
-
-    prior.dt = dt;
-
-    // Compute process noise - proportional to motion magnitude
-    const float trans_magnitude = std::sqrt(
-        prior.delta_pose[0]*prior.delta_pose[0] +
-        prior.delta_pose[1]*prior.delta_pose[1]
-    );
-    const float rot_magnitude = std::abs(prior.delta_pose[2]);
-
-    float trans_noise_std = params.NOISE_TRANS * trans_magnitude;
-    float rot_noise_std = params.NOISE_ROT * rot_magnitude;
-
-    // Minimum uncertainty
-    trans_noise_std = std::max(trans_noise_std, 0.1f);
-    rot_noise_std = std::max(rot_noise_std, 0.15f);
-
-    // Extra uncertainty for pure rotation
-    if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
-        rot_noise_std *= 2.0f;
-        trans_noise_std = 0.2f;
-    }
-
-    prior.covariance = torch::eye(3, torch::kFloat32);
-    prior.covariance[0][0] = trans_noise_std * trans_noise_std;
-    prior.covariance[1][1] = trans_noise_std * trans_noise_std;
-    prior.covariance[2][2] = rot_noise_std * rot_noise_std;
-
-    // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
-    // qDebug() << "dt:" << dt << "s";
-    // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
-    // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
-
-    prior.valid = true;
-    return prior;
-}
-
-
-Eigen::Vector3f SpecificWorker::integrate_velocity_over_window(
-	std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
-	std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
-{
-	Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
-
-	auto current_pose = room.get_robot_pose();
-	float running_theta = current_pose[2];
-
-	// Integrate over all velocity commands in [t_start, t_end]
-	for (size_t i = 0; i < velocity_history_.size(); ++i)
-	{
-		const auto& cmd = velocity_history_[i];
-
-		// Get time window for this command
-		auto cmd_start = cmd.timestamp;
-		auto cmd_end = (i + 1 < velocity_history_.size())
-						? velocity_history_[i + 1].timestamp
-						: t_end;
-
-		// Clip to [t_start, t_end]
-		if (cmd_end < t_start) continue;
-		if (cmd_start > t_end) break;
-
-		auto effective_start = std::max(cmd_start, t_start);
-		auto effective_end = std::min(cmd_end, t_end);
-
-		float dt = std::chrono::duration<float>(effective_end - effective_start).count();
-		if (dt <= 0) continue;
-
-		// Integrate this segment
-		float dx_local = (cmd.adv_x * dt) / 1000.0f;
-		float dy_local = (cmd.adv_z * dt) / 1000.0f;
-		float dtheta = -cmd.rot * dt;  // Negative for right-hand rule
-
-		// Transform to global frame using RUNNING theta
-		total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);
-		total_delta[1] += dx_local * std::sin(running_theta) + dy_local * std::cos(running_theta);
-		total_delta[2] += dtheta;
-
-		// Update running theta for next segment
-		running_theta += dtheta;
-	}
-
-	return total_delta;
-}
+// Eigen::Vector3f SpecificWorker::integrate_velocity_over_window(
+// 	std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
+// 	std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
+// {
+// 	Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
+//
+// 	auto current_pose = room.get_robot_pose();
+// 	float running_theta = current_pose[2];
+//
+// 	// Integrate over all velocity commands in [t_start, t_end]
+// 	for (size_t i = 0; i < velocity_history_.size(); ++i)
+// 	{
+// 		const auto& cmd = velocity_history_[i];
+//
+// 		// Get time window for this command
+// 		auto cmd_start = cmd.timestamp;
+// 		auto cmd_end = (i + 1 < velocity_history_.size())
+// 						? velocity_history_[i + 1].timestamp
+// 						: t_end;
+//
+// 		// Clip to [t_start, t_end]
+// 		if (cmd_end < t_start) continue;
+// 		if (cmd_start > t_end) break;
+//
+// 		auto effective_start = std::max(cmd_start, t_start);
+// 		auto effective_end = std::min(cmd_end, t_end);
+//
+// 		float dt = std::chrono::duration<float>(effective_end - effective_start).count();
+// 		if (dt <= 0) continue;
+//
+// 		// Integrate this segment
+// 		float dx_local = (cmd.adv_x * dt) / 1000.0f;
+// 		float dy_local = (cmd.adv_z * dt) / 1000.0f;
+// 		float dtheta = -cmd.rot * dt;  // Negative for right-hand rule
+//
+// 		// Transform to global frame using RUNNING theta
+// 		total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);
+// 		total_delta[1] += dx_local * std::sin(running_theta) + dy_local * std::cos(running_theta);
+// 		total_delta[2] += dtheta;
+//
+// 		// Update running theta for next segment
+// 		running_theta += dtheta;
+// 	}
+//
+// 	return total_delta;
+// }
 ///////////////////////////////////////////////////////////////////////////////
 /////SUBSCRIPTION to sendData method from JoystickAdapter interface
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)

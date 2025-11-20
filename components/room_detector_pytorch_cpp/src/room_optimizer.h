@@ -32,33 +32,48 @@ class RoomOptimizer
             float uncertainty_inflation = 100.0f; // Inflate covariance (overconfidence correction)
         };
 
+        struct PredictionParameters
+        {
+           float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
+           float NOISE_ROT = 0.1f;     // 0.1 rad
+        };
+        PredictionParameters prediction_params;
+
         RoomOptimizer() = default;
 
         /**
          * Main optimization function
          * Runs adaptive optimization (MAPPING or LOCALIZED mode) and computes uncertainty
          */
-        Result optimize(const RoboCompLidar3D::TPoints& points,
-                        RoomModel& room,
-                        std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
-                        int num_iterations = 150,
-                        float min_loss_threshold = 0.001f,
-                        float learning_rate = 0.01f,
-                        const OdometryPrior& odometry_prior = {},
-                        int frame_number = 0
+        Result optimize( const TimePoints &points,
+                         RoomModel &room,
+                         const VelocityHistory &velocity_history,
+                         std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
+                         int num_iterations = 150,
+                         float min_loss_threshold = 0.001f,
+                         float learning_rate = 0.01f
         );
 
         // Public components
         RoomFreezingManager room_freezing_manager;
         UncertaintyManager uncertainty_manager;
-        CalibrationConfig calib_config;  // Exposed for tuning
+        CalibrationConfig calib_config;                 // Exposed for tuning
         ModelBasedFilter model_based_filter;
+        std::chrono::time_point<std::chrono::high_resolution_clock> last_lidar_timestamp = {};
+        unsigned long int frame_number = 0;
 
-    private:
+        private:
         float wall_thickness = 0.05f;  // Wall thickness for loss computation
         ModelBasedFilter::Result top_down_prediction(const RoboCompLidar3D::TPoints &points,
                                                      RoomModel &room,
                                                      bool have_propagated,
                                                      const torch::Tensor &
                                                      propagated_cov);
+        Eigen::Vector3f integrate_velocity_over_window( const RoomModel& room,
+                                                        const boost::circular_buffer<VelocityCommand> &velocity_history,
+                                                        const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
+                                                        const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end);
+        OdometryPrior compute_odometry_prior(const RoomModel &room,
+                                             const boost::circular_buffer<VelocityCommand>& velocity_history,
+                                             const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp);
 };

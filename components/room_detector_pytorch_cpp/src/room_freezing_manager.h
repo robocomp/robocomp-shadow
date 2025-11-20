@@ -49,7 +49,7 @@ public:
         float min_rotation_traveled = 1.0f;            // Minimum radians rotated before freeze (cumulative)
 
         // Thresholds for LOCALIZED → MAPPING (unfreezing)
-        float residual_unfreeze_threshold = 0.25f;     // Max acceptable mean residual
+        float residual_unfreeze_threshold = 0.15f;     // Max acceptable mean residual
         float uncertainty_unfreeze_threshold = 0.15f;   // If robot pose uncertainty gets too high
         float structural_change_threshold = 0.20f;     // Significant change in room shape detected
 

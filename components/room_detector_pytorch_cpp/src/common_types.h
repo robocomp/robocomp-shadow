@@ -13,6 +13,7 @@
 #include <QLineF>
 #include <Eigen/src/Geometry/ParametrizedLine.h>
 #include <chrono>
+#include <Lidar3D.h>
 
 
 // types for the features
@@ -124,4 +125,6 @@ struct OdometryPrior
         , dt(0.0f)
     {}
 };
+using VelocityHistory = boost::circular_buffer<VelocityCommand>;
+using TimePoints = std::tuple<RoboCompLidar3D::TPoints, std::chrono::time_point<std::chrono::high_resolution_clock>>; // points and timestamp
 #endif //COMMON_TYPES_H

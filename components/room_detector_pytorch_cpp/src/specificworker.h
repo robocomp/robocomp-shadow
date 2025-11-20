@@ -97,8 +97,8 @@ class SpecificWorker final : public GenericWorker
 			std::string LIDAR_NAME_LOW = "bpearl";
 			std::string LIDAR_NAME_HIGH = "helios";
 			QRectF GRID_MAX_DIM{-5000, 2500, 10000, -5000};
-			float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
-			float NOISE_ROT = 0.1f;     // 0.1 rad
+			// float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
+			// float NOISE_ROT = 0.1f;     // 0.1 rad
 		};
 		Params params;
 
@@ -122,11 +122,10 @@ class SpecificWorker final : public GenericWorker
 		//RoomFreezingManager room_freezing_manager;
 
 		// aux
-		std::tuple<RoboCompLidar3D::TPoints, long> read_data();
+		TimePoints read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 		void update_robot_view(const Eigen::Affine2f &robot_pose);
-		void update_viewers(const RoboCompLidar3D::TPoints &points,
-							const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp,
+		void update_viewers(const TimePoints &points,
 							const RoomOptimizer::Result &result,
 							QGraphicsScene *scene);
 
@@ -156,9 +155,7 @@ class SpecificWorker final : public GenericWorker
 
 		// optimizer
 		RoomOptimizer optimizer;
-		int frame_counter = 0;
 
-		std::optional<std::chrono::time_point<std::chrono::high_resolution_clock>> last_lidar_timestamp_;
 
 		// Yolo detector
 		std::unique_ptr<YOLODetector> yolo_detector;
