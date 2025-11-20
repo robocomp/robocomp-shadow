@@ -211,7 +211,7 @@ void SpecificWorker::compute()
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	update_viewers(time_points, result, &viewer->scene);
-	//print_status(odom_prior, result);
+	print_status(result);
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -262,12 +262,13 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 		viewer3d->showUncertainty(false);  // Hide during mapping
 }
 
-void SpecificWorker::print_status(const OdometryPrior &odom_prior, const RoomOptimizer::Result &result)
+void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 {
 	static int frame_counter = 0;
 	// Store predicted pose for later comparison
 	Eigen::Vector3f predicted_pose = Eigen::Vector3f::Zero();
 	bool have_prediction = false;
+	auto odom_prior = result.prior;
 	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
 	{
 		const auto current_pose = room.get_robot_pose();

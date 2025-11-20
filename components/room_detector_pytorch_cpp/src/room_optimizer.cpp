@@ -1,5 +1,5 @@
 //
-// Refactored RoomOptimizer - minimal version matching your existing structure
+// RoomOptimizer - EKF-style predict-update cycle implementation
 //
 
 #include <torch/torch.h>
@@ -14,369 +14,419 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-RoomOptimizer::Result RoomOptimizer::optimize(  const TimePoints &points_,
-                                                RoomModel &room,
-                                                const VelocityHistory &velocity_history,
-                                                std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
-                                                int num_iterations,
-                                                float min_loss_threshold,
-                                                float learning_rate)
-{
-    Result res;
-    const auto &[points_r, lidar_timestamp] = points_;
-    if (points_r.empty()) { qWarning() << "No points to optimize";  return {};}
+// ============================================================================
+// MAIN EKF CYCLE
+// ============================================================================
 
-    // Compute odometry prior betweeen lidar timestamps
+RoomOptimizer::Result RoomOptimizer::optimize(
+    const TimePoints &points_,
+    RoomModel &room,
+    const VelocityHistory &velocity_history,
+    std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
+    int num_iterations,
+    float min_loss_threshold,
+    float learning_rate)
+{
+    const auto &[points_r, lidar_timestamp] = points_;
+    if (points_r.empty()) {
+        qWarning() << "No points to optimize";
+        return {};
+    }
+
+    // Compute odometry prior between lidar timestamps
     auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
 
-    bool is_localized = room_freezing_manager.should_freeze_room();
+    // check if in LOCALIZED mode
+    const bool is_localized = room_freezing_manager.should_freeze_room();
 
-    // ===== STEP 0: PROPAGATE COVARIANCE BEFORE OPTIMIZATION =====
+    // ===== PREDICT STEP =====
+    const PredictionState prediction = predict_step(room, odometry_prior, is_localized);
+
+    // ===== FILTER MEASUREMENTS (TOP-DOWN PREDICTION) =====
+    auto filter_result = filter_measurements(points_r, room, prediction);
+    // Could use filtered points: auto points = filter_result.filtered_set;
+    const auto points = points_r;  // For now, use all points
+
+    // ===== CONVERT MEASUREMENTS TO TENSOR =====
+    const torch::Tensor points_tensor = convert_points_to_tensor(points);
+
+    // ===== UPDATE STEP =====
+    Result res = update_step(points_tensor, room, odometry_prior, is_localized,
+                             num_iterations, min_loss_threshold, learning_rate, time_series_plotter);
+
+    // ===== UPDATE STATE MANAGEMENT =====
+    update_state_management(res, room, is_localized, res.final_loss);
+
+    frame_number++;
+    return res;
+}
+
+// ============================================================================
+// PREDICT PHASE
+// ============================================================================
+
+RoomOptimizer::PredictionState RoomOptimizer::predict_step(
+    RoomModel &room,
+    const OdometryPrior &odometry_prior,
+    bool is_localized)
+{
+    PredictionState prediction;
+
     // Covariance dimension: 3 for robot pose in LOCALIZED, 5 for room+pose in MAPPING
     const int expected_dim = is_localized ? 3 : 5;
-    torch::Tensor propagated_cov;
-    bool have_propagated = false;
 
-    if (odometry_prior.valid and uncertainty_manager.has_history())
-    {
-        // Get previous covariance and check for dimension mismatch (state transition)
-        if (auto prev_cov = uncertainty_manager.get_previous_cov(); prev_cov.size(0) != expected_dim)
-            uncertainty_manager.reset();
-        else
-        {
-            // Propagate using velocity command
-            propagated_cov = uncertainty_manager.propagate_with_velocity(
-                odometry_prior.velocity_cmd,  // Pass velocity command
-                odometry_prior.dt,             // Time delta
-                prev_cov,
-                is_localized
-            );
-            have_propagated = true;
-            //qDebug() << "Propagated covariance before optimization";
-        }
+    // Check if we can propagate covariance
+    if (!odometry_prior.valid || !uncertainty_manager.has_history()) {
+        return prediction;  // No prediction available
     }
 
-    // STEP 0.3 The model should be at predicted pose when filtering
-    std::vector<float> original_pose;  // Save original for restoration if needed
-    if (odometry_prior.valid && is_localized)
-    {
-        // Save current pose
-        original_pose = room.get_robot_pose();
-
-        // Update model to predicted pose
-        auto predicted_pose = room.get_robot_pose();
-        predicted_pose[0] += odometry_prior.delta_pose[0];
-        predicted_pose[1] += odometry_prior.delta_pose[1];
-        predicted_pose[2] += odometry_prior.delta_pose[2];
-
-        // Update model to predicted pose using .data (bypasses autograd)
-        room.robot_pos_.data()[0] = predicted_pose[0];
-        room.robot_pos_.data()[1] = predicted_pose[1];
-        room.robot_theta_.data()[0] = predicted_pose[2];
-
-        //    qDebug() << "Updated model to predicted pose for filtering:"
-        //             << predicted_pose[0] << predicted_pose[1] << predicted_pose[2];
+    // Get previous covariance and check for dimension mismatch (state transition)
+    auto prev_cov = uncertainty_manager.get_previous_cov();
+    if (prev_cov.size(0) != expected_dim) {
+        uncertainty_manager.reset();
+        return prediction;
     }
 
-    // ===== STEP 0.5: TOP-DOWN PREDICTION: FILTER POINTS BASED ON MODEL FIT =====
-    auto residual  = top_down_prediction(points_r, room, have_propagated, propagated_cov);
-    //auto residual_points = residual.filtered_set;
-    auto points = points_r;
+    // Propagate covariance using velocity command
+    prediction.propagated_cov = uncertainty_manager.propagate_with_velocity(
+        odometry_prior.velocity_cmd,
+        odometry_prior.dt,
+        prev_cov,
+        is_localized
+    );
+    prediction.have_propagated = true;
 
-    //if (residual.explained_ratio > 99) return res;  // Nothing to optimize
+    // Update model to predicted pose (for LOCALIZED mode)
+    if (is_localized) {
+        // Compute predicted pose
+        auto current_pose = room.get_robot_pose();
+        prediction.predicted_pose = {
+            current_pose[0] + odometry_prior.delta_pose[0],
+            current_pose[1] + odometry_prior.delta_pose[1],
+            current_pose[2] + odometry_prior.delta_pose[2]
+        };
 
-    // ===== STEP 1: CONVERT POINTS TO TENSOR =====
-    std::vector<float> points_data;
-    points_data.reserve(points.size() * 2);
-    for (const auto& p : points)
-    {
-        points_data.push_back(p.x / 1000.0f);
-        points_data.push_back(p.y / 1000.0f);
+        // Update model parameters (bypassing autograd with .data())
+        room.robot_pos_.data()[0] = prediction.predicted_pose[0];
+        room.robot_pos_.data()[1] = prediction.predicted_pose[1];
+        room.robot_theta_.data()[0] = prediction.predicted_pose[2];
     }
 
-    torch::Tensor points_tensor = torch::from_blob(
-        points_data.data(),
-        {static_cast<long>(points.size()), 2},
-        torch::kFloat32
-    ).clone();  // TODO: check memory management
+    return prediction;
+}
 
-    // ===== STEP 2: SELECT PARAMETERS (MAPPING vs LOCALIZED) =====
-    std::vector<torch::Tensor> params_to_optimize;
-    if (is_localized)
-    {
-        // LOCALIZED: Optimize robot pose + odometry calibration
-        params_to_optimize = room.get_robot_parameters();
+ModelBasedFilter::Result RoomOptimizer::filter_measurements(
+    const RoboCompLidar3D::TPoints &points,
+    RoomModel &room,
+    const PredictionState &prediction)
+{
+    const bool is_localized = room_freezing_manager.should_freeze_room();
 
-        // Add calibration parameters
-        auto calib_params = room.get_calibration_parameters();
-        params_to_optimize.insert(params_to_optimize.end(),
-                                  calib_params.begin(),
-                                  calib_params.end());
-
-        room.freeze_room_parameters();
-        //qInfo() << "🔒 LOCALIZED: Optimizing robot pose + calibration";
-    } else
-    {
-        // MAPPING: Optimize everything (room + robot)
-        params_to_optimize = room.parameters();
-        room.unfreeze_room_parameters();
-        //qInfo() << "🗺️  MAPPING: Optimizing room + robot pose";
+    if (!is_localized) {
+        return {};  // No filtering in MAPPING mode
     }
 
-    // ===== STEP 2.5: GET PRIOR FROM VELOCITY INTEGRATION =====
-    bool use_odometry = odometry_prior.valid and is_localized;  // Only in LOCALIZED mode
-    torch::Tensor prior_loss = torch::zeros(1, torch::kFloat32);
+    // Get robot uncertainty from predicted covariance
+    float robot_uncertainty = 0.0f;
+    if (prediction.have_propagated && prediction.propagated_cov.size(0) == 3) {
+        robot_uncertainty = std::sqrt(
+            prediction.propagated_cov[0][0].item<float>() +
+            prediction.propagated_cov[1][1].item<float>()
+        );
+    }
+
+    // Filter points based on model fit
+    auto filter_result = model_based_filter.filter(points, room, robot_uncertainty);
+    //model_based_filter.print_result(points.size(), filter_result);
+
+    return filter_result;
+}
+
+// ============================================================================
+// UPDATE PHASE
+// ============================================================================
+
+RoomOptimizer::Result RoomOptimizer::update_step(
+    const torch::Tensor &points_tensor,
+    RoomModel &room,
+    const OdometryPrior &odometry_prior,
+    bool is_localized,
+    int num_iterations,
+    float min_loss_threshold,
+    float learning_rate,
+    std::shared_ptr<TimeSeriesPlotter> time_series_plotter)
+{
+    Result res;
+    res.prior = odometry_prior;
+
+    // Select parameters to optimize based on mode
+    auto params_to_optimize = select_optimization_parameters(room, is_localized);
+
+    // Prepare odometry prior for optimization
+    bool use_odometry_prior = odometry_prior.valid && is_localized;
     torch::Tensor predicted_pose;
 
-    if (use_odometry)
-    {
-        // Get previous pose as tensor (detached - not part of optimization yet)
+    if (use_odometry_prior) {
+        // Get previous pose (detached from computation graph)
         auto prev_pose = room.get_robot_pose();
         torch::Tensor prev_pose_tensor = torch::tensor(
             {prev_pose[0], prev_pose[1], prev_pose[2]},
             torch::kFloat32
         ).requires_grad_(false);
 
-        // Predict using CALIBRATED motion model
-        // This maintains gradients w.r.t. calibration parameters
+        // Predict using calibrated motion model
         predicted_pose = room.predict_pose_tensor(
             prev_pose_tensor,
             odometry_prior.velocity_cmd,
             odometry_prior.dt
         );
-
-        // NOTE: predicted_pose has gradients w.r.t. k_translation, k_rotation
-        // but NOT w.r.t. prev_pose_tensor (which is detached)
-        // We'll use retain_graph=True in backward() to avoid "backward twice" error
-
-        // qDebug() << "Odometry prior active. Predicted pose:"
-        //          << predicted_pose[0].item<float>()
-        //          << predicted_pose[1].item<float>()
-        //          << predicted_pose[2].item<float>();
-        //
-        // auto calib = room.get_odometry_calibration();
-        // qDebug() << "Calibration: k_trans=" << calib[0] << ", k_rot=" << calib[1];
     }
 
-    // ===== STEP 3: RUN OPTIMIZATION LOOP =====
+    // Run optimization loop
     torch::optim::Adam optimizer(params_to_optimize, torch::optim::AdamOptions(learning_rate));
+
+    float final_loss = run_optimization_loop(
+        points_tensor,
+        room,
+        predicted_pose,
+        odometry_prior,
+        optimizer,
+        use_odometry_prior,
+        num_iterations,
+        min_loss_threshold,
+        time_series_plotter
+    );
+
+    // Estimate uncertainty after optimization
+    res = estimate_uncertainty(room, points_tensor, is_localized, final_loss);
+
+    return res;
+}
+
+std::vector<torch::Tensor> RoomOptimizer::select_optimization_parameters(
+    RoomModel &room,
+    bool is_localized)
+{
+    std::vector<torch::Tensor> params_to_optimize;
+
+    if (is_localized) {
+        // LOCALIZED: Optimize robot pose + odometry calibration
+        params_to_optimize = room.get_robot_parameters();
+
+        // Add calibration parameters
+        auto calib_params = room.get_calibration_parameters();
+        params_to_optimize.insert(params_to_optimize.end(),
+                                 calib_params.begin(),
+                                 calib_params.end());
+
+        room.freeze_room_parameters();
+    } else {
+        // MAPPING: Optimize everything (room + robot)
+        params_to_optimize = room.parameters();
+        room.unfreeze_room_parameters();
+    }
+
+    return params_to_optimize;
+}
+
+float RoomOptimizer::run_optimization_loop(
+    const torch::Tensor &points_tensor,
+    RoomModel &room,
+    const torch::Tensor &predicted_pose,
+    const OdometryPrior &odometry_prior,
+    torch::optim::Optimizer &optimizer,
+    bool use_odometry_prior,
+    int num_iterations,
+    float min_loss_threshold,
+    std::shared_ptr<TimeSeriesPlotter> time_series_plotter)
+{
     float final_loss = 0.0f;
-    float final_measurement_loss = 0.0f;
     constexpr int print_every = 30;
 
-    for (int iter = 0; iter < num_iterations; ++iter)
-    {
+    for (int iter = 0; iter < num_iterations; ++iter) {
         optimizer.zero_grad();
 
-        // Measurement likelihood (SDF loss)
-        torch::Tensor measurement_loss = RoomLoss::compute_loss(points_tensor, room, 0.1f);
-        final_measurement_loss = measurement_loss.item<float>();
-
-        // Combined loss: likelihood + prior
+        // Measurement loss
+        torch::Tensor measurement_loss = compute_measurement_loss(points_tensor, room);
         torch::Tensor total_loss = measurement_loss;
 
-        if (use_odometry)   // compute prior loss as the Mahalanobis distance between predicted and current pose
-        {
-            // Build pose_diff from actual parameter tensors (connected to computation graph)
-            torch::Tensor predicted_pos = predicted_pose.slice(0, 0, 2);     // [x, y]
-            torch::Tensor predicted_theta = predicted_pose.slice(0, 2, 3);   // [theta]
-            // Use actual parameters (these have gradients!)
-            torch::Tensor pos_diff = room.robot_pos_ - predicted_pos;
-            torch::Tensor theta_diff = room.robot_theta_ - predicted_theta;
-            torch::Tensor pose_diff = torch::cat({pos_diff, theta_diff});
-
-            // Mahalanobis distance
-            torch::Tensor reg_cov = odometry_prior.covariance + 1e-6 * torch::eye(3);
-            torch::Tensor info_matrix = torch::inverse(reg_cov);
-
-            prior_loss = 0.5 * torch::matmul(
-                pose_diff.unsqueeze(0),
-                torch::matmul(info_matrix, pose_diff.unsqueeze(1))
-            ).squeeze();
-
+        // Add prior loss if using odometry
+        if (use_odometry_prior) {
+            torch::Tensor prior_loss = compute_prior_loss(room, predicted_pose, odometry_prior);
             constexpr float prior_weight = 1.0f;
             total_loss = total_loss + prior_weight * prior_loss;
-
-            // Add calibration regularization to keep parameters near 1.0
-            // This prevents wild oscillations and encourages conservative calibration
-            if (auto calib_params = room.get_calibration_parameters(); !calib_params.empty())
-            {
-                torch::Tensor calib_reg_loss = torch::zeros(1, torch::kFloat32);
-                for (const auto& p : calib_params) // Penalize deviation from 1.0
-                    calib_reg_loss = calib_reg_loss + torch::square(p.squeeze() - 1.0f);
-                total_loss = total_loss + calib_config.regularization_weight * calib_reg_loss;
-            }
         }
 
-        // Backward pass and optimization step
-        // Retain graph if using odometry prior (predicted_pose has gradients w.r.t. calibration)
-        if (use_odometry && iter < num_iterations - 1)
-            total_loss.backward({}, /*retain_graph=*/true);
-        else
-            total_loss.backward();
+        // Add calibration regularization
+        torch::Tensor calib_reg = compute_calibration_regularization(room);
+        total_loss = total_loss + calib_reg;
+
+        // Backward pass
+        total_loss.backward();
+
+        // Clip gradients for stability
+        torch::nn::utils::clip_grad_norm_(room.parameters(), 1.0);
 
         optimizer.step();
-        for (auto& p : params_to_optimize)
-            if (p.grad().defined())
-                p.grad().clamp_(-10.0f, 10.0f);
 
-        // Clamp calibration parameters to reasonable range
-        if (is_localized)
-        {
-            torch::NoGradGuard no_grad;
-            for (auto calib_params = room.get_calibration_parameters(); auto& p : calib_params)
-                p.clamp_(calib_config.min_value, calib_config.max_value);
+        // Enforce calibration bounds
+        auto calib = room.get_odometry_calibration();
+        if (calib[0] < calib_config.min_value || calib[0] > calib_config.max_value ||
+            calib[1] < calib_config.min_value || calib[1] > calib_config.max_value) {
+            room.k_translation_.data().clamp_(calib_config.min_value, calib_config.max_value);
+            room.k_rotation_.data().clamp_(calib_config.min_value, calib_config.max_value);
         }
 
         final_loss = total_loss.item<float>();
 
+        // Plot if requested
+        if (time_series_plotter && iter % 5 == 0) {
+            time_series_plotter->addDataPoint(0, measurement_loss.item<float>());
+        }
+
+        // Verbose logging
+        if (iter % print_every == 0) {
+            // qDebug() << "Iter" << iter << "| Loss:" << final_loss;
+        }
+
         // Early stopping
-        if (final_loss < min_loss_threshold)
-        {
-            if (iter % print_every != 30 && iter != num_iterations - 1)
-            {
-                // const auto robot_pose = room.get_robot_pose();
-                // std::cout << "  Final State " << std::setw(3) << iter
-                //          << " | Loss: " << std::fixed << std::setprecision(6) << final_loss
-                //          << " | Robot: (" << std::setprecision(2)
-                //          << robot_pose[0] << ", " << robot_pose[1] << ", "
-                //          << robot_pose[2] << ")\n";
-            }
+        if (final_loss < min_loss_threshold) {
             break;
         }
-
-        // Debug calibration learning
-        // if (use_odometry && iter % 20 == 0) {
-        //     auto calib = room.get_odometry_calibration();
-        //     qDebug() << "Iter" << iter
-        //              << "Meas:" << measurement_loss.item<float>()
-        //              << "Prior:" << prior_loss.item<float>()
-        //              << "Total:" << total_loss.item<float>()
-        //              << "k_trans:" << calib[0]
-        //              << "k_rot:" << calib[1];
-        // }
     }
 
-    // Plot loss
-    if (time_series_plotter)
-    {
-        time_series_plotter->addDataPoint(0, final_loss);
-        time_series_plotter->addDataPoint(2, prior_loss.item<float>()); // prior
-        time_series_plotter->addDataPoint(1, final_measurement_loss); //likelihood
-    }
+    return final_loss;
+}
 
+// ============================================================================
+// LOSS COMPUTATION
+// ============================================================================
 
-    // ===== STEP 4: COMPUTE MEASUREMENT COVARIANCE =====
-    // NOTE: We only compute uncertainty for robot pose, not calibration parameters.
-    // Calibration parameters don't affect measurement likelihood (SDF), so their
-    // uncertainty can't be estimated from Hessian of measurement loss.
-    torch::Tensor measurement_cov;
+torch::Tensor RoomOptimizer::compute_measurement_loss(
+    const torch::Tensor &points_tensor,
+    RoomModel &room)
+{
+    return RoomLoss::compute_loss(points_tensor, room, wall_thickness);
+}
+
+torch::Tensor RoomOptimizer::compute_prior_loss(
+    RoomModel &room,
+    const torch::Tensor &predicted_pose,
+    const OdometryPrior &odometry_prior)
+{
+    // Build pose difference (connected to computation graph)
+    torch::Tensor predicted_pos = predicted_pose.slice(0, 0, 2);     // [x, y]
+    torch::Tensor predicted_theta = predicted_pose.slice(0, 2, 3);   // [theta]
+
+    torch::Tensor pos_diff = room.robot_pos_ - predicted_pos;
+    torch::Tensor theta_diff = room.robot_theta_ - predicted_theta;
+    torch::Tensor pose_diff = torch::cat({pos_diff, theta_diff});
+
+    // Mahalanobis distance
+    torch::Tensor reg_cov = odometry_prior.covariance + 1e-6 * torch::eye(3);
+    torch::Tensor info_matrix = torch::inverse(reg_cov);
+
+    torch::Tensor prior_loss = 0.5 * torch::matmul(
+        pose_diff.unsqueeze(0),
+        torch::matmul(info_matrix, pose_diff.unsqueeze(1))
+    ).squeeze();
+
+    return prior_loss;
+}
+
+torch::Tensor RoomOptimizer::compute_calibration_regularization(RoomModel &room)
+{
+    auto calib = room.get_odometry_calibration();
+    float k_trans = calib[0];
+    float k_rot = calib[1];
+
+    // Penalize deviation from 1.0
+    float reg_loss = calib_config.regularization_weight * (
+        (k_trans - 1.0f) * (k_trans - 1.0f) +
+        (k_rot - 1.0f) * (k_rot - 1.0f)
+    );
+
+    return torch::tensor(reg_loss, torch::kFloat32);
+}
+
+// ============================================================================
+// UNCERTAINTY ESTIMATION
+// ============================================================================
+
+RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
+    RoomModel &room,
+    const torch::Tensor &points_tensor,
+    bool is_localized,
+    float final_loss)
+{
+    Result res;
+
+    // Use adaptive compute_covariance that handles both LOCALIZED and MAPPING modes
+    torch::Tensor covariance;
+
     try {
-        // Temporarily get only robot parameters for uncertainty computation
-        auto robot_params = room.get_robot_parameters();
-
-        // Freeze calibration during uncertainty computation (always)
-        // Calibration doesn't affect measurement likelihood, so it can't have
-        // uncertainty estimated from Hessian
-        bool calib_was_trainable = false;
-        auto calib_params = room.get_calibration_parameters();
-        if (!calib_params.empty() && calib_params[0].requires_grad()) {
-            calib_was_trainable = true;
-            room.freeze_odometry_calibration();
-        }
-
-        measurement_cov = UncertaintyEstimator::compute_covariance(
-            points_tensor, room, 0.1f
+        // The UncertaintyEstimator automatically detects which parameters require gradients
+        // and returns the appropriate size covariance matrix
+        covariance = UncertaintyEstimator::compute_covariance(
+            points_tensor,
+            room,
+            wall_thickness
         );
 
-        // Restore calibration state
-        if (calib_was_trainable) {
-            room.unfreeze_odometry_calibration();
-        }
+        // Inflate covariance to correct for overconfidence
+        res.covariance = covariance * calib_config.uncertainty_inflation;
+        res.uncertainty_valid = true;
 
-        // Check for NaN/Inf before inflation
-        if (torch::any(torch::isnan(measurement_cov)).item<bool>() ||
-            torch::any(torch::isinf(measurement_cov)).item<bool>()) {
-            qWarning() << "Covariance contains NaN/Inf, using conservative fallback";
-            // Use conservative estimate: larger uncertainty = safer
-            float base_uncertainty = 0.1f;  // 10cm base uncertainty
-            measurement_cov = torch::eye(expected_dim, torch::kFloat32) * (base_uncertainty * base_uncertainty);
-        }
-
-        // Inflate covariance to account for modeling errors and be more conservative
-        // The Laplace approximation tends to be overconfident
-        measurement_cov = measurement_cov * calib_config.uncertainty_inflation;
-
-        // ===== STEP 5: FUSE WITH PROPAGATED COVARIANCE =====
-        if (have_propagated) {
-            // Both should have same dimension now
-            if (propagated_cov.size(0) == measurement_cov.size(0)) {
-                // Information form fusion
-                res.covariance = uncertainty_manager.fuse_covariances(
-                    propagated_cov,
-                    measurement_cov
-                );
-                res.used_fusion = true;
-            } else {
-                qWarning() << "Dimension mismatch in fusion:"
-                          << propagated_cov.size(0) << "vs" << measurement_cov.size(0);
-                res.covariance = measurement_cov;
-            }
-        } else {
-            // First frame or state transition - use measurement only
-            res.covariance = measurement_cov;
-        }
-
+        // Extract std devs from diagonal
         res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
 
-        // Final validation: check for NaN in std_devs
-        bool has_nan = false;
-        for (const auto& val : res.std_devs) {
-            if (std::isnan(val) || std::isinf(val)) {
-                has_nan = true;
-                break;
-            }
-        }
-
-        if (has_nan)
-        {
-            qWarning() << "NaN detected in std_devs after computation, using safe fallback";
-            float safe_pos_std = 0.05f;  // 5cm after inflation (0.5mm before)
-            float safe_ang_std = 0.02f;  // ~1.1 degrees after inflation
-
-            if (expected_dim == 3) {
-                // LOCALIZED: [x, y, theta]
-                res.std_devs = {safe_pos_std, safe_pos_std, safe_ang_std};
-            } else {
-                // MAPPING: [width, height, x, y, theta]
-                res.std_devs = {safe_pos_std, safe_pos_std, safe_pos_std, safe_pos_std, safe_ang_std};
-            }
-
-            // Reconstruct covariance from std_devs
-            res.covariance = torch::diag(torch::tensor(res.std_devs).square()) * calib_config.uncertainty_inflation;
-            res.uncertainty_valid = false;
-        } else {
-            res.uncertainty_valid = true;
+        // Validate dimensions
+        int expected_dim = is_localized ? 3 : 5;
+        if (res.std_devs.size() != expected_dim) {
+            qWarning() << "Unexpected covariance dimension:" << res.std_devs.size()
+                      << "expected:" << expected_dim;
+            throw std::runtime_error("Dimension mismatch in uncertainty estimation");
         }
 
     } catch (const std::exception& e) {
-        qWarning() << "Uncertainty computation failed:" << e.what();
-        res.covariance = torch::eye(expected_dim, torch::kFloat32) * 0.01f;
-        res.std_devs = std::vector<float>(expected_dim, 0.1f);
+        qWarning() << "Uncertainty estimation failed:" << e.what();
+
+        // Fallback based on mode
+        if (is_localized) {
+            // LOCALIZED: 3x3 for robot pose only
+            res.covariance = torch::eye(3, torch::kFloat32) * 0.1f;
+            res.std_devs = {0.3f, 0.3f, 0.1f};  // Conservative: 30cm position, 0.1 rad orientation
+        } else {
+            // MAPPING: 5x5 for room + robot
+            res.covariance = torch::eye(5, torch::kFloat32) * 0.1f;
+            res.std_devs = {0.1f, 0.1f, 0.3f, 0.3f, 0.1f};  // Conservative estimates
+        }
         res.uncertainty_valid = false;
     }
 
-    // ===== STEP 6: UPDATE HISTORY =====
+    res.final_loss = final_loss;
+    return res;
+}
+
+// ============================================================================
+// STATE MANAGEMENT
+// ============================================================================
+
+void RoomOptimizer::update_state_management(
+    const Result &res,
+    RoomModel &room,
+    bool is_localized,
+    float final_loss)
+{
+    // Store current covariance and pose for next prediction
     uncertainty_manager.set_previous_cov(res.covariance);
     uncertainty_manager.set_previous_pose(room.get_robot_pose());
 
-    // ===== STEP 7: UPDATE FREEZING MANAGER =====
+    // Update freezing manager
     std::vector<float> room_std_devs;
     std::vector<float> robot_std_devs;
 
     if (is_localized) {
-        // LOCALIZED: Covariance is always 3x3 (robot pose only)
-        // Calibration uncertainty not computed (doesn't affect measurement likelihood)
         robot_std_devs = res.std_devs;  // All 3 values are robot pose
         room_std_devs = {0.0f, 0.0f};   // Room frozen
     } else {
@@ -402,31 +452,34 @@ RoomOptimizer::Result RoomOptimizer::optimize(  const TimePoints &points_,
         // Reset uncertainty history on state transition
         uncertainty_manager.reset();
     }
-
-    res.final_loss = final_loss;
-
-    // Debugging: report prior loss
-    // if (use_odometry)
-    // {
-    //     float final_prior_loss = prior_loss.item<float>();
-    //
-    //     qDebug() << "Prediction quality: prior_loss =" << final_prior_loss;
-    //
-    //     if (final_prior_loss > 0.1f) {
-    //         qWarning() << "⚠️  Large prediction error! Consider:"
-    //                    << "- Checking odometry calibration"
-    //                    << "- Increasing process noise"
-    //                    << "- Wheel slip or dynamic motion";
-    //     }
-    // }
-    frame_number++;
-    return res;
 }
 
-Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window( const RoomModel& room,
-                                                               const boost::circular_buffer<VelocityCommand> &velocity_history,
-                                                               const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
-                                                               const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end)
+// ============================================================================
+// HELPER METHODS
+// ============================================================================
+
+torch::Tensor RoomOptimizer::convert_points_to_tensor(const RoboCompLidar3D::TPoints &points)
+{
+    std::vector<float> points_data;
+    points_data.reserve(points.size() * 2);
+
+    for (const auto& p : points) {
+        points_data.push_back(p.x / 1000.0f);  // Convert mm to meters
+        points_data.push_back(p.y / 1000.0f);
+    }
+
+    return torch::from_blob(
+        points_data.data(),
+        {static_cast<long>(points.size()), 2},
+        torch::kFloat32
+    ).clone();
+}
+
+Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window(
+    const RoomModel& room,
+    const boost::circular_buffer<VelocityCommand> &velocity_history,
+    const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
+    const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end)
 {
     Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
 
@@ -434,15 +487,14 @@ Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window( const RoomModel& 
     float running_theta = current_pose[2];
 
     // Integrate over all velocity commands in [t_start, t_end]
-    for (size_t i = 0; i < velocity_history.size(); ++i)
-    {
+    for (size_t i = 0; i < velocity_history.size(); ++i) {
         const auto&[adv_x, adv_z, rot, timestamp] = velocity_history[i];
 
         // Get time window for this command
         auto cmd_start = timestamp;
         auto cmd_end = (i + 1 < velocity_history.size())
-                        ? velocity_history[i + 1].timestamp
-                        : t_end;
+                       ? velocity_history[i + 1].timestamp
+                       : t_end;
 
         // Clip to [t_start, t_end]
         if (cmd_end < t_start) continue;
@@ -471,46 +523,48 @@ Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window( const RoomModel& 
     return total_delta;
 }
 
-OdometryPrior RoomOptimizer::compute_odometry_prior(const RoomModel &room,
-                                                    const boost::circular_buffer<VelocityCommand>& velocity_history,
-                                                    const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
+OdometryPrior RoomOptimizer::compute_odometry_prior(
+    const RoomModel &room,
+    const boost::circular_buffer<VelocityCommand>& velocity_history,
+    const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
 {
     OdometryPrior prior;
     prior.valid = false;
 
-    if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{})
-        return prior;
-
-    if (velocity_history.empty())
-    {
-        //qWarning() << "No velocity commands in buffer";
+    if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{}) {
         return prior;
     }
 
-    // Time delta BETWEEN LIDAR SCANS
+    if (velocity_history.empty()) {
+        return prior;
+    }
+
+    // Time delta between LiDAR scans
     const float dt = std::chrono::duration<float>(lidar_timestamp - last_lidar_timestamp).count();
 
-    if (dt <= 0 or dt > 0.5f)
-    {
+    if (dt <= 0 || dt > 0.5f) {
         qWarning() << "Invalid dt for odometry:" << dt << "s";
         return prior;
     }
 
-    // Integrate velocity over the time window [t_start, t_end]
-    prior.delta_pose = integrate_velocity_over_window(room, velocity_history, last_lidar_timestamp, lidar_timestamp);
+    // Integrate velocity over the time window
+    prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
+                                                      last_lidar_timestamp, lidar_timestamp);
 
-    // For storing in prior structure (if needed by optimizer)
-    if (not velocity_history.empty())
+    // Store last velocity command
+    if (!velocity_history.empty()) {
         prior.velocity_cmd = velocity_history.back();
+    }
 
     prior.dt = dt;
 
     // Compute process noise - proportional to motion magnitude
     const float trans_magnitude = std::sqrt(
-        prior.delta_pose[0]*prior.delta_pose[0] +
-        prior.delta_pose[1]*prior.delta_pose[1]
+        prior.delta_pose[0] * prior.delta_pose[0] +
+        prior.delta_pose[1] * prior.delta_pose[1]
     );
     const float rot_magnitude = std::abs(prior.delta_pose[2]);
+
     float trans_noise_std = prediction_params.NOISE_TRANS * trans_magnitude;
     float rot_noise_std = prediction_params.NOISE_ROT * rot_magnitude;
 
@@ -529,38 +583,8 @@ OdometryPrior RoomOptimizer::compute_odometry_prior(const RoomModel &room,
     prior.covariance[1][1] = trans_noise_std * trans_noise_std;
     prior.covariance[2][2] = rot_noise_std * rot_noise_std;
 
-    // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
-    // qDebug() << "dt:" << dt << "s";
-    // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
-    // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
-
     prior.valid = true;
-    last_lidar_timestamp = lidar_timestamp; // Update last timestamp
+    last_lidar_timestamp = lidar_timestamp;
+
     return prior;
 }
-
-ModelBasedFilter::Result RoomOptimizer::top_down_prediction(const RoboCompLidar3D::TPoints &points,
-                                                            RoomModel &room,
-                                                            bool have_propagated,
-                                                            const torch::Tensor &propagated_cov)
-{
-    const bool is_localized = room_freezing_manager.should_freeze_room();
-    RoboCompLidar3D::TPoints residual;
-    if (is_localized)  // localized
-    {
-        // Get robot uncertainty from PREVIOUS timestep (not current res!)
-        float robot_uncertainty = 0.0f;
-
-        if (have_propagated)  // Use the propagated covariance we just computed
-            if (propagated_cov.size(0) == 3) // This is the PREDICTED uncertainty at current time
-                robot_uncertainty = std::sqrt(propagated_cov[0][0].item<float>() + propagated_cov[1][1].item<float>());
-
-        // Filter points based on model fit
-        auto filter_result = model_based_filter.filter(points, room, robot_uncertainty);
-        model_based_filter.print_result( points.size(), filter_result);
-        return filter_result;  // residual
-    }
-}
-
-
-

@@ -139,18 +139,20 @@ class RoomModel : public torch::nn::Module
         void unfreeze_odometry_calibration();
         // Apply calibration to velocity command
         Eigen::Vector3f calibrate_velocity(const VelocityCommand& cmd, float dt) const;
-            // Robot pose (relative to room at origin)
+
+       // Robot pose (relative to room at origin)
         torch::Tensor robot_pos_;     // [robot_x, robot_y]
         torch::Tensor robot_theta_;   // [theta] in radians
+
+        // Odometry calibration parameters
+        torch::Tensor k_translation_;  // Scale factor for translation (adv_x, adv_z)
+        torch::Tensor k_rotation_;     // Scale factor for rotation
 
     private:
         // Room parameters (FIXED at origin)
         // No trainable center - it's always (0, 0)
         torch::Tensor half_extents_;  // [half_width, half_height]
 
-        // Odometry calibration parameters
-        torch::Tensor k_translation_;  // Scale factor for translation (adv_x, adv_z)
-        torch::Tensor k_rotation_;     // Scale factor for rotation
 
         /**
          * @brief Transform points from robot frame to room frame (at origin)
