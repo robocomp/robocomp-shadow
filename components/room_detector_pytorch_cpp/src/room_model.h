@@ -56,8 +56,7 @@ class RoomModel : public torch::nn::Module
          * @param robot_theta Initial robot orientation (radians)
          */
         RoomModel()= default;
-        void init(float half_width, float half_height,
-                  float robot_x = 0.0f, float robot_y = 0.0f, float robot_theta = 0.0f);
+        void init(const RoboCompLidar3D::TPoints &points);
 
         /**
          * @brief Compute the signed distance from points to the box surface
@@ -73,7 +72,7 @@ class RoomModel : public torch::nn::Module
          * @param points_robot Tensor of shape [N, 2] with (x, y) in robot frame
          * @return Tensor of shape [N] with signed distances
          */
-        torch::Tensor sdf(const torch::Tensor& points_robot);
+        torch::Tensor sdf(const torch::Tensor& points_robot) const;
 
         /**
          * @brief Get current room parameters (always centered at origin)
@@ -132,6 +131,14 @@ class RoomModel : public torch::nn::Module
                                           const VelocityCommand& cmd,
                                           float dt) const;
 
+        /**
+         * @brief Predict pose using pre-integrated delta (more reliable)
+         * Uses the integrated motion delta directly, avoiding issues with stale velocity commands
+         */
+        torch::Tensor predict_pose_from_delta(const torch::Tensor& current_pose_tensor,
+                                              const Eigen::Vector3f& delta_pose) const;
+
+
         // Odometry calibration
         void init_odometry_calibration(float k_trans = 1.0f, float k_rot = 1.0f);
         std::vector<float> get_odometry_calibration() const;
@@ -159,7 +166,7 @@ class RoomModel : public torch::nn::Module
          * @param points_robot Points in robot's local frame [N, 2]
          * @return Points in room frame [N, 2]
          */
-        torch::Tensor transform_to_room_frame(const torch::Tensor& points_robot);
+        torch::Tensor transform_to_room_frame(const torch::Tensor& points_robot) const;
 };
 
 #endif // ROOM_MODEL_H

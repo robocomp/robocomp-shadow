@@ -134,6 +134,13 @@ bool RoomFreezingManager::check_unfreeze_conditions(const std::vector<float>& ro
                                                      const std::vector<float>& robot_std_devs,
                                                      float mean_residual)
 {
+    // Grace period: Don't unfreeze immediately after freezing
+    // Give the system a few frames to settle in LOCALIZED mode
+    float time_in_localized = get_time_in_current_state();
+    if (time_in_localized < 2.0f) {  // 2 second grace period
+        return false;
+    }
+
     // Compute mean of recent residuals
     float recent_mean_residual = 0.0f;
     if (not residual_history_.empty())
@@ -144,8 +151,8 @@ bool RoomFreezingManager::check_unfreeze_conditions(const std::vector<float>& ro
 
     // Use RELATIVE threshold: unfreeze if current residual is much worse than recent average
     const float relative_threshold = std::max(
-        params_.residual_unfreeze_threshold,  // Absolute minimum (0.25)
-        recent_mean_residual * 2.0f           // Or 2x recent average
+        0.25f,                               // Absolute minimum (increased from 0.15)
+        recent_mean_residual * 4.0f          // Or 4x recent average (increased from 3x)
     );
 
     // Condition 1: High residual (poor fit with current room model)

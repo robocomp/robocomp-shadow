@@ -70,14 +70,17 @@ torch::Tensor UncertaintyManager::propagate_with_velocity(
         F[3][4] =  dx_local * std::cos(theta) - dy_local * std::sin(theta);
     }
 
-    // ===== PROCESS NOISE =====
-    // Scale noise with motion magnitude
-    float trans_noise = noise_trans_ * std::sqrt(dx_local*dx_local + dy_local*dy_local);
-    float rot_noise = noise_rot_ * std::abs(dtheta);
 
-    // Minimum noise
-    trans_noise = std::max(trans_noise, 0.01f);
-    rot_noise = std::max(rot_noise, 0.01f);
+    // ===== PROCESS NOISE =====
+    // Proper motion model: σ = base + k * distance
+    float motion_dist = std::sqrt(dx_local*dx_local + dy_local*dy_local);
+
+    // Base uncertainty (sensor noise, discretization, etc) + motion-proportional uncertainty
+    float base_trans_noise = 0.002f;  // 2mm base uncertainty
+    float trans_noise = base_trans_noise + noise_trans_ * motion_dist;
+
+    float base_rot_noise = 0.005f;  // 5 mrad base uncertainty
+    float rot_noise = base_rot_noise + noise_rot_ * std::abs(dtheta);
 
     torch::Tensor Q = torch::zeros({dim, dim}, torch::kFloat32);
 

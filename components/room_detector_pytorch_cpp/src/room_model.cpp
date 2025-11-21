@@ -20,14 +20,63 @@
 #include <iomanip>
 #include <cmath>
 #include <QDebug>
+#include "pointcloud_center_estimator.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-void RoomModel::init(float half_width, float half_height,
-                     float robot_x, float robot_y, float robot_theta)
+void RoomModel::init(const RoboCompLidar3D::TPoints &points)
 {
+
+    // Compute initial guess for room SIZE from point cloud bounds
+	// Convert LiDAR points to PyTorch tensor [N, 2]
+	// Keep points in ROBOT FRAME - the model will transform them
+	std::vector<float> points_data;
+	points_data.reserve(points.size() * 2);
+	for (const auto& p : points)
+	{
+		points_data.push_back(p.x / 1000.0f);  // Convert mm to meters
+		points_data.push_back(p.y / 1000.0f);
+	}
+	const torch::Tensor points_tensor = torch::from_blob
+	(
+		points_data.data(),
+		{static_cast<long>(points.size()), 2},
+		torch::kFloat32
+	).clone();
+	const auto x_coords = points_tensor.index({torch::indexing::Slice(), 0});
+	const auto y_coords = points_tensor.index({torch::indexing::Slice(), 1});
+
+	const float x_min = x_coords.min().item<float>();
+	const float x_max = x_coords.max().item<float>();
+	const float y_min = y_coords.min().item<float>();
+	const float y_max = y_coords.max().item<float>();
+
+	// Initial room size (room will be at origin by definition)
+	const float half_width = (x_max - x_min) / 2.0f;
+	const float half_height = (y_max - y_min) / 2.0f;
+
+	// Initial robot pose (offset from room center to point cloud center)
+    rc::PointcloudCenterEstimator center_estimator;
+    Eigen::Vector2d room_center;
+    if (const auto room_center_ = center_estimator.estimate(points); room_center_.has_value())
+        room_center = room_center_.value();
+    else
+    {
+        room_center = Eigen::Vector2d{(x_min + x_max) / 2.0, (y_min + y_max) / 2.0};
+        qWarning() << "RoomModel::init() - Could not estimate room center from point cloud. Using (0,0).";
+    }
+	const float robot_x = -room_center.cast<float>().x();  // Negative because room is at origin
+	const float robot_y = -room_center.cast<float>().y();
+	const float robot_theta = 1.0f;
+
+	std::cout << "\n  RoomModel::init()  Initial guess:\n";
+	std::cout << "  Point cloud bounds: X[" << x_min << ", " << x_max << "], Y[" << y_min << ", " << y_max << "]\n";
+	std::cout << "  Room size (at origin): " << 2*half_width << " x " << 2*half_height << " m\n";
+	std::cout << "  Robot pose (relative to room): (" << robot_x << ", " << robot_y << ", " << robot_theta << ")\n";
+	std::cout << "----------------------------------------\n";
+
     // Initialize room size as trainable tensors
     // Room center is FIXED at (0, 0) - not a parameter!
     half_extents_ = torch::tensor({half_width, half_height}, torch::requires_grad(true));
@@ -36,13 +85,13 @@ void RoomModel::init(float half_width, float half_height,
     robot_pos_ = torch::tensor({robot_x, robot_y}, torch::requires_grad(true));
     robot_theta_ = torch::tensor({robot_theta}, torch::requires_grad(true));
 
-    // Register all parameters for optimization (5 total, not 7!)
+    // Register all parameters for optimization (5 total)
     register_parameter("half_extents", half_extents_);
     register_parameter("robot_pos", robot_pos_);
     register_parameter("robot_theta", robot_theta_);
 }
 
-torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_robot)
+torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_robot) const
 {
     // Transform points from robot frame to room frame (at origin)
     // p_room = R(theta) * p_robot + robot_pos
@@ -66,7 +115,7 @@ torch::Tensor RoomModel::transform_to_room_frame(const torch::Tensor& points_rob
     return points_room;
 }
 
-torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot)
+torch::Tensor RoomModel::sdf(const torch::Tensor& points_robot) const
 {
     // Transform points from robot frame to room frame
     const torch::Tensor points_room = transform_to_room_frame(points_robot);
@@ -227,6 +276,31 @@ torch::Tensor RoomModel::predict_pose_tensor(const torch::Tensor& current_pose_t
     auto new_x = (x + dx_global).reshape({1});
     auto new_y = (y + dy_global).reshape({1});
     auto new_theta = (theta + w).reshape({1});
+
+    // Concatenate to form [3] tensor
+    return torch::cat({new_x, new_y, new_theta}, 0);
+}
+
+torch::Tensor RoomModel::predict_pose_from_delta(const torch::Tensor& current_pose_tensor,
+                                                  const Eigen::Vector3f& delta_pose) const
+{
+    // This version uses the pre-integrated delta directly
+    // More reliable than predict_pose_tensor when velocity_cmd might be stale
+
+    // Extract current pose
+    const auto x = current_pose_tensor[0];
+    const auto y = current_pose_tensor[1];
+    const auto theta = current_pose_tensor[2];
+
+    // Convert delta to tensors (no gradients needed - delta is constant)
+    const auto dx = torch::tensor(delta_pose[0], torch::kFloat32);
+    const auto dy = torch::tensor(delta_pose[1], torch::kFloat32);
+    const auto dtheta = torch::tensor(delta_pose[2], torch::kFloat32);
+
+    // Add delta to current pose
+    auto new_x = (x + dx).reshape({1});
+    auto new_y = (y + dy).reshape({1});
+    auto new_theta = (theta + dtheta).reshape({1});
 
     // Concatenate to form [3] tensor
     return torch::cat({new_x, new_y, new_theta}, 0);

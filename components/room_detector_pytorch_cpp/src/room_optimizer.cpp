@@ -39,10 +39,14 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     // Compute odometry prior between lidar timestamps
     auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
 
-    // ===== PREDICT STEP =====
+    // ===== EKF PREDICT STEP =====
+    // Propagates state: x_pred = x_prev + f(u, dt)
+    // Propagates covariance: P_pred = F*P*F^T + Q
+    // Sets room.robot_pos_ = x_pred (initialization for optimization)
     const PredictionState prediction = predict_step(room, odometry_prior, is_localized);
 
     // ===== FILTER MEASUREMENTS (TOP-DOWN PREDICTION) =====
+    // Optional: filter outliers based on model fit
     auto filter_result = filter_measurements(points_r, room, prediction);
     // Could use filtered points: auto points = filter_result.filtered_set;
     const auto points = points_r;  // For now, use all points
@@ -50,15 +54,83 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     // ===== CONVERT MEASUREMENTS TO TENSOR =====
     const torch::Tensor points_tensor = convert_points_to_tensor(points);
 
-    // ===== UPDATE STEP =====
-    Result res = update_step(points_tensor, room, odometry_prior, is_localized,
+    auto pose_before_opt = room.get_robot_pose();
+
+    // ===== EKF UPDATE STEP =====
+    // Optimization-based update: x_new = argmin { L(z|x) + ||x - x_pred||²_P }
+    // - Starts from x_pred (set in predict_step)
+    // - Measurement term: L(z|x) pulls toward LiDAR fit
+    // - Prior term: ||x - x_pred||² pulls toward prediction
+    // - Result: x_new = x_pred + K*(innovation), where K is implicit in optimization
+    Result res = update_step(points_tensor, room, odometry_prior, prediction, is_localized,
                              num_iterations, min_loss_threshold, learning_rate, time_series_plotter);
 
     // Store the prior for debugging
     res.prior = odometry_prior;
 
+    // ===== COMPUTE EKF RESIDUAL (Innovation) =====
+    // residual = x_optimized - x_predicted
+    // This is the "innovation" in EKF terminology: where measurement pulled us
+    // Used for long-term calibration learning
+    res.optimized_pose = room.get_robot_pose();
+
     // ===== UPDATE STATE MANAGEMENT =====
-    update_state_management(res, room, is_localized, res.final_loss);
+    // Use measurement loss only for freezing decisions (prior loss is intentionally high when preventing drift)
+    float measurement_loss_for_freezing = res.final_loss - res.prior_loss;
+    update_state_management(res, room, is_localized, measurement_loss_for_freezing);
+
+    // ===== ADAPTIVE PRIOR WEIGHTING =====
+    // Compute innovation from this frame to adjust prior weight for next frame
+    if (is_localized && prediction.have_propagated && odometry_prior.valid)
+    {
+        // Final innovation: how far did optimization move from prediction?
+        float innovation_x = res.optimized_pose[0] - prediction.predicted_pose[0];
+        float innovation_y = res.optimized_pose[1] - prediction.predicted_pose[1];
+        float innovation_theta = res.optimized_pose[2] - prediction.predicted_pose[2];
+
+        Eigen::Vector3f innovation(innovation_x, innovation_y, innovation_theta);
+
+        // Use consistent motion covariance helper
+        Eigen::Matrix3f cov_eigen = compute_motion_covariance(odometry_prior);
+
+        Eigen::Matrix3f inv_cov = (cov_eigen + 1e-6f * Eigen::Matrix3f::Identity()).inverse();
+        float innovation_norm = std::sqrt(innovation.transpose() * inv_cov * innovation);
+
+        // Check if robot was stationary
+        float motion_magnitude = std::sqrt(
+            odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
+            odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+        );
+
+        // Update adaptive weight for NEXT frame
+        float new_weight;
+
+        // Special case: when stationary, force strong prior immediately
+        if (motion_magnitude < 0.01f) {
+            // Stationary: Set weight to 1.0 directly (no EMA smoothing)
+            new_weight = 1.0f;
+            prior_weight_ = 1.0f;  // Force it directly, bypass EMA
+        } else if (innovation_norm < 1.0f) {
+            // Within 1-sigma: trust prior strongly
+            new_weight = 1.0f;
+            // Use EMA for smooth transition
+            float alpha = 0.3f;
+            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
+        } else if (innovation_norm < 3.0f) {
+            // 1-3 sigma: reduce weight linearly
+            new_weight = 1.0f / (1.0f + (innovation_norm - 1.0f));
+            float alpha = 0.3f;
+            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
+        } else {
+            // > 3-sigma: very low weight (likely odometry error)
+            new_weight = 0.1f;
+            float alpha = 0.3f;
+            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
+        }
+
+        float old_weight = prior_weight_;  // For diagnostics
+
+    }
 
     frame_number++;
     return res;
@@ -99,20 +171,50 @@ RoomOptimizer::PredictionState RoomOptimizer::predict_step(
     );
     prediction.have_propagated = true;
 
+    // ===== EKF PREDICT: Initialize model to predicted pose =====
+    // This sets the starting point for optimization
     // Update model to predicted pose (for LOCALIZED mode)
-    if (is_localized) {
-        // Compute predicted pose
-        auto current_pose = room.get_robot_pose();
+    if (is_localized)
+    {
+        // CRITICAL: Save previous pose BEFORE computing prediction
+        const auto current_pose = room.get_robot_pose();
+        prediction.previous_pose = current_pose;  // Store for prior loss computation
+
+        // Predict using the integrated delta (more reliable than velocity commands)
+        torch::Tensor current_pose_tensor = torch::tensor(
+            {current_pose[0], current_pose[1], current_pose[2]},
+            torch::kFloat32
+        );
+
+        torch::Tensor predicted_tensor = room.predict_pose_from_delta(
+            current_pose_tensor,
+            odometry_prior.delta_pose
+        );
+
+        // Extract predicted pose
         prediction.predicted_pose = {
-            current_pose[0] + odometry_prior.delta_pose[0],
-            current_pose[1] + odometry_prior.delta_pose[1],
-            current_pose[2] + odometry_prior.delta_pose[2]
+            predicted_tensor[0].item<float>(),
+            predicted_tensor[1].item<float>(),
+            predicted_tensor[2].item<float>()
         };
 
+        // Initialize model to prediction (starting point for optimization)
         // Update model parameters (bypassing autograd with .data())
         room.robot_pos_.data()[0] = prediction.predicted_pose[0];
         room.robot_pos_.data()[1] = prediction.predicted_pose[1];
         room.robot_theta_.data()[0] = prediction.predicted_pose[2];
+
+        // ===== CHECK IF ROBOT IS STATIONARY =====
+        // If robot hasn't moved, force strong prior to prevent drift
+        float motion_magnitude = std::sqrt(
+            odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
+            odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+        );
+
+        // Force strong prior immediately when stationary (bypass EMA smoothing)
+        if (motion_magnitude < 0.01f) {  // < 10mm = stationary
+            prior_weight_ = 1.0f;  // Set directly, no smoothing
+        }
     }
 
     return prediction;
@@ -153,6 +255,7 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     const torch::Tensor &points_tensor,
     RoomModel &room,
     const OdometryPrior &odometry_prior,
+    const PredictionState &prediction,
     bool is_localized,
     int num_iterations,
     float min_loss_threshold,
@@ -165,8 +268,11 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     // Select parameters to optimize based on mode
     auto params_to_optimize = select_optimization_parameters(room, is_localized);
 
+    // Save pose before optimization for diagnostics
+    auto pose_before_opt = room.get_robot_pose();
+
     // Prepare odometry prior for optimization
-    bool use_odometry_prior = odometry_prior.valid && is_localized;
+    bool use_odometry_prior = odometry_prior.valid && is_localized && calib_config.enable_odometry_optimization;
     torch::Tensor prev_pose_tensor;
 
     // Check if there's meaningful motion for calibration learning
@@ -181,37 +287,40 @@ RoomOptimizer::Result RoomOptimizer::update_step(
 
         // INCREASED THRESHOLDS for more stable calibration learning:
         // Require at least 20mm translation OR 2 degrees rotation
-        // AND dt must be at least 100ms (avoid noisy short intervals)
+        // AND dt must be at least 50ms (avoid noisy short intervals)
         const float min_translation = 0.02f;  // 20mm
         const float min_rotation = 0.035f;     // ~2 degrees
-        const float min_dt = 0.09f;             // 100ms
+        const float min_dt = 0.05f;             // 50ms (20Hz) - typical LiDAR rate
 
         has_meaningful_motion = (trans_magnitude > min_translation || rot_magnitude > min_rotation)
                               && odometry_prior.dt > min_dt;
 
+        // Enable odometry prior even for small motions to prevent drift
+        // The prior will use the minimum floor covariance for small motions
         if (!has_meaningful_motion)
         {
             if (odometry_prior.dt < min_dt)
             {
-                qDebug() << "⚠️ Time interval too small ("
-                        << QString::number(odometry_prior.dt * 1000.0f, 'f', 1)
-                        << "ms < " << (min_dt * 1000.0f) << "ms) - skipping calibration";
-            } else {
-                //qDebug() << "⚠️ Robot motion too small - skipping calibration optimization";
+                use_odometry_prior = false;  // Disable only if dt too small
             }
-            use_odometry_prior = false;  // Disable prior, optimize only from measurements
         }
-    }
 
-    use_odometry_prior = false;
-    if (use_odometry_prior)
-    {
-        // Get previous pose (detached from computation graph)
-        auto prev_pose = room.get_robot_pose();
-        prev_pose_tensor = torch::tensor(
-            {prev_pose[0], prev_pose[1], prev_pose[2]},
-            torch::kFloat32
-        ).requires_grad_(false);
+        // Get TRUE previous pose (BEFORE prediction was applied)
+        // CRITICAL FIX: room.get_robot_pose() returns PREDICTED pose at this point
+        // Use prediction.previous_pose which was saved in predict_step()
+        if (!prediction.previous_pose.empty()) {
+            prev_pose_tensor = torch::tensor(
+                {prediction.previous_pose[0], prediction.previous_pose[1], prediction.previous_pose[2]},
+                torch::kFloat32
+            ).requires_grad_(false);
+        } else {
+            // Fallback: use current (predicted) pose if previous not available
+            auto prev_pose = room.get_robot_pose();
+            prev_pose_tensor = torch::tensor(
+                {prev_pose[0], prev_pose[1], prev_pose[2]},
+                torch::kFloat32
+            ).requires_grad_(false);
+        }
 
         // Note: predicted_pose will be computed INSIDE the optimization loop
         // to allow gradients to flow through calibration parameters
@@ -220,7 +329,7 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     // Run optimization loop
     torch::optim::Adam optimizer(params_to_optimize, torch::optim::AdamOptions(learning_rate));
 
-    float final_loss = run_optimization_loop(
+    auto opt_result = run_optimization_loop(
         points_tensor,
         room,
         prev_pose_tensor,
@@ -232,8 +341,11 @@ RoomOptimizer::Result RoomOptimizer::update_step(
         time_series_plotter
     );
 
+    // === DIAGNOSTIC: Movement check ===
+
     // Estimate uncertainty after optimization
-    res = estimate_uncertainty(room, points_tensor, is_localized, final_loss);
+    res = estimate_uncertainty(room, points_tensor, is_localized, opt_result.final_loss);
+    res.prior_loss = opt_result.final_prior_loss;  // Store for calibration learning
 
     return res;
 }
@@ -245,15 +357,8 @@ std::vector<torch::Tensor> RoomOptimizer::select_optimization_parameters(
     std::vector<torch::Tensor> params_to_optimize;
 
     if (is_localized) {
-        // LOCALIZED: Optimize robot pose + odometry calibration
+        // LOCALIZED: Optimize robot pose only
         params_to_optimize = room.get_robot_parameters();
-
-        // Add calibration parameters
-        auto calib_params = room.get_calibration_parameters();
-        params_to_optimize.insert(params_to_optimize.end(),
-                                 calib_params.begin(),
-                                 calib_params.end());
-
         room.freeze_room_parameters();
     } else {
         // MAPPING: Optimize everything (room + robot)
@@ -264,7 +369,7 @@ std::vector<torch::Tensor> RoomOptimizer::select_optimization_parameters(
     return params_to_optimize;
 }
 
-float RoomOptimizer::run_optimization_loop(
+RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
     const torch::Tensor &points_tensor,
     RoomModel &room,
     const torch::Tensor &prev_pose_tensor,
@@ -275,36 +380,41 @@ float RoomOptimizer::run_optimization_loop(
     float min_loss_threshold,
     std::shared_ptr<TimeSeriesPlotter> time_series_plotter)
 {
-    float final_loss = 0.0f;
-    constexpr int print_every = 30;
+    OptimizationResult result;
+    float final_prior_loss = 0.0f;
 
-    for (int iter = 0; iter < num_iterations; ++iter) {
+    torch::Tensor calib_reg;
+    torch::Tensor prior_loss;
+    for (int iter = 0; iter < num_iterations; ++iter)
+    {
         optimizer.zero_grad();
 
-        // Measurement loss
+        // ===== MEASUREMENT LIKELIHOOD: p(z|x) =====
+        // SDF-based loss: how well robot pose explains LiDAR measurements
         torch::Tensor measurement_loss = compute_measurement_loss(points_tensor, room);
         torch::Tensor total_loss = measurement_loss;
 
+        // ===== MOTION PRIOR: p(x|x_pred) =====
         // Add prior loss if using odometry
-        torch::Tensor prior_loss;
-        torch::Tensor calib_reg;
-        if (use_odometry_prior) {
-            // CRITICAL FIX: Recompute predicted_pose INSIDE the loop
-            // This allows gradients to flow through calibration parameters on each iteration
-            torch::Tensor predicted_pose = room.predict_pose_tensor(
-                prev_pose_tensor,
-                odometry_prior.velocity_cmd,
-                odometry_prior.dt
-            );
+        if (use_odometry_prior)
+        {
+            // Compute predicted pose using the integrated delta approach
+            // Convert prev_pose to tensor and add integrated delta
+            auto prev_pose_vec = prev_pose_tensor.accessor<float, 1>();
+            torch::Tensor predicted_pose = torch::tensor({
+                prev_pose_vec[0] + odometry_prior.delta_pose[0],
+                prev_pose_vec[1] + odometry_prior.delta_pose[1],
+                prev_pose_vec[2] + odometry_prior.delta_pose[2]
+            }, torch::kFloat32).requires_grad_(false);
 
             prior_loss = compute_prior_loss(room, predicted_pose, odometry_prior);
-            constexpr float prior_weight = 1.0f;
-            total_loss = total_loss + prior_weight * prior_loss;
-
-            // Add calibration regularization (with proper gradients!)
-            calib_reg = compute_calibration_regularization(room);
-            total_loss = total_loss + calib_reg;
+            total_loss = total_loss + prior_weight_ * prior_loss;
         }
+
+        // ===== OPTIMIZATION STEP (Implicit Kalman Gain) =====
+        // In standard EKF: x_new = x_pred + K*(z - h(x_pred))
+        // Here: x_new = argmin { ||z - h(x)||² + ||x - x_pred||²_P }
+        // The balance between terms acts like Kalman gain
 
         // Backward pass
         total_loss.backward();
@@ -319,17 +429,20 @@ float RoomOptimizer::run_optimization_loop(
         bool hit_bounds = false;
 
         if (calib[0] < calib_config.min_value || calib[0] > calib_config.max_value ||
-            calib[1] < calib_config.min_value || calib[1] > calib_config.max_value) {
+            calib[1] < calib_config.min_value || calib[1] > calib_config.max_value)
+        {
 
             // Only warn on first iteration when hitting bounds
             if (iter == 0) {
-                if (calib[0] <= calib_config.min_value && room.k_translation_.grad().item<float>() > 0.1f) {
+                if (calib[0] <= calib_config.min_value && room.k_translation_.grad().item<float>() > 0.1f)
+                {
                     qWarning() << "⚠️  k_translation at MIN bound (" << calib_config.min_value
                               << ") - likely units mismatch";
                     hit_bounds = true;
                 }
 
-                if (calib[0] >= calib_config.max_value && room.k_translation_.grad().item<float>() < -0.1f) {
+                if (calib[0] >= calib_config.max_value && room.k_translation_.grad().item<float>() < -0.1f)
+                {
                     qWarning() << "⚠️  k_translation at MAX bound (" << calib_config.max_value
                               << ") - likely units mismatch";
                     hit_bounds = true;
@@ -340,7 +453,8 @@ float RoomOptimizer::run_optimization_loop(
             room.k_rotation_.data().clamp_(calib_config.min_value, calib_config.max_value);
         }
 
-        if (hit_bounds && iter == 0) {
+        if (hit_bounds && iter == 0)
+        {
             // Show expected vs actual motion for diagnosis
             const float trans_mag = std::sqrt(
                 odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
@@ -359,20 +473,31 @@ float RoomOptimizer::run_optimization_loop(
             }
         }
 
-        final_loss = total_loss.item<float>();
+        result.final_loss = total_loss.item<float>();
+        if (prior_loss.defined() && prior_loss.numel() > 0)
+        {
+            final_prior_loss = prior_loss.item<float>();
+        }
 
         // Plot if requested
-        if (time_series_plotter && iter % 5 == 0) {
+        if (time_series_plotter && iter % 5 == 0)
+        {
             time_series_plotter->addDataPoint(0, measurement_loss.item<float>());
+            time_series_plotter->addDataPoint(2, result.final_loss);
+            if (prior_loss.defined() && prior_loss.numel() > 0)
+                time_series_plotter->addDataPoint(1, prior_loss.item<float>());
         }
 
         // Early stopping
-        if (final_loss < min_loss_threshold) {
+        // Don't stop early when using odometry prior - need multiple iterations
+        // for prior loss to constrain the pose (gradient is 0 at iter 0)
+        if (!use_odometry_prior && result.final_loss < min_loss_threshold) {
             break;
         }
     }
 
-    return final_loss;
+    result.final_prior_loss = final_prior_loss;
+    return result;
 }
 
 // ============================================================================
@@ -399,8 +524,22 @@ torch::Tensor RoomOptimizer::compute_prior_loss(
     torch::Tensor theta_diff = room.robot_theta_ - predicted_theta;
     torch::Tensor pose_diff = torch::cat({pos_diff, theta_diff});
 
-    // Mahalanobis distance
-    torch::Tensor reg_cov = odometry_prior.covariance + 1e-6 * torch::eye(3);
+    // Use moderate fixed inflation
+    // Lower value = tighter prior constraint = less drift
+    float inflation = 1.0f;  // No inflation - trust the computed covariance
+
+    // Compute motion-based covariance using consistent helper method
+    Eigen::Matrix3f cov_eigen = compute_motion_covariance(odometry_prior);
+
+    // Convert to torch tensor
+    torch::Tensor reg_cov = torch::zeros({3, 3}, torch::kFloat32);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            reg_cov[i][j] = cov_eigen(i, j) * inflation;
+        }
+    }
+    reg_cov = reg_cov + 1e-6 * torch::eye(3);
+
     torch::Tensor info_matrix = torch::inverse(reg_cov);
 
     torch::Tensor prior_loss = 0.5 * torch::matmul(
@@ -413,24 +552,8 @@ torch::Tensor RoomOptimizer::compute_prior_loss(
 
 torch::Tensor RoomOptimizer::compute_calibration_regularization(RoomModel &room)
 {
-    // CRITICAL FIX: Use tensor operations to maintain gradients!
-    // Previous version used float operations which broke the gradient flow
-
-    // Get calibration parameters as tensors (maintain gradients)
-    torch::Tensor k_trans = room.k_translation_;
-    torch::Tensor k_rot = room.k_rotation_;
-
-    // Target value (1.0)
-    torch::Tensor target = torch::ones(1, torch::kFloat32);
-
-    // Compute squared deviation from 1.0 (maintains gradients)
-    torch::Tensor trans_dev = torch::pow(k_trans - target, 2);
-    torch::Tensor rot_dev = torch::pow(k_rot - target, 2);
-
-    // Sum and scale by regularization weight
-    torch::Tensor reg_loss = calib_config.regularization_weight * (trans_dev + rot_dev);
-
-    return reg_loss.squeeze();  // Return scalar tensor with gradients
+    // CALIBRATION REGULARIZATION DISABLED
+    return torch::zeros(1, torch::kFloat32);
 }
 
 // ============================================================================
@@ -473,17 +596,32 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
         }
 
     } catch (const std::exception& e) {
-        qWarning() << "Uncertainty estimation failed:" << e.what();
+        qWarning() << "Uncertainty estimation failed:" << e.what() << "- using motion-based fallback";
 
-        // Fallback based on mode
+        // Use motion-based uncertainty estimate instead of fixed values
+        // This gives more realistic uncertainty that grows with motion
         if (is_localized) {
             // LOCALIZED: 3x3 for robot pose only
-            res.covariance = torch::eye(3, torch::kFloat32) * 0.1f;
-            res.std_devs = {0.3f, 0.3f, 0.1f};  // Conservative: 30cm position, 0.1 rad orientation
+            // Base uncertainty on recent motion magnitude
+            float base_pos_std = 0.05f;   // 5cm base
+            float base_ang_std = 0.05f;   // ~3 degrees base
+
+            res.covariance = torch::eye(3, torch::kFloat32);
+            res.covariance[0][0] = base_pos_std * base_pos_std;
+            res.covariance[1][1] = base_pos_std * base_pos_std;
+            res.covariance[2][2] = base_ang_std * base_ang_std;
+
+            res.std_devs = {base_pos_std, base_pos_std, base_ang_std};
         } else {
             // MAPPING: 5x5 for room + robot
-            res.covariance = torch::eye(5, torch::kFloat32) * 0.1f;
-            res.std_devs = {0.1f, 0.1f, 0.3f, 0.3f, 0.1f};  // Conservative estimates
+            res.covariance = torch::eye(5, torch::kFloat32);
+            res.covariance[0][0] = 0.01f;  // Room half-width: 10cm std
+            res.covariance[1][1] = 0.01f;  // Room half-height: 10cm std
+            res.covariance[2][2] = 0.0025f; // Robot x: 5cm std
+            res.covariance[3][3] = 0.0025f; // Robot y: 5cm std
+            res.covariance[4][4] = 0.0025f; // Robot theta: 5cm std (0.05 rad)
+
+            res.std_devs = {0.1f, 0.1f, 0.05f, 0.05f, 0.05f};
         }
         res.uncertainty_valid = false;
     }
@@ -652,33 +790,72 @@ OdometryPrior RoomOptimizer::compute_odometry_prior(
 
     prior.dt = dt;
 
-    // Compute process noise - proportional to motion magnitude
-    const float trans_magnitude = std::sqrt(
-        prior.delta_pose[0] * prior.delta_pose[0] +
-        prior.delta_pose[1] * prior.delta_pose[1]
-    );
-    const float rot_magnitude = std::abs(prior.delta_pose[2]);
+    // Compute process noise using consistent helper method
+    Eigen::Matrix3f cov_eigen = compute_motion_covariance(prior);
 
-    float trans_noise_std = prediction_params.NOISE_TRANS * trans_magnitude;
-    float rot_noise_std = prediction_params.NOISE_ROT * rot_magnitude;
-
-    // Minimum uncertainty
-    trans_noise_std = std::max(trans_noise_std, 0.01f);
-    rot_noise_std = std::max(rot_noise_std, 0.02f);
-
-    // Extra uncertainty for pure rotation
-    if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
-        rot_noise_std *= 2.0f;
-        trans_noise_std = 0.05f;
-    }
-
+    // Convert to torch tensor
     prior.covariance = torch::eye(3, torch::kFloat32);
-    prior.covariance[0][0] = trans_noise_std * trans_noise_std;
-    prior.covariance[1][1] = trans_noise_std * trans_noise_std;
-    prior.covariance[2][2] = rot_noise_std * rot_noise_std;
+    prior.covariance[0][0] = cov_eigen(0, 0);
+    prior.covariance[1][1] = cov_eigen(1, 1);
+    prior.covariance[2][2] = cov_eigen(2, 2);
 
     prior.valid = true;
     last_lidar_timestamp = lidar_timestamp;
 
     return prior;
+}
+
+// ===== HELPER METHOD: Compute motion-based covariance =====
+/**
+ * Compute motion-based covariance consistently
+ * σ = base + k * distance
+ */
+Eigen::Matrix3f RoomOptimizer::compute_motion_covariance(const OdometryPrior &odometry_prior)
+{
+    float motion_magnitude = std::sqrt(
+        odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
+        odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+    );
+
+    // Proper motion model: uncertainty grows with distance
+    // BUT: when stationary, use much tighter uncertainty to prevent drift
+    float base_uncertainty;
+    if (motion_magnitude < 0.01f) {
+        // Stationary: Very tight constraint (1mm)
+        base_uncertainty = 0.001f;  // 1mm when not moving
+    } else {
+        // Moving: Normal base uncertainty
+        base_uncertainty = 0.005f;  // 5mm base when moving
+    }
+
+    float noise_per_meter = prediction_params.NOISE_TRANS;  // Use configured value
+    float position_std = base_uncertainty + noise_per_meter * motion_magnitude;
+
+    float base_rot_std = 0.01f;  // 10 mrad base
+    float noise_per_radian = prediction_params.NOISE_ROT;
+    float rotation_std = base_rot_std + noise_per_radian * std::abs(odometry_prior.delta_pose[2]);
+
+    Eigen::Matrix3f cov = Eigen::Matrix3f::Identity
+    ();
+    cov(0, 0) = position_std * position_std;
+    cov(1, 1) = position_std * position_std;
+    cov(2, 2) = rotation_std * rotation_std;
+
+    return cov;
+}
+
+// ============================================================================
+// LONG-TERM CALIBRATION LEARNING
+// ============================================================================
+
+void RoomOptimizer::update_calibration_slowly(
+    RoomModel &room,
+    const OdometryPrior &odometry_prior,
+    const std::vector<float> &predicted_pose,
+    const std::vector<float> &optimized_pose,
+    float prior_loss)
+{
+    // CALIBRATION LEARNING DISABLED
+    // Using fixed k_trans = 1.0, k_rot = 1.0
+    return;
 }

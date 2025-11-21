@@ -92,6 +92,14 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor& poin
     // Ensure numerical symmetry
     hessian = 0.5 * (hessian + hessian.transpose(0, 1));
 
+    // std::cout << "Hessian diagonal: ";
+    // for (int i = 0; i < hessian.size(0); i++) {
+    //     std::cout << hessian[i][i].item<float>() << " ";
+    // }
+    // std::cout << std::endl;
+    //
+    // std::cout << "Number of params: " << hessian.size(0) << std::endl;
+
     // Robust inversion strategy
     torch::Tensor covariance;
     torch::Tensor I = torch::eye(total_params, hessian.options());

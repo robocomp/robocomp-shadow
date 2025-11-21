@@ -109,53 +109,10 @@ void SpecificWorker::initialize()
 	show();
 
 	// Initialize RoomModel
-	// Compute initial guess for room SIZE from point cloud bounds
 	const auto &[points, lidar_time] = read_data();
-	if (points.empty()) { std::cout << "No LiDAR points available\n"; return;}
+	if (points.empty()) { std::cout << __FUNCTION__ << " No LiDAR points available\n"; return;}
 	draw_lidar(points, &viewer->scene);
-
-	// Convert LiDAR points to PyTorch tensor [N, 2]
-	// Keep points in ROBOT FRAME - the model will transform them
-	std::vector<float> points_data;
-	points_data.reserve(points.size() * 2);
-	for (const auto& p : points) {
-		points_data.push_back(p.x / 1000.0f);  // Convert mm to meters
-		points_data.push_back(p.y / 1000.0f);
-	}
-	torch::Tensor points_tensor = torch::from_blob
-	(
-		points_data.data(),
-		{static_cast<long>(points.size()), 2},
-		torch::kFloat32
-	).clone();
-	const auto x_coords = points_tensor.index({torch::indexing::Slice(), 0});
-	const auto y_coords = points_tensor.index({torch::indexing::Slice(), 1});
-
-	const float x_min = x_coords.min().item<float>();
-	const float x_max = x_coords.max().item<float>();
-	const float y_min = y_coords.min().item<float>();
-	const float y_max = y_coords.max().item<float>();
-
-	// Initial room size (room will be at origin by definition)
-	const float half_width = (x_max - x_min) / 2.0f;
-	const float half_height = (y_max - y_min) / 2.0f;
-
-	// Initial robot pose (offset from room center to point cloud center)
-	// If point cloud is centered at (cx, cy), robot is at (-cx, -cy) in room frame
-	const float point_cloud_center_x = (x_min + x_max) / 2.0f;
-	const float point_cloud_center_y = (y_min + y_max) / 2.0f;
-	const float robot_x = -point_cloud_center_x;  // Negative because room is at origin
-	const float robot_y = -point_cloud_center_y;
-	const float robot_theta = 1.0f;
-
-	std::cout << "\nInitial guess:\n";
-	std::cout << "  Point cloud bounds: X[" << x_min << ", " << x_max << "], Y[" << y_min << ", " << y_max << "]\n";
-	std::cout << "  Room size (at origin): " << 2*half_width << " x " << 2*half_height << " m\n";
-	std::cout << "  Robot pose (relative to room): (" << robot_x << ", " << robot_y << ", " << robot_theta << ")\n";
-	std::cout << "----------------------------------------\n";
-
-	// Create room model
-	room.init(half_width, half_height, robot_x, robot_y, robot_theta);
+	room.init(points);
 	room.init_odometry_calibration(1.0f, 1.0f);  // Start with no correction
 
 	// time series plotter for match error
@@ -211,7 +168,7 @@ void SpecificWorker::compute()
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	update_viewers(time_points, result, &viewer->scene);
-	print_status(result);
+	//print_status(result);
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -566,137 +523,7 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
 }
 
-// Eigen::Vector3f SpecificWorker::integrate_velocity(const VelocityCommand& cmd, float dt) const
-// {
-// 	// Robot frame: X=side (lateral), Y=forward (advance)
-// 	const float dx_local = (cmd.adv_x * dt) / 1000.0f;  // Side motion (lateral)
-// 	const float dy_local = (cmd.adv_z * dt) / 1000.0f;  // Forward motion (advance)
-// 	const float dtheta   = -cmd.rot * dt;
-//
-// 	// Get CURRENT robot pose from room model
-// 	const auto current_pose = room.get_robot_pose();
-// 	const float theta = current_pose[2];
-//
-// 	// Transform from robot frame to room frame
-// 	Eigen::Vector3f delta_global;
-// 	delta_global[0] = dx_local * std::cos(theta) - dy_local * std::sin(theta);
-// 	delta_global[1] = dx_local * std::sin(theta) + dy_local * std::cos(theta);
-// 	delta_global[2] = dtheta;
-//
-// 	return delta_global;
-// }
 
-// OdometryPrior SpecificWorker::compute_odometry_prior(
-//     std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
-//     std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
-// {
-//     OdometryPrior prior;
-//     prior.valid = false;
-//
-//     if (velocity_history_.empty())
-//     {
-//         //qWarning() << "No velocity commands in buffer";
-//         return prior;
-//     }
-//
-//     // Time delta BETWEEN LIDAR SCANS
-//     const float dt = std::chrono::duration<float>(t_end - t_start).count();
-//
-//     if (dt <= 0 || dt > 0.5f) {
-//         qWarning() << "Invalid dt for odometry:" << dt << "s";
-//         return prior;
-//     }
-//
-//     // Integrate velocity over the time window [t_start, t_end]
-//     prior.delta_pose = integrate_velocity_over_window(t_start, t_end);
-//
-//     // For storing in prior structure (if needed by optimizer)
-//     if (not velocity_history_.empty())
-//         prior.velocity_cmd = velocity_history_.back();
-//
-//     prior.dt = dt;
-//
-//     // Compute process noise - proportional to motion magnitude
-//     const float trans_magnitude = std::sqrt(
-//         prior.delta_pose[0]*prior.delta_pose[0] +
-//         prior.delta_pose[1]*prior.delta_pose[1]
-//     );
-//     const float rot_magnitude = std::abs(prior.delta_pose[2]);
-//
-//     float trans_noise_std = params.NOISE_TRANS * trans_magnitude;
-//     float rot_noise_std = params.NOISE_ROT * rot_magnitude;
-//
-//     // Minimum uncertainty
-//     trans_noise_std = std::max(trans_noise_std, 0.1f);
-//     rot_noise_std = std::max(rot_noise_std, 0.15f);
-//
-//     // Extra uncertainty for pure rotation
-//     if (trans_magnitude < 0.01f && rot_magnitude > 0.01f) {
-//         rot_noise_std *= 2.0f;
-//         trans_noise_std = 0.2f;
-//     }
-//
-//     prior.covariance = torch::eye(3, torch::kFloat32);
-//     prior.covariance[0][0] = trans_noise_std * trans_noise_std;
-//     prior.covariance[1][1] = trans_noise_std * trans_noise_std;
-//     prior.covariance[2][2] = rot_noise_std * rot_noise_std;
-//
-//     // qDebug() << "=== ODOMETRY PRIOR (LIDAR-TO-LIDAR) ===";
-//     // qDebug() << "dt:" << dt << "s";
-//     // qDebug() << "Delta pose:" << prior.delta_pose[0] << prior.delta_pose[1] << prior.delta_pose[2];
-//     // qDebug() << "Motion magnitude: trans=" << trans_magnitude << "rot=" << rot_magnitude;
-//
-//     prior.valid = true;
-//     return prior;
-// }
-
-
-// Eigen::Vector3f SpecificWorker::integrate_velocity_over_window(
-// 	std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
-// 	std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const
-// {
-// 	Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
-//
-// 	auto current_pose = room.get_robot_pose();
-// 	float running_theta = current_pose[2];
-//
-// 	// Integrate over all velocity commands in [t_start, t_end]
-// 	for (size_t i = 0; i < velocity_history_.size(); ++i)
-// 	{
-// 		const auto& cmd = velocity_history_[i];
-//
-// 		// Get time window for this command
-// 		auto cmd_start = cmd.timestamp;
-// 		auto cmd_end = (i + 1 < velocity_history_.size())
-// 						? velocity_history_[i + 1].timestamp
-// 						: t_end;
-//
-// 		// Clip to [t_start, t_end]
-// 		if (cmd_end < t_start) continue;
-// 		if (cmd_start > t_end) break;
-//
-// 		auto effective_start = std::max(cmd_start, t_start);
-// 		auto effective_end = std::min(cmd_end, t_end);
-//
-// 		float dt = std::chrono::duration<float>(effective_end - effective_start).count();
-// 		if (dt <= 0) continue;
-//
-// 		// Integrate this segment
-// 		float dx_local = (cmd.adv_x * dt) / 1000.0f;
-// 		float dy_local = (cmd.adv_z * dt) / 1000.0f;
-// 		float dtheta = -cmd.rot * dt;  // Negative for right-hand rule
-//
-// 		// Transform to global frame using RUNNING theta
-// 		total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);
-// 		total_delta[1] += dx_local * std::sin(running_theta) + dy_local * std::cos(running_theta);
-// 		total_delta[2] += dtheta;
-//
-// 		// Update running theta for next segment
-// 		running_theta += dtheta;
-// 	}
-//
-// 	return total_delta;
-// }
 ///////////////////////////////////////////////////////////////////////////////
 /////SUBSCRIPTION to sendData method from JoystickAdapter interface
 void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData data)

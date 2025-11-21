@@ -25,6 +25,7 @@ LIST(APPEND SOURCES
         ../src/uncertainty_estimator.cpp
         ../src/yolo_detector.cpp
         ../src/model_based_filter.cpp
+        ../src/pointcloud_center_estimator.cpp
 )
 
 # Headers set
@@ -41,6 +42,7 @@ LIST(APPEND HEADERS
         ../src/uncertainty_estimator.h
         ../src/yolo_detector.h
         ../src/model_based_filter.h
+        ../src/pointcloud_center_estimator.h
 )
 
 # Include OpenCV

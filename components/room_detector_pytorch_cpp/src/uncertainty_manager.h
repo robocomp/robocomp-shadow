@@ -8,6 +8,24 @@
 #include "common_types.h"
 #include "room_model.h"
 
+/**
+ * @brief Manages uncertainty estimation and propagation for robot localization.
+ *
+ * This class combines two sources of uncertainty:
+ * 1. Kinematic propagation: based on velocity commands and motion noise model
+ * 2. Geometric measurements: computed via Laplace approximation over sensor data
+ *
+ * Uses information form fusion to combine both sources, providing validated
+ * covariance matrices (no NaN/Inf) that describe the robot's pose uncertainty
+ * in mapping mode (3 DOF: x,y,θ) or localized mode (5 DOF: includes room orientation).
+ *
+ * Key features:
+ * - Optional odometry-based propagation
+ * - Automatic covariance validation
+ * - Fallback mechanisms for degenerate cases
+ * - Support for state transitions (mapping/localized)
+ */
+
 class UncertaintyManager {
 public:
     struct Result
