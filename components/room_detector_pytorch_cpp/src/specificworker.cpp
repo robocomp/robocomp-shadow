@@ -168,7 +168,7 @@ void SpecificWorker::compute()
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	update_viewers(time_points, result, &viewer->scene);
-	//print_status(result);
+	print_status(result);
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();

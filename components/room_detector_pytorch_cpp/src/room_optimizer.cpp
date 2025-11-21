@@ -344,7 +344,9 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     // === DIAGNOSTIC: Movement check ===
 
     // Estimate uncertainty after optimization
-    res = estimate_uncertainty(room, points_tensor, is_localized, opt_result.final_loss);
+    // Pass the propagated covariance (after motion growth) for proper EKF update
+    res = estimate_uncertainty(room, points_tensor, is_localized, opt_result.final_loss,
+                               prediction.have_propagated ? prediction.propagated_cov : torch::Tensor());
     res.prior_loss = opt_result.final_prior_loss;  // Store for calibration learning
 
     return res;
@@ -485,7 +487,9 @@ RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
             time_series_plotter->addDataPoint(0, measurement_loss.item<float>());
             time_series_plotter->addDataPoint(2, result.final_loss);
             if (prior_loss.defined() && prior_loss.numel() > 0)
+            {
                 time_series_plotter->addDataPoint(1, prior_loss.item<float>());
+            }
         }
 
         // Early stopping
@@ -564,11 +568,44 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
     RoomModel &room,
     const torch::Tensor &points_tensor,
     bool is_localized,
-    float final_loss)
+    float final_loss,
+    const torch::Tensor &propagated_cov)
 {
     Result res;
 
-    // Use adaptive compute_covariance that handles both LOCALIZED and MAPPING modes
+    // For LOCALIZED mode with odometry prior, use the propagated covariance
+    // (which already includes motion growth) and apply measurement update
+
+    if (is_localized && propagated_cov.defined() && propagated_cov.numel() > 0) {
+        // Use the propagated covariance (AFTER motion growth, BEFORE measurement update)
+        torch::Tensor P_predicted = propagated_cov;
+
+        // Estimate measurement information from fit quality
+        // final_loss ∈ [0.0005, 0.01] typically
+        // Map to information gain factor
+        float normalized_loss = std::clamp(final_loss / 0.01f, 0.0f, 1.0f);
+
+        // Information gain: good fit (low loss) → high gain, poor fit → low gain
+        float information_gain = 0.1f + 0.4f * (1.0f - normalized_loss);  // Range: [0.1, 0.5]
+
+        // EKF update: P_new = (1 - information_gain) * P_predicted
+        // This means measurements reduce uncertainty, but not to zero
+        res.covariance = P_predicted * (1.0f - information_gain);
+
+        // Enforce minimum uncertainty to prevent degeneracy
+        // Even with perfect measurements, keep at least 1mm position std, 0.1° orientation std
+        auto cov_acc = res.covariance.accessor<float, 2>();
+        cov_acc[0][0] = std::max(cov_acc[0][0], 1e-6f);  // min 1mm std
+        cov_acc[1][1] = std::max(cov_acc[1][1], 1e-6f);  // min 1mm std
+        cov_acc[2][2] = std::max(cov_acc[2][2], 3e-6f);  // min ~0.1° std
+
+        res.uncertainty_valid = true;
+        res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
+        res.final_loss = final_loss;
+        return res;
+    }
+
+    // For MAPPING mode, use Hessian-based uncertainty estimation
     torch::Tensor covariance;
 
     try {
@@ -835,8 +872,7 @@ Eigen::Matrix3f RoomOptimizer::compute_motion_covariance(const OdometryPrior &od
     float noise_per_radian = prediction_params.NOISE_ROT;
     float rotation_std = base_rot_std + noise_per_radian * std::abs(odometry_prior.delta_pose[2]);
 
-    Eigen::Matrix3f cov = Eigen::Matrix3f::Identity
-    ();
+    Eigen::Matrix3f cov = Eigen::Matrix3f::Identity();
     cov(0, 0) = position_std * position_std;
     cov(1, 1) = position_std * position_std;
     cov(2, 2) = rotation_std * rotation_std;

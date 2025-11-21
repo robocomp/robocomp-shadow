@@ -175,11 +175,13 @@ class RoomOptimizer
 
         /**
          * Estimate uncertainty after optimization
+         * @param propagated_cov The covariance after motion propagation (for LOCALIZED mode)
          */
         Result estimate_uncertainty(RoomModel &room,
                                    const torch::Tensor &points_tensor,
                                    bool is_localized,
-                                   float final_loss);
+                                   float final_loss,
+                                   const torch::Tensor &propagated_cov = torch::Tensor());
 
         /**
          * Update state management (freezing, history)
