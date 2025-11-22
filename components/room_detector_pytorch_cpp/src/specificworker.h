@@ -115,7 +115,7 @@ class SpecificWorker final : public GenericWorker
 		// viewer
 		AbstractGraphicViewer *viewer, *viewer_room;
 		QGraphicsPolygonItem *robot_draw, *robot_room_draw;
-		QGraphicsItem *room_draw = nullptr, *room_draw_robot = nullptr;
+		QGraphicsItem *room_draw = nullptr;
 
 		// room
 		RoomModel room;

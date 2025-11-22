@@ -207,16 +207,16 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
 
 	// Show uncertainty when localized
-	if (room.are_room_parameters_frozen())
-	{
-		viewer3d->updateUncertainty(
-			result.std_devs[0],  // X stddev
-			result.std_devs[1],  // Y stddev
-			result.std_devs[2]   // Theta stddev
-		);
-		viewer3d->showUncertainty(true);
-	} else
-		viewer3d->showUncertainty(false);  // Hide during mapping
+	// if (room.are_room_parameters_frozen())
+	// {
+	// 	viewer3d->updateUncertainty(
+	// 		result.std_devs[0],  // X stddev
+	// 		result.std_devs[1],  // Y stddev
+	// 		result.std_devs[2]   // Theta stddev
+	// 	);
+	// 	viewer3d->showUncertainty(true);
+	// } else
+	// 	viewer3d->showUncertainty(false);  // Hide during mapping
 }
 
 void SpecificWorker::print_status(const RoomOptimizer::Result &result)
@@ -482,8 +482,9 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 {
 	// draw room in robot viewer
+	static QGraphicsItem  *room_draw_robot = nullptr;
 	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
-	// compute room corners in robot frame
+	// compute room in robot frame
 	Eigen::Vector2f top_left(-room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
@@ -500,6 +501,28 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	        << QPointF(bottom_right.x()*1000, bottom_right.y()*1000)
 	        << QPointF(bottom_left.x()*1000, bottom_left.y()*1000);
 	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 40));
+
+	// draw uncertainty ellipses if localized
+	static QGraphicsItem  *uncertainty_ellipse_robot = nullptr;
+    if (room.are_room_parameters_frozen())
+    {
+        const auto cov = optimizer.uncertainty_manager.get_current_covariance();
+        if (cov.size() == 3*3)
+        {
+            // Extract robot pose covariance (top-left 3x3)
+            Eigen::Matrix3f robot_cov;
+            robot_cov << cov[0], cov[1], cov[2],
+                         cov[3], cov[4], cov[5],
+                         cov[6], cov[7], cov[8];
+            // Compute 2D position covariance
+            Eigen::Matrix2f pos_cov = robot_cov.topLeftCorner<2,2>();
+            // Draw ellipse in robot frame
+            if (uncertainty_ellipse_robot != nullptr) { viewer->scene.removeItem(uncertainty_ellipse_robot); delete uncertainty_ellipse_robot;}
+            uncertainty_ellipse_robot = viewer->scene.addEllipse(, QColor("magenta"), 1000.0f);
+        	uncertainty_ellipse_robot->setPos(to_qpointf(pos_cov));
+        }
+    } else
+        if (uncertainty_ellipse_robot != nullptr) { viewer->scene.removeItem(uncertainty_ellipse_robot); delete uncertainty_ellipse_robot; uncertainty_ellipse_robot = nullptr;}
 
 	// update GUI
 	time_series_plotter->update();

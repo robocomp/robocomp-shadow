@@ -573,36 +573,67 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
 {
     Result res;
 
-    // For LOCALIZED mode with odometry prior, use the propagated covariance
-    // (which already includes motion growth) and apply measurement update
+    // For LOCALIZED mode with odometry prior, use proper EKF information form:
+    // Information matrix fusion: Λ_total = Λ_measurement + Λ_prior
+    // Then: Σ_total = Λ_total^(-1)
 
     if (is_localized && propagated_cov.defined() && propagated_cov.numel() > 0) {
-        // Use the propagated covariance (AFTER motion growth, BEFORE measurement update)
-        torch::Tensor P_predicted = propagated_cov;
+        try {
+            // Step 1: Compute measurement covariance from Hessian of MEASUREMENT LOSS ONLY
+            // This excludes the prior loss to avoid ill-conditioning
+            torch::Tensor measurement_cov = UncertaintyEstimator::compute_covariance(
+                points_tensor,
+                room,
+                wall_thickness
+            );
 
-        // Estimate measurement information from fit quality
-        // final_loss ∈ [0.0005, 0.01] typically
-        // Map to information gain factor
-        float normalized_loss = std::clamp(final_loss / 0.01f, 0.0f, 1.0f);
+            // Check for valid measurement covariance
+            if (torch::any(torch::isnan(measurement_cov)).item<bool>() ||
+                torch::any(torch::isinf(measurement_cov)).item<bool>()) {
+                throw std::runtime_error("Measurement covariance contains NaN/Inf");
+            }
 
-        // Information gain: good fit (low loss) → high gain, poor fit → low gain
-        float information_gain = 0.1f + 0.4f * (1.0f - normalized_loss);  // Range: [0.1, 0.5]
+            // Step 2: Convert both covariances to information form (inverse)
+            // Information matrix = inverse of covariance matrix
+            torch::Tensor info_measurement = torch::inverse(measurement_cov);
+            torch::Tensor info_prior = torch::inverse(propagated_cov);
 
-        // EKF update: P_new = (1 - information_gain) * P_predicted
-        // This means measurements reduce uncertainty, but not to zero
-        res.covariance = P_predicted * (1.0f - information_gain);
+            // Step 3: Fuse information (additive in information space)
+            // This is the key EKF update: combine prior and measurement information
+            // Λ_total = Λ_meas + Λ_prior
+            torch::Tensor info_total = info_measurement + info_prior;
 
-        // Enforce minimum uncertainty to prevent degeneracy
-        // Even with perfect measurements, keep at least 1mm position std, 0.1° orientation std
-        auto cov_acc = res.covariance.accessor<float, 2>();
-        cov_acc[0][0] = std::max(cov_acc[0][0], 1e-6f);  // min 1mm std
-        cov_acc[1][1] = std::max(cov_acc[1][1], 1e-6f);  // min 1mm std
-        cov_acc[2][2] = std::max(cov_acc[2][2], 3e-6f);  // min ~0.1° std
+            // Step 4: Convert back to covariance
+            // Σ_total = Λ_total^(-1)
+            res.covariance = torch::inverse(info_total);
 
-        res.uncertainty_valid = true;
-        res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
-        res.final_loss = final_loss;
-        return res;
+            // Apply inflation factor to correct for systematic overconfidence
+            res.covariance = res.covariance * calib_config.uncertainty_inflation;
+
+            // Validate final result
+            if (torch::any(torch::isnan(res.covariance)).item<bool>() ||
+                torch::any(torch::isinf(res.covariance)).item<bool>()) {
+                throw std::runtime_error("Final covariance contains NaN/Inf");
+            }
+
+            res.uncertainty_valid = true;
+            res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
+            res.final_loss = final_loss;
+
+            return res;
+
+        } catch (const std::exception& e) {
+            qWarning() << "EKF information fusion failed:" << e.what()
+                      << "- using propagated covariance only";
+
+            // Fallback: Use propagated covariance with conservative inflation
+            // This means we trust only the motion model, not the measurements
+            res.covariance = propagated_cov * 2.0f;  // Conservative: double the uncertainty
+            res.uncertainty_valid = false;
+            res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
+            res.final_loss = final_loss;
+            return res;
+        }
     }
 
     // For MAPPING mode, use Hessian-based uncertainty estimation
