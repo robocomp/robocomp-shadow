@@ -38,6 +38,7 @@ class RoomOptimizer
         struct Result
         {
             torch::Tensor covariance;            // 3x3 or 5x5
+            torch::Tensor propagated_cov;        // 3x3 or 5x5 (after motion, before measurement)
             std::vector<float> std_devs;         // flat std dev vector
             float final_loss = 0.0f;
             float prior_loss = 0.0f;             // For calibration learning

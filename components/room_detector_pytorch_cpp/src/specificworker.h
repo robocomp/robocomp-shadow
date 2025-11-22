@@ -124,10 +124,22 @@ class SpecificWorker final : public GenericWorker
 		// aux
 		TimePoints read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
-		void update_robot_view(const Eigen::Affine2f &robot_pose);
+		void update_robot_view(const Eigen::Affine2f &robot_pose, const RoomOptimizer::Result &result, QGraphicsScene *scene);
 		void update_viewers(const TimePoints &points,
 							const RoomOptimizer::Result &result,
 							QGraphicsScene *scene);
+		QGraphicsEllipseItem* draw_propagated_uncertainty_ellipse(
+			QGraphicsScene *scene,
+			const torch::Tensor &covariance,
+			const std::vector<float> &robot_pose,
+			const QColor &color,
+			float scale_factor);  // 2-sigma = 95% confidence
+		QGraphicsEllipseItem* draw_uncertainty_ellipse(
+				QGraphicsScene *scene,
+				const torch::Tensor &covariance,
+				const std::vector<float> &robot_pose,
+				const QColor &color,
+				float scale_factor);  // 2-sigma = 95% confidence
 
 		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
 		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);

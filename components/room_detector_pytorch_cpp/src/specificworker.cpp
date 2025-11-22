@@ -37,18 +37,18 @@
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/groupby.hpp>
 
-SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(configLoader, tprx)
+SpecificWorker::SpecificWorker(const ConfigLoader &configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(
+	configLoader, tprx)
 {
 	this->startup_check_flag = startup_check;
-	if(this->startup_check_flag)
+	if (this->startup_check_flag)
 	{
 		this->startup_check();
-	}
-	else
+	} else
 	{
-		#ifdef HIBERNATION_ENABLED
-			hibernationChecker.start(500);
-		#endif
+#ifdef HIBERNATION_ENABLED
+		hibernationChecker.start(500);
+#endif
 
 		// Example statemachine:
 		/***
@@ -70,7 +70,8 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 		statemachine.start();
 
 		auto error = statemachine.errorString();
-		if (error.length() > 0){
+		if (error.length() > 0)
+		{
 			qWarning() << error;
 			throw error;
 		}
@@ -85,15 +86,17 @@ SpecificWorker::~SpecificWorker()
 
 void SpecificWorker::initialize()
 {
-    std::cout << "initialize worker" << std::endl;
+	std::cout << "initialize worker" << std::endl;
 
 	std::cout << "PyTorch C++ Library Test\n";
 	std::cout << "========================\n\n";
 
 	// Check if CUDA is available
-	if (torch::cuda::is_available()) {
+	if (torch::cuda::is_available())
+	{
 		std::cout << "CUDA is available! Training on GPU.\n";
-	} else {
+	} else
+	{
 		std::cout << "Training on CPU.\n";
 	}
 
@@ -110,19 +113,24 @@ void SpecificWorker::initialize()
 
 	// Initialize RoomModel
 	const auto &[points, lidar_time] = read_data();
-	if (points.empty()) { std::cout << __FUNCTION__ << " No LiDAR points available\n"; return;}
+	if (points.empty())
+	{
+		std::cout << __FUNCTION__ << " No LiDAR points available\n";
+		return;
+	}
 	draw_lidar(points, &viewer->scene);
 	room.init(points);
-	room.init_odometry_calibration(1.0f, 1.0f);  // Start with no correction
+	room.init_odometry_calibration(1.0f, 1.0f); // Start with no correction
 
 	// time series plotter for match error
-	TimeSeriesPlotter::Config plotConfig;  // all fields have to be initialized, otherwise garbage values get to the constructor
+	TimeSeriesPlotter::Config plotConfig;
+	// all fields have to be initialized, otherwise garbage values get to the constructor
 	plotConfig.title = "Loss (likelihood + prior)";
 	plotConfig.yAxisLabel = "Error";
 	plotConfig.xAxisLabel = "";
 	plotConfig.timeWindowSeconds = 7.0; // Show a 15-second window
-	plotConfig.autoScaleY = true;       // We will set a fixed range
-	plotConfig.showLegend = true;            // Show graph legend
+	plotConfig.autoScaleY = true; // We will set a fixed range
+	plotConfig.showLegend = true; // Show graph legend
 	plotConfig.yMin = 0;
 	plotConfig.yMax = 0.4;
 	time_series_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error, plotConfig);
@@ -132,8 +140,8 @@ void SpecificWorker::initialize()
 
 	// Create 3D viewer
 	viewer3d = std::make_unique<RoomVisualizer3D>("src/meshes/shadow.obj");
-	QWidget* viewer3d_widget = viewer3d->getWidget();
-	QVBoxLayout* layout = new QVBoxLayout(frame_3d);  // Your QFrame name here
+	QWidget *viewer3d_widget = viewer3d->getWidget();
+	QVBoxLayout *layout = new QVBoxLayout(frame_3d); // Your QFrame name here
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
@@ -149,7 +157,11 @@ void SpecificWorker::compute()
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
 	//frame_counter++;
-	if (std::get<0>(time_points).empty()) { std::cout << "No LiDAR points available\n"; return;}
+	if (std::get<0>(time_points).empty())
+	{
+		std::cout << "No LiDAR points available\n";
+		return;
+	}
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -157,12 +169,12 @@ void SpecificWorker::compute()
 	// Optimize SDF likelihood + odometry prior
 	//const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
 	//									   0.01f,0.01f, odom_prior, frame_counter);
-	const auto result = optimizer.optimize( time_points,
-											room, velocity_history_,
-								  		    time_series_plotter,
-										    150,
-										    0.01f,
-										    0.01f);
+	const auto result = optimizer.optimize(time_points,
+	                                       room, velocity_history_,
+	                                       time_series_plotter,
+	                                       150,
+	                                       0.01f,
+	                                       0.01f);
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -179,19 +191,11 @@ void SpecificWorker::compute()
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
-									const RoomOptimizer::Result &result,
-									QGraphicsScene *scene)
+                                    const RoomOptimizer::Result &result,
+                                    QGraphicsScene *scene)
 {
 	const auto &[points, lidar_timestamp] = points_;
 	const auto robot_pose = room.get_robot_pose();
-
-	// Extrapolate from LiDAR timestamp to current time FOR DISPLAY ONLY
-	// Eigen::Vector3f display_pose(robot_pose[0], robot_pose[1], robot_pose[2]);
-	// const auto current_time = std::chrono::high_resolution_clock::now();
-	// const float dt_latency = std::chrono::duration<float>(current_time - lidar_timestamp).count();
-	// if (dt_latency > 0 and dt_latency < 0.5f) // Integrate from LiDAR time to now for smooth display
-	// 	display_pose += integrate_velocity_over_window(lidar_timestamp, current_time);
-	// //qDebug() << "Display extrapolation:" << dt_latency*1000 << "ms";
 
 	Eigen::Affine2f robot_pose_display;
 	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
@@ -200,23 +204,50 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	draw_lidar(points, scene);
 	door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
 
-	update_robot_view(robot_pose_display);
+	update_robot_view(robot_pose_display, result, scene);
 	//viewer3d->updatePointCloud(points);
 	const auto room_params = room.get_room_parameters();
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
 	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
 
 	// Show uncertainty when localized
-	if (room.are_room_parameters_frozen())
-	{
-		viewer3d->updateUncertainty(
-			result.std_devs[0],  // X stddev
-			result.std_devs[1],  // Y stddev
-			result.std_devs[2]   // Theta stddev
-		);
-		viewer3d->showUncertainty(true);
-	} else
-		viewer3d->showUncertainty(false);  // Hide during mapping
+	// if (room.are_room_parameters_frozen())
+	// {
+	// 	viewer3d->updateUncertainty(
+	// 		result.std_devs[0],  // X stddev
+	// 		result.std_devs[1],  // Y stddev
+	// 		result.std_devs[2]   // Theta stddev
+	// 	);
+	// 	viewer3d->showUncertainty(true);
+	// } else
+	// 	viewer3d->showUncertainty(false);  // Hide during mapping
+
+
+	// Visual effect: You should see TWO ellipses
+	// - Orange (larger): uncertainty after motion
+	// - Green (smaller): uncertainty after measurement update
+	// The difference shows the information gain from measurements!
+
+	// Time series plot
+	// if (time_series_plotter && result.covariance.defined()) {
+	// 	// Plot propagated uncertainty (before measurement update)
+	// 	if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0) {
+	// 		float prop_std_x = std::sqrt(result.propagated_cov[0][0].item<float>()) * 1000;
+	// 		float prop_std_y = std::sqrt(result.propagated_cov[1][1].item<float>()) * 1000;
+	//
+	// 		time_series_plotter->addDataPoint(3, prop_std_x);  // Orange line
+	// 		time_series_plotter->addDataPoint(4, prop_std_y);  // Orange line
+	// 	}
+	//
+	// 	// Plot updated uncertainty (after measurement update)
+	// 	float upd_std_x = std::sqrt(result.covariance[0][0].item<float>()) * 1000;
+	// 	float upd_std_y = std::sqrt(result.covariance[1][1].item<float>()) * 1000;
+	// 	float upd_std_theta = std::sqrt(result.covariance[2][2].item<float>()) * 57.3;
+	//
+	// 	time_series_plotter->addDataPoint(5, upd_std_x);    // Green line
+	// 	time_series_plotter->addDataPoint(6, upd_std_y);    // Green line
+	// 	time_series_plotter->addDataPoint(7, upd_std_theta); // Green line
+	// }
 }
 
 void SpecificWorker::print_status(const RoomOptimizer::Result &result)
@@ -247,27 +278,27 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	// Robot pose
 	qInfo() << "ROBOT POSE:";
 	qInfo() << "  Position: (" << QString::number(robot_pose[0], 'f', 3)
-	        << "," << QString::number(robot_pose[1], 'f', 3) << ") m";
+			<< "," << QString::number(robot_pose[1], 'f', 3) << ") m";
 	qInfo() << "  Orientation:" << QString::number(robot_pose[2], 'f', 3) << "rad"
-	        << "(" << QString::number(qRadiansToDegrees(robot_pose[2]), 'f', 1) << "°)";
+			<< "(" << QString::number(qRadiansToDegrees(robot_pose[2]), 'f', 1) << "°)";
 
 	// Predicted pose (if odometry was used)
 	qInfo() << odom_prior.valid << optimizer.room_freezing_manager.should_freeze_room();
 	if (odom_prior.valid && optimizer.room_freezing_manager.should_freeze_room())
 	{
-	    auto prev_pose = room.get_robot_pose();  // This is AFTER optimization
-	    // Calculate what the predicted pose was
-	    float pred_x = prev_pose[0] - odom_prior.delta_pose[0];
-	    float pred_y = prev_pose[1] - odom_prior.delta_pose[1];
-	    float pred_theta = prev_pose[2] - odom_prior.delta_pose[2];
+		auto prev_pose = room.get_robot_pose(); // This is AFTER optimization
+		// Calculate what the predicted pose was
+		float pred_x = prev_pose[0] - odom_prior.delta_pose[0];
+		float pred_y = prev_pose[1] - odom_prior.delta_pose[1];
+		float pred_theta = prev_pose[2] - odom_prior.delta_pose[2];
 
-	    qInfo() << "ODOMETRY PREDICTION:";
-	    qInfo() << "  Predicted: (" << QString::number(pred_x + odom_prior.delta_pose[0], 'f', 3)
-	            << "," << QString::number(pred_y + odom_prior.delta_pose[1], 'f', 3)
-	            << "," << QString::number(pred_theta + odom_prior.delta_pose[2], 'f', 3) << ")";
-	    qInfo() << "  Delta: (" << QString::number(odom_prior.delta_pose[0], 'f', 3)
-	            << "," << QString::number(odom_prior.delta_pose[1], 'f', 3)
-	            << "," << QString::number(odom_prior.delta_pose[2], 'f', 3) << ")";
+		qInfo() << "ODOMETRY PREDICTION:";
+		qInfo() << "  Predicted: (" << QString::number(pred_x + odom_prior.delta_pose[0], 'f', 3)
+				<< "," << QString::number(pred_y + odom_prior.delta_pose[1], 'f', 3)
+				<< "," << QString::number(pred_theta + odom_prior.delta_pose[2], 'f', 3) << ")";
+		qInfo() << "  Delta: (" << QString::number(odom_prior.delta_pose[0], 'f', 3)
+				<< "," << QString::number(odom_prior.delta_pose[1], 'f', 3)
+				<< "," << QString::number(odom_prior.delta_pose[2], 'f', 3) << ")";
 
 		if (have_prediction)
 		{
@@ -276,21 +307,21 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 			float pred_error_theta = robot_pose[2] - predicted_pose[2];
 
 			// Normalize angle error to [-π, π]
-			while (pred_error_theta > M_PI) pred_error_theta -= 2*M_PI;
-			while (pred_error_theta < -M_PI) pred_error_theta += 2*M_PI;
+			while (pred_error_theta > M_PI) pred_error_theta -= 2 * M_PI;
+			while (pred_error_theta < -M_PI) pred_error_theta += 2 * M_PI;
 
-			float pred_error_pos = std::sqrt(pred_error_x*pred_error_x + pred_error_y*pred_error_y);
+			float pred_error_pos = std::sqrt(pred_error_x * pred_error_x + pred_error_y * pred_error_y);
 
 			qInfo() << "PREDICTION ERROR:";
-			qInfo() << "  Position:" << QString::number(pred_error_pos*1000, 'f', 1) << "mm";
+			qInfo() << "  Position:" << QString::number(pred_error_pos * 1000, 'f', 1) << "mm";
 			qInfo() << "  Orientation:" << QString::number(qRadiansToDegrees(pred_error_theta), 'f', 2) << "°";
 		}
 	}
 
 	// Room parameters
 	qInfo() << "ROOM:";
-	qInfo() << "  Size:" << QString::number(room_params[0]*2, 'f', 2) << "x"
-	        << QString::number(room_params[1]*2, 'f', 2) << "m";
+	qInfo() << "  Size:" << QString::number(room_params[0] * 2, 'f', 2) << "x"
+			<< QString::number(room_params[1] * 2, 'f', 2) << "m";
 	qInfo() << "  Status:" << (optimizer.room_freezing_manager.should_freeze_room() ? "FROZEN" : "OPTIMIZING");
 	room.print_info();
 
@@ -298,29 +329,32 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	qInfo() << "METRICS:";
 	qInfo() << "  Final loss:" << QString::number(result.final_loss, 'f', 6);
 
-	if (!result.std_devs.empty()) {
-	    if (optimizer.room_freezing_manager.should_freeze_room()) {
-	        // LOCALIZED mode: [x, y, theta]
-	        qInfo() << "  Uncertainty (1σ):";
-	        qInfo() << "    Position: ±" << QString::number(result.std_devs[0]*1000, 'f', 1) << "mm (X),"
-	                << "±" << QString::number(result.std_devs[1]*1000, 'f', 1) << "mm (Y)";
-	        qInfo() << "    Orientation: ±" << QString::number(qRadiansToDegrees(result.std_devs[2]), 'f', 2) << "°";
-	    } else {
-	        // MAPPING mode: [room_w, room_h, x, y, theta]
-	        qInfo() << "  Uncertainty (1σ):";
-	        qInfo() << "    Room: ±" << QString::number(result.std_devs[0]*1000, 'f', 1) << "mm (W),"
-	                << "±" << QString::number(result.std_devs[1]*1000, 'f', 1) << "mm (H)";
-	        qInfo() << "    Position: ±" << QString::number(result.std_devs[2]*1000, 'f', 1) << "mm (X),"
-	                << "±" << QString::number(result.std_devs[3]*1000, 'f', 1) << "mm (Y)";
-	        qInfo() << "    Orientation: ±" << QString::number(qRadiansToDegrees(result.std_devs[4]), 'f', 2) << "°";
-	    }
+	if (!result.std_devs.empty())
+	{
+		if (optimizer.room_freezing_manager.should_freeze_room())
+		{
+			// LOCALIZED mode: [x, y, theta]
+			qInfo() << "  Uncertainty (1σ):";
+			qInfo() << "    Position: ±" << QString::number(result.std_devs[0] * 1000, 'f', 1) << "mm (X),"
+					<< "±" << QString::number(result.std_devs[1] * 1000, 'f', 1) << "mm (Y)";
+			qInfo() << "    Orientation: ±" << QString::number(qRadiansToDegrees(result.std_devs[2]), 'f', 2) << "°";
+		} else
+		{
+			// MAPPING mode: [room_w, room_h, x, y, theta]
+			qInfo() << "  Uncertainty (1σ):";
+			qInfo() << "    Room: ±" << QString::number(result.std_devs[0] * 1000, 'f', 1) << "mm (W),"
+					<< "±" << QString::number(result.std_devs[1] * 1000, 'f', 1) << "mm (H)";
+			qInfo() << "    Position: ±" << QString::number(result.std_devs[2] * 1000, 'f', 1) << "mm (X),"
+					<< "±" << QString::number(result.std_devs[3] * 1000, 'f', 1) << "mm (Y)";
+			qInfo() << "    Orientation: ±" << QString::number(qRadiansToDegrees(result.std_devs[4]), 'f', 2) << "°";
+		}
 	}
 
 	// Distance to walls
 	const float dist_to_wall_x = room_params[0] - std::abs(robot_pose[0]);
 	const float dist_to_wall_y = room_params[1] - std::abs(robot_pose[1]);
 	qInfo() << "  Distance to walls: X=" << QString::number(dist_to_wall_x, 'f', 2) << "m,"
-	        << "Y=" << QString::number(dist_to_wall_y, 'f', 2) << "m";
+			<< "Y=" << QString::number(dist_to_wall_y, 'f', 2) << "m";
 
 	qInfo() << "================================\n";
 }
@@ -328,14 +362,18 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 cv::Mat SpecificWorker::read_image()
 {
 	RoboCompCamera360RGB::TImage img;
-	try{ img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);}
-	catch (const Ice::Exception &e){ std::cout << e.what() << " Error reading 360 camera " << std::endl; return cv::Mat{}; }
+	try { img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1); } catch (const Ice::Exception &e)
+	{
+		std::cout << e.what() << " Error reading 360 camera " << std::endl;
+		return cv::Mat{};
+	}
 
 	// convert to cv::Mat
 	cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
 
 	// extract a ROI leaving out borders (same as original logic)
-	const int left_offset = cv_img.cols / 8; const int vert_offset = cv_img.rows / 4;
+	const int left_offset = cv_img.cols / 8;
+	const int vert_offset = cv_img.rows / 4;
 	const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
 	if (roi.width <= 0 || roi.height <= 0) return cv::Mat{};
 	cv_img = cv_img(roi);
@@ -351,15 +389,20 @@ TimePoints SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
-	{ ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);}
-	catch (const Ice::Exception &e) { std::cout << e << " " << "No lidar data from sensor" << std::endl; return {};}
+	{
+		ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);
+	} catch (const Ice::Exception &e)
+	{
+		std::cout << e << " " << "No lidar data from sensor" << std::endl;
+		return {};
+	}
 	if (ldata.points.empty()) return {};
 
 	// // Compute mean and variance (Welford) only over valid z (>1000 <2000)
 	double mean = 0.0;
 	double M2 = 0.0;
 	std::size_t count = 0;
-	for (const auto &p : ldata.points)
+	for (const auto &p: ldata.points)
 	{
 		if (p.z <= 1000 or p.z > 2000) continue; // keep same validity criterion
 		++count;
@@ -367,19 +410,22 @@ TimePoints SpecificWorker::read_data()
 		mean += delta / static_cast<double>(count);
 		M2 += delta * (p.r - mean);
 	}
-	if (count == 0) { return {};}
+	if (count == 0) { return {}; }
 
 	// population variance to match original behavior (divide by N)
 	const double var = M2 / static_cast<double>(count);
 	const double stddev = std::sqrt(var);
 	if (stddev == 0.0)
-	{ qInfo() << __FUNCTION__ << "Zero variance in range data, all points have same r: " << mean; return {};}
+	{
+		qInfo() << __FUNCTION__ << "Zero variance in range data, all points have same r: " << mean;
+		return {};
+	}
 
 	// filter out points with r beyond 2 stddevs (apply only if stddev > 0)
 	RoboCompLidar3D::TPoints no_outliers;
 	no_outliers.reserve(ldata.points.size());
 	const double threshold = 2.0 * stddev;
-	for (const auto &p : ldata.points)
+	for (const auto &p: ldata.points)
 		if (std::fabs(p.r - mean) <= threshold)
 			no_outliers.push_back(p);
 	ldata.points = std::move(no_outliers);
@@ -390,7 +436,10 @@ TimePoints SpecificWorker::read_data()
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
 
-	return {ldata.points, std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(ldata.timestamp))};
+	return {
+		ldata.points,
+		std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(ldata.timestamp))
+	};
 }
 
 // Filter isolated points: keep only points with at least one neighbor within distance d
@@ -433,37 +482,44 @@ RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points(const RoboCompLi
 			result.push_back(points[i]);
 	return result;
 }
+
 std::expected<int, std::string> SpecificWorker::closest_lidar_index_to_given_angle(const auto &points, float angle)
 {
 	// search for the point in points whose phi value is closest to angle
-	auto res = std::ranges::find_if(points, [angle](auto &a){ return a.phi > angle;});
-	if(res != std::end(points))
+	auto res = std::ranges::find_if(points, [angle](auto &a) { return a.phi > angle; });
+	if (res != std::end(points))
 		return std::distance(std::begin(points), res);
 	else
 		return std::unexpected("No closest value found in method <closest_lidar_index_to_given_angle>");
 }
-RoboCompLidar3D::TPoints SpecificWorker::filter_same_phi(const RoboCompLidar3D::TPoints& points)
+
+RoboCompLidar3D::TPoints SpecificWorker::filter_same_phi(const RoboCompLidar3D::TPoints &points)
 {
 	if (points.empty())
 		return {};
 
-	RoboCompLidar3D::TPoints result; result.reserve(points.size());
+	RoboCompLidar3D::TPoints result;
+	result.reserve(points.size());
 
-	for (auto&& [angle, group]: iter::groupby(points, [](const auto& p)
+	for (auto &&[angle, group]: iter::groupby(points, [](const auto &p)
 	{
-		float multiplier=std::pow(10.0f, 2); return std::floor(p.phi*multiplier)/multiplier;
-	})) {
-		auto min=std::min_element(std::begin(group), std::end(group), [](const auto& a, const auto& b){return a.r<b.r;});
+		float multiplier = std::pow(10.0f, 2);
+		return std::floor(p.phi * multiplier) / multiplier;
+	}))
+	{
+		auto min = std::min_element(std::begin(group), std::end(group),
+		                            [](const auto &a, const auto &b) { return a.r < b.r; });
 		result.emplace_back(*min);
 	}
 	return result;
 }
+
 void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene)
 {
-	static std::vector<QGraphicsItem*> items;   // store items so they can be shown between iterations
+	static std::vector<QGraphicsItem *> items; // store items so they can be shown between iterations
 
 	// remove all items drawn in the previous iteration
-	for(const auto i: items)
+	for (const auto i: items)
 	{
 		scene->removeItem(i);
 		delete i;
@@ -472,18 +528,24 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 
 	const auto color = QColor(Qt::darkGreen);
 	const auto brush = QBrush(QColor(Qt::darkGreen));
-	for(const auto &p : filtered_points)
+	for (const auto &p: filtered_points)
 	{
 		const auto item = scene->addRect(-25, -25, 50, 50, color, brush);
 		item->setPos(p.x, p.y);
 		items.push_back(item);
 	}
 }
-void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
+
+void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose, const RoomOptimizer::Result &result, QGraphicsScene *scene)
 {
 	// draw room in robot viewer
-	if (room_draw_robot != nullptr) { viewer->scene.removeItem(room_draw_robot); delete room_draw_robot;}
-	// compute room corners in robot frame
+	static QGraphicsItem *room_draw_robot = nullptr;
+	if (room_draw_robot != nullptr)
+	{
+		viewer->scene.removeItem(room_draw_robot);
+		delete room_draw_robot;
+	}
+	// compute room in robot frame
 	Eigen::Vector2f top_left(-room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
 	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
@@ -495,11 +557,47 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	bottom_left = R * bottom_left + t;
 	bottom_right = R * bottom_right + t;
 	QPolygonF polygon;
-	polygon << QPointF(top_left.x()*1000, top_left.y()*1000)
-	        << QPointF(top_right.x()*1000, top_right.y()*1000)
-	        << QPointF(bottom_right.x()*1000, bottom_right.y()*1000)
-	        << QPointF(bottom_left.x()*1000, bottom_left.y()*1000);
+	polygon << QPointF(top_left.x() * 1000, top_left.y() * 1000)
+			<< QPointF(top_right.x() * 1000, top_right.y() * 1000)
+			<< QPointF(bottom_right.x() * 1000, bottom_right.y() * 1000)
+			<< QPointF(bottom_left.x() * 1000, bottom_left.y() * 1000);
 	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 40));
+
+	// ===== DRAW DUAL UNCERTAINTY VISUALIZATION =====
+	static QGraphicsItem *cov_item=nullptr, *propagated_cov_item=nullptr;
+	if (cov_item != nullptr)
+	{ scene->removeItem(cov_item); delete cov_item; cov_item = nullptr;}
+	if (propagated_cov_item != nullptr)
+	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; }
+
+	// 1. Draw PROPAGATED uncertainty (after motion, before measurements)
+	//    This shows how much uncertainty grew due to motion
+	const std::vector<float> robot_pose_vec{robot_pose.translation().x(),
+											robot_pose.translation().y(),
+											Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
+	if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0)
+	{
+		propagated_cov_item = draw_propagated_uncertainty_ellipse(
+			scene,
+			result.propagated_cov,
+			robot_pose_vec,
+			QColor(255, 165, 0, 190), // Orange, semi-transparent
+			2.0f // 2-sigma
+		);
+	}
+
+	// 2. Draw UPDATED uncertainty (after measurements)
+	//    This shows how measurements reduced uncertainty
+	if (result.covariance.defined() && result.covariance.numel() > 0)
+	{
+		cov_item = draw_uncertainty_ellipse(
+			scene,
+			result.covariance,
+			robot_pose_vec,
+			QColor(0, 255, 0, 190), // Green, semi-transparent
+			2.0f // 2-sigma
+		);
+	}
 
 	// update GUI
 	time_series_plotter->update();
@@ -520,9 +618,136 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose)
 	//const double angle = qRadiansToDegrees(std::atan2(robot_pose.rotation()(1, 0), robot_pose.rotation()(0, 0)));
 	const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
 	lcdNumber_angle->display(angle);
-	label_state->setText(optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
+	label_state->setText(
+		optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
 }
 
+QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
+	    QGraphicsScene *scene,
+	    const torch::Tensor &covariance,
+	    const std::vector<float> &robot_pose,
+	    const QColor &color,
+	    float scale_factor)  // 2-sigma = 95% confidence
+{
+    if (!covariance.defined() || covariance.numel() == 0) {
+        return nullptr;
+    }
+
+    // Extract position covariance (2x2 submatrix)
+    float var_x = covariance[0][0].item<float>();
+    float var_y = covariance[1][1].item<float>();
+    float cov_xy = covariance[0][1].item<float>();
+
+    // Compute eigenvalues and eigenvectors for ellipse orientation
+    // Covariance matrix: [var_x  cov_xy]
+    //                    [cov_xy var_y ]
+    float trace = var_x + var_y;
+    float det = var_x * var_y - cov_xy * cov_xy;
+    float discriminant = std::sqrt(trace * trace / 4.0f - det);
+
+    float lambda1 = trace / 2.0f + discriminant;  // Larger eigenvalue
+    float lambda2 = trace / 2.0f - discriminant;  // Smaller eigenvalue
+
+    // Standard deviations (semi-axes of ellipse)
+    float std_major = std::sqrt(std::max(lambda1, 1e-8f));  // Avoid sqrt of negative
+    float std_minor = std::sqrt(std::max(lambda2, 1e-8f));
+
+    // Ellipse orientation (angle of major axis)
+    float angle_rad = 0.0f;
+    if (std::abs(cov_xy) > 1e-6f) {
+        angle_rad = 0.5f * std::atan2(2.0f * cov_xy, var_x - var_y);
+    }
+    float angle_deg = angle_rad * 180.0f / M_PI;
+
+    // Convert to millimeters for visualization
+    float width_mm = 2.0f * scale_factor * std_major * 1000.0f;   // 2-sigma = 95%
+    float height_mm = 2.0f * scale_factor * std_minor * 1000.0f;
+
+    // Robot position in mm
+    float robot_x_mm = robot_pose[0] * 1000.0f;
+    float robot_y_mm = robot_pose[1] * 1000.0f;
+
+    // Create ellipse (centered at robot)
+    auto ellipse = scene->addEllipse(
+      - width_mm/2.0f,
+      - height_mm/2.0f,
+        width_mm,
+        height_mm,
+        QPen(color, 30),  // Thicker pen for visibility
+        QBrush(color)  // No fill, just outline
+    );
+
+    // Rotate ellipse to match covariance orientation
+    //ellipse->setTransformOriginPoint(0, 0);
+    //ellipse->setRotation(-angle_deg);  // Qt uses clockwise, we use counterclockwise
+
+    // Set Z-order (draw on top)
+    ellipse->setZValue(100);
+	return ellipse;
+}
+QGraphicsEllipseItem* SpecificWorker::draw_propagated_uncertainty_ellipse(
+	    QGraphicsScene *scene,
+	    const torch::Tensor &covariance,
+	    const std::vector<float> &robot_pose,
+	    const QColor &color,
+	    float scale_factor)  // 2-sigma = 95% confidence
+{
+    if (!covariance.defined() || covariance.numel() == 0) {
+        return nullptr;
+    }
+
+    // Extract position covariance (2x2 submatrix)
+    float var_x = covariance[0][0].item<float>();
+    float var_y = covariance[1][1].item<float>();
+    float cov_xy = covariance[0][1].item<float>();
+
+    // Compute eigenvalues and eigenvectors for ellipse orientation
+    // Covariance matrix: [var_x  cov_xy]
+    //                    [cov_xy var_y ]
+    float trace = var_x + var_y;
+    float det = var_x * var_y - cov_xy * cov_xy;
+    float discriminant = std::sqrt(trace * trace / 4.0f - det);
+
+    float lambda1 = trace / 2.0f + discriminant;  // Larger eigenvalue
+    float lambda2 = trace / 2.0f - discriminant;  // Smaller eigenvalue
+
+    // Standard deviations (semi-axes of ellipse)
+    float std_major = std::sqrt(std::max(lambda1, 1e-8f));  // Avoid sqrt of negative
+    float std_minor = std::sqrt(std::max(lambda2, 1e-8f));
+
+    // Ellipse orientation (angle of major axis)
+    float angle_rad = 0.0f;
+    if (std::abs(cov_xy) > 1e-6f) {
+        angle_rad = 0.5f * std::atan2(2.0f * cov_xy, var_x - var_y);
+    }
+    float angle_deg = angle_rad * 180.0f / M_PI;
+
+    // Convert to millimeters for visualization
+    float width_mm = 2.0f * scale_factor * std_major * 1000.0f;   // 2-sigma = 95%
+    float height_mm = 2.0f * scale_factor * std_minor * 1000.0f;
+
+    // Robot position in mm
+    float robot_x_mm = robot_pose[0] * 1000.0f;
+    float robot_y_mm = robot_pose[1] * 1000.0f;
+
+    // Create ellipse (centered at robot)
+    auto ellipse = scene->addEllipse(
+      - width_mm/2.0f,
+      - height_mm/2.0f,
+        width_mm,
+        height_mm,
+        QPen(color, 30),  // Thicker pen for visibility
+        QBrush(color)  // No fill, just outline
+    );
+
+    // Rotate ellipse to match covariance orientation
+    //ellipse->setTransformOriginPoint(0, 0);
+    //ellipse->setRotation(-angle_deg);  // Qt uses clockwise, we use counterclockwise
+
+    // Set Z-order (draw on top)
+    ellipse->setZValue(100);
+	return ellipse;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 /////SUBSCRIPTION to sendData method from JoystickAdapter interface
@@ -530,14 +755,14 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
 {
 	// Parse velocity command (assuming axes[0]=adv_x, axes[1]=adv_z, axes[2]=rot)
 	VelocityCommand cmd;
-	for (const auto &axis : data.axes)
+	for (const auto &axis: data.axes)
 	{
 		if (axis.name == "rotate")
 			cmd.rot = axis.value;
-		else if (axis.name == "advance")	// forward is positive Z. Right-hand rule
+		else if (axis.name == "advance") // forward is positive Z. Right-hand rule
 			cmd.adv_z = axis.value;
 		else if (axis.name == "side")
-			cmd.adv_x = axis.value;
+			cmd.adv_x = 0.0f; // not lateral motion allowed
 	}
 	cmd.timestamp = std::chrono::high_resolution_clock::now();
 	velocity_history_.push_back(cmd);
@@ -559,13 +784,15 @@ void SpecificWorker::emergency()
 	//if (SUCCESSFUL) //The componet is safe for continue
 	//  emmit goToRestore()
 }
+
 //Execute one when exiting to emergencyState
 void SpecificWorker::restore()
 {
 	std::cout << "Restore worker" << std::endl;
-    //restoreCODE
-    //Restore emergency component
+	//restoreCODE
+	//Restore emergency component
 }
+
 int SpecificWorker::startup_check()
 {
 	std::cout << "Startup check" << std::endl;
