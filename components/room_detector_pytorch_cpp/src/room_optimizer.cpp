@@ -578,6 +578,9 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
     // Then: Σ_total = Λ_total^(-1)
 
     if (is_localized && propagated_cov.defined() && propagated_cov.numel() > 0) {
+        // Store the propagated covariance for visualization
+        res.propagated_cov = propagated_cov.clone();
+
         try {
             // Step 1: Compute measurement covariance from Hessian of MEASUREMENT LOSS ONLY
             // This excludes the prior loss to avoid ill-conditioning
@@ -628,6 +631,7 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
 
             // Fallback: Use propagated covariance with conservative inflation
             // This means we trust only the motion model, not the measurements
+            res.propagated_cov = propagated_cov.clone();
             res.covariance = propagated_cov * 2.0f;  // Conservative: double the uncertainty
             res.uncertainty_valid = false;
             res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
