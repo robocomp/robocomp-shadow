@@ -566,9 +566,9 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose, const 
 	// ===== DRAW DUAL UNCERTAINTY VISUALIZATION =====
 	static QGraphicsItem *cov_item=nullptr, *propagated_cov_item=nullptr;
 	if (cov_item != nullptr)
-	{ scene->removeItem(cov_item); delete cov_item; cov_item = nullptr;}
+	{ scene->removeItem(cov_item); delete cov_item; cov_item=nullptr; }
 	if (propagated_cov_item != nullptr)
-	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; }
+	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; propagated_cov_item = nullptr; }
 
 	// 1. Draw PROPAGATED uncertainty (after motion, before measurements)
 	//    This shows how much uncertainty grew due to motion
@@ -678,8 +678,8 @@ QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
     );
 
     // Rotate ellipse to match covariance orientation
-    //ellipse->setTransformOriginPoint(0, 0);
-    //ellipse->setRotation(-angle_deg);  // Qt uses clockwise, we use counterclockwise
+    ellipse->setTransformOriginPoint(0, 0);
+    ellipse->setRotation(angle_deg);  // Qt uses clockwise, we use counterclockwise
 
     // Set Z-order (draw on top)
     ellipse->setZValue(100);
@@ -741,8 +741,8 @@ QGraphicsEllipseItem* SpecificWorker::draw_propagated_uncertainty_ellipse(
     );
 
     // Rotate ellipse to match covariance orientation
-    //ellipse->setTransformOriginPoint(0, 0);
-    //ellipse->setRotation(-angle_deg);  // Qt uses clockwise, we use counterclockwise
+    ellipse->setTransformOriginPoint(0, 0);
+    ellipse->setRotation(angle_deg);  // Qt uses clockwise, we use counterclockwise
 
     // Set Z-order (draw on top)
     ellipse->setZValue(100);

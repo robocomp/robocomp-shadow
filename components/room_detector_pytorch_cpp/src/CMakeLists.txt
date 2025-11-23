@@ -51,5 +51,5 @@ INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
 LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport)
 
 # no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-O4 -fmax-errors=1 -fno-char8_t)
+add_definitions(-g -O4 -fmax-errors=1 -fno-char8_t)
 

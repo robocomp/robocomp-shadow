@@ -213,7 +213,7 @@ std::vector<Detection> YOLODetector::postprocessOutput(const torch::Tensor& outp
     
     // Create final detections
     for (int idx : indices) {
-        std::string label = (classIds[idx] < m_classNames.size()) 
+        std::string label = (classIds[idx] < gim_classNames.size())
                           ? m_classNames[classIds[idx]] 
                           : "class_" + std::to_string(classIds[idx]);
         
