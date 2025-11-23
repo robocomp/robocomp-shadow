@@ -128,12 +128,7 @@ class SpecificWorker final : public GenericWorker
 		void update_viewers(const TimePoints &points,
 							const RoomOptimizer::Result &result,
 							QGraphicsScene *scene);
-		QGraphicsEllipseItem* draw_propagated_uncertainty_ellipse(
-			QGraphicsScene *scene,
-			const torch::Tensor &covariance,
-			const std::vector<float> &robot_pose,
-			const QColor &color,
-			float scale_factor);  // 2-sigma = 95% confidence
+
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
 				QGraphicsScene *scene,
 				const torch::Tensor &covariance,
@@ -156,7 +151,7 @@ class SpecificWorker final : public GenericWorker
 		std::chrono::time_point<std::chrono::high_resolution_clock> last_time = std::chrono::high_resolution_clock::now();
 
 		// plotter
-		std::shared_ptr<TimeSeriesPlotter> time_series_plotter;
+		std::shared_ptr<TimeSeriesPlotter> loss_plotter, stddev_plotter;
 		std::vector<int> graphs;
 
 		// door

@@ -26,78 +26,84 @@
  * - Support for state transitions (mapping/localized)
  */
 
-class UncertaintyManager {
-public:
-    struct Result
-    {
-        torch::Tensor covariance;    // 3x3 or 5x5
-        std::vector<float> std_devs; // Standard deviations
-        bool is_valid = true;        // False if NaN/Inf detected
+class UncertaintyManager
+{
+    public:
+        struct Result
+        {
+            torch::Tensor covariance;    // 3x3 or 5x5
+            std::vector<float> std_devs; // Standard deviations
+            bool is_valid = true;        // False if NaN/Inf detected
 
-        // Diagnostics
-        bool used_propagation = false;
-        bool used_fusion = false;
-        std::string error_message;
-    };
+            // Diagnostics
+            bool used_propagation = false;
+            bool used_fusion = false;
+            std::string error_message;
+        };
 
-    UncertaintyManager() = default;
+        UncertaintyManager() = default;
 
-    // Configuration
-    void set_motion_noise(float translation_per_meter, float rotation_per_radian);
-    void enable_motion_propagation(bool enable) { use_propagation_ = enable; }
+        // Configuration
+        void set_motion_noise(float translation_per_meter, float rotation_per_radian);
+        void enable_motion_propagation(bool enable) { use_propagation_ = enable; }
 
-    // State management
-    void reset(); // Clear history (e.g., when switching mapping/localized states)
-    bool has_history() const { return has_history_; }
-    void set_previous_cov(const torch::Tensor& cov);
-    void set_previous_pose(const std::vector<float>& pose);
-    torch::Tensor propagate_with_velocity( const VelocityCommand& cmd, float dt,
-                                           const torch::Tensor& prev_cov,
-                                           bool is_localized) const;
-    torch::Tensor get_previous_cov() const ;
-     // Fuse propagated and measurement covariances using information form
-    torch::Tensor fuse_covariances(const torch::Tensor& propagated,const torch::Tensor& measurement ) const;
+        // State management
+        void reset(); // Clear history (e.g., when switching mapping/localized states)
+        bool has_history() const { return has_history_; }
+        void set_previous_cov(const torch::Tensor& cov);
+        void set_previous_pose(const std::vector<float>& pose);
+        torch::Tensor propagate_with_velocity( const VelocityCommand& cmd, float dt,
+                                               const torch::Tensor& prev_cov,
+                                               bool is_localized) const;
 
-private:
-    // ===== STATE =====
-    std::vector<float> previous_pose_;  // [x, y, theta]
-    torch::Tensor previous_cov_;         // Last valid covariance
-    bool has_history_ = false;
+        torch::Tensor propagate_with_delta_pose( const Eigen::Vector3f &delta_pose,
+                                                 const torch::Tensor& prev_cov,
+                                                 bool is_localized) const;
 
-    // ===== CONFIGURATION =====
-    bool use_propagation_ = false;
-    float noise_trans_ = 0.02f;  // 2cm stddev per meter
-    float noise_rot_ = 0.1f;     // 0.1 rad stddev per radian
-    const float reg_factor_ = 1e-6f;  // Regularization for numerical stability
+        torch::Tensor get_previous_cov() const ;
+         // Fuse propagated and measurement covariances using information form
+        torch::Tensor fuse_covariances(const torch::Tensor& propagated,const torch::Tensor& measurement ) const;
 
-    // ===== INTERNAL METHODS =====
+    private:
+        // ===== STATE =====
+        std::vector<float> previous_pose_;  // [x, y, theta]
+        torch::Tensor previous_cov_;         // Last valid covariance
+        bool has_history_ = false;
 
-    /**
-     * Compute measurement covariance via Laplace approximation
-     */
-    torch::Tensor compute_measurement_covariance(
-        const torch::Tensor& points,
-        RoomModel& room,
-        float huber_delta,
-        bool is_localized
-    ) const;
+        // ===== CONFIGURATION =====
+        bool use_propagation_ = false;
+        float noise_trans_ = 0.02f;  // 2cm stddev per meter
+        float noise_rot_ = 0.1f;     // 0.1 rad stddev per radian
+        const float reg_factor_ = 1e-6f;  // Regularization for numerical stability
 
-    /**
-     * Validate covariance matrix (check for NaN, Inf, wrong dimensions)
-     */
-    bool is_valid_covariance(const torch::Tensor& cov, int expected_dim) const;
+        // ===== INTERNAL METHODS =====
 
-    /**
-     * Create fallback covariance when computation fails
-     */
-    torch::Tensor create_fallback_covariance(int dim) const;
+        /**
+         * Compute measurement covariance via Laplace approximation
+         */
+        torch::Tensor compute_measurement_covariance(
+            const torch::Tensor& points,
+            RoomModel& room,
+            float huber_delta,
+            bool is_localized
+        ) const;
 
-    /**
-     * Compute motion metrics between poses
-     */
-    void compute_motion_metrics(
-        const std::vector<float>& current_pose,
-        float& translation,
-        float& rotation
-    ) const;
+        /**
+         * Validate covariance matrix (check for NaN, Inf, wrong dimensions)
+         */
+        bool is_valid_covariance(const torch::Tensor& cov, int expected_dim) const;
+
+        /**
+         * Create fallback covariance when computation fails
+         */
+        torch::Tensor create_fallback_covariance(int dim) const;
+
+        /**
+         * Compute motion metrics between poses
+         */
+        void compute_motion_metrics(
+            const std::vector<float>& current_pose,
+            float& translation,
+            float& rotation
+        ) const;
 };

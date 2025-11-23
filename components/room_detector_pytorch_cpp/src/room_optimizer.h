@@ -50,20 +50,30 @@ class RoomOptimizer
                 , dt(0.0f)
             {}
         };
+
+        struct PredictionState
+        {
+            torch::Tensor propagated_cov;  // Predicted covariance
+            bool have_propagated = false;   // Whether prediction was performed
+            std::vector<float> previous_pose;  // Robot pose BEFORE prediction (for prior loss)
+            std::vector<float> predicted_pose; // Robot pose after prediction
+        };
+
         struct Result
         {
             torch::Tensor covariance;            // 3x3 or 5x5
             torch::Tensor propagated_cov;        // 3x3 or 5x5 (after motion, before measurement)
             std::vector<float> std_devs;         // flat std dev vector
-            float final_loss = 0.0f;
+            float final_loss = 0.0f;             // Total loss after optimization
             float prior_loss = 0.0f;             // For calibration learning
-            float measurement_loss = 0.0f;      // Final measurement loss
-            bool uncertainty_valid = true;
-            bool used_fusion = false;
-            OdometryPrior prior;
+            float measurement_loss = 0.0f;       // Final measurement loss
+            bool uncertainty_valid = true;       // Whether covariance is valid
+            bool used_fusion = false;            // Whether odometry prior was used
+            OdometryPrior prior;                 // Odometry prior used
+            PredictionState prediction_state;    // For diagnostics
             std::vector<float> optimized_pose;   // Final robot pose after optimization
-            float innovation_norm = 0.0f;   // For diagnostics
-            float motion_magnitude = 0.0f;  // For diagnostics
+            float innovation_norm = 0.0f;        // For diagnostics
+            float motion_magnitude = 0.0f;       // For diagnostics
         };
 
         struct CalibrationConfig
@@ -86,14 +96,6 @@ class RoomOptimizer
         {
            float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
            float NOISE_ROT = 0.01f;     // 0.1 rad
-        };
-
-        struct PredictionState
-        {
-            torch::Tensor propagated_cov;  // Predicted covariance
-            bool have_propagated = false;   // Whether prediction was performed
-            std::vector<float> previous_pose;  // Robot pose BEFORE prediction (for prior loss)
-            std::vector<float> predicted_pose; // Robot pose after prediction
         };
 
         PredictionParameters prediction_params;
@@ -172,21 +174,18 @@ class RoomOptimizer
                                    const torch::Tensor &predicted_pose_tensor,
                                    const OdometryPrior &odometry_prior,
                                    torch::optim::Optimizer &optimizer,
+                                   const PredictionState &prediction,
                                    bool use_odometry_prior,
                                    int num_iterations,
                                    float min_loss_threshold);
-
-        /**
-         * Compute measurement loss (SDF-based)
-         */
-        torch::Tensor compute_measurement_loss(const torch::Tensor &points_tensor, RoomModel &room);
 
         /**
          * Compute odometry prior loss (Mahalanobis distance)
          */
         torch::Tensor compute_prior_loss(RoomModel &room,
                                          const torch::Tensor &predicted_pose,
-                                         const OdometryPrior &odometry_prior);
+                                         const OdometryPrior &odometry_prior,
+                                         const PredictionState &prediction);
 
         /**
          * Compute calibration regularization loss
@@ -229,8 +228,8 @@ class RoomOptimizer
          * Compute odometry prior between LiDAR timestamps
          */
         OdometryPrior compute_odometry_prior(const RoomModel &room,
-                                            const boost::circular_buffer<VelocityCommand>& velocity_history,
-                                            const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp);
+                                             const boost::circular_buffer<VelocityCommand>& velocity_history,
+                                             const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp);
 
         /**
          * Compute motion-based covariance for odometry prior
@@ -243,14 +242,6 @@ class RoomOptimizer
                                             float motion_magnitude,
                                             const Eigen::Matrix3f& prior_cov,
                                             float current_weight);
-        /**
-         * Update calibration parameters slowly using long-term learning
-         */
-        void update_calibration_slowly(RoomModel &room,
-                                      const OdometryPrior &odometry_prior,
-                                      const std::vector<float> &predicted_pose,
-                                      const std::vector<float> &optimized_pose,
-                                      float prior_loss);
 
         float wall_thickness = 0.05f;  // Wall thickness for loss computation
 };

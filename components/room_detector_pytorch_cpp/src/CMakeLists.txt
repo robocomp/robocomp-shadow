@@ -6,6 +6,10 @@ find_package(Qt6 COMPONENTS 3DCore 3DRender 3DExtras REQUIRED)
 # Set LibTorch path
 set(CMAKE_PREFIX_PATH "/home/robocomp/software/libtorch")
 
+# Set the CUDA architecture list for PyTorch
+set(CMAKE_CUDA_ARCHITECTURES 89)
+set(TORCH_CUDA_ARCH_LIST "8.9" CACHE STRING "CUDA architectures for PyTorch")
+
 # Find PyTorch
 find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")

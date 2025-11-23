@@ -123,6 +123,109 @@ torch::Tensor UncertaintyManager::propagate_with_velocity(
     return propagated;
 }
 
+torch::Tensor UncertaintyManager::propagate_with_delta_pose( const Eigen::Vector3f &delta_pose,
+                                                             const torch::Tensor& prev_cov,
+                                                             bool is_localized) const
+{
+    int dim = is_localized ? 3 : 5;
+
+    // Get current pose for Jacobian computation
+    if (previous_pose_.empty()) {
+        // Fallback: simple additive noise
+        return prev_cov + noise_trans_ * noise_trans_ * torch::eye(dim, torch::kFloat32);
+    }
+
+    float theta = previous_pose_[2];  // Current heading
+
+    // Motion already integrated in global frame!
+    // delta_pose = [dx_global, dy_global, dtheta]
+    // But we need motion in robot frame for anisotropic noise computation
+
+    // Transform global delta back to robot frame for noise computation
+    float cos_t = std::cos(theta);
+    float sin_t = std::sin(theta);
+
+    float dx_global = delta_pose[0];
+    float dy_global = delta_pose[1];
+    float dtheta = delta_pose[2];
+
+    // Inverse rotation: robot_frame = R^T * global_frame
+    float dx_local = dx_global * cos_t + dy_global * sin_t;
+    float dy_local = -dx_global * sin_t + dy_global * cos_t;
+
+    // ===== MOTION MODEL JACOBIAN =====
+    // State: [x, y, theta] (for localized) or [w, h, x, y, theta] (for mapping)
+
+    torch::Tensor F = torch::eye(dim, torch::kFloat32);
+
+    if (is_localized) {
+        // Jacobian for robot pose only [x, y, theta]
+        // ∂x'/∂θ = -dy_local*sin(θ) - dx_local*cos(θ)
+        // ∂y'/∂θ =  dy_local*cos(θ) - dx_local*sin(θ)
+
+        F[0][2] = -dy_local * sin_t - dx_local * cos_t;
+        F[1][2] =  dy_local * cos_t - dx_local * sin_t;
+    } else {
+        // Jacobian for full state [w, h, x, y, theta]
+        F[2][4] = -dy_local * sin_t - dx_local * cos_t;
+        F[3][4] =  dy_local * cos_t - dx_local * sin_t;
+    }
+
+    // ===== PROCESS NOISE =====
+    // ANISOTROPIC: For Y=forward, X=right coordinate system:
+    //   dy_local = FORWARD motion (should get larger noise)
+    //   dx_local = LATERAL motion (should get smaller noise)
+
+    float forward_motion = std::abs(dy_local);   // Forward (Y in robot frame)
+    float lateral_motion = std::abs(dx_local);   // Lateral (X in robot frame)
+
+    float base_trans_noise = 0.002f;  // 2mm base uncertainty
+
+    // Forward uncertainty: grows with forward motion
+    float forward_noise = base_trans_noise + noise_trans_ * forward_motion;
+
+    // Lateral uncertainty: much smaller (differential drive, 10% of forward)
+    float lateral_noise = base_trans_noise + 0.1f * noise_trans_ * lateral_motion;
+
+    float base_rot_noise = 0.005f;  // 5 mrad base uncertainty
+    float rot_noise = base_rot_noise + noise_rot_ * std::abs(dtheta);
+
+    torch::Tensor Q = torch::zeros({dim, dim}, torch::kFloat32);
+
+    if (is_localized) {
+        // Build noise covariance in robot frame: Q = diag(lateral², forward², theta²)
+        float sigma_x = lateral_noise;   // X = right/lateral (smaller)
+        float sigma_y = forward_noise;   // Y = forward (larger)
+        float sigma_theta = rot_noise;
+
+        // Transform to global frame: Q_global = R * Q_local * R^T
+        // For X=right, Y=forward:
+        Q[0][0] = sigma_x*sigma_x * sin_t*sin_t + sigma_y*sigma_y * cos_t*cos_t;
+        Q[0][1] = (sigma_y*sigma_y - sigma_x*sigma_x) * cos_t * sin_t;
+        Q[1][0] = Q[0][1];
+        Q[1][1] = sigma_x*sigma_x * cos_t*cos_t + sigma_y*sigma_y * sin_t*sin_t;
+        Q[2][2] = sigma_theta * sigma_theta;
+    } else {
+        // Full state: room doesn't accumulate noise, only robot pose
+        float sigma_x = lateral_noise;
+        float sigma_y = forward_noise;
+        float sigma_theta = rot_noise;
+
+        Q[2][2] = sigma_y*sigma_y * cos_t*cos_t + sigma_x*sigma_x * sin_t*sin_t;
+        Q[2][3] = (sigma_y*sigma_y - sigma_x*sigma_x) * cos_t * sin_t;
+        Q[3][2] = Q[2][3];
+        Q[3][3] = sigma_y*sigma_y * sin_t*sin_t + sigma_x*sigma_x * cos_t*cos_t;
+        Q[4][4] = sigma_theta * sigma_theta;
+    }
+
+    // ===== EKF PREDICTION =====
+    // P_pred = F * P_prev * F^T + Q
+    torch::Tensor propagated = torch::matmul(torch::matmul(F, prev_cov), F.t()) + Q;
+
+    return propagated;
+
+}
+
 torch::Tensor UncertaintyManager::fuse_covariances( const torch::Tensor& propagated, const torch::Tensor& measurement)
 const
 {
