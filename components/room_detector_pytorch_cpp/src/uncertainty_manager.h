@@ -53,10 +53,10 @@ public:
     void set_previous_pose(const std::vector<float>& pose);
     torch::Tensor propagate_with_velocity( const VelocityCommand& cmd, float dt,
                                            const torch::Tensor& prev_cov,
-                                           bool is_localized);
+                                           bool is_localized) const;
     torch::Tensor get_previous_cov() const ;
-    // Fuse propagated and measurement covariances using information form
-    torch::Tensor fuse_covariances(const torch::Tensor& propagated,const torch::Tensor& measurement );
+     // Fuse propagated and measurement covariances using information form
+    torch::Tensor fuse_covariances(const torch::Tensor& propagated,const torch::Tensor& measurement ) const;
 
 private:
     // ===== STATE =====
@@ -80,17 +80,17 @@ private:
         RoomModel& room,
         float huber_delta,
         bool is_localized
-    );
+    ) const;
 
     /**
      * Validate covariance matrix (check for NaN, Inf, wrong dimensions)
      */
-    bool is_valid_covariance(const torch::Tensor& cov, int expected_dim);
+    bool is_valid_covariance(const torch::Tensor& cov, int expected_dim) const;
 
     /**
      * Create fallback covariance when computation fails
      */
-    torch::Tensor create_fallback_covariance(int dim);
+    torch::Tensor create_fallback_covariance(int dim) const;
 
     /**
      * Compute motion metrics between poses
@@ -99,5 +99,5 @@ private:
         const std::vector<float>& current_pose,
         float& translation,
         float& rotation
-    );
+    ) const;
 };

@@ -42,6 +42,7 @@ class RoomOptimizer
             std::vector<float> std_devs;         // flat std dev vector
             float final_loss = 0.0f;
             float prior_loss = 0.0f;             // For calibration learning
+            float measurement_loss = 0.0f;      // Final measurement loss
             bool uncertainty_valid = true;
             bool used_fusion = false;
             OdometryPrior prior;
@@ -89,7 +90,6 @@ class RoomOptimizer
         Result optimize( const TimePoints &points,
                          RoomModel &room,
                          const VelocityHistory &velocity_history,
-                         std::shared_ptr<TimeSeriesPlotter> time_series_plotter = nullptr,
                          int num_iterations = 150,
                          float min_loss_threshold = 0.001f,
                          float learning_rate = 0.01f
@@ -110,7 +110,7 @@ class RoomOptimizer
          */
         PredictionState predict_step(RoomModel &room,
                                      const OdometryPrior &odometry_prior,
-                                     bool is_localized) const;
+                                     bool is_localized);
 
         /**
          * Filter measurements based on predicted state (top-down prediction)
@@ -130,8 +130,7 @@ class RoomOptimizer
                           bool is_localized,
                           int num_iterations,
                           float min_loss_threshold,
-                          float learning_rate,
-                          std::shared_ptr<TimeSeriesPlotter> time_series_plotter);
+                          float learning_rate);
 
         /**
          * Select parameters for optimization based on mode
@@ -143,8 +142,9 @@ class RoomOptimizer
          */
         struct OptimizationResult
         {
-            float final_loss = 0.0f;
-            float final_prior_loss = 0.0f;
+            float total_loss = 0.0f;
+            float prior_loss = 0.0f;
+            float measurement_loss = 0.0f;
         };
 
         OptimizationResult run_optimization_loop(const torch::Tensor &points_tensor,
@@ -154,8 +154,7 @@ class RoomOptimizer
                                    torch::optim::Optimizer &optimizer,
                                    bool use_odometry_prior,
                                    int num_iterations,
-                                   float min_loss_threshold,
-                                   std::shared_ptr<TimeSeriesPlotter> time_series_plotter);
+                                   float min_loss_threshold);
 
         /**
          * Compute measurement loss (SDF-based)

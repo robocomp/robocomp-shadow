@@ -171,7 +171,6 @@ void SpecificWorker::compute()
 	//									   0.01f,0.01f, odom_prior, frame_counter);
 	const auto result = optimizer.optimize(time_points,
 	                                       room, velocity_history_,
-	                                       time_series_plotter,
 	                                       150,
 	                                       0.01f,
 	                                       0.01f);
@@ -210,27 +209,12 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
 	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
 
-	// Show uncertainty when localized
-	// if (room.are_room_parameters_frozen())
-	// {
-	// 	viewer3d->updateUncertainty(
-	// 		result.std_devs[0],  // X stddev
-	// 		result.std_devs[1],  // Y stddev
-	// 		result.std_devs[2]   // Theta stddev
-	// 	);
-	// 	viewer3d->showUncertainty(true);
-	// } else
-	// 	viewer3d->showUncertainty(false);  // Hide during mapping
-
-
-	// Visual effect: You should see TWO ellipses
-	// - Orange (larger): uncertainty after motion
-	// - Green (smaller): uncertainty after measurement update
-	// The difference shows the information gain from measurements!
-
 	// Time series plot
-	// if (time_series_plotter && result.covariance.defined()) {
-	// 	// Plot propagated uncertainty (before measurement update)
+	time_series_plotter->addDataPoint(0, result.measurement_loss);
+	time_series_plotter->addDataPoint(2, result.final_loss);
+	time_series_plotter->addDataPoint(1, result.prior_loss);
+
+	// Plot propagated uncertainty (before measurement update)
 	// 	if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0) {
 	// 		float prop_std_x = std::sqrt(result.propagated_cov[0][0].item<float>()) * 1000;
 	// 		float prop_std_y = std::sqrt(result.propagated_cov[1][1].item<float>()) * 1000;
@@ -664,12 +648,8 @@ QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
     float width_mm = 2.0f * scale_factor * std_major * 1000.0f;   // 2-sigma = 95%
     float height_mm = 2.0f * scale_factor * std_minor * 1000.0f;
 
-    // Robot position in mm
-    float robot_x_mm = robot_pose[0] * 1000.0f;
-    float robot_y_mm = robot_pose[1] * 1000.0f;
-
     // Create ellipse (centered at robot)
-    auto ellipse = scene->addEllipse(
+    const auto ellipse = scene->addEllipse(
       - width_mm/2.0f,
       - height_mm/2.0f,
         width_mm,
@@ -727,12 +707,8 @@ QGraphicsEllipseItem* SpecificWorker::draw_propagated_uncertainty_ellipse(
     float width_mm = 2.0f * scale_factor * std_major * 1000.0f;   // 2-sigma = 95%
     float height_mm = 2.0f * scale_factor * std_minor * 1000.0f;
 
-    // Robot position in mm
-    float robot_x_mm = robot_pose[0] * 1000.0f;
-    float robot_y_mm = robot_pose[1] * 1000.0f;
-
     // Create ellipse (centered at robot)
-    auto ellipse = scene->addEllipse(
+    const auto ellipse = scene->addEllipse(
       - width_mm/2.0f,
       - height_mm/2.0f,
         width_mm,

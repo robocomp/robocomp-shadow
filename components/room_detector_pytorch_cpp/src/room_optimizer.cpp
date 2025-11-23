@@ -22,7 +22,6 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     const TimePoints &points_,
     RoomModel &room,
     const VelocityHistory &velocity_history,
-    std::shared_ptr<TimeSeriesPlotter> time_series_plotter,
     int num_iterations,
     float min_loss_threshold,
     float learning_rate)
@@ -62,7 +61,7 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     // - Prior term: ||x - x_pred||² pulls toward prediction
     // - Result: x_new = x_pred + K*(innovation), where K is implicit in optimization
     Result res = update_step(points_tensor, room, odometry_prior, prediction, is_localized,
-                             num_iterations, min_loss_threshold, learning_rate, time_series_plotter);
+                             num_iterations, min_loss_threshold, learning_rate);
 
     // Store the prior for debugging
     res.prior = odometry_prior;
@@ -127,9 +126,6 @@ RoomOptimizer::Result RoomOptimizer::optimize(
             float alpha = 0.3f;
             prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
         }
-
-        float old_weight = prior_weight_;  // For diagnostics
-
     }
 
     frame_number++;
@@ -259,8 +255,7 @@ RoomOptimizer::Result RoomOptimizer::update_step(
     bool is_localized,
     int num_iterations,
     float min_loss_threshold,
-    float learning_rate,
-    std::shared_ptr<TimeSeriesPlotter> time_series_plotter)
+    float learning_rate)
 {
     Result res;
     res.prior = odometry_prior;
@@ -337,17 +332,16 @@ RoomOptimizer::Result RoomOptimizer::update_step(
         optimizer,
         use_odometry_prior,
         num_iterations,
-        min_loss_threshold,
-        time_series_plotter
+        min_loss_threshold
     );
 
     // === DIAGNOSTIC: Movement check ===
 
     // Estimate uncertainty after optimization
     // Pass the propagated covariance (after motion growth) for proper EKF update
-    res = estimate_uncertainty(room, points_tensor, is_localized, opt_result.final_loss,
+    res = estimate_uncertainty(room, points_tensor, is_localized, opt_result.total_loss,
                                prediction.have_propagated ? prediction.propagated_cov : torch::Tensor());
-    res.prior_loss = opt_result.final_prior_loss;  // Store for calibration learning
+    res.prior_loss = opt_result.prior_loss;  // Store for calibration learning
 
     return res;
 }
@@ -379,22 +373,20 @@ RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
     torch::optim::Optimizer &optimizer,
     bool use_odometry_prior,
     int num_iterations,
-    float min_loss_threshold,
-    std::shared_ptr<TimeSeriesPlotter> time_series_plotter)
+    float min_loss_threshold)
 {
     OptimizationResult result;
-    float final_prior_loss = 0.0f;
-
-    torch::Tensor calib_reg;
-    torch::Tensor prior_loss;
+    torch::Tensor prior_loss = torch::zeros({}, torch::kFloat32);
+    torch::Tensor measurement_loss;
+    torch::Tensor total_loss = torch::zeros({}, torch::kFloat32);
     for (int iter = 0; iter < num_iterations; ++iter)
     {
         optimizer.zero_grad();
 
         // ===== MEASUREMENT LIKELIHOOD: p(z|x) =====
         // SDF-based loss: how well robot pose explains LiDAR measurements
-        torch::Tensor measurement_loss = compute_measurement_loss(points_tensor, room);
-        torch::Tensor total_loss = measurement_loss;
+        measurement_loss = compute_measurement_loss(points_tensor, room);
+        total_loss = measurement_loss;
 
         // ===== MOTION PRIOR: p(x|x_pred) =====
         // Add prior loss if using odometry
@@ -426,81 +418,19 @@ RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
 
         optimizer.step();
 
-        // Enforce calibration bounds
-        auto calib = room.get_odometry_calibration();
-        bool hit_bounds = false;
-
-        if (calib[0] < calib_config.min_value || calib[0] > calib_config.max_value ||
-            calib[1] < calib_config.min_value || calib[1] > calib_config.max_value)
-        {
-
-            // Only warn on first iteration when hitting bounds
-            if (iter == 0) {
-                if (calib[0] <= calib_config.min_value && room.k_translation_.grad().item<float>() > 0.1f)
-                {
-                    qWarning() << "⚠️  k_translation at MIN bound (" << calib_config.min_value
-                              << ") - likely units mismatch";
-                    hit_bounds = true;
-                }
-
-                if (calib[0] >= calib_config.max_value && room.k_translation_.grad().item<float>() < -0.1f)
-                {
-                    qWarning() << "⚠️  k_translation at MAX bound (" << calib_config.max_value
-                              << ") - likely units mismatch";
-                    hit_bounds = true;
-                }
-            }
-
-            room.k_translation_.data().clamp_(calib_config.min_value, calib_config.max_value);
-            room.k_rotation_.data().clamp_(calib_config.min_value, calib_config.max_value);
-        }
-
-        if (hit_bounds && iter == 0)
-        {
-            // Show expected vs actual motion for diagnosis
-            const float trans_mag = std::sqrt(
-                odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
-                odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
-            );
-
-            const float cmd_x = odometry_prior.velocity_cmd.adv_x * odometry_prior.dt / 1000.0f;
-            const float cmd_z = odometry_prior.velocity_cmd.adv_z * odometry_prior.dt / 1000.0f;
-            const float cmd_mag = std::sqrt(cmd_x * cmd_x + cmd_z * cmd_z);
-
-            if (cmd_mag > 0.001f) {
-                float apparent_scale = trans_mag / cmd_mag;
-                qWarning() << "  Commanded:" << QString::number(cmd_mag * 1000.0f, 'f', 1)
-                          << "mm, Actual:" << QString::number(trans_mag * 1000.0f, 'f', 1)
-                          << "mm, Scale:" << QString::number(apparent_scale, 'f', 3);
-            }
-        }
-
-        result.final_loss = total_loss.item<float>();
-        if (prior_loss.defined() && prior_loss.numel() > 0)
-        {
-            final_prior_loss = prior_loss.item<float>();
-        }
-
-        // Plot if requested
-        if (time_series_plotter && iter % 5 == 0)
-        {
-            time_series_plotter->addDataPoint(0, measurement_loss.item<float>());
-            time_series_plotter->addDataPoint(2, result.final_loss);
-            if (prior_loss.defined() && prior_loss.numel() > 0)
-            {
-                time_series_plotter->addDataPoint(1, prior_loss.item<float>());
-            }
-        }
-
         // Early stopping
         // Don't stop early when using odometry prior - need multiple iterations
         // for prior loss to constrain the pose (gradient is 0 at iter 0)
-        if (!use_odometry_prior && result.final_loss < min_loss_threshold) {
+        if (!use_odometry_prior && total_loss.item<float>() < min_loss_threshold)
             break;
-        }
     }
 
-    result.final_prior_loss = final_prior_loss;
+    // Store final losses in Result
+    result.total_loss = total_loss.item<float>();
+    result.measurement_loss = measurement_loss.item<float>();
+    if (prior_loss.defined() and prior_loss.numel() > 0)
+        result.prior_loss = prior_loss.item<float>();
+
     return result;
 }
 
@@ -930,3 +860,4 @@ void RoomOptimizer::update_calibration_slowly(
     // Using fixed k_trans = 1.0, k_rot = 1.0
     return;
 }
+

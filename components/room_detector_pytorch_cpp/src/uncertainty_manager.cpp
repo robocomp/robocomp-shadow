@@ -15,7 +15,7 @@ torch::Tensor UncertaintyManager::compute_measurement_covariance(
     const torch::Tensor& points,
     RoomModel& room,
     float huber_delta,
-    bool is_localized)
+    bool is_localized) const
 {
     try {
         return UncertaintyEstimator::compute_covariance(points, room, huber_delta);
@@ -30,7 +30,7 @@ torch::Tensor UncertaintyManager::propagate_with_velocity(
     const VelocityCommand& cmd,
     float dt,
     const torch::Tensor& prev_cov,
-    bool is_localized)
+    bool is_localized) const
 {
     int dim = is_localized ? 3 : 5;
 
@@ -124,6 +124,7 @@ torch::Tensor UncertaintyManager::propagate_with_velocity(
 }
 
 torch::Tensor UncertaintyManager::fuse_covariances( const torch::Tensor& propagated, const torch::Tensor& measurement)
+const
 {
     try {
         // Information form fusion: I_fused = I_prop + I_meas
@@ -156,6 +157,7 @@ torch::Tensor UncertaintyManager::fuse_covariances( const torch::Tensor& propaga
 }
 
 bool UncertaintyManager::is_valid_covariance(const torch::Tensor& cov, int expected_dim)
+const
 {
     if (cov.numel() == 0) return false;
     if (cov.dim() != 2) return false;
@@ -166,6 +168,7 @@ bool UncertaintyManager::is_valid_covariance(const torch::Tensor& cov, int expec
 }
 
 torch::Tensor UncertaintyManager::create_fallback_covariance(int dim)
+const
 {
     return torch::eye(dim, torch::kFloat32) * 0.01f;
 }
@@ -173,7 +176,7 @@ torch::Tensor UncertaintyManager::create_fallback_covariance(int dim)
 void UncertaintyManager::compute_motion_metrics(
     const std::vector<float>& current_pose,
     float& translation,
-    float& rotation)
+    float& rotation) const
 {
     if (!has_history_) {
         translation = 0.0f;
