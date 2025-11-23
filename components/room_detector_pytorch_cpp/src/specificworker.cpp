@@ -251,7 +251,7 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	}
 
 	// ===== COMPREHENSIVE DEBUG OUTPUT =====
-	auto robot_pose = room.get_robot_pose();
+	const auto robot_pose = room.get_robot_pose();
 	auto room_params = room.get_room_parameters();
 	qInfo() << "=====================================================";
 	qInfo() << "\n========== FRAME" << frame_counter++ << "==========";
@@ -340,6 +340,8 @@ void SpecificWorker::print_status(const RoomOptimizer::Result &result)
 	qInfo() << "  Distance to walls: X=" << QString::number(dist_to_wall_x, 'f', 2) << "m,"
 			<< "Y=" << QString::number(dist_to_wall_y, 'f', 2) << "m";
 
+	// Adaptive prior gain
+	qInfo() << "  Adaptive prior gain:" << result.prior.prior_weight;
 	qInfo() << "================================\n";
 }
 

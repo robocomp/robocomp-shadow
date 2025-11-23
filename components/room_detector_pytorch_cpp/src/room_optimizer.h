@@ -35,6 +35,21 @@
 class RoomOptimizer
 {
     public:
+        struct OdometryPrior
+        {
+            bool valid = false;
+            Eigen::Vector3f delta_pose;      // [dx, dy, dtheta] in meters & radians
+            torch::Tensor covariance;        // 3x3 covariance matrix
+            VelocityCommand velocity_cmd;    // ADD: The actual velocity command
+            float dt;                        // ADD: Time delta
+            float prior_weight = 1.0f;      // How much to trust this prior
+
+            OdometryPrior()
+                : delta_pose(Eigen::Vector3f::Zero())
+                , covariance(torch::zeros({3,3}, torch::kFloat32))
+                , dt(0.0f)
+            {}
+        };
         struct Result
         {
             torch::Tensor covariance;            // 3x3 or 5x5
@@ -47,6 +62,8 @@ class RoomOptimizer
             bool used_fusion = false;
             OdometryPrior prior;
             std::vector<float> optimized_pose;   // Final robot pose after optimization
+            float innovation_norm = 0.0f;   // For diagnostics
+            float motion_magnitude = 0.0f;  // For diagnostics
         };
 
         struct CalibrationConfig
@@ -104,6 +121,9 @@ class RoomOptimizer
         unsigned long int frame_number = 0;
 
     private:
+
+        float prior_weight = 1.0f; // Adaptive prior weight
+
         // ===== EKF PREDICT PHASE =====
         /**
          * Predict step: propagate state and covariance using motion model
@@ -218,6 +238,11 @@ class RoomOptimizer
          */
         Eigen::Matrix3f compute_motion_covariance(const OdometryPrior &odometry_prior);
 
+        float compute_adaptive_prior_weight_simple(float innovation_norm, float motion_magnitude, float current_weight);
+        float compute_adaptive_prior_weight(float innovation_norm,
+                                            float motion_magnitude,
+                                            const Eigen::Matrix3f& prior_cov,
+                                            float current_weight);
         /**
          * Update calibration parameters slowly using long-term learning
          */
@@ -228,11 +253,4 @@ class RoomOptimizer
                                       float prior_loss);
 
         float wall_thickness = 0.05f;  // Wall thickness for loss computation
-
-        // Adaptive prior weighting
-        float prior_weight_ = 1.0f;  // Current weight for prior loss (updated each frame)
-
-        // Long-term calibration learning state
-        unsigned long int calibration_learning_frames = 0;  // Frames since learning started
-
 };

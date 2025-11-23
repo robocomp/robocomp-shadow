@@ -104,10 +104,10 @@ class SpecificWorker final : public GenericWorker
 
 		// velocity commands
 		boost::circular_buffer<VelocityCommand> velocity_history_{10}; // Keep last 10 commands
-		OdometryPrior compute_odometry_prior(
+		RoomOptimizer::OdometryPrior compute_odometry_prior(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
-		//Eigen::Vector3f integrate_velocity(const VelocityCommand& cmd, float dt) const;
+
 		Eigen::Vector3f integrate_velocity_over_window(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
@@ -167,7 +167,6 @@ class SpecificWorker final : public GenericWorker
 
 		// optimizer
 		RoomOptimizer optimizer;
-
 
 		// Yolo detector
 		std::unique_ptr<YOLODetector> yolo_detector;

@@ -78,54 +78,31 @@ RoomOptimizer::Result RoomOptimizer::optimize(
     update_state_management(res, room, is_localized, measurement_loss_for_freezing);
 
     // ===== ADAPTIVE PRIOR WEIGHTING =====
-    // Compute innovation from this frame to adjust prior weight for next frame
+    // Compute innovation
     if (is_localized and prediction.have_propagated and odometry_prior.valid)
     {
-        // Final innovation: how far did optimization move from prediction?
-        float innovation_x = res.optimized_pose[0] - prediction.predicted_pose[0];
-        float innovation_y = res.optimized_pose[1] - prediction.predicted_pose[1];
-        float innovation_theta = res.optimized_pose[2] - prediction.predicted_pose[2];
+        Eigen::Vector3f innovation(
+            res.optimized_pose[0] - prediction.predicted_pose[0],
+            res.optimized_pose[1] - prediction.predicted_pose[1],
+            res.optimized_pose[2] - prediction.predicted_pose[2]
+        );
 
-        Eigen::Vector3f innovation(innovation_x, innovation_y, innovation_theta);
-
-        // Use consistent motion covariance helper
         Eigen::Matrix3f cov_eigen = compute_motion_covariance(odometry_prior);
-
-        // Mahalanobis form of innovation
         Eigen::Matrix3f inv_cov = (cov_eigen + 1e-6f * Eigen::Matrix3f::Identity()).inverse();
         float innovation_norm = std::sqrt(innovation.transpose() * inv_cov * innovation);
 
-        // Check if robot was stationary
-        float motion_magnitude = std::sqrt(
-            odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
-            odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
+        float motion_magnitude = std::sqrt(std::hypot(odometry_prior.delta_pose[0], odometry_prior.delta_pose[1]));
+
+        // NEW: Principled adaptive weight
+        prior_weight = compute_adaptive_prior_weight(
+            innovation_norm,
+            motion_magnitude,
+            cov_eigen,
+            prior_weight
         );
-
-        // Update adaptive weight for NEXT frame
-        float new_weight;
-
-        // Special case: when stationary, force strong prior immediately
-        if (motion_magnitude < 0.01f) {
-            // Stationary: Set weight to 1.0 directly (no EMA smoothing)
-            new_weight = 1.0f;
-            prior_weight_ = 1.0f;  // Force it directly, bypass EMA
-        } else if (innovation_norm < 1.0f) {
-            // Within 1-sigma: trust prior strongly
-            new_weight = 1.0f;
-            // Use EMA for smooth transition
-            float alpha = 0.3f;
-            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
-        } else if (innovation_norm < 3.0f) {
-            // 1-3 sigma: reduce weight linearly
-            new_weight = 1.0f / (1.0f + (innovation_norm - 1.0f));
-            float alpha = 0.3f;
-            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
-        } else {
-            // > 3-sigma: very low weight (likely odometry error)
-            new_weight = 0.1f;
-            float alpha = 0.3f;
-            prior_weight_ = alpha * new_weight + (1.0f - alpha) * prior_weight_;
-        }
+        res.prior.prior_weight = prior_weight;
+        res.innovation_norm = innovation_norm;
+        res.motion_magnitude = motion_magnitude;
     }
 
     frame_number++;
@@ -207,10 +184,11 @@ RoomOptimizer::PredictionState RoomOptimizer::predict_step(
             odometry_prior.delta_pose[1] * odometry_prior.delta_pose[1]
         );
 
+        /// CHECK THIS!!!!!!!!!!!!!!
         // Force strong prior immediately when stationary (bypass EMA smoothing)
-        if (motion_magnitude < 0.01f) {  // < 10mm = stationary
-            prior_weight_ = 1.0f;  // Set directly, no smoothing
-        }
+        // if (motion_magnitude < 0.01f) {  // < 10mm = stationary
+        //     odometry_prior.prior_weight = 1.0f;  // Set directly, no smoothing
+        // }
     }
 
     return prediction;
@@ -402,7 +380,7 @@ RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
             }, torch::kFloat32).requires_grad_(false);
 
             prior_loss = compute_prior_loss(room, predicted_pose, odometry_prior);
-            total_loss = total_loss + prior_weight_ * prior_loss;
+            total_loss = total_loss + prior_weight * prior_loss;
         }
 
         // ===== OPTIMIZATION STEP (Implicit Kalman Gain) =====
@@ -590,7 +568,7 @@ RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
         res.std_devs = UncertaintyEstimator::get_std_devs(res.covariance);
 
         // Validate dimensions
-        int expected_dim = is_localized ? 3 : 5;
+        size_t expected_dim = is_localized ? 3 : 5;
         if (res.std_devs.size() != expected_dim) {
             qWarning() << "Unexpected covariance dimension:" << res.std_devs.size()
                       << "expected:" << expected_dim;
@@ -684,19 +662,16 @@ void RoomOptimizer::update_state_management(
 
 torch::Tensor RoomOptimizer::convert_points_to_tensor(const RoboCompLidar3D::TPoints &points)
 {
-    std::vector<float> points_data;
-    points_data.reserve(points.size() * 2);
+    torch::Tensor points_tensor = torch::empty({static_cast<long>(points.size()), 2}, torch::kFloat32);
+    auto accessor = points_tensor.accessor<float, 2>();
 
-    for (const auto& p : points) {
-        points_data.push_back(p.x / 1000.0f);  // Convert mm to meters
-        points_data.push_back(p.y / 1000.0f);
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        accessor[i][0] = points[i].x / 1000.0f; // Convert mm to meters
+        accessor[i][1] = points[i].y / 1000.0f;
     }
 
-    return torch::from_blob(
-        points_data.data(),
-        {static_cast<long>(points.size()), 2},
-        torch::kFloat32
-    ).clone();
+    return points_tensor;
 }
 
 Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window(
@@ -747,7 +722,7 @@ Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window(
     return total_delta;
 }
 
-OdometryPrior RoomOptimizer::compute_odometry_prior(
+RoomOptimizer::OdometryPrior RoomOptimizer::compute_odometry_prior(
     const RoomModel &room,
     const boost::circular_buffer<VelocityCommand>& velocity_history,
     const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
@@ -845,6 +820,115 @@ Eigen::Matrix3f RoomOptimizer::compute_motion_covariance(const OdometryPrior &od
     return cov;
 }
 
+/**
+ * Compute adaptive prior weight using information-theoretic principles
+ *
+ * Key ideas:
+ * 1. Weight should be HIGH when prior has high information (tight covariance)
+ * 2. Weight should be LOW when innovation is large (prior doesn't match data)
+ * 3. Weight should be 1.0 when stationary (no motion uncertainty)
+ * 4. Transition should be SMOOTH (no discontinuities)
+ *
+ * @param innovation_norm Mahalanobis distance between prior and optimized pose
+ * @param motion_magnitude Distance traveled since last frame
+ * @param prior_cov Prior covariance matrix (3x3)
+ * @param current_weight Current weight (for EMA smoothing)
+ * @return New weight in [0, 1]
+ */
+float RoomOptimizer::compute_adaptive_prior_weight(float innovation_norm,
+                                                   float motion_magnitude,
+                                                   const Eigen::Matrix3f& prior_cov,
+                                                   float current_weight)
+{
+    // ===== SPECIAL CASE: STATIONARY =====
+    // When robot doesn't move, trust odometry completely
+    if (motion_magnitude < 0.01f) {  // 10mm threshold
+        return 1.0f;  // Full weight, no smoothing needed
+    }
+
+    // ===== INFORMATION CONTENT =====
+    // Prior with tight covariance has high information → deserves high weight
+    // Prior with loose covariance has low information → deserves low weight
+
+    // Information matrix = inverse of covariance
+    // Use trace (sum of eigenvalues) as scalar measure
+    Eigen::Matrix3f info_matrix = prior_cov.inverse();
+    float information_content = info_matrix.trace();
+
+    // Normalize: typical range is [10, 1000] depending on uncertainty
+    // Map to [0.3, 1.0] so even weak priors have some influence
+    const float min_info = 10.0f;    // Very uncertain prior
+    const float max_info = 1000.0f;  // Very certain prior
+    float info_factor = 0.3f + 0.7f * std::clamp(
+        (information_content - min_info) / (max_info - min_info),
+        0.0f, 1.0f
+    );
+
+    // ===== INNOVATION FACTOR =====
+    // Large innovation → prior doesn't match reality → reduce weight
+    // Small innovation → prior matches well → keep high weight
+
+    // Exponential decay: smooth, continuous, theoretically grounded
+    // λ = 0.1 means weight drops to ~0.37 at innovation_norm = 3σ
+    const float lambda = 0.1f;
+    float innovation_factor = std::exp(-lambda * innovation_norm * innovation_norm);
+
+    // ===== MOTION FACTOR =====
+    // More motion → more uncertainty → reduce prior weight
+    // Less motion → less uncertainty → keep high weight
+
+    // Normalize motion: 100mm = 0.1m is reference
+    const float motion_scale = 0.1f;  // 100mm reference
+    float normalized_motion = motion_magnitude / motion_scale;
+
+    // Exponential decay with motion
+    float motion_factor = std::exp(-0.5f * normalized_motion);
+
+    // ===== COMBINE FACTORS =====
+    // Multiplicative: all factors must agree for high weight
+    float target_weight = info_factor * innovation_factor * motion_factor;
+
+    // Clamp to sensible range
+    const float min_weight = 0.01f;   // Always some regularization
+    const float max_weight = 1.0f;
+    target_weight = std::clamp(target_weight, min_weight, max_weight);
+
+    // ===== TEMPORAL SMOOTHING =====
+    // Use EMA to prevent abrupt changes
+    const float alpha = 0.3f;  // 30% new, 70% old
+    float smoothed_weight = alpha * target_weight + (1.0f - alpha) * current_weight;
+
+    return smoothed_weight;
+}
+
+/**
+ * Simplified version using only innovation norm
+ */
+float RoomOptimizer::compute_adaptive_prior_weight_simple(float innovation_norm,
+                                           float motion_magnitude,
+                                           float current_weight)
+{
+    // Stationary: full trust
+    if (motion_magnitude < 0.01f) {
+        return 1.0f;
+    }
+
+    // Exponential decay based on innovation
+    // At 1σ: weight ≈ 0.90
+    // At 2σ: weight ≈ 0.67
+    // At 3σ: weight ≈ 0.41
+    // At 4σ: weight ≈ 0.20
+    const float lambda = 0.05f;
+    float target_weight = std::exp(-lambda * innovation_norm * innovation_norm);
+
+    // Clamp
+    target_weight = std::clamp(target_weight, 0.01f, 1.0f);
+
+    // Smooth
+    const float alpha = 0.3f;
+    return alpha * target_weight + (1.0f - alpha) * current_weight;
+}
+
 // ============================================================================
 // LONG-TERM CALIBRATION LEARNING
 // ============================================================================
@@ -860,4 +944,3 @@ void RoomOptimizer::update_calibration_slowly(
     // Using fixed k_trans = 1.0, k_rot = 1.0
     return;
 }
-
