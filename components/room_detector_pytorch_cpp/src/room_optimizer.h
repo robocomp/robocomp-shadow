@@ -110,7 +110,7 @@ class RoomOptimizer
          */
         PredictionState predict_step(RoomModel &room,
                                      const OdometryPrior &odometry_prior,
-                                     bool is_localized);
+                                     bool is_localized) const;
 
         /**
          * Filter measurements based on predicted state (top-down prediction)

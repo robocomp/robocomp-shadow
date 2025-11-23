@@ -30,10 +30,9 @@
 class UncertaintyEstimator
 {
     public:
-
-        static torch::Tensor compute_covariance(const torch::Tensor& points,
-                                               RoomModel& room,
-                                               float wall_thickness = 0.1f);
+        static torch::Tensor compute_covariance(const torch::Tensor &points,
+                                                RoomModel &room,
+                                                float wall_thickness = 0.1f);
 
         /**
          * @brief Extract standard deviations (sqrt of diagonal of covariance)
@@ -41,7 +40,7 @@ class UncertaintyEstimator
          * @param covariance Covariance matrix [n, n]
          * @return Vector of std devs (size depends on frozen state)
          */
-        static std::vector<float> get_std_devs(const torch::Tensor& covariance);
+        static std::vector<float> get_std_devs(const torch::Tensor &covariance);
 
         /**
          * @brief Extract correlation matrix from covariance matrix
@@ -49,7 +48,7 @@ class UncertaintyEstimator
          * @param covariance Covariance matrix [n, n]
          * @return Correlation matrix [n, n] with values in [-1, 1]
          */
-        static torch::Tensor get_correlation_matrix(const torch::Tensor& covariance);
+        static torch::Tensor get_correlation_matrix(const torch::Tensor &covariance);
 
         /**
          * @brief Print uncertainty information in readable format (ADAPTIVE)
@@ -59,7 +58,7 @@ class UncertaintyEstimator
          * @param covariance Covariance matrix [n, n]
          * @param room Room model to label parameters
          */
-        static void print_uncertainty(const torch::Tensor& covariance, const RoomModel& room);
+        static void print_uncertainty(const torch::Tensor &covariance, const RoomModel &room);
 };
 
 #endif //UNCERTAINTY_ESTIMATOR_H

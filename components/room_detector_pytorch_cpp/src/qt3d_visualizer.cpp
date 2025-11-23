@@ -90,35 +90,35 @@ void RoomVisualizer3D::setupCamera()
 void RoomVisualizer3D::setupLighting()
 {
     // Main light
-    auto *lightEntity = new Qt3DCore::QEntity(rootEntity);
-    auto *light = new Qt3DRender::QPointLight(lightEntity);
+    auto *const lightEntity = new Qt3DCore::QEntity(rootEntity);
+    auto *const light = new Qt3DRender::QPointLight(lightEntity);
     light->setColor(Qt::white);
     light->setIntensity(1.2f);
     lightEntity->addComponent(light);
 
-    auto *lightTransform = new Qt3DCore::QTransform(lightEntity);
+    auto *const lightTransform = new Qt3DCore::QTransform(lightEntity);
     lightTransform->setTranslation(QVector3D(5, 5, 10));
     lightEntity->addComponent(lightTransform);
 
     // Fill light
-    auto *fillLightEntity = new Qt3DCore::QEntity(rootEntity);
-    auto *fillLight = new Qt3DRender::QPointLight(fillLightEntity);
+    auto *const fillLightEntity = new Qt3DCore::QEntity(rootEntity);
+    auto *const fillLight = new Qt3DRender::QPointLight(fillLightEntity);
     fillLight->setColor(Qt::white);
     fillLight->setIntensity(0.6f);
     fillLightEntity->addComponent(fillLight);
 
-    auto *fillLightTransform = new Qt3DCore::QTransform(fillLightEntity);
+    auto *const fillLightTransform = new Qt3DCore::QTransform(fillLightEntity);
     fillLightTransform->setTranslation(QVector3D(-5, -5, 5));
     fillLightEntity->addComponent(fillLightTransform);
 
     // Ambient light for better visibility
-    auto *ambientLightEntity = new Qt3DCore::QEntity(rootEntity);
-    auto *ambientLight = new Qt3DRender::QPointLight(ambientLightEntity);
+    auto *const ambientLightEntity = new Qt3DCore::QEntity(rootEntity);
+    auto *const ambientLight = new Qt3DRender::QPointLight(ambientLightEntity);
     ambientLight->setColor(QColor(200, 200, 220));
     ambientLight->setIntensity(0.3f);
     ambientLightEntity->addComponent(ambientLight);
 
-    auto *ambientTransform = new Qt3DCore::QTransform(ambientLightEntity);
+    auto *const ambientTransform = new Qt3DCore::QTransform(ambientLightEntity);
     ambientTransform->setTranslation(QVector3D(0, 0, 15));
     ambientLightEntity->addComponent(ambientTransform);
 }
@@ -145,7 +145,7 @@ void RoomVisualizer3D::createCoordinateAxes()
         entity->addComponent(material);
 
         const auto transform = new Qt3DCore::QTransform();
-        QVector3D pos = direction * (length / 2.0f);
+        const QVector3D pos = direction * (length / 2.0f);
         transform->setTranslation(pos);
 
         // Rotate cylinder to align with direction (default cylinder is Y-up in Qt3D)
@@ -171,8 +171,8 @@ void RoomVisualizer3D::createCoordinateAxes()
         coneEntity->addComponent(cone);
         coneEntity->addComponent(material);
 
-        auto coneTransform = new Qt3DCore::QTransform();
-        coneTransform->setTranslation(direction * (length + 0.125f));
+        auto *const coneTransform = new Qt3DCore::QTransform();
+        const QVector3D conePos = direction * (length + 0.125f);
 
         // Same rotation logic for cone
         if (direction.x() != 0)
@@ -183,6 +183,7 @@ void RoomVisualizer3D::createCoordinateAxes()
             coneTransform->setRotation(QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 90));
         }
 
+        coneTransform->setTranslation(conePos);
         coneEntity->addComponent(coneTransform);
     };
 
@@ -201,13 +202,13 @@ void RoomVisualizer3D::createGroundGrid()
     const int numLines = static_cast<int>(gridSize / gridStep) + 1;
 
     // Create geometry for grid lines
-    auto geometry = new Qt3DCore::QGeometry(groundEntity);
+    auto *const geometry = new Qt3DCore::QGeometry(groundEntity);
 
     // Calculate number of vertices (2 per line, numLines in each direction)
     const int vertexCount = numLines * 4; // 2 vertices per line, numLines in X and Y
     QByteArray bufferBytes;
     bufferBytes.resize(vertexCount * 3 * sizeof(float)); // 3 floats per vertex (x, y, z)
-    float *positions = reinterpret_cast<float *>(bufferBytes.data());
+    float *const positions = reinterpret_cast<float *>(bufferBytes.data());
 
     int idx = 0;
     const float halfSize = gridSize / 2.0f;
@@ -215,7 +216,7 @@ void RoomVisualizer3D::createGroundGrid()
     // Lines parallel to X axis
     for (int i = 0; i < numLines; ++i)
     {
-        float y = -halfSize + i * gridStep;
+        const float y = -halfSize + i * gridStep;
         // Start point
         positions[idx++] = -halfSize;
         positions[idx++] = y;
@@ -229,7 +230,7 @@ void RoomVisualizer3D::createGroundGrid()
     // Lines parallel to Y axis
     for (int i = 0; i < numLines; ++i)
     {
-        float x = -halfSize + i * gridStep;
+        const float x = -halfSize + i * gridStep;
         // Start point
         positions[idx++] = x;
         positions[idx++] = -halfSize;
@@ -241,11 +242,11 @@ void RoomVisualizer3D::createGroundGrid()
     }
 
     // Create buffer
-    auto *buf = new Qt3DCore::QBuffer(geometry);
+    auto *const buf = new Qt3DCore::QBuffer(geometry);
     buf->setData(bufferBytes);
 
     // Position attribute
-    auto *positionAttribute = new Qt3DCore::QAttribute(geometry);
+    auto *const positionAttribute = new Qt3DCore::QAttribute(geometry);
     positionAttribute->setName(Qt3DCore::QAttribute::defaultPositionAttributeName());
     positionAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
     positionAttribute->setVertexSize(3);
@@ -257,12 +258,12 @@ void RoomVisualizer3D::createGroundGrid()
     geometry->addAttribute(positionAttribute);
 
     // Create geometry renderer
-    auto *lineRenderer = new Qt3DRender::QGeometryRenderer(groundEntity);
+    auto *const lineRenderer = new Qt3DRender::QGeometryRenderer(groundEntity);
     lineRenderer->setGeometry(geometry);
     lineRenderer->setPrimitiveType(Qt3DRender::QGeometryRenderer::Lines);
 
     // Material for grid lines
-    auto material = new Qt3DExtras::QPhongMaterial();
+    auto *const material = new Qt3DExtras::QPhongMaterial();
     material->setDiffuse(QColor(100, 100, 120));
     material->setAmbient(QColor(80, 80, 100));
     material->setSpecular(QColor(0, 0, 0));
@@ -274,7 +275,7 @@ void RoomVisualizer3D::createGroundGrid()
 void RoomVisualizer3D::updatePointCloud(const std::vector<Eigen::Vector2f> &points)
 {
     // Clear old points
-    for (auto *entity: pointEntities)
+    for (auto *const entity: pointEntities)
     {
         entity->setParent((Qt3DCore::QNode *) nullptr);
         entity->deleteLater();
@@ -284,11 +285,11 @@ void RoomVisualizer3D::updatePointCloud(const std::vector<Eigen::Vector2f> &poin
     // Create new points (all share same mesh and material - efficient!)
     for (const auto &p: points)
     {
-        auto entity = new Qt3DCore::QEntity(sceneEntity);
+        auto *const entity = new Qt3DCore::QEntity(sceneEntity);
         entity->addComponent(sharedPointMesh);
         entity->addComponent(sharedPointMaterial);
 
-        auto transform = new Qt3DCore::QTransform();
+        auto *const transform = new Qt3DCore::QTransform();
         transform->setTranslation(QVector3D(p.x(), p.y(), 0.1f)); // Slightly above ground
         entity->addComponent(transform);
 
@@ -307,36 +308,36 @@ void RoomVisualizer3D::updatePointCloud(const RoboCompLidar3D::TPoints &points)
 
 Qt3DCore::QEntity *RoomVisualizer3D::createLineBox(float width, float height, const QColor &color)
 {
-    auto entity = new Qt3DCore::QEntity(sceneEntity);
+    auto *const entity = new Qt3DCore::QEntity(sceneEntity);
 
     // Create wireframe box using thin cylinders for edges
     auto createEdge = [&](const QVector3D &start, const QVector3D &end)
     {
-        auto cylinder = new Qt3DExtras::QCylinderMesh();
-        float length = (end - start).length();
+        auto *const cylinder = new Qt3DExtras::QCylinderMesh();
+        const float length = (end - start).length();
         cylinder->setRadius(roomLineWidth); // Use configurable line width
         cylinder->setLength(length);
 
-        auto material = new Qt3DExtras::QPhongMaterial();
+        auto *const material = new Qt3DExtras::QPhongMaterial();
         material->setDiffuse(color);
         material->setAmbient(color.darker(120));
         material->setSpecular(Qt::white);
         material->setShininess(60.0f);
 
-        auto edgeEntity = new Qt3DCore::QEntity(entity);
+        auto *const edgeEntity = new Qt3DCore::QEntity(entity);
         edgeEntity->addComponent(cylinder);
         edgeEntity->addComponent(material);
 
-        auto transform = new Qt3DCore::QTransform();
-        QVector3D center = (start + end) / 2.0f;
+        auto *const transform = new Qt3DCore::QTransform();
+        const QVector3D center = (start + end) / 2.0f;
         transform->setTranslation(center);
 
         // Rotate to align with edge direction
-        QVector3D direction = (end - start).normalized();
-        QVector3D defaultDir(0, 1, 0); // Cylinder default is Y-up
+        const QVector3D direction = (end - start).normalized();
+        const QVector3D defaultDir(0, 1, 0); // Cylinder default is Y-up
 
-        QVector3D axis = QVector3D::crossProduct(defaultDir, direction);
-        float angle = qRadiansToDegrees(qAcos(QVector3D::dotProduct(defaultDir, direction)));
+        const QVector3D axis = QVector3D::crossProduct(defaultDir, direction);
+        const float angle = qRadiansToDegrees(qAcos(QVector3D::dotProduct(defaultDir, direction)));
 
         if (axis.length() > 0.001f)
         {
@@ -350,9 +351,9 @@ Qt3DCore::QEntity *RoomVisualizer3D::createLineBox(float width, float height, co
         edgeEntity->addComponent(transform);
     };
 
-    float hw = width / 2.0f;
-    float hh = height / 2.0f;
-    float z = 1.0f; // Room height for visualization
+    const float hw = width / 2.0f;
+    const float hh = height / 2.0f;
+    const float z = 1.0f; // Room height for visualization
 
     // Bottom rectangle (on ground)
     createEdge(QVector3D(-hw, -hh, 0), QVector3D(hw, -hh, 0));
@@ -398,7 +399,7 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
     {
         robotEntity = new Qt3DCore::QEntity(sceneEntity);
 
-        auto material = new Qt3DExtras::QPhongMaterial();
+        auto *const material = new Qt3DExtras::QPhongMaterial();
         material->setDiffuse(robotColor);
         material->setAmbient(robotColor.darker(130));
         material->setSpecular(Qt::white);
@@ -407,7 +408,7 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
         robotTransform = new Qt3DCore::QTransform();
 
         // Try to load .obj mesh first
-        QFileInfo meshFile(robotMeshPath);
+        const QFileInfo meshFile(robotMeshPath);
         qDebug() << "Attempting to load robot mesh:";
         qDebug() << "  Path:" << robotMeshPath;
         qDebug() << "  Absolute path:" << meshFile.absoluteFilePath();
@@ -416,7 +417,7 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
         if (meshFile.exists())
         {
             robotMesh = new Qt3DRender::QMesh();
-            QUrl meshUrl = QUrl::fromLocalFile(meshFile.absoluteFilePath());
+            const QUrl meshUrl = QUrl::fromLocalFile(meshFile.absoluteFilePath());
             qDebug() << "  Loading from URL:" << meshUrl;
             robotMesh->setSource(meshUrl);
             robotEntity->addComponent(robotMesh);
@@ -451,7 +452,7 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
     if (robotMesh)
         robotTransform->setScale(1.0f); // Try 1:1 first, adjust if needed
     else
-            robotTransform->setScale(1.0f); // Box is already in meters
+        robotTransform->setScale(1.0f); // Box is already in meters
 }
 
 Qt3DCore::QEntity *RoomVisualizer3D::createUncertaintyEllipse(float std_x, float std_y, const QColor &color)
@@ -494,7 +495,7 @@ void RoomVisualizer3D::updateUncertainty(float pos_std_x, float pos_std_y, float
     {
         uncertaintyEntity = createUncertaintyEllipse(1.0f, 1.0f, uncertaintyColor); // Unit ellipse
         // Get the transform component that was added in createUncertaintyEllipse
-        for (auto *component: uncertaintyEntity->components())
+        for (auto *const component: uncertaintyEntity->components())
             if (auto *transform = qobject_cast<Qt3DCore::QTransform *>(component))
             {
                 uncertaintyTransform = transform;
@@ -529,7 +530,7 @@ void RoomVisualizer3D::updateUncertainty(float pos_std_x, float pos_std_y, float
 
 void RoomVisualizer3D::showPointCloud(bool visible)
 {
-    for (auto *entity: pointEntities)
+    for (auto *const entity: pointEntities)
         entity->setEnabled(visible);
 }
 
@@ -559,7 +560,7 @@ void RoomVisualizer3D::resetCamera()
 
 void RoomVisualizer3D::setCameraDistance(float distance)
 {
-    QVector3D direction = (camera->position() - camera->viewCenter()).normalized();
+    const QVector3D direction = (camera->position() - camera->viewCenter()).normalized();
     camera->setPosition(camera->viewCenter() + direction * distance);
 }
 
@@ -600,7 +601,7 @@ void RoomVisualizer3D::forceRobotBox()
     fallbackRobotMesh->setYExtent(0.48f);
     fallbackRobotMesh->setZExtent(0.3f);
 
-    const auto material = new Qt3DExtras::QPhongMaterial();
+    auto *const material = new Qt3DExtras::QPhongMaterial();
     material->setDiffuse(robotColor);
     material->setAmbient(robotColor.darker(130));
     material->setSpecular(Qt::white);

@@ -570,21 +570,22 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose, const 
 	if (propagated_cov_item != nullptr)
 	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; propagated_cov_item = nullptr; }
 
-	// 1. Draw PROPAGATED uncertainty (after motion, before measurements)
-	//    This shows how much uncertainty grew due to motion
+
 	const std::vector<float> robot_pose_vec{robot_pose.translation().x(),
-											robot_pose.translation().y(),
-											Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
-	if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0)
-	{
-		propagated_cov_item = draw_propagated_uncertainty_ellipse(
-			scene,
-			result.propagated_cov,
-			robot_pose_vec,
-			QColor(255, 165, 0, 190), // Orange, semi-transparent
-			2.0f // 2-sigma
-		);
-	}
+	 										robot_pose.translation().y(),
+	 										Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
+	// // 1. Draw PROPAGATED uncertainty (after motion, before measurements)
+	// //    This shows how much uncertainty grew due to motion
+	// if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0)
+	// {
+	// 	propagated_cov_item = draw_propagated_uncertainty_ellipse(
+	// 		scene,
+	// 		result.propagated_cov,
+	// 		robot_pose_vec,
+	// 		QColor(255, 0, 0, 100), // Orange, semi-transparent
+	// 		2.0f // 2-sigma
+	// 	);
+	// }
 
 	// 2. Draw UPDATED uncertainty (after measurements)
 	//    This shows how measurements reduced uncertainty
@@ -594,7 +595,7 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose, const 
 			scene,
 			result.covariance,
 			robot_pose_vec,
-			QColor(0, 255, 0, 190), // Green, semi-transparent
+			QColor(0, 255, 0, 100), // Green, semi-transparent
 			2.0f // 2-sigma
 		);
 	}

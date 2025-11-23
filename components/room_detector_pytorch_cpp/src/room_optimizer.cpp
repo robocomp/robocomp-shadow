@@ -41,7 +41,7 @@ RoomOptimizer::Result RoomOptimizer::optimize(
 
     // ===== EKF PREDICT STEP =====
     // Propagates state: x_pred = x_prev + f(u, dt)
-    // Propagates covariance: P_pred = F*P*F^T + Q
+    // Propagates covariance: P_pred = F*P*F^T + Q where F is motion model Jacobian
     // Sets room.robot_pos_ = x_pred (initialization for optimization)
     const PredictionState prediction = predict_step(room, odometry_prior, is_localized);
 
@@ -53,11 +53,10 @@ RoomOptimizer::Result RoomOptimizer::optimize(
 
     // ===== CONVERT MEASUREMENTS TO TENSOR =====
     const torch::Tensor points_tensor = convert_points_to_tensor(points);
-
     auto pose_before_opt = room.get_robot_pose();
 
     // ===== EKF UPDATE STEP =====
-    // Optimization-based update: x_new = argmin { L(z|x) + ||x - x_pred||²_P }
+    // - Optimization-based update: x_new = argmin { L(z|x) + ||x - x_pred||²_P }. Likelihood + prior/P
     // - Starts from x_pred (set in predict_step)
     // - Measurement term: L(z|x) pulls toward LiDAR fit
     // - Prior term: ||x - x_pred||² pulls toward prediction
@@ -81,7 +80,7 @@ RoomOptimizer::Result RoomOptimizer::optimize(
 
     // ===== ADAPTIVE PRIOR WEIGHTING =====
     // Compute innovation from this frame to adjust prior weight for next frame
-    if (is_localized && prediction.have_propagated && odometry_prior.valid)
+    if (is_localized and prediction.have_propagated and odometry_prior.valid)
     {
         // Final innovation: how far did optimization move from prediction?
         float innovation_x = res.optimized_pose[0] - prediction.predicted_pose[0];
@@ -93,6 +92,7 @@ RoomOptimizer::Result RoomOptimizer::optimize(
         // Use consistent motion covariance helper
         Eigen::Matrix3f cov_eigen = compute_motion_covariance(odometry_prior);
 
+        // Mahalanobis form of innovation
         Eigen::Matrix3f inv_cov = (cov_eigen + 1e-6f * Eigen::Matrix3f::Identity()).inverse();
         float innovation_norm = std::sqrt(innovation.transpose() * inv_cov * innovation);
 
