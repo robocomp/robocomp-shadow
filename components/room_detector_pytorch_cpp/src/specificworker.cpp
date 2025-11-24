@@ -141,8 +141,12 @@ void SpecificWorker::initialize()
 	viewer3d->show();
 
 	// Yolo door detector
-	std::string model_path = "best.torchscript";
-	yolo_detector = std::make_unique<YOLODetector>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
+	//std::string model_path = "best_one_class.onnx";
+	std::string model_path = "best.onnx";
+	yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
+
+	// Door detector
+	door_concept.initialize(points);
 }
 
 void SpecificWorker::compute()
@@ -151,31 +155,38 @@ void SpecificWorker::compute()
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
 	if (std::get<0>(time_points).empty())
-	{
-		std::cout << "No LiDAR points available\n";
-		return;
-	}
+	{	std::cout << "No LiDAR points available\n";	return;	}
 
-	//now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+	// auto now = std::chrono::high_resolution_clock::now();
+	// qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	// Optimize SDF likelihood + odometry prior
-	//const auto result = optimizer.optimize(points, room, time_series_plotter, 150,
-	//									   0.01f,0.01f, odom_prior, frame_counter);
-	const auto result = optimizer.optimize(time_points,
-	                                       room, velocity_history_,
-	                                       100,
-	                                       0.01f,
-	                                       0.01f);
+	// const auto result = optimizer.optimize(time_points,
+	//                                        room, velocity_history_,
+	//                                        10,
+	//                                        0.01f,
+	//                                        0.01f);
 
-	//now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+	// door detection
+	const auto img = read_image();
+	const auto doors = yolo_detector->detect(img);
+	qInfo() << "Detected" << doors.size() << "doors";
+	// if (not doors.empty())
+	// {
+	// 	qInfo() << "Detected" << doors.size() << "doors";
+	// 	for (const auto &door : doors)
+	// 	{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
+	// 		"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
+	// }
 
-	update_viewers(time_points, result, &viewer->scene);
-	print_status(result);
+	// auto now = std::chrono::high_resolution_clock::now();
+	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	//now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+	// update_viewers(time_points, result, &viewer->scene);
+	// print_status(result);
+
+	// now = std::chrono::high_resolution_clock::now();
+	// qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	last_time = std::chrono::high_resolution_clock::now();;
 }
@@ -183,7 +194,7 @@ void SpecificWorker::compute()
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
-                                    const RoomOptimizer::Result &result,
+                                    const rc::RoomOptimizer::Result &result,
                                     QGraphicsScene *scene)
 {
 	const auto &[points, lidar_timestamp] = points_;
@@ -231,7 +242,7 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	stddev_plotter->update();
 }
 
-void SpecificWorker::print_status(const RoomOptimizer::Result &result)
+void SpecificWorker::print_status(const rc::RoomOptimizer::Result &result)
 {
     static int frame_counter = 0;
     const auto &robot_pose = room.get_robot_pose();
@@ -351,6 +362,14 @@ cv::Mat SpecificWorker::read_image()
 	// Convert BGR -> RGB for display
 	cv::Mat display_img;
 	cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
+	// resize to 640x480
+	cv::resize(display_img, display_img, cv::Size(640, 480));
+
+	if (label_img)
+	{
+		QImage qimg(display_img.data, display_img.cols, display_img.rows, static_cast<int>(display_img.step), QImage::Format_RGB888);
+		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+	}
 
 	return display_img.clone();
 }
@@ -505,7 +524,7 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 }
 
 void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
-                                       const RoomOptimizer::Result &result,
+                                       const rc::RoomOptimizer::Result &result,
                                        QGraphicsScene *scene)
 {
 	// draw room in robot viewer

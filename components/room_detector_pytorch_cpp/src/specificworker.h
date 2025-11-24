@@ -40,7 +40,8 @@
 #include "room_freezing_manager.h"
 #include "qt3d_visualizer.h"
 #include "room_optimizer.h"
-#include "yolo_detector.h"
+#include "door_concept.h"
+#include "yolo_detector_onnx.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -104,7 +105,7 @@ class SpecificWorker final : public GenericWorker
 
 		// velocity commands
 		boost::circular_buffer<VelocityCommand> velocity_history_{10}; // Keep last 10 commands
-		RoomOptimizer::OdometryPrior compute_odometry_prior(
+		rc::RoomOptimizer::OdometryPrior compute_odometry_prior(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
 
@@ -124,9 +125,9 @@ class SpecificWorker final : public GenericWorker
 		// aux
 		TimePoints read_data();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
-		void update_robot_view(const Eigen::Affine2f &robot_pose, const RoomOptimizer::Result &result, QGraphicsScene *scene);
+		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomOptimizer::Result &result, QGraphicsScene *scene);
 		void update_viewers(const TimePoints &points,
-							const RoomOptimizer::Result &result,
+							const rc::RoomOptimizer::Result &result,
 							QGraphicsScene *scene);
 
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
@@ -142,7 +143,7 @@ class SpecificWorker final : public GenericWorker
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
 		void print_status(
-			const RoomOptimizer::Result &result);
+			const rc::RoomOptimizer::Result &result);
 
 		// random number generator
 		std::random_device rd;
@@ -161,11 +162,14 @@ class SpecificWorker final : public GenericWorker
 		std::unique_ptr<RoomVisualizer3D> viewer3d;
 
 		// optimizer
-		RoomOptimizer optimizer;
+		rc::RoomOptimizer optimizer;
 
 		// Yolo detector
-		std::unique_ptr<YOLODetector> yolo_detector;
+		std::unique_ptr<YOLODetectorONNX> yolo_detector;
 		cv::Mat read_image();
+
+		// door concept
+		rc::DoorConcept door_concept;
 
 	Q_SIGNALS:
 		//void customSignal();

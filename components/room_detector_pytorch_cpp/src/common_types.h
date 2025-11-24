@@ -110,6 +110,11 @@ struct VelocityCommand
     float adv_z = 0.0f;  // mm/s
     float rot = 0.0f;    // rad/s
     std::chrono::time_point<std::chrono::high_resolution_clock> timestamp;
+    VelocityCommand() = default;
+    VelocityCommand(float x, float z, float r)
+        : adv_x(x), adv_z(z), rot(r)
+        , timestamp(std::chrono::high_resolution_clock::now())
+    {}
 };
 using VelocityHistory = boost::circular_buffer<VelocityCommand>;
 using TimePoints = std::tuple<RoboCompLidar3D::TPoints, std::chrono::time_point<std::chrono::high_resolution_clock>>; // points and timestamp

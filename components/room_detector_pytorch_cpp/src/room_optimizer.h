@@ -32,8 +32,10 @@
 #include "uncertainty_manager.h"
 #include "model_based_filter.h"
 
-class RoomOptimizer
+namespace rc
 {
+    class RoomOptimizer
+    {
     public:
         struct OdometryPrior
         {
@@ -94,8 +96,8 @@ class RoomOptimizer
 
         struct PredictionParameters
         {
-           float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
-           float NOISE_ROT = 0.01f;     // 0.1 rad
+            float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
+            float NOISE_ROT = 0.01f;     // 0.1 rad
         };
 
         PredictionParameters prediction_params;
@@ -243,5 +245,6 @@ class RoomOptimizer
                                             const Eigen::Matrix3f& prior_cov,
                                             float current_weight);
 
-        float wall_thickness = 0.05f;  // Wall thickness for loss computation
+        float wall_thickness = 0.1f;  // Wall thickness for loss computation
+    };
 };

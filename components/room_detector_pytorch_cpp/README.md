@@ -1,7 +1,23 @@
 # room_detector_pytorch_cpp
 A brief introduction to the component. Describe its purpose, functionality, and any specific features here.
 ```
-<YOUR BRIEFING>
+Download onnxruntime latest version of following the instructions at:
+
+https://github.com/microsoft/onnxruntime
+
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-gpu-cuda12-1.23.2.tgz
+tar -xzf onnxruntime-linux-x64-gpu-cuda12-1.23.2.tgz
+
+# Reemplazar instalación actual
+sudo rm -rf /usr/local/onnxruntime
+sudo mv onnxruntime-linux-x64-gpu-cuda12-1.19.2 /usr/local/onnxruntime
+
+# Actualizar ldconfig
+sudo ldconfig
+
+then 
+
+
 ```
 
 ## Dependencies

@@ -53,7 +53,8 @@ YOLODetector::~YOLODetector() {
     // Cleanup if needed
 }
 
-cv::Mat YOLODetector::captureImage() {
+cv::Mat YOLODetector::captureImage()
+{
     // TO BE IMPLEMENTED BY USER
     // This is a placeholder method
     // User should implement their own image acquisition logic here
@@ -67,7 +68,7 @@ cv::Mat YOLODetector::captureImage() {
     return cv::Mat();
 }
 
-std::vector<Detection> YOLODetector::detect(const cv::Mat& image)
+std::vector<YOLODetector::Detection> YOLODetector::detect_doors(const cv::Mat& image)
 {
     if (image.empty()) {
         std::cerr << "Empty image provided to detect()" << std::endl;
@@ -78,26 +79,27 @@ std::vector<Detection> YOLODetector::detect(const cv::Mat& image)
     
     // Preprocess image
     torch::Tensor inputTensor = preprocessImage(image);
-    
+
     // Run inference
     std::vector<torch::jit::IValue> inputs;
     inputs.push_back(inputTensor);
-    
+
     torch::NoGradGuard no_grad;
     auto output = m_model.forward(inputs).toTensor();
-    
+    std::cout << "1" << std::endl;
+
     // Postprocess output
     return postprocessOutput(output, originalSize);
 }
 
-std::vector<Detection> YOLODetector::detectFromCapture()
+std::vector<YOLODetector::Detection> YOLODetector::detectFromCapture()
 {
     cv::Mat image = captureImage();
     if (image.empty()) {
         std::cerr << "Failed to capture image" << std::endl;
         return {};
     }
-    return detect(image);
+    return detect_doors(image);
 }
 
 torch::Tensor YOLODetector::preprocessImage(const cv::Mat& image) {
@@ -140,7 +142,7 @@ torch::Tensor YOLODetector::preprocessImage(const cv::Mat& image) {
     return tensor.to(m_device);
 }
 
-std::vector<Detection> YOLODetector::postprocessOutput(const torch::Tensor& output,
+std::vector<YOLODetector::Detection> YOLODetector::postprocessOutput(const torch::Tensor& output,
                                                        const cv::Size& originalSize) {
     std::vector<Detection> detections;
     
