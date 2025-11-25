@@ -17,22 +17,25 @@
 #include <Lidar3D.h>
 #include "door_model.h"
 #include "common_types.h"
-
+#include "yolo_detector_onnx.h"
+#include <Camera360RGB.h>
+#include <QtCore>
 namespace rc
 {
-/**
- * @brief Door detection and tracking using Bayesian optimization
- *
- * Implements a predict-update cycle for door state estimation:
- * 1. PREDICT: Use robot motion to predict door pose relative to robot
- * 2. UPDATE: Optimize door parameters using LiDAR measurements within YOLO ROI
- *
- * Similar to RoomOptimizer but simpler:
- * - No adaptive mode switching (doors don't "freeze")
- * - Operates on ROI from YOLO detector
- * - Optimizes door pose, geometry, and articulation state
- * - Maintains uncertainty estimates
- */
+    /**
+     * @brief Door detection and tracking using Bayesian optimization
+     *
+     * Implements a predict-update cycle for door state estimation:
+     * 1. PREDICT: Use robot motion to predict door pose relative to robot
+     * 2. UPDATE: Optimize door parameters using LiDAR measurements within YOLO ROI
+     *
+     * Similar to RoomOptimizer but simpler:
+     * - No adaptive mode switching (doors don't "freeze")
+     * - Operates on ROI from YOLO detector
+     * - Optimizes door pose, geometry, and articulation state
+     * - Maintains uncertainty estimates
+     */
+
     class DoorConcept
     {
         public:
@@ -68,7 +71,28 @@ namespace rc
                 float size_std = 0.2f;               // 20cm tolerance
             };
 
-            DoorConcept() = default;
+            explicit DoorConcept(const RoboCompCamera360RGB::Camera360RGBPrxPtr &camera_360rgb_proxy_)
+            {
+                camera360rgb_proxy = camera_360rgb_proxy_;
+                std::string model_path = "best.onnx";
+                yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
+            }
+
+            std::tuple<std::vector<DoorModel>, cv::Mat> detect()
+            {
+                const auto img = read_image();
+                const auto doors_raw = yolo_detector->detect(img);
+                qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
+                std::vector<DoorModel> doors;
+                for (const auto &door : doors_raw)
+                {
+                    auto dm = DoorModel{};
+                    dm.init(RoboCompLidar3D::TPoints{}, door.roi, door.classId, door.label,
+                  1.0f, 2.0f, 0.0f);
+                    doors.emplace_back(dm);
+                }
+                return std::make_tuple(doors, img.clone());
+            }
 
             /**
              * @brief Initialize door from YOLO detection
@@ -118,6 +142,11 @@ namespace rc
             DoorModel door_model_;
             OptimizationConfig config_;
             bool initialized_ = false;
+            std::unique_ptr<YOLODetectorONNX> yolo_detector;
+            RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
+            std::vector<DoorModel> doors;
+
+            cv::Mat read_image();
 
             /**
              * @brief Predict step: adjust door pose for robot motion

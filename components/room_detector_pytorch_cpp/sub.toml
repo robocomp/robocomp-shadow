@@ -4,11 +4,11 @@ cwd = "~/robocomp/components/webots-bridge"
 cmd = "bin/Webots2Robocomp etc/config"
 ice_name = "Webots2Robocomp:tcp -h localhost -p 10006"
 
-#[[components]]
-#name = "camera"
-#cwd = "~/robocomp/components/robocomp-robolab/components/hardware/camera/ricoh_omni"
-#cmd = "bin/RicohOmni etc/config_wb"
-#ice_name = "Camera360RGB:tcp -h localhost -p 10097"
+[[components]]
+name = "camera"
+cwd = "~/robocomp/components/robocomp-robolab/components/hardware/camera/ricoh_omni"
+cmd = "bin/RicohOmni etc/config_wb"
+ice_name = "Camera360RGB:tcp -h localhost -p 10097"
 
 [[components]]
 name = "helios"

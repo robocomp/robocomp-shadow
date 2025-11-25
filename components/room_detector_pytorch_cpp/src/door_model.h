@@ -27,6 +27,7 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <Lidar3D.h>
+#include <opencv2/opencv.hpp>
 
 /**
  * @brief 3D door model using Signed Distance Function (SDF)
@@ -47,13 +48,18 @@
  * - Opening angle rotates around Y-axis at hinge position
  * - Hinge is at left edge: x = -width/2
  */
-class DoorModel : public torch::nn::Module
+class DoorModel final : public torch::nn::Module
 {
     public:
         /**
          * @brief Default constructor
          */
         DoorModel() = default;
+
+        cv::Rect roi;
+        int classId;  // debug
+        std::string label;  // debug
+        float score;
 
         /**
          * @brief Initialize door model from YOLO detection ROI
@@ -64,6 +70,9 @@ class DoorModel : public torch::nn::Module
          * @param initial_angle Initial opening angle (radians, 0 = closed)
          */
         void init(const RoboCompLidar3D::TPoints& roi_points,
+                  const cv::Rect &roi_,
+                  int classId_,
+                  const std::string &label_,
                   float initial_width = 1.0f,
                   float initial_height = 2.0f,
                   float initial_angle = 0.0f);

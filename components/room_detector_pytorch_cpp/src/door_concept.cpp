@@ -21,6 +21,35 @@
 
 namespace rc
 {
+    cv::Mat DoorConcept::read_image()
+    {
+        RoboCompCamera360RGB::TImage img;
+        try { img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1); } catch (const Ice::Exception &e)
+        {
+            std::cout << e.what() << " Error reading 360 camera " << std::endl;
+            return cv::Mat{};
+        }
+
+        // convert to cv::Mat
+        cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
+
+        // extract a ROI leaving out borders (same as original logic)
+        const int left_offset = cv_img.cols / 8;
+        const int vert_offset = cv_img.rows / 4;
+        const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
+        if (roi.width <= 0 || roi.height <= 0) return cv::Mat{};
+        cv_img = cv_img(roi);
+
+        // Convert BGR -> RGB for display
+        cv::Mat display_img;
+        cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
+        // resize to 640x480
+        cv::resize(display_img, display_img, cv::Size(640, 480));
+
+        return display_img.clone();
+    }
+
+
     void DoorConcept::initialize(const RoboCompLidar3D::TPoints& roi_points,
                                 float initial_width,
                                 float initial_height,
@@ -28,14 +57,14 @@ namespace rc
     {
         if (roi_points.empty())
         {
-            qWarning() << "DoorConcept::initialize() - Empty ROI point cloud!";
+            //qWarning() << "DoorConcept::initialize() - Empty ROI point cloud!";
             return;
         }
 
-        qInfo() << "DoorConcept::initialize() - Initializing with" << roi_points.size() << "points";
+        //qInfo() << "DoorConcept::initialize() - Initializing with" << roi_points.size() << "points";
 
-        door_model_.init(roi_points, initial_width, initial_height, initial_angle);
-        initialized_ = true;
+        //door_model_.init(roi_points, initial_width, initial_height, initial_angle);
+        //initialized_ = true;
 
         //door_model_.print_info();
     }

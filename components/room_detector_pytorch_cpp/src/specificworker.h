@@ -169,7 +169,7 @@ class SpecificWorker final : public GenericWorker
 		cv::Mat read_image();
 
 		// door concept
-		rc::DoorConcept door_concept;
+		std::unique_ptr<rc::DoorConcept> door_concept;
 
 	Q_SIGNALS:
 		//void customSignal();

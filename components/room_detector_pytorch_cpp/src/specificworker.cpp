@@ -146,7 +146,7 @@ void SpecificWorker::initialize()
 	yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
 
 	// Door detector
-	door_concept.initialize(points);
+	door_concept = std::make_unique<rc::DoorConcept>(camera360rgb_proxy);
 }
 
 void SpecificWorker::compute()
@@ -168,16 +168,32 @@ void SpecificWorker::compute()
 	//                                        0.01f);
 
 	// door detection
-	const auto img = read_image();
-	const auto doors = yolo_detector->detect(img);
-	qInfo() << "Detected" << doors.size() << "doors";
-	if (not doors.empty())
+	// const auto img = read_image();
+	// const auto doors = yolo_detector->detect(img);
+	// qInfo() << "Detected" << doors.size() << "doors";
+	// if (not doors.empty())
+	// {
+	// 	qInfo() << "Detected" << doors.size() << "doors";
+	// 	for (const auto &door : doors)
+	// 	{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
+	// 		"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
+	// }
+
+	// draw ROI on image
+	// for (const auto doors = door_concept->detect(); const auto &door : doors)
+	// {
+	// 	const cv::Rect r(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
+	// 	cv::rectangle(img, r, cv::Scalar(0, 255, 0), 2);
+	// }
+	const auto &[doors, img] = door_concept->detect();
+	for (const auto &door : doors)
 	{
-		qInfo() << "Detected" << doors.size() << "doors";
-		for (const auto &door : doors)
-		{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
-			"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
+		//door.print_info();
+		const cv::Rect r(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
+		cv::rectangle(img, r, cv::Scalar(0, 255, 0), 2);
 	}
+	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 
 	// auto now = std::chrono::high_resolution_clock::now();
 	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -364,12 +380,6 @@ cv::Mat SpecificWorker::read_image()
 	cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
 	// resize to 640x480
 	cv::resize(display_img, display_img, cv::Size(640, 480));
-
-	if (label_img)
-	{
-		QImage qimg(display_img.data, display_img.cols, display_img.rows, static_cast<int>(display_img.step), QImage::Format_RGB888);
-		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-	}
 
 	return display_img.clone();
 }

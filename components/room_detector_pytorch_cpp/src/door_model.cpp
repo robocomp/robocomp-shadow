@@ -25,14 +25,21 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-void DoorModel::init(const RoboCompLidar3D::TPoints& roi_points,
-                     float initial_width,
-                     float initial_height,
-                     float initial_angle)
+void DoorModel::init( const RoboCompLidar3D::TPoints& roi_points,
+                      const cv::Rect &roi_,
+                      int classId_,
+                      const std::string &label_,
+                      float initial_width,
+                      float initial_height,
+                      float initial_angle)
 {
+    roi = roi_;
+    classId = classId_;
+    label = label_;
+
     if (roi_points.empty())
     {
-        qWarning() << "DoorModel::init() - Empty point cloud!";
+        //qWarning() << "DoorModel::init() - Empty point cloud!";
         return;
     }
 

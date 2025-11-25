@@ -109,13 +109,6 @@ std::vector<Detection> YOLODetectorONNX::detect(const cv::Mat& image)
 
     const std::vector<float> output(outputData, outputData + outputSize);
 
-    std::cout << "Output shape: [";
-    for (size_t i = 0; i < outputShape.size(); i++) {
-        std::cout << outputShape[i];
-        if (i < outputShape.size() - 1) std::cout << ", ";
-    }
-    std::cout << "]" << std::endl;
-
     return postprocessOutput(output, outputShape, originalSize);
 }
 
@@ -157,7 +150,8 @@ std::vector<float> YOLODetectorONNX::preprocessImage(const cv::Mat& image) {
     std::vector<cv::Mat> channels(3);
     cv::split(floatImage, channels);
 
-    for (int c = 0; c < 3; c++) {
+    for (int c = 0; c < 3; c++)
+    {
         std::memcpy(
             inputTensor.data() + c * m_inputSize * m_inputSize,
             channels[c].data,
@@ -180,47 +174,6 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
     int64_t numFeatures = outputShape[1];
     int64_t numBoxes = outputShape[2];
     int64_t numClasses = numFeatures - 4;
-
-    std::cout << "Parsing output: [" << outputShape[0] << ", " << numFeatures
-              << ", " << numBoxes << "] -> " << numClasses << " class channels" << std::endl;
-
-    // Auto-detect active class channel on first run
-    if (m_activeClassChannel < 0) {
-        std::cout << "\nAuto-detecting active class channel..." << std::endl;
-
-        m_activeClassChannel = 0;
-        float maxChannelScore = 0.0f;
-        int bestChannel = 0;
-
-        for (int64_t ch = 0; ch < numClasses; ch++) {
-            float channelMax = 0.0f;
-            for (int64_t i = 0; i < std::min(numBoxes, int64_t(1000)); i++) {
-                float score = output[(4 + ch) * numBoxes + i];
-                channelMax = std::max(channelMax, score);
-            }
-
-            if (channelMax > maxChannelScore) {
-                maxChannelScore = channelMax;
-                bestChannel = static_cast<int>(ch);
-            }
-
-            if (channelMax > 0.01f) {  // Only show active channels
-                std::cout << "  Channel " << ch << ": max=" << channelMax << std::endl;
-            }
-        }
-
-        m_activeClassChannel = bestChannel;
-        std::cout << "\n✓ Using class channel: " << m_activeClassChannel
-                  << " (max score: " << maxChannelScore << ")" << std::endl;
-
-        if (maxChannelScore < 0.01f) {
-            std::cout << "\n⚠️  WARNING: Very low scores detected!" << std::endl;
-            std::cout << "   This might indicate:" << std::endl;
-            std::cout << "   - Image doesn't contain target object" << std::endl;
-            std::cout << "   - Model not properly trained" << std::endl;
-            std::cout << "   - Need to lower confidence threshold" << std::endl;
-        }
-    }
 
     std::vector<cv::Rect> boxes;
     std::vector<float> scores;
@@ -262,19 +215,10 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
         classIds.push_back(0);
     }
 
-    std::cout << "Before NMS: " << boxes.size() << " detections (threshold="
-              << m_confThreshold << ")" << std::endl;
-
     std::vector<int> indices = nms(boxes, scores, m_iouThreshold);
-
-    std::cout << "After NMS: " << indices.size() << " detections (IoU threshold="
-              << m_iouThreshold << ")" << std::endl;
-
     std::string singleClassName = m_classNames.empty() ? "object" : m_classNames[0];
-
-    for (int idx : indices) {
+    for (int idx : indices)
         detections.emplace_back(boxes[idx], 0, singleClassName, scores[idx]);
-    }
 
     return detections;
 }
