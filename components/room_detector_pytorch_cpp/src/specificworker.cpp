@@ -171,13 +171,13 @@ void SpecificWorker::compute()
 	const auto img = read_image();
 	const auto doors = yolo_detector->detect(img);
 	qInfo() << "Detected" << doors.size() << "doors";
-	// if (not doors.empty())
-	// {
-	// 	qInfo() << "Detected" << doors.size() << "doors";
-	// 	for (const auto &door : doors)
-	// 	{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
-	// 		"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
-	// }
+	if (not doors.empty())
+	{
+		qInfo() << "Detected" << doors.size() << "doors";
+		for (const auto &door : doors)
+		{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
+			"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
+	}
 
 	// auto now = std::chrono::high_resolution_clock::now();
 	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
