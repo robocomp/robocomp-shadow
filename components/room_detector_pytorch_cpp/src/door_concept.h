@@ -18,7 +18,7 @@
 #include "door_model.h"
 #include "common_types.h"
 #include "yolo_detector_onnx.h"
-#include <Camera360RGB.h>
+#include <Camera360RGBD.h>
 #include <QtCore>
 namespace rc
 {
@@ -71,28 +71,14 @@ namespace rc
                 float size_std = 0.2f;               // 20cm tolerance
             };
 
-            explicit DoorConcept(const RoboCompCamera360RGB::Camera360RGBPrxPtr &camera_360rgb_proxy_)
+            explicit DoorConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)
             {
-                camera360rgb_proxy = camera_360rgb_proxy_;
+                camera360rgbd_proxy = camera_360rgbd_proxy_;
                 std::string model_path = "best.onnx";
                 yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
             }
 
-            std::tuple<std::vector<DoorModel>, cv::Mat> detect()
-            {
-                const auto img = read_image();
-                const auto doors_raw = yolo_detector->detect(img);
-                qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
-                std::vector<DoorModel> doors;
-                for (const auto &door : doors_raw)
-                {
-                    auto dm = DoorModel{};
-                    dm.init(RoboCompLidar3D::TPoints{}, door.roi, door.classId, door.label,
-                  1.0f, 2.0f, 0.0f);
-                    doors.emplace_back(dm);
-                }
-                return std::make_tuple(doors, img.clone());
-            }
+            std::tuple<std::vector<DoorModel>, cv::Mat> detect();
 
             /**
              * @brief Initialize door from YOLO detection
@@ -143,10 +129,10 @@ namespace rc
             OptimizationConfig config_;
             bool initialized_ = false;
             std::unique_ptr<YOLODetectorONNX> yolo_detector;
-            RoboCompCamera360RGB::Camera360RGBPrxPtr camera360rgb_proxy;
+            RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera360rgbd_proxy;
             std::vector<DoorModel> doors;
 
-            cv::Mat read_image();
+            RoboCompCamera360RGBD::TRGBD read_image();
 
             /**
              * @brief Predict step: adjust door pose for robot motion

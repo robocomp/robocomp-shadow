@@ -146,7 +146,7 @@ void SpecificWorker::initialize()
 	yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
 
 	// Door detector
-	door_concept = std::make_unique<rc::DoorConcept>(camera360rgb_proxy);
+	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
 }
 
 void SpecificWorker::compute()
@@ -193,6 +193,7 @@ void SpecificWorker::compute()
 		cv::rectangle(img, r, cv::Scalar(0, 255, 0), 2);
 	}
 	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+	label_img->clear();
 	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 
 	// auto now = std::chrono::high_resolution_clock::now();

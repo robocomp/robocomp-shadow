@@ -38,15 +38,15 @@ YOLODetectorONNX::YOLODetectorONNX(const std::string& modelPath,
 
         Ort::AllocatorWithDefaultOptions allocator;
 
-        size_t numInputNodes = m_session->GetInputCount();
+        const size_t numInputNodes = m_session->GetInputCount();
         for (size_t i = 0; i < numInputNodes; i++) {
-            auto inputName = m_session->GetInputNameAllocated(i, allocator);
+            const auto inputName = m_session->GetInputNameAllocated(i, allocator);
             m_inputNames.push_back(strdup(inputName.get()));
         }
 
-        size_t numOutputNodes = m_session->GetOutputCount();
+        const size_t numOutputNodes = m_session->GetOutputCount();
         for (size_t i = 0; i < numOutputNodes; i++) {
-            auto outputName = m_session->GetOutputNameAllocated(i, allocator);
+            const auto outputName = m_session->GetOutputNameAllocated(i, allocator);
             m_outputNames.push_back(strdup(outputName.get()));
         }
 
@@ -67,8 +67,8 @@ YOLODetectorONNX::YOLODetectorONNX(const std::string& modelPath,
 }
 
 YOLODetectorONNX::~YOLODetectorONNX() {
-    for (auto name : m_inputNames) free(const_cast<char*>(name));
-    for (auto name : m_outputNames) free(const_cast<char*>(name));
+    for (const char* name : m_inputNames) free(const_cast<char*>(name));
+    for (const char* name : m_outputNames) free(const_cast<char*>(name));
 }
 
 cv::Mat YOLODetectorONNX::captureImage()
@@ -84,12 +84,12 @@ std::vector<Detection> YOLODetectorONNX::detect(const cv::Mat& image)
         return {};
     }
 
-    cv::Size originalSize = image.size();
+    const cv::Size originalSize = image.size();
     std::vector<float> inputTensor = preprocessImage(image);
 
-    std::vector<int64_t> inputShape = {1, 3, m_inputSize, m_inputSize};
+    const std::vector<int64_t> inputShape = {1, 3, m_inputSize, m_inputSize};
 
-    auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    const auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     Ort::Value inputTensorOrt = Ort::Value::CreateTensor<float>(
         memoryInfo, inputTensor.data(), inputTensor.size(),
         inputShape.data(), inputShape.size()
@@ -101,7 +101,7 @@ std::vector<Detection> YOLODetectorONNX::detect(const cv::Mat& image)
         m_outputNames.data(), 1
     );
 
-    auto* outputData = outputTensors[0].GetTensorMutableData<float>();
+    float* outputData = outputTensors[0].GetTensorMutableData<float>();
     const auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
 
     size_t outputSize = 1;
@@ -113,7 +113,7 @@ std::vector<Detection> YOLODetectorONNX::detect(const cv::Mat& image)
 }
 
 std::vector<Detection> YOLODetectorONNX::detectFromCapture() {
-    cv::Mat image = captureImage();
+    const cv::Mat image = captureImage();
     if (image.empty()) {
         std::cerr << "Failed to capture image" << std::endl;
         return {};
@@ -126,19 +126,19 @@ std::vector<float> YOLODetectorONNX::preprocessImage(const cv::Mat& image) {
 
     cv::cvtColor(image, rgbImage, cv::COLOR_BGR2RGB);
 
-    float scale = std::min(
+    const float scale = std::min(
         static_cast<float>(m_inputSize) / image.cols,
         static_cast<float>(m_inputSize) / image.rows
     );
 
-    int newWidth = static_cast<int>(image.cols * scale);
-    int newHeight = static_cast<int>(image.rows * scale);
+    const int newWidth = static_cast<int>(image.cols * scale);
+    const int newHeight = static_cast<int>(image.rows * scale);
 
     cv::resize(rgbImage, resizedImage, cv::Size(newWidth, newHeight));
 
     cv::Mat letterboxImage = cv::Mat::zeros(m_inputSize, m_inputSize, CV_8UC3);
-    int topPad = (m_inputSize - newHeight) / 2;
-    int leftPad = (m_inputSize - newWidth) / 2;
+    const int topPad = (m_inputSize - newHeight) / 2;
+    const int leftPad = (m_inputSize - newWidth) / 2;
 
     resizedImage.copyTo(letterboxImage(cv::Rect(leftPad, topPad, newWidth, newHeight)));
 
@@ -171,30 +171,30 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
 
     // Output format: [batch, features, boxes]
     // features = 4 (bbox) + num_classes
-    int64_t numFeatures = outputShape[1];
-    int64_t numBoxes = outputShape[2];
-    int64_t numClasses = numFeatures - 4;
+    const int64_t numFeatures = outputShape[1];
+    const int64_t numBoxes = outputShape[2];
+    const int64_t numClasses = numFeatures - 4;
 
     std::vector<cv::Rect> boxes;
     std::vector<float> scores;
     std::vector<int> classIds;
 
-    float scale = std::min(
+    const float scale = std::min(
         static_cast<float>(m_inputSize) / originalSize.width,
         static_cast<float>(m_inputSize) / originalSize.height
     );
 
-    int leftPad = (m_inputSize - static_cast<int>(originalSize.width * scale)) / 2;
-    int topPad = (m_inputSize - static_cast<int>(originalSize.height * scale)) / 2;
+    const int leftPad = (m_inputSize - static_cast<int>(originalSize.width * scale)) / 2;
+    const int topPad = (m_inputSize - static_cast<int>(originalSize.height * scale)) / 2;
 
     // Parse detections using active class channel
     for (int64_t i = 0; i < numBoxes; i++) {
-        float cx = output[0 * numBoxes + i];
-        float cy = output[1 * numBoxes + i];
-        float w = output[2 * numBoxes + i];
-        float h = output[3 * numBoxes + i];
+        const float cx = output[0 * numBoxes + i];
+        const float cy = output[1 * numBoxes + i];
+        const float w = output[2 * numBoxes + i];
+        const float h = output[3 * numBoxes + i];
 
-        float score = output[(4 + m_activeClassChannel) * numBoxes + i];
+        const float score = output[(4 + m_activeClassChannel) * numBoxes + i];
 
         if (score < m_confThreshold) continue;
 
@@ -215,8 +215,8 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
         classIds.push_back(0);
     }
 
-    std::vector<int> indices = nms(boxes, scores, m_iouThreshold);
-    std::string singleClassName = m_classNames.empty() ? "object" : m_classNames[0];
+    const std::vector<int> indices = nms(boxes, scores, m_iouThreshold);
+    const std::string singleClassName = m_classNames.empty() ? "object" : m_classNames[0];
     for (int idx : indices)
         detections.emplace_back(boxes[idx], 0, singleClassName, scores[idx]);
 
@@ -258,10 +258,10 @@ std::vector<int> YOLODetectorONNX::nms(const std::vector<cv::Rect>& boxes,
 }
 
 float YOLODetectorONNX::calculateIoU(const cv::Rect& box1, const cv::Rect& box2) {
-    int x1 = std::max(box1.x, box2.x);
-    int y1 = std::max(box1.y, box2.y);
-    int x2 = std::min(box1.x + box1.width, box2.x + box2.width);
-    int y2 = std::min(box1.y + box1.height, box2.y + box2.height);
+    const int x1 = std::max(box1.x, box2.x);
+    const int y1 = std::max(box1.y, box2.y);
+    const int x2 = std::min(box1.x + box1.width, box2.x + box2.width);
+    const int y2 = std::min(box1.y + box1.height, box2.y + box2.height);
 
     int intersectionWidth = std::max(0, x2 - x1);
     int intersectionHeight = std::max(0, y2 - y1);

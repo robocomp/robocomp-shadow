@@ -25,7 +25,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-void DoorModel::init( const RoboCompLidar3D::TPoints& roi_points,
+void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
                       const cv::Rect &roi_,
                       int classId_,
                       const std::string &label_,
@@ -43,6 +43,7 @@ void DoorModel::init( const RoboCompLidar3D::TPoints& roi_points,
         return;
     }
 
+
     // Estimate door center from ROI point cloud
     float x_sum = 0.0f, y_sum = 0.0f, z_sum = 0.0f;
     float x_min = std::numeric_limits<float>::max();
@@ -54,9 +55,9 @@ void DoorModel::init( const RoboCompLidar3D::TPoints& roi_points,
 
     for (const auto& p : roi_points)
     {
-        float x = p.x / 1000.0f;  // mm to meters
-        float y = p.y / 1000.0f;
-        float z = p.z / 1000.0f;
+        float x = p.x() / 1000.0f;  // mm to meters
+        float y = p.y() / 1000.0f;
+        float z = p.z() / 1000.0f;
 
         x_sum += x;
         y_sum += y;

@@ -22,11 +22,11 @@ cwd = "~/robocomp/components/robocomp-robolab/components/hardware/laser/lidar3D"
 cmd = "bin/Lidar3D etc/config_pearl_webots"
 ice_name = "Lidar3D:tcp -h localhost -p 11990"
 
-#[[components]]
-#name = "rgbd"
-#cwd = "~/robocomp/components/robocomp-shadow/insect/RGBD_360"
-#cmd = "bin/RGBD_360 etc/config_wb"
-#ice_name = "RGBD360:tcp -h localhost -p 11989
+[[components]]
+name = "rgbd"
+cwd = "~/robocomp/components/robocomp-shadow/insect/RGBD_360"
+cmd = "bin/RGBD_360 etc/config_wb"
+ice_name = "RGBD360:tcp -h localhost -p 11989"
 
 [[components]]
 name = "joy"

@@ -21,39 +21,65 @@
 
 namespace rc
 {
-    cv::Mat DoorConcept::read_image()
+    std::tuple<std::vector<DoorModel>, cv::Mat> DoorConcept::detect()
     {
-        RoboCompCamera360RGB::TImage img;
-        try { img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1); } catch (const Ice::Exception &e)
+        auto rgbd = read_image();
+        cv::Mat cv_img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
+        cv::cvtColor(cv_img, cv_img, cv::COLOR_BGR2RGB);
+        const auto doors_raw = yolo_detector->detect(cv_img);
+        qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
+
+        std::vector<DoorModel> doors;
+        for (const auto &door : doors_raw)
         {
-            std::cout << e.what() << " Error reading 360 camera " << std::endl;
-            return cv::Mat{};
+            // extract ROI rectangle
+            // compute a cv mask from the door.roi rectangle to filter points
+            // create mask for ROI and fill rectangle
+            const cv::Rect roi(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
+            cv::Mat mask = cv::Mat::zeros(rgbd.height, rgbd.width, CV_8UC1);
+            cv::rectangle(mask, roi, cv::Scalar(255), cv::FILLED);
+            // apply mask to cv_img to get points within ROI
+            cv::Mat inv_mask;
+            cv::bitwise_not(mask, inv_mask);
+            cv_img.setTo(cv::Scalar(0, 0, 0), inv_mask);
+
+            // in rgbd.depth, each element is a x,y,z float triplet
+            std::vector<Eigen::Vector3f> roi_points;
+            auto depth_ptr = reinterpret_cast<cv::Vec3f*>(rgbd.depth.data());
+            for (int y = 0; y < rgbd.height; ++y)
+                for (int x = 0; x < rgbd.width; ++x)
+                {
+                    const int index = y * rgbd.width + x;
+                    if (mask.at<uchar>(y, x) == 0)
+                        continue; // skip points outside ROI
+                    const cv::Vec3f& point = depth_ptr[index];
+                    if (std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
+                        continue; // skip invalid points
+                    roi_points.emplace_back(point[0], point[1], point[2]);
+                }
+            auto dm = DoorModel{};
+            dm.init(roi_points, door.roi, door.classId, door.label, 1.0f, 2.0f, 0.0f);
+            doors.emplace_back(dm);
         }
-
-        // convert to cv::Mat
-        cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
-
-        // extract a ROI leaving out borders (same as original logic)
-        const int left_offset = cv_img.cols / 8;
-        const int vert_offset = cv_img.rows / 4;
-        const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
-        if (roi.width <= 0 || roi.height <= 0) return cv::Mat{};
-        cv_img = cv_img(roi);
-
-        // Convert BGR -> RGB for display
-        cv::Mat display_img;
-        cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
-        // resize to 640x480
-        cv::resize(display_img, display_img, cv::Size(640, 480));
-
-        return display_img.clone();
+        return std::make_tuple(doors, cv_img.clone());
     }
 
+    RoboCompCamera360RGBD::TRGBD DoorConcept::read_image()
+    {
+        RoboCompCamera360RGBD::TRGBD rgbd;
+        try { rgbd = camera360rgbd_proxy->getROI(-1, -1, -1, -1, -1, -1); }
+        catch (const Ice::Exception &e)
+        {
+            std::cout << e.what() << " Error reading 360 RGBD camera " << std::endl;
+            return {};
+        }
+        return rgbd;
+    }
 
     void DoorConcept::initialize(const RoboCompLidar3D::TPoints& roi_points,
-                                float initial_width,
-                                float initial_height,
-                                float initial_angle)
+                                 float initial_width,
+                                 float initial_height,
+                                 float initial_angle)
     {
         if (roi_points.empty())
         {
