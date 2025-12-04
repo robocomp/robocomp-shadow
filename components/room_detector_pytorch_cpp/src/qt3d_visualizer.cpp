@@ -455,9 +455,12 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
         robotTransform->setScale(1.0f); // Box is already in meters
 }
 
+// Replace the draw_door() method in qt3d_visualizer.cpp with this implementation
+// Coordinate system: X=right, Y=forward, Z=up (aligned with DoorModel)
+
 void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float width, float height, float open_angle)
 {
-    // Remove previous entity
+    // Remove previous door entity
     if (doorEntity)
     {
         // doorEntity->setParent(static_cast<Qt3DCore::QNode*>(nullptr));
@@ -466,65 +469,50 @@ void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float w
         return;
     }
 
-    // Visualization parameters
-    const float thickness = 0.04f;  // Match DoorModel::leaf_thickness_
+    /*
+     * Door coordinate system (matches DoorModel):
+     *   X = right (width direction, hinge at -width/2)
+     *   Y = forward (depth direction)
+     *   Z = up (height direction, floor at z=0)
+     *
+     * Door parameters:
+     *   (x, y, z) = position of door center at floor level
+     *   theta = yaw rotation around Z-axis
+     *   width = door opening width (along X)
+     *   height = door height (along Z)
+     *   open_angle = leaf rotation around Z at hinge
+     */
+
     const float theta_deg = theta * 180.0f / static_cast<float>(M_PI);
     const float open_deg = open_angle * 180.0f / static_cast<float>(M_PI);
 
-    // Door root entity
+    // Frame parameters (match DoorModel)
+    const float frame_thickness = 0.10f;  // 10cm
+    const float frame_depth = 0.15f;      // 15cm along Y
+    const float leaf_thickness = 0.04f;   // 4cm
+
+    // Create door root entity
     doorEntity = new Qt3DCore::QEntity(sceneEntity);
 
-    // Global transform: position + yaw around Z (vertical in visualization)
-    // Note: DoorModel has door_position at the door's geometric center
-    // and rotates around Y-axis in its local frame (which maps to Z in Qt3D if Z is up)
+    // Global transform: position + yaw around Z
     auto *doorTransform = new Qt3DCore::QTransform();
-    // Position the door center at (x, y), raised so bottom is at z=0
-    doorTransform->setTranslation(QVector3D(x, y, z + height / 2.0f));
+    doorTransform->setTranslation(QVector3D(x, y, z));
     doorTransform->setRotationZ(theta_deg);
     doorEntity->addComponent(doorTransform);
 
     // Materials
     auto *material_frame = new Qt3DExtras::QPhongMaterial();
     material_frame->setDiffuse(QColor(139, 90, 43));  // wood brown
+    material_frame->setAmbient(QColor(80, 50, 25));
 
     auto *material_leaf = new Qt3DExtras::QPhongMaterial();
     material_leaf->setDiffuse(QColor(180, 140, 100));  // lighter wood
+    material_leaf->setAmbient(QColor(100, 80, 60));
 
-    // --- Door Frame (simplified as a thin outline) ---
-    // In DoorModel, frame surrounds the opening. Here we just show the leaf for clarity.
-    // You could add frame jambs if needed.
-
-    // --- Door Leaf with hinge articulation ---
-    // The hinge is at x = -width/2 in door-local coordinates
-    // Create a pivot entity at the hinge position
-    auto *hingeEntity = new Qt3DCore::QEntity(doorEntity);
-    auto *hingeTransform = new Qt3DCore::QTransform();
-    hingeTransform->setTranslation(QVector3D(-width / 2.0f, 0.0f, 0.0f));
-    // Apply opening rotation around Z-axis (vertical in Qt3D scene)
-    // This matches DoorModel which rotates around Y in its local frame
-    // but since Qt3D Z is up, and door's local Y points along depth,
-    // the hinge rotation is around the local vertical = Z in Qt3D
-    hingeTransform->setRotationZ(open_deg);
-    hingeEntity->addComponent(hingeTransform);
-
-    // Leaf mesh centered at +width/2 from hinge (so hinge is at left edge)
-    auto *leafMesh = new Qt3DExtras::QCuboidMesh();
-    leafMesh->setXExtent(width);
-    leafMesh->setYExtent(thickness);
-    leafMesh->setZExtent(height);
-
-    auto *leafEntity = new Qt3DCore::QEntity(hingeEntity);
-    auto *leafTransform = new Qt3DCore::QTransform();
-    leafTransform->setTranslation(QVector3D(width / 2.0f, 0.0f, 0.0f));
-    leafEntity->addComponent(leafMesh);
-    leafEntity->addComponent(leafTransform);
-    leafEntity->addComponent(material_leaf);
-
-    // Optional: frame jambs
-    const float frame_thickness = 0.10f;
-    const float frame_depth = 0.15f;
+    // ==================== FRAME ====================
 
     // Left jamb
+    // DoorModel: center at (-w/2 - ft/2, 0, h/2), half-extents (ft/2, fd/2, h/2)
     auto *leftJambMesh = new Qt3DExtras::QCuboidMesh();
     leftJambMesh->setXExtent(frame_thickness);
     leftJambMesh->setYExtent(frame_depth);
@@ -532,19 +520,91 @@ void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float w
 
     auto *leftJambEntity = new Qt3DCore::QEntity(doorEntity);
     auto *leftJambTransform = new Qt3DCore::QTransform();
-    leftJambTransform->setTranslation(QVector3D(-width/2.0f - frame_thickness/2.0f, 0.0f, 0.0f));
+    leftJambTransform->setTranslation(QVector3D(-width/2.0f - frame_thickness/2.0f, 0.0f, height/2.0f));
     leftJambEntity->addComponent(leftJambMesh);
     leftJambEntity->addComponent(leftJambTransform);
     leftJambEntity->addComponent(material_frame);
 
     // Right jamb
+    // DoorModel: center at (w/2 + ft/2, 0, h/2)
+    auto *rightJambMesh = new Qt3DExtras::QCuboidMesh();
+    rightJambMesh->setXExtent(frame_thickness);
+    rightJambMesh->setYExtent(frame_depth);
+    rightJambMesh->setZExtent(height);
+
     auto *rightJambEntity = new Qt3DCore::QEntity(doorEntity);
     auto *rightJambTransform = new Qt3DCore::QTransform();
-    rightJambTransform->setTranslation(QVector3D(width/2.0f + frame_thickness/2.0f, 0.0f, 0.0f));
-    rightJambEntity->addComponent(leftJambMesh);  // reuse mesh
+    rightJambTransform->setTranslation(QVector3D(width/2.0f + frame_thickness/2.0f, 0.0f, height/2.0f));
+    rightJambEntity->addComponent(rightJambMesh);
     rightJambEntity->addComponent(rightJambTransform);
     rightJambEntity->addComponent(material_frame);
+
+    // Top lintel
+    // DoorModel: center at (0, 0, h + ft/2), half-extents ((w+2*ft)/2, fd/2, ft/2)
+    auto *lintelMesh = new Qt3DExtras::QCuboidMesh();
+    lintelMesh->setXExtent(width + 2.0f * frame_thickness);
+    lintelMesh->setYExtent(frame_depth);
+    lintelMesh->setZExtent(frame_thickness);
+
+    auto *lintelEntity = new Qt3DCore::QEntity(doorEntity);
+    auto *lintelTransform = new Qt3DCore::QTransform();
+    lintelTransform->setTranslation(QVector3D(0.0f, 0.0f, height + frame_thickness/2.0f));
+    lintelEntity->addComponent(lintelMesh);
+    lintelEntity->addComponent(lintelTransform);
+    lintelEntity->addComponent(material_frame);
+
+    // ==================== LEAF (articulated) ====================
+
+    // Hinge pivot at (-width/2, 0, 0) in door-local frame
+    // The leaf rotates around Z-axis at the hinge
+    auto *hingeEntity = new Qt3DCore::QEntity(doorEntity);
+    auto *hingeTransform = new Qt3DCore::QTransform();
+    hingeTransform->setTranslation(QVector3D(-width/2.0f, 0.0f, 0.0f));
+    hingeTransform->setRotationZ(open_deg);  // Opening rotation around Z
+    hingeEntity->addComponent(hingeTransform);
+
+    // Leaf mesh
+    // DoorModel: half-extents (w/2, lt/2, h/2), center at (w/2, 0, h/2) from hinge
+    auto *leafMesh = new Qt3DExtras::QCuboidMesh();
+    leafMesh->setXExtent(width);
+    leafMesh->setYExtent(leaf_thickness);
+    leafMesh->setZExtent(height);
+
+    auto *leafEntity = new Qt3DCore::QEntity(hingeEntity);
+    auto *leafTransform = new Qt3DCore::QTransform();
+    leafTransform->setTranslation(QVector3D(width/2.0f, 0.0f, height/2.0f));
+    leafEntity->addComponent(leafMesh);
+    leafEntity->addComponent(leafTransform);
+    leafEntity->addComponent(material_leaf);
+
+    // Optional: hinge strip (decorative)
+    auto *hingeMaterial = new Qt3DExtras::QPhongMaterial();
+    hingeMaterial->setDiffuse(QColor(60, 60, 60));  // dark metal
+    hingeMaterial->setSpecular(QColor(150, 150, 150));
+    hingeMaterial->setShininess(80.0f);
+
+    auto *hingeStripMesh = new Qt3DExtras::QCuboidMesh();
+    hingeStripMesh->setXExtent(0.02f);
+    hingeStripMesh->setYExtent(leaf_thickness + 0.01f);
+    hingeStripMesh->setZExtent(height * 0.15f);  // Short hinge sections
+
+    // Top hinge
+    auto *topHingeEntity = new Qt3DCore::QEntity(hingeEntity);
+    auto *topHingeTransform = new Qt3DCore::QTransform();
+    topHingeTransform->setTranslation(QVector3D(0.01f, 0.0f, height * 0.85f));
+    topHingeEntity->addComponent(hingeStripMesh);
+    topHingeEntity->addComponent(topHingeTransform);
+    topHingeEntity->addComponent(hingeMaterial);
+
+    // Bottom hinge
+    auto *bottomHingeEntity = new Qt3DCore::QEntity(hingeEntity);
+    auto *bottomHingeTransform = new Qt3DCore::QTransform();
+    bottomHingeTransform->setTranslation(QVector3D(0.01f, 0.0f, height * 0.15f));
+    bottomHingeEntity->addComponent(hingeStripMesh);
+    bottomHingeEntity->addComponent(bottomHingeTransform);
+    bottomHingeEntity->addComponent(hingeMaterial);
 }
+
 //////////////////////////////////////////////////////////////////////////////////
 Qt3DCore::QEntity *RoomVisualizer3D::createUncertaintyEllipse(float std_x, float std_y, const QColor &color)
 {
