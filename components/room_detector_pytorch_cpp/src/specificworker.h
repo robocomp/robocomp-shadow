@@ -166,7 +166,8 @@ class SpecificWorker final : public GenericWorker
 
 		// Yolo detector
 		std::unique_ptr<YOLODetectorONNX> yolo_detector;
-		cv::Mat read_image();
+
+	RoboCompCamera360RGBD::TRGBD read_image();
 
 		// door concept
 		std::unique_ptr<rc::DoorConcept> door_concept;

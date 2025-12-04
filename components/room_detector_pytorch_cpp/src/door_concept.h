@@ -49,6 +49,7 @@ namespace rc
                 std::vector<float> optimized_params; // Final door parameters
                 int num_points_used = 0;            // Number of LiDAR points in ROI
                 float mean_residual = 0.0f;         // Mean SDF residual
+                std::shared_ptr<DoorModel> door;
             };
 
             struct OptimizationConfig
@@ -78,7 +79,10 @@ namespace rc
                 yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
             }
 
-            std::tuple<std::vector<DoorModel>, cv::Mat> detect();
+            std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &roi_points,
+                                         const Eigen::Vector3f& robot_motion = Eigen::Vector3f::Zero());
+
+            std::vector<DoorModel> detect(const RoboCompCamera360RGBD::TRGBD &rgbd);
 
             /**
              * @brief Initialize door from YOLO detection
@@ -94,20 +98,9 @@ namespace rc
                            float initial_angle = 0.0f);
 
             /**
-             * @brief Main predict-update cycle
-             *
-             * @param roi_points Current LiDAR points in YOLO ROI
-             * @param robot_motion Robot motion since last update (dx, dy, dtheta)
-             * @return Optimization result with updated door state
-             */
-            Result update(const RoboCompLidar3D::TPoints& roi_points,
-                         const Eigen::Vector3f& robot_motion = Eigen::Vector3f::Zero());
-
-            /**
              * @brief Get current door model
              */
-            DoorModel& get_model() { return door_model_; }
-            const DoorModel& get_model() const { return door_model_; }
+            std::shared_ptr<DoorModel> get_model() const { return door; }
 
             /**
              * @brief Get optimization configuration (for tuning)
@@ -125,12 +118,11 @@ namespace rc
             void reset();
 
         private:
-            DoorModel door_model_;
             OptimizationConfig config_;
             bool initialized_ = false;
             std::unique_ptr<YOLODetectorONNX> yolo_detector;
             RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera360rgbd_proxy;
-            std::vector<DoorModel> doors;
+            std::shared_ptr<DoorModel> door = nullptr;
 
             RoboCompCamera360RGBD::TRGBD read_image();
 
@@ -148,7 +140,7 @@ namespace rc
             /**
              * @brief Convert point cloud to tensor
              */
-            torch::Tensor convert_points_to_tensor(const RoboCompLidar3D::TPoints& points);
+            torch::Tensor convert_points_to_tensor(const std::vector<Eigen::Vector3f> &points);
 
             /**
              * @brief Compute measurement loss (SDF-based)

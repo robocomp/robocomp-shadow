@@ -37,6 +37,8 @@ public:
 
     void updateRobotPose(float x, float y, float theta);
 
+    void draw_door(float x, float y, float z, float theta, float width, float height, float open_angle);
+
     // Optional: uncertainty visualization
     void updateUncertainty(float pos_std_x, float pos_std_y, float theta_std);
 
@@ -89,7 +91,7 @@ private:
 
     // Qt3D components
     Qt3DExtras::Qt3DWindow *view;
-    Qt3DCore::QEntity *rootEntity;
+    Qt3DCore::QEntity *rootEntity = nullptr;
     Qt3DCore::QEntity *sceneEntity;
     Qt3DRender::QCamera *camera;
     Qt3DExtras::QOrbitCameraController *camController;
@@ -101,6 +103,7 @@ private:
     Qt3DCore::QEntity *uncertaintyEntity;
     Qt3DCore::QEntity *axesEntity;
     Qt3DCore::QEntity *groundEntity;
+    Qt3DCore::QEntity *doorEntity = nullptr;
 
     // Shared resources (for instancing efficiency)
     Qt3DExtras::QSphereMesh *sharedPointMesh;

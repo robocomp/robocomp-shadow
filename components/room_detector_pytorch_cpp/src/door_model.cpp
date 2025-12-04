@@ -25,7 +25,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
+void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points_,
                       const cv::Rect &roi_,
                       int classId_,
                       const std::string &label_,
@@ -33,6 +33,7 @@ void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
                       float initial_height,
                       float initial_angle)
 {
+    roi_points = roi_points_;
     roi = roi_;
     classId = classId_;
     label = label_;
@@ -43,6 +44,36 @@ void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
         return;
     }
 
+    // Compute median of depth (Y)
+    std::vector<float> y_depths;
+    y_depths.reserve(roi_points.size());
+    for (const auto& p : roi_points)
+        y_depths.push_back(p.y());  // mm to meters
+
+    std::ranges::sort(y_depths);
+    const float median_depth = y_depths[y_depths.size() / 2];
+
+    // Filter points inside a reasonable range, assuming the door opening + leave is at most 1 meter
+    const float depth_tolerance = 1.f;  // +- 100 cm from median
+    std::vector<Eigen::Vector3f> filtered_points;
+    filtered_points.reserve(roi_points.size());
+
+    for (const auto& p : roi_points)
+    {
+        const float y = p.y();
+        if (std::abs(y - median_depth) <= depth_tolerance)
+            filtered_points.push_back(p);
+    }
+
+    if (filtered_points.empty())
+    {
+        std::cout << "Warning: All points filtered out, using original set\n";
+        filtered_points = roi_points;
+    }
+
+    std::cout << "Filtered points: " << filtered_points.size()
+              << " of " << roi_points.size()
+              << " (median depth: " << median_depth << " m)\n";
 
     // Estimate door center from ROI point cloud
     float x_sum = 0.0f, y_sum = 0.0f, z_sum = 0.0f;
@@ -53,11 +84,11 @@ void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
     float z_min = std::numeric_limits<float>::max();
     float z_max = std::numeric_limits<float>::lowest();
 
-    for (const auto& p : roi_points)
+    for (const auto& p : filtered_points)
     {
-        float x = p.x() / 1000.0f;  // mm to meters
-        float y = p.y() / 1000.0f;
-        float z = p.z() / 1000.0f;
+        float x = p.x();  // mm to meters
+        float y = p.y();
+        float z = p.z();
 
         x_sum += x;
         y_sum += y;
@@ -71,7 +102,7 @@ void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
         z_max = std::max(z_max, z);
     }
 
-    const float n = static_cast<float>(roi_points.size());
+    const float n = static_cast<float>(filtered_points.size());
     const float center_x = x_sum / n;
     const float center_y = y_sum / n;
     const float center_z = z_sum / n;
@@ -86,7 +117,7 @@ void DoorModel::init( const std::vector<Eigen::Vector3f>& roi_points,
     const float estimated_height = std::max(z_max - z_min, initial_height);
 
     std::cout << "\n=== DoorModel::init() ===\n";
-    std::cout << "  ROI points: " << roi_points.size() << "\n";
+    std::cout << "  ROI points: " << filtered_points.size() << "\n";
     std::cout << "  Point cloud bounds:\n";
     std::cout << "    X: [" << x_min << ", " << x_max << "] -> span: " << (x_max - x_min) << " m\n";
     std::cout << "    Y: [" << y_min << ", " << y_max << "] -> span: " << (y_max - y_min) << " m\n";

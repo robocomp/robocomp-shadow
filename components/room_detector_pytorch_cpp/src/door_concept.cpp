@@ -21,20 +21,55 @@
 
 namespace rc
 {
-    std::tuple<std::vector<DoorModel>, cv::Mat> DoorConcept::detect()
+    std::optional<DoorConcept::Result> DoorConcept::update(const RoboCompCamera360RGBD::TRGBD &rgbd,
+                                                           const Eigen::Vector3f& robot_motion)
     {
-        auto rgbd = read_image();
-        cv::Mat cv_img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
+        // if no doors, detect first
+        if (door == nullptr)
+        {
+            auto door_candidates = detect(rgbd);
+            if (door_candidates.empty())
+            {
+                qWarning() << "DoorConcept::update() - No doors detected!";
+                return {};
+            }
+            door = std::make_unique<DoorModel>(door_candidates[0]);
+            initialized_ = true;
+            qInfo() << "DoorConcept::update() - Door initialized from detection.";  
+        }
+
+
+        // PREDICT: Adjust door pose for robot motion
+        predict_step(robot_motion);
+
+        // Convert points to tensor
+        const torch::Tensor points_tensor = convert_points_to_tensor(door->roi_points);
+
+        // UPDATE: Optimize door parameters
+        auto res = update_step(points_tensor);
+        res.door = door;
+        return res;
+    }
+
+    std::vector<DoorModel> DoorConcept::detect(const RoboCompCamera360RGBD::TRGBD &rgbd)
+    {
+        cv::Mat cv_img(cv::Size(rgbd.width, rgbd.height), CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
         cv::cvtColor(cv_img, cv_img, cv::COLOR_BGR2RGB);
-        const auto doors_raw = yolo_detector->detect(cv_img);
+        auto doors_raw = yolo_detector->detect(cv_img);
         qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
 
         std::vector<DoorModel> doors;
-        for (const auto &door : doors_raw)
+        for (auto &door : doors_raw)
         {
             // extract ROI rectangle
             // compute a cv mask from the door.roi rectangle to filter points
-            // create mask for ROI and fill rectangle
+            // create an extended mask for ROI and fill rectangle
+            int x_offset = door.roi.width / 10; // 10% of width
+            int y_offset = door.roi.height / 10; // 10% of height
+            door.roi.x = std::max(0, door.roi.x - x_offset);
+            door.roi.y = std::max(0, door.roi.y - y_offset);
+            door.roi.width = std::min(rgbd.width - door.roi.x, door.roi.width + 2 * x_offset);
+            door.roi.height = std::min(rgbd.height - door.roi.y, door.roi.height + 2 * y_offset);
             const cv::Rect roi(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
             cv::Mat mask = cv::Mat::zeros(rgbd.height, rgbd.width, CV_8UC1);
             cv::rectangle(mask, roi, cv::Scalar(255), cv::FILLED);
@@ -45,7 +80,7 @@ namespace rc
 
             // in rgbd.depth, each element is a x,y,z float triplet
             std::vector<Eigen::Vector3f> roi_points;
-            auto depth_ptr = reinterpret_cast<cv::Vec3f*>(rgbd.depth.data());
+            const auto depth_ptr = reinterpret_cast<const cv::Vec3f*>(rgbd.depth.data());
             for (int y = 0; y < rgbd.height; ++y)
                 for (int x = 0; x < rgbd.width; ++x)
                 {
@@ -55,25 +90,15 @@ namespace rc
                     const cv::Vec3f& point = depth_ptr[index];
                     if (std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
                         continue; // skip invalid points
-                    roi_points.emplace_back(point[0], point[1], point[2]);
+                    if (point[0] == 0.0f && point[1] == 0.0f && point[2] == 0.0f)
+                        continue; // skip zero points
+                    roi_points.emplace_back(point[0]/1000.f, point[1]/1000.f, point[2]/1000.f);
                 }
             auto dm = DoorModel{};
             dm.init(roi_points, door.roi, door.classId, door.label, 1.0f, 2.0f, 0.0f);
             doors.emplace_back(dm);
         }
-        return std::make_tuple(doors, cv_img.clone());
-    }
-
-    RoboCompCamera360RGBD::TRGBD DoorConcept::read_image()
-    {
-        RoboCompCamera360RGBD::TRGBD rgbd;
-        try { rgbd = camera360rgbd_proxy->getROI(-1, -1, -1, -1, -1, -1); }
-        catch (const Ice::Exception &e)
-        {
-            std::cout << e.what() << " Error reading 360 RGBD camera " << std::endl;
-            return {};
-        }
-        return rgbd;
+        return doors;
     }
 
     void DoorConcept::initialize(const RoboCompLidar3D::TPoints& roi_points,
@@ -87,12 +112,6 @@ namespace rc
             return;
         }
 
-        //qInfo() << "DoorConcept::initialize() - Initializing with" << roi_points.size() << "points";
-
-        //door_model_.init(roi_points, initial_width, initial_height, initial_angle);
-        //initialized_ = true;
-
-        //door_model_.print_info();
     }
 
     void DoorConcept::reset()
@@ -101,16 +120,16 @@ namespace rc
         qInfo() << "DoorConcept::reset() - Door concept reset";
     }
 
-    torch::Tensor DoorConcept::convert_points_to_tensor(const RoboCompLidar3D::TPoints& points)
+    torch::Tensor DoorConcept::convert_points_to_tensor(const std::vector<Eigen::Vector3f> &points)
     {
         std::vector<float> points_data;
         points_data.reserve(points.size() * 3);
 
         for (const auto& p : points)
         {
-            points_data.push_back(p.x / 1000.0f);  // mm to meters
-            points_data.push_back(p.y / 1000.0f);
-            points_data.push_back(p.z / 1000.0f);
+            points_data.push_back(p.x());  // mm to meters
+            points_data.push_back(p.y());
+            points_data.push_back(p.z());
         }
 
         return torch::from_blob(
@@ -129,7 +148,7 @@ namespace rc
             return;  // No motion, skip prediction
 
         // Get current door pose
-        auto pose = door_model_.get_door_pose();
+        auto pose = door->get_door_pose();
         float door_x = pose[0];
         float door_y = pose[1];
         float door_z = pose[2];
@@ -147,7 +166,7 @@ namespace rc
         door_theta -= dtheta_robot;
 
         // Update door model parameters (no_grad to avoid building computation graph)
-        door_model_.set_pose(door_x, door_y, door_z , door_theta);
+        door->set_pose(door_x, door_y, door_z , door_theta);
 
         qDebug() << "DoorConcept::predict_step() - Applied motion: dx=" << dx_robot
                  << "dy=" << dy_robot << "dθ=" << dtheta_robot;
@@ -158,7 +177,7 @@ namespace rc
         // SDF-based surface fitting loss
         // We want all points to lie on the door surface (SDF ≈ 0)
 
-        const torch::Tensor sdf_values = door_model_.sdf(points_tensor);
+        const torch::Tensor sdf_values = door->sdf(points_tensor);
 
         // L1 loss: mean absolute distance to surface
         return torch::mean(torch::abs(sdf_values));
@@ -173,7 +192,7 @@ namespace rc
         // Uses Gaussian prior: exp(-0.5 * ((x - μ) / σ)²)
         // Which gives loss: 0.5 * ((x - μ) / σ)²
 
-        const auto ps = door_model_.get_door_geometry();
+        const auto ps = door->get_door_geometry();
         const float width = ps[0];
         const float height = ps[1];
 
@@ -216,17 +235,17 @@ namespace rc
 
                 // Positive dimensions
 
-                door_model_.door_width_.clamp_(0.3f, 2.0f);   // 30cm to 2m
-                door_model_.door_height_.clamp_(1.5f, 3.0f);  // 1.5m to 3m
+                door->door_width_.clamp_(0.3f, 2.0f);   // 30cm to 2m
+                door->door_height_.clamp_(1.5f, 3.0f);  // 1.5m to 3m
 
                 // Opening angle: -π to π
-                door_model_.opening_angle_.clamp_(-M_PI, M_PI);
+                door->opening_angle_.clamp_(-M_PI, M_PI);
 
                 // Door orientation: -π to π
-                auto theta_val = door_model_.door_theta_.item<float>();
+                auto theta_val = door->door_theta_.item<float>();
                 while (theta_val > M_PI) theta_val -= 2 * M_PI;
                 while (theta_val < -M_PI) theta_val += 2 * M_PI;
-                door_model_.door_theta_[0] = theta_val;
+                door->door_theta_[0] = theta_val;
             }
 
             // Track best loss
@@ -296,7 +315,7 @@ namespace rc
             const torch::Tensor loss = compute_measurement_loss(points_tensor);
 
             // Get all parameters
-            auto params = door_model_.parameters();
+            auto params = door->parameters();
 
             // Compute Hessian using finite differences (simplified)
             // For now, use diagonal approximation from gradient magnitudes
@@ -356,7 +375,7 @@ namespace rc
         qInfo() << "DoorConcept::update_step() - Optimizing with" << result.num_points_used << "points";
 
         // Create optimizer (optimize all parameters)
-        auto params = door_model_.parameters();
+        auto params = door->parameters();
         torch::optim::Adam optimizer(params, torch::optim::AdamOptions(config_.learning_rate));
 
         // Run optimization loop
@@ -378,12 +397,12 @@ namespace rc
         }
 
         // Get optimized parameters
-        result.optimized_params = door_model_.get_door_parameters();
+        result.optimized_params = door->get_door_parameters();
 
         // Compute mean residual
         {
             torch::NoGradGuard no_grad;
-            const torch::Tensor sdf_vals = door_model_.sdf(points_tensor);
+            const torch::Tensor sdf_vals = door->sdf(points_tensor);
             result.mean_residual = torch::mean(torch::abs(sdf_vals)).item<float>();
         }
 
@@ -395,22 +414,5 @@ namespace rc
         return result;
     }
 
-    DoorConcept::Result DoorConcept::update(const RoboCompLidar3D::TPoints& roi_points,
-                                           const Eigen::Vector3f& robot_motion)
-    {
-        if (!initialized_)
-        {
-            qWarning() << "DoorConcept::update() - Not initialized!";
-            return Result{};
-        }
 
-        // PREDICT: Adjust door pose for robot motion
-        predict_step(robot_motion);
-
-        // Convert points to tensor
-        const torch::Tensor points_tensor = convert_points_to_tensor(roi_points);
-
-        // UPDATE: Optimize door parameters
-        return update_step(points_tensor);
-    }
 };

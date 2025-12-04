@@ -140,11 +140,6 @@ void SpecificWorker::initialize()
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
 
-	// Yolo door detector
-	//std::string model_path = "best_one_class.onnx";
-	std::string model_path = "best.onnx";
-	yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
-
 	// Door detector
 	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
 }
@@ -168,33 +163,36 @@ void SpecificWorker::compute()
 	//                                        0.01f);
 
 	// door detection
-	// const auto img = read_image();
-	// const auto doors = yolo_detector->detect(img);
-	// qInfo() << "Detected" << doors.size() << "doors";
-	// if (not doors.empty())
-	// {
-	// 	qInfo() << "Detected" << doors.size() << "doors";
-	// 	for (const auto &door : doors)
-	// 	{ qInfo() << "Roi :" << door.roi.x << door.roi.y << door.roi.width << door.roi.height <<
-	// 		"Class id" << door.classId << "Label" << QString::fromStdString(door.label) << "Score" << door.score; }
-	// }
-
-	// draw ROI on image
-	// for (const auto doors = door_concept->detect(); const auto &door : doors)
-	// {
-	// 	const cv::Rect r(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
-	// 	cv::rectangle(img, r, cv::Scalar(0, 255, 0), 2);
-	// }
-	const auto &[doors, img] = door_concept->detect();
-	for (const auto &door : doors)
+	auto rgbd = read_image();
+	cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
+	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+	if (const auto res = door_concept->update(rgbd); res.has_value())
 	{
-		//door.print_info();
-		const cv::Rect r(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
-		cv::rectangle(img, r, cv::Scalar(0, 255, 0), 2);
+		cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
+		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+		label_img->clear();
+		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+		qInfo() << "==============================";
+		qInfo() << "Door optimization result:"
+				<< "	Final loss:" <<  res->final_loss
+				<< "	Measurement loss:"  << res->measurement_loss
+				<< "	Num points:" << res->num_points_used
+				<< "	Success:" << res->success;
+		const auto params = res->optimized_params;
+		qInfo() << "Optimized door parameters:"
+				<< "	x:"  << params[0]
+				<< "	y:"  << params[1]
+				<< "	z:"  << params[2]
+				<< "	theta:"   << params[3]
+				<< "	width:"   << params[4]
+				<< "	height:"  << params[5]
+				<< "	angle:"  << params[6];
+		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
 	}
-	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
-	label_img->clear();
-	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+	else
+	{
+		qInfo() << "Door optimization: No door detected/initialized.";
+	}
 
 	// auto now = std::chrono::high_resolution_clock::now();
 	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -257,6 +255,18 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 
 	loss_plotter->update();
 	stddev_plotter->update();
+}
+
+RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
+{
+	RoboCompCamera360RGBD::TRGBD rgbd;
+	try { rgbd = camera360rgbd_proxy->getROI(-1, -1, -1, -1, -1, -1); }
+	catch (const Ice::Exception &e)
+	{
+		std::cout << e.what() << " Error reading 360 RGBD camera " << std::endl;
+		return {};
+	}
+	return rgbd;
 }
 
 void SpecificWorker::print_status(const rc::RoomOptimizer::Result &result)
@@ -357,33 +367,33 @@ void SpecificWorker::print_status(const rc::RoomOptimizer::Result &result)
     qInfo().noquote() << QString(60, '=') << "\n";
 }
 
-cv::Mat SpecificWorker::read_image()
-{
-	RoboCompCamera360RGB::TImage img;
-	try { img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1); } catch (const Ice::Exception &e)
-	{
-		std::cout << e.what() << " Error reading 360 camera " << std::endl;
-		return cv::Mat{};
-	}
-
-	// convert to cv::Mat
-	cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
-
-	// extract a ROI leaving out borders (same as original logic)
-	const int left_offset = cv_img.cols / 8;
-	const int vert_offset = cv_img.rows / 4;
-	const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
-	if (roi.width <= 0 || roi.height <= 0) return cv::Mat{};
-	cv_img = cv_img(roi);
-
-	// Convert BGR -> RGB for display
-	cv::Mat display_img;
-	cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
-	// resize to 640x480
-	cv::resize(display_img, display_img, cv::Size(640, 480));
-
-	return display_img.clone();
-}
+// RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
+// {
+// 	RoboCompCamera360RGB::TImage img;
+// 	try { img = camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1); } catch (const Ice::Exception &e)
+// 	{
+// 		std::cout << e.what() << " Error reading 360 camera " << std::endl;
+// 		return {};
+// 	}
+//
+// 	// convert to cv::Mat
+// 	cv::Mat cv_img(img.height, img.width, CV_8UC3, img.image.data());
+//
+// 	// extract a ROI leaving out borders (same as original logic)
+// 	const int left_offset = cv_img.cols / 8;
+// 	const int vert_offset = cv_img.rows / 4;
+// 	const cv::Rect roi(left_offset, vert_offset, cv_img.cols - 2 * left_offset, cv_img.rows - 2 * vert_offset);
+// 	if (roi.width <= 0 || roi.height <= 0) return {};
+// 	cv_img = cv_img(roi);
+//
+// 	// Convert BGR -> RGB for display
+// 	cv::Mat display_img;
+// 	cv::cvtColor(cv_img, display_img, cv::COLOR_BGR2RGB);
+// 	// resize to 640x480
+// 	cv::resize(display_img, display_img, cv::Size(640, 480));
+//
+// 	return display_img.clone();
+// }
 
 TimePoints SpecificWorker::read_data()
 {

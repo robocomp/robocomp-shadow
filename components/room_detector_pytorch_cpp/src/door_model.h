@@ -56,6 +56,7 @@ class DoorModel final : public torch::nn::Module
          */
         DoorModel() = default;
 
+        std::vector<Eigen::Vector3f> roi_points;
         cv::Rect roi;
         int classId;  // debug
         std::string label;  // debug
@@ -69,7 +70,7 @@ class DoorModel final : public torch::nn::Module
          * @param initial_height Initial guess for door height (meters)
          * @param initial_angle Initial opening angle (radians, 0 = closed)
          */
-        void init(const std::vector<Eigen::Vector3f>& roi_points,
+        void init(const std::vector<Eigen::Vector3f>& roi_points_,
                   const cv::Rect &roi_,
                   int classId_,
                   const std::string &label_,
