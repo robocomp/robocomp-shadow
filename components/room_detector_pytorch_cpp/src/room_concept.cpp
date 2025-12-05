@@ -1,12 +1,12 @@
 //
-// RoomOptimizer - EKF-style predict-update cycle implementation
+// RoomConcept - EKF-style predict-update cycle implementation
 //
 
 #include <torch/torch.h>
 #include <iostream>
 #include <iomanip>
 #include <cmath>
-#include "room_optimizer.h"
+#include "room_concept.h"
 #include "room_loss.h"
 #include "uncertainty_estimator.h"
 
@@ -20,9 +20,9 @@
 
 namespace rc
 {
-    RoomOptimizer::Result RoomOptimizer::optimize(
+    RoomConcept::Result RoomConcept::update(
         const TimePoints &points_,
-        RoomModel &room,
+        std::shared_ptr<RoomModel> &room,
         const VelocityHistory &velocity_history,
         int num_iterations,
         float min_loss_threshold,
@@ -43,7 +43,7 @@ namespace rc
         // ===== PREDICT STEP =====
         // Propagates state: x_pred = x_prev + f(u, dt)
         // Propagates covariance: P_pred = F*P*F^T + Q where F is motion model Jacobian
-        // Sets room.robot_pos_ = x_pred (initialization for optimization)
+        // Sets room->robot_pos_ = x_pred (initialization for optimization)
         const PredictionState prediction = predict_step(room, odometry_prior, is_localized);
 
         // ===== FILTER MEASUREMENTS (TOP-DOWN PREDICTION) =====
@@ -54,7 +54,7 @@ namespace rc
 
         // ===== CONVERT MEASUREMENTS TO TENSOR =====
         const torch::Tensor points_tensor = convert_points_to_tensor(points);
-        auto pose_before_opt = room.get_robot_pose();
+        auto pose_before_opt = room->get_robot_pose();
 
         // ===== EKF UPDATE STEP =====
         // - Optimization-based update: x_new = argmin { L(z|x) + ||x - x_pred||²_P }. Likelihood + prior/P
@@ -72,7 +72,7 @@ namespace rc
         // residual = x_optimized - x_predicted
         // This is the "innovation" in EKF terminology: where measurement pulled us
         // Used for long-term calibration learning
-        res.optimized_pose = room.get_robot_pose();
+        res.optimized_pose = room->get_robot_pose();
 
         // ===== UPDATE STATE MANAGEMENT =====
         // Use measurement loss only for freezing decisions (prior loss is intentionally high when preventing drift)
@@ -126,8 +126,8 @@ namespace rc
     // PREDICT PHASE
     // ============================================================================
 
-    RoomOptimizer::PredictionState RoomOptimizer::predict_step(
-        RoomModel &room,
+    RoomConcept::PredictionState RoomConcept::predict_step(
+        std::shared_ptr<RoomModel> &room,
         const OdometryPrior &odometry_prior,
         bool is_localized)
     {
@@ -169,7 +169,7 @@ namespace rc
         if (is_localized)
         {
             // CRITICAL: Save previous pose BEFORE computing prediction
-            const auto current_pose = room.get_robot_pose();
+            const auto current_pose = room->get_robot_pose();
             prediction.previous_pose = current_pose;  // Store for prior loss computation
 
             // Predict using the integrated delta (more reliable than velocity commands)
@@ -178,7 +178,7 @@ namespace rc
                 torch::kFloat32
             );
 
-            torch::Tensor predicted_tensor = room.predict_pose_from_delta(
+            torch::Tensor predicted_tensor = room->predict_pose_from_delta(
                 current_pose_tensor,
                 odometry_prior.delta_pose
             );
@@ -189,18 +189,18 @@ namespace rc
 
             // Initialize model to prediction (starting point for optimization)
             // Update model parameters (bypassing autograd with .data())
-            room.robot_pos_.data()[0] = prediction.predicted_pose[0];
-            room.robot_pos_.data()[1] = prediction.predicted_pose[1];
-            room.robot_theta_.data()[0] = prediction.predicted_pose[2];
+            room->robot_pos_.data()[0] = prediction.predicted_pose[0];
+            room->robot_pos_.data()[1] = prediction.predicted_pose[1];
+            room->robot_theta_.data()[0] = prediction.predicted_pose[2];
 
         }
 
         return prediction;
     }
 
-    ModelBasedFilter::Result RoomOptimizer::filter_measurements(
+    ModelBasedFilter::Result RoomConcept::filter_measurements(
         const RoboCompLidar3D::TPoints &points,
-        RoomModel &room,
+       std::shared_ptr<RoomModel> &room,
         const PredictionState &prediction)
     {
         const bool is_localized = room_freezing_manager.should_freeze_room();
@@ -228,9 +228,9 @@ namespace rc
     // UPDATE PHASE
     // ============================================================================
 
-    RoomOptimizer::Result RoomOptimizer::update_step(
+    RoomConcept::Result RoomConcept::update_step(
         const torch::Tensor &points_tensor,
-        RoomModel &room,
+       std::shared_ptr<RoomModel> &room,
         const OdometryPrior &odometry_prior,
         const PredictionState &prediction,
         bool is_localized,
@@ -245,7 +245,7 @@ namespace rc
         auto params_to_optimize = select_optimization_parameters(room, is_localized);
 
         // Save pose before optimization for diagnostics
-        auto pose_before_opt = room.get_robot_pose();
+        auto pose_before_opt = room->get_robot_pose();
 
         // Prepare odometry prior for optimization
         bool use_odometry_prior = odometry_prior.valid && is_localized && calib_config.enable_odometry_optimization;
@@ -278,7 +278,7 @@ namespace rc
                     use_odometry_prior = false;  // Disable only if dt too small
 
             // Get TRUE previous pose (BEFORE prediction was applied)
-            // CRITICAL FIX: room.get_robot_pose() returns PREDICTED pose at this point
+            // CRITICAL FIX: room->get_robot_pose() returns PREDICTED pose at this point
             // Use prediction.previous_pose which was saved in predict_step()
             if (not prediction.previous_pose.empty())
             {
@@ -288,7 +288,7 @@ namespace rc
                 ).requires_grad_(false);
             } else {
                 // Fallback: use current (predicted) pose if previous not available
-                auto prev_pose = room.get_robot_pose();
+                auto prev_pose = room->get_robot_pose();
                 prev_pose_tensor = torch::tensor(
                     {prev_pose[0], prev_pose[1], prev_pose[2]},
                     torch::kFloat32
@@ -325,28 +325,28 @@ namespace rc
         return res;
     }
 
-    std::vector<torch::Tensor> RoomOptimizer::select_optimization_parameters(
-        RoomModel &room,
+    std::vector<torch::Tensor> RoomConcept::select_optimization_parameters(
+       std::shared_ptr<RoomModel> &room,
         bool is_localized)
     {
         std::vector<torch::Tensor> params_to_optimize;
 
         if (is_localized) {
             // LOCALIZED: Optimize robot pose only
-            params_to_optimize = room.get_robot_parameters();
-            room.freeze_room_parameters();
+            params_to_optimize = room->get_robot_parameters();
+            room->freeze_room_parameters();
         } else {
             // MAPPING: Optimize everything (room + robot)
-            params_to_optimize = room.parameters();
-            room.unfreeze_room_parameters();
+            params_to_optimize = room->parameters();
+            room->unfreeze_room_parameters();
         }
 
         return params_to_optimize;
     }
 
-    RoomOptimizer::OptimizationResult RoomOptimizer::run_optimization_loop(
+    RoomConcept::OptimizationResult RoomConcept::run_optimization_loop(
         const torch::Tensor &points_tensor,
-        RoomModel &room,
+       std::shared_ptr<RoomModel> &room,
         const torch::Tensor &prev_pose_tensor,
         const OdometryPrior &odometry_prior,
         torch::optim::Optimizer &optimizer,
@@ -415,7 +415,7 @@ namespace rc
     // LOSS COMPUTATION
     // ============================================================================
 
-    torch::Tensor RoomOptimizer::compute_prior_loss( RoomModel &room,
+    torch::Tensor RoomConcept::compute_prior_loss(std::shared_ptr<RoomModel> &room,
                                                      const torch::Tensor &predicted_pose,
                                                      const OdometryPrior &odometry_prior,
                                                      const PredictionState &prediction)
@@ -424,8 +424,8 @@ namespace rc
         torch::Tensor predicted_pos = predicted_pose.slice(0, 0, 2);     // [x, y]
         torch::Tensor predicted_theta = predicted_pose.slice(0, 2, 3);   // [theta]
 
-        torch::Tensor pos_diff = room.robot_pos_ - predicted_pos;
-        torch::Tensor theta_diff = room.robot_theta_ - predicted_theta;
+        torch::Tensor pos_diff = room->robot_pos_ - predicted_pos;
+        torch::Tensor theta_diff = room->robot_theta_ - predicted_theta;
         torch::Tensor pose_diff = torch::cat({pos_diff, theta_diff});
 
         // Compute motion-based covariance using consistent helper method. Use propagated covariance if available
@@ -454,8 +454,8 @@ namespace rc
     // UNCERTAINTY ESTIMATION
     // ============================================================================
 
-    RoomOptimizer::Result RoomOptimizer::estimate_uncertainty(
-        RoomModel &room,
+    RoomConcept::Result RoomConcept::estimate_uncertainty(
+       std::shared_ptr<RoomModel> &room,
         const torch::Tensor &points_tensor,
         bool is_localized,
         float final_loss,
@@ -599,15 +599,15 @@ namespace rc
     // STATE MANAGEMENT
     // ============================================================================
 
-    void RoomOptimizer::update_state_management(
+    void RoomConcept::update_state_management(
         const Result &res,
-        RoomModel &room,
+        std::shared_ptr<RoomModel> &room,
         bool is_localized,
         float final_loss)
     {
         // Store current covariance and pose for next prediction
         uncertainty_manager.set_previous_cov(res.covariance);
-        uncertainty_manager.set_previous_pose(room.get_robot_pose());
+        uncertainty_manager.set_previous_pose(room->get_robot_pose());
 
         // Update freezing manager
         std::vector<float> room_std_devs;
@@ -622,12 +622,12 @@ namespace rc
             robot_std_devs = {res.std_devs[2], res.std_devs[3], res.std_devs[4]};
         }
 
-        const auto room_params = room.get_room_parameters();
+        const auto room_params = room->get_room_parameters();
         bool state_changed = room_freezing_manager.update(
             room_params,
             room_std_devs,
             robot_std_devs,
-            room.get_robot_pose(),
+            room->get_robot_pose(),
             final_loss,
             frame_number
         );
@@ -645,7 +645,7 @@ namespace rc
     // HELPER METHODS
     // ============================================================================
 
-    torch::Tensor RoomOptimizer::convert_points_to_tensor(const RoboCompLidar3D::TPoints &points)
+    torch::Tensor RoomConcept::convert_points_to_tensor(const RoboCompLidar3D::TPoints &points)
     {
         torch::Tensor points_tensor = torch::empty({static_cast<long>(points.size()), 2}, torch::kFloat32);
         auto accessor = points_tensor.accessor<float, 2>();
@@ -659,15 +659,15 @@ namespace rc
         return points_tensor;
     }
 
-    Eigen::Vector3f RoomOptimizer::integrate_velocity_over_window(
-        const RoomModel& room,
+    Eigen::Vector3f RoomConcept::integrate_velocity_over_window(
+        const std::shared_ptr<RoomModel>& room,
         const boost::circular_buffer<VelocityCommand> &velocity_history,
         const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
         const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end)
     {
         Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
 
-        const auto current_pose = room.get_robot_pose();
+        const auto current_pose = room->get_robot_pose();
         float running_theta = current_pose[2];
 
         // Integrate over all velocity commands in [t_start, t_end]
@@ -707,8 +707,8 @@ namespace rc
         return total_delta;
     }
 
-    RoomOptimizer::OdometryPrior RoomOptimizer::compute_odometry_prior(
-        const RoomModel &room,
+    RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
+        const std::shared_ptr<RoomModel> &room,
         const boost::circular_buffer<VelocityCommand>& velocity_history,
         const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
     {
@@ -768,7 +768,7 @@ namespace rc
      * Compute motion-based covariance consistently
      * σ = base + k * distance
      */
-    Eigen::Matrix3f RoomOptimizer::compute_motion_covariance(const OdometryPrior &odometry_prior)
+    Eigen::Matrix3f RoomConcept::compute_motion_covariance(const OdometryPrior &odometry_prior)
     {
         float motion_magnitude = std::sqrt(
             odometry_prior.delta_pose[0] * odometry_prior.delta_pose[0] +
@@ -816,7 +816,7 @@ namespace rc
      * @param current_weight Current weight (for EMA smoothing)
      * @return New weight in [0, 1]
      */
-    float RoomOptimizer::compute_adaptive_prior_weight(float innovation_norm,
+    float RoomConcept::compute_adaptive_prior_weight(float innovation_norm,
                                                        float motion_magnitude,
                                                        const Eigen::Matrix3f& prior_cov,
                                                        float current_weight)
@@ -885,7 +885,7 @@ namespace rc
     /**
      * Simplified version using only innovation norm
      */
-    float RoomOptimizer::compute_adaptive_prior_weight_simple(float innovation_norm,
+    float RoomConcept::compute_adaptive_prior_weight_simple(float innovation_norm,
                                                float motion_magnitude,
                                                float current_weight)
     {

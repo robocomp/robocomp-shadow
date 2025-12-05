@@ -26,7 +26,7 @@ class RoomLoss
          * @return Scalar tensor with the loss value
          */
         static torch::Tensor compute_loss(const torch::Tensor& points,
-                                      RoomModel& room,
+                                      std::shared_ptr<RoomModel>& room,
                                       float wall_thickness = 0.1f);
 };
 

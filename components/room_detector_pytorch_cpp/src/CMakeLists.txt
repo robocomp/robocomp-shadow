@@ -1,4 +1,3 @@
-
 find_package(Qt6 COMPONENTS 3DCore 3DRender 3DExtras REQUIRED)
 
 
@@ -45,6 +44,11 @@ endif()
 
 message(STATUS "${Green}Found ONNX Runtime at: ${ONNXRUNTIME_ROOT}${ColorReset}")
 
+# Find required packages
+find_package(GTSAM REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system filesystem)
+
 
 # Include directories
 include_directories(
@@ -64,7 +68,7 @@ LIST(APPEND SOURCES
         ../src/door_detector.cpp
         ../src/room_freezing_manager.cpp
         ../src/qt3d_visualizer.cpp
-        ../src/room_optimizer.cpp
+        ../src/room_concept.cpp
         ../src/uncertainty_manager.cpp
         ../src/room_loss.cpp
         ../src/uncertainty_estimator.cpp
@@ -75,6 +79,8 @@ LIST(APPEND SOURCES
         ../src/door_model.cpp
         ../src/equirectangular_projection.cpp
         ../src/door_projection.cpp
+       ../src/consensus_graph.cpp
+        ../src/consensus_manager.cpp
 )
 # Headers set
 LIST(APPEND HEADERS
@@ -84,7 +90,7 @@ LIST(APPEND HEADERS
         ../src/door_detector.h
         ../src/room_freezing_manager.h
         ../src/qt3d_visualizer.h
-        ../src/room_optimizer.h
+        ../src/room_concept.h
         ../src/uncertainty_manager.h
         ../src/room_loss.h
         ../src/uncertainty_estimator.h
@@ -95,13 +101,15 @@ LIST(APPEND HEADERS
         ../src/door_model.h
         ../src/equirectangular_projection.h
         ../src/door_projection.h
+        ../src/consensus_graph.h
+        ../src/consensus_manager.h
 )
 
 # Include OpenCV
 INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
 
-LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport onnxruntime )
+
+LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport onnxruntime gtsam Eigen3::Eigen Boost::system Boost::filesystem ${OpenCV_LIBS})
 
 # no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-g -O4 -fmax-errors=1 -fno-char8_t)
-
+add_definitions(-O4 -fmax-errors=1 -fno-char8_t)

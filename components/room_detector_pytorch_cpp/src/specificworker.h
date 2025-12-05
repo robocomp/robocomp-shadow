@@ -25,6 +25,13 @@
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
+#ifdef slots
+  #undef slots
+#endif
+#include <torch/torch.h>
+#ifdef Q_SLOTS
+  #define slots Q_SLOTS
+#endif
 
 // If you want to reduce the period automatically due to lack of use, you must uncomment the following line
 //#define HIBERNATION_ENABLED
@@ -35,13 +42,13 @@
 #include <vector>
 #include "abstract_graphic_viewer/abstract_graphic_viewer.h"
 #include <Eigen/Dense>
-#include "room_model.h"
 #include "door_detector.h"
 #include "room_freezing_manager.h"
 #include "qt3d_visualizer.h"
-#include "room_optimizer.h"
 #include "door_concept.h"
 #include "yolo_detector_onnx.h"
+#include "room_concept.h"
+#include "consensus_manager.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -105,7 +112,7 @@ class SpecificWorker final : public GenericWorker
 
 		// velocity commands
 		boost::circular_buffer<VelocityCommand> velocity_history_{10}; // Keep last 10 commands
-		rc::RoomOptimizer::OdometryPrior compute_odometry_prior(
+		rc::RoomConcept::OdometryPrior compute_odometry_prior(
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
 
@@ -118,16 +125,13 @@ class SpecificWorker final : public GenericWorker
 		QGraphicsPolygonItem *robot_draw, *robot_room_draw;
 		QGraphicsItem *room_draw = nullptr;
 
-		// room
-		RoomModel room;
-		//RoomFreezingManager room_freezing_manager;
-
 		// aux
 		TimePoints read_data();
+		RoboCompCamera360RGBD::TRGBD read_image();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
-		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomOptimizer::Result &result, QGraphicsScene *scene);
+		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result, QGraphicsScene *scene);
 		void update_viewers(const TimePoints &points,
-							const rc::RoomOptimizer::Result &result,
+							const rc::RoomConcept::Result &result,
 							QGraphicsScene *scene);
 
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
@@ -143,7 +147,7 @@ class SpecificWorker final : public GenericWorker
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
 		void print_status(
-			const rc::RoomOptimizer::Result &result);
+			const rc::RoomConcept::Result &result);
 
 		// random number generator
 		std::random_device rd;
@@ -155,22 +159,22 @@ class SpecificWorker final : public GenericWorker
 		std::shared_ptr<TimeSeriesPlotter> loss_plotter, stddev_plotter;
 		std::vector<int> graphs;
 
-		// door
-		DoorDetector door_detector;
-
 		// qt3d
 		std::unique_ptr<RoomVisualizer3D> viewer3d;
-
-		// optimizer
-		rc::RoomOptimizer optimizer;
 
 		// Yolo detector
 		std::unique_ptr<YOLODetectorONNX> yolo_detector;
 
-	RoboCompCamera360RGBD::TRGBD read_image();
+		// room
+		std::shared_ptr<RoomModel> room;
+		std::unique_ptr<rc::RoomConcept> room_concept;
 
-		// door concept
+		// doors
+		DoorDetector door_detector;
 		std::unique_ptr<rc::DoorConcept> door_concept;
+
+		// consensus manager
+		ConsensusManager consensus_manager;
 
 	Q_SIGNALS:
 		//void customSignal();

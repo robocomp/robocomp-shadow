@@ -31,7 +31,7 @@ class UncertaintyEstimator
 {
     public:
         static torch::Tensor compute_covariance(const torch::Tensor &points,
-                                                RoomModel &room,
+                                                std::shared_ptr<RoomModel> &room,
                                                 float wall_thickness = 0.1f);
 
         /**
@@ -58,7 +58,7 @@ class UncertaintyEstimator
          * @param covariance Covariance matrix [n, n]
          * @param room Room model to label parameters
          */
-        static void print_uncertainty(const torch::Tensor &covariance, const RoomModel &room);
+        static void print_uncertainty(const torch::Tensor &covariance, const std::shared_ptr<RoomModel> &room);
 };
 
 #endif //UNCERTAINTY_ESTIMATOR_H

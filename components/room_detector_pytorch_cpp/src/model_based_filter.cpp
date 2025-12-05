@@ -9,7 +9,7 @@
 
 ModelBasedFilter::Result ModelBasedFilter::filter(
     const RoboCompLidar3D::TPoints& points,
-    RoomModel& room,
+    std::shared_ptr<RoomModel>& room,
     float robot_uncertainty)
 {
     Result result;
@@ -40,7 +40,7 @@ ModelBasedFilter::Result ModelBasedFilter::filter(
     ).clone();
 
     // Compute SDF for all points
-    torch::Tensor sdf_values = room.sdf(points_tensor);
+    torch::Tensor sdf_values = room->sdf(points_tensor);
     auto sdf_accessor = sdf_values.accessor<float, 1>();
 
     // Classify points
@@ -82,7 +82,7 @@ ModelBasedFilter::Result ModelBasedFilter::filter(
 
 ModelBasedFilter::Result ModelBasedFilter::analyze_fit(
     const RoboCompLidar3D::TPoints& points,
-    RoomModel& room)
+    std::shared_ptr<RoomModel>& room)
 {
     Result result = filter(points, room, 0.0f);
     result.strategy = Result::Strategy::USE_ALL;

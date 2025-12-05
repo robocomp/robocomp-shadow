@@ -10,11 +10,11 @@
 // ============================================================================
 
 torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor &points,
-                                                       RoomModel &room,
+                                                       std::shared_ptr<RoomModel> &room,
                                                        float wall_thickness)
 {
     // Get all parameters
-    const auto all_params = room.parameters();
+    const auto all_params = room->parameters();
 
     // Filter only parameters that require gradients
     std::vector<torch::Tensor> params;
@@ -174,12 +174,12 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor &poin
      return correlation;
  }
 
- void UncertaintyEstimator::print_uncertainty(const torch::Tensor &covariance, const RoomModel &room)
+ void UncertaintyEstimator::print_uncertainty(const torch::Tensor &covariance, const std::shared_ptr<RoomModel> &room)
  {
      const auto std_devs = get_std_devs(covariance);
-     const auto room_params = room.get_room_parameters();
-     const auto robot_pose = room.get_robot_pose();
-     const bool room_frozen = room.are_room_parameters_frozen();
+     const auto room_params = room->get_room_parameters();
+     const auto robot_pose = room->get_robot_pose();
+     const bool room_frozen = room->are_room_parameters_frozen();
 
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "\n=== UNCERTAINTY ESTIMATES ===\n";

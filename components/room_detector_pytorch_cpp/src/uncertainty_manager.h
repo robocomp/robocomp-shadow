@@ -83,7 +83,7 @@ class UncertaintyManager
          */
         torch::Tensor compute_measurement_covariance(
             const torch::Tensor& points,
-            RoomModel& room,
+            std::shared_ptr<RoomModel>& room,
             float huber_delta,
             bool is_localized
         ) const;

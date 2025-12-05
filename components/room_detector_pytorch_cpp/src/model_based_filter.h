@@ -71,14 +71,14 @@ public:
      * @return Filtering result with strategy recommendation
      */
     Result filter(const RoboCompLidar3D::TPoints& points,
-                  RoomModel& room,
+                  std::shared_ptr<RoomModel>& room,
                   float robot_uncertainty = 0.0f);
 
     /**
      * @brief Compute statistics without filtering (for analysis)
      */
     Result analyze_fit(const RoboCompLidar3D::TPoints& points,
-                       RoomModel& room);
+                       std::shared_ptr<RoomModel>& room);
 
     /**
      * @brief Update parameters

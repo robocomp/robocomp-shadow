@@ -104,8 +104,16 @@ void SpecificWorker::initialize()
 		return;
 	}
 	draw_lidar(points, &viewer->scene);
-	room.init(points);
-	room.init_odometry_calibration(1.0f, 1.0f); // Start with no correction
+
+	// Room concept
+	room_concept = std::make_unique<rc::RoomConcept>();
+	room = std::make_shared<RoomModel>();
+
+	// Door concept
+	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
+
+	room->init(points);
+	room->init_odometry_calibration(1.0f, 1.0f); // Start with no correction
 
 	// loss plotter for match error
 	TimeSeriesPlotter::Config plotConfig;
@@ -141,8 +149,7 @@ void SpecificWorker::initialize()
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
 
-	// Door detector
-	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
+
 }
 
 void SpecificWorker::compute()
@@ -157,40 +164,57 @@ void SpecificWorker::compute()
 	// qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	// Room detector
-	const auto result = optimizer.optimize(time_points,
+	const auto room_result = room_concept->update(time_points,
 	                                        room, velocity_history_,
 	                                        10,
 	                                        0.01f,
 	                                        0.01f);
-	update_viewers(time_points, result, &viewer->scene);
+	update_viewers(time_points, room_result, &viewer->scene);
 	// print_status(result);
-
 
 	// Door detector
 	auto rgbd = read_image();
-	if (const auto res = door_concept->update(rgbd); res.has_value())
+	std::optional<rc::DoorConcept::Result> door_result;
+	if (door_result = door_concept->update(rgbd); door_result.has_value())
 	{
 		cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
 		cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
 		//cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
-		DoorProjection::projectDoorOnImage(res->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
+		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
 		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
 		label_img->clear();
 		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 		//res.value().print();
-		const auto params = res->optimized_params;
+		const auto params = door_result->optimized_params;
 		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
 	}
 	else
-	{
-		qInfo() << "Door optimization: No door detected/initialized.";
-	}
+	{qInfo() << "Door optimization: No door detected/initialized.";	}
+
+	// Consensus manager
+	// if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
+	// {
+	// 	Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
+	// 	auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
+	// 	Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+	// 	Eigen::Matrix3f cov = cov_row;
+	// 	consensus_manager.initializeFromRoom(room, pose, cov);
+	// }
+
+	// if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
+	// {
+	// 	auto params = door_result->optimized_params;
+	// 	auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
+	// 	// extract the 3x3 covariance matrix from the 7x7 tensor
+	// 	Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+	// 	consensus_manager.addDoor(door_concept->get_model(), cov_pose);
+	// }
+	// // Run optimization
+	// ConsensusResult result = consensus_manager.optimize();
+
 
 	// auto now = std::chrono::high_resolution_clock::now();
 	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	// now = std::chrono::high_resolution_clock::now();
-	// qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	last_time = std::chrono::high_resolution_clock::now();;
 }
@@ -198,11 +222,11 @@ void SpecificWorker::compute()
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
-                                    const rc::RoomOptimizer::Result &result,
+                                    const rc::RoomConcept::Result &result,
                                     QGraphicsScene *scene)
 {
 	const auto &[points, lidar_timestamp] = points_;
-	const auto robot_pose = room.get_robot_pose();
+	const auto robot_pose = room->get_robot_pose();
 
 	Eigen::Affine2f robot_pose_display;
 	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
@@ -214,9 +238,9 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
     door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
 
 	//viewer3d->updatePointCloud(points);
-	const auto room_params = room.get_room_parameters();
+	const auto room_params = room->get_room_parameters();
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
-	viewer3d->updateRobotPose(room.get_robot_pose()[0], room.get_robot_pose()[1], room.get_robot_pose()[2]);
+	viewer3d->updateRobotPose(room->get_robot_pose()[0], room->get_robot_pose()[1], room->get_robot_pose()[2]);
 
 	// Time series plot
 	loss_plotter->addDataPoint(0, result.final_loss);
@@ -258,13 +282,12 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
 	return rgbd;
 }
 
-void SpecificWorker::print_status(const rc::RoomOptimizer::Result &result)
+void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
 {
     static int frame_counter = 0;
-    const auto &robot_pose = room.get_robot_pose();
-    const auto &room_params = room.get_room_parameters();
-    const bool is_localized = optimizer.room_freezing_manager.should_freeze_room();
-    const auto &odom_prior = result.prior;
+    const auto &robot_pose = room->get_robot_pose();
+    const auto &room_params = room->get_room_parameters();
+    const bool is_localized = room_concept->room_freezing_manager.should_freeze_room();
 
     // --- Header ---
     qInfo().noquote() << "\n" << QString(60, '=');
@@ -272,7 +295,7 @@ void SpecificWorker::print_status(const rc::RoomOptimizer::Result &result)
     qInfo().noquote() << QString(60, '=');
 
     // --- System State ---
-    qInfo().noquote() << "System State:" << optimizer.room_freezing_manager.get_state_string().data();
+    qInfo().noquote() << "System State:" << room_concept->room_freezing_manager.get_state_string().data();
     qInfo().noquote() << "";
 
     // --- Robot Status ---
@@ -511,6 +534,67 @@ RoboCompLidar3D::TPoints SpecificWorker::filter_same_phi(const RoboCompLidar3D::
 	return result;
 }
 
+// TimePoints SpecificWorker::filter_with_doors(const TimePoints &time_points, const std::vector<float> &robot_pose)
+// {
+// 	const auto &[points, timestamp] = time_points;
+// 	if (points.empty())
+// 		return time_points;
+//
+// 	// Get doors in robot frame
+// 	if (not door_concept->get_model())
+// 		return time_points;
+// 	const auto door = door_concept->get_model();
+//
+// 	Eigen::Vector3f{robot_pose[0], robot_pose[1], robot_pose[2]};
+//
+// 	// Filter points that fall beyond doors
+// 	RoboCompLidar3D::TPoints filtered_points;
+// 	filtered_points.reserve(points.size());
+//
+// 	// Get door pose in robot frame
+// 	auto door_pose = door->get_door_pose();
+// 	auto door_geom = door->get_door_geometry();
+// 	// given the pose and geometry, compute door endpoints using the door middlepoint (pose) and door angle
+// 	// d1 is a points half width along the door line
+// 	const Eigen::Vector2f door_dir(std::cos(door_pose[2]), std::sin(door_pose[2]));
+// 	const Eigen::Vector2f door_perp(-door_dir.y(), door_dir.x()); // perpendicular direction
+// 	const Eigen::Vector2f door_center(door_pose[0], door_pose[1]);
+// 	const Eigen::Vector2f d1 = (door_geom[0] / 2.0f) * door_dir;
+// 	const Eigen::Vector2f p1 = door_center - d1; // door endpoint 1
+// 	const Eigen::Vector2f p2 = door_center + d1; // door endpoint 2
+// 	// compute angles to door endpoints
+// 	auto d1_angle = atan2(p2.y - p1.y, p2.x - p1.x);
+// 	auto d2_angle = atan2(p1.y - p2.y, p1.x - p2.x);
+// 	// normalize angles to [0, 2pi]
+// 	if (d1_angle < 0) d1_angle += 2 * M_PI;
+// 	if (d2_angle < 0) d2_angle += 2 * M_PI;
+//
+// 	const bool angle_wraps = d.p2_angle < d.p1_angle;
+//
+// 	for (const auto &p: points)
+// 	{
+// 		// Determine if point is within the door's angular range
+// 		bool point_in_angular_range;
+// 		if (angle_wraps)
+// 		{
+// 			// If the range wraps around, point is in range if it's > p1_angle OR < p2_angle
+// 			point_in_angular_range = (p.phi > d.p1_angle) or (p.phi < d.p2_angle);
+// 		}
+// 		else
+// 		{
+// 			// Normal case: point is in range if it's between p1_angle and p2_angle
+// 			point_in_angular_range = (p.phi > d.p1_angle) and (p.phi < d.p2_angle);
+// 		}
+//
+// 		// Filter out points that are through the door (in angular range and farther than door)
+// 		if(point_in_angular_range and p.distance2d >= dist_to_door)
+// 			continue;
+//
+// 		filtered_points.emplace_back(p);
+// 	}
+// 	return {filtered_points, timestamp};
+// }
+
 void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene)
 {
 	static std::vector<QGraphicsItem *> items; // store items so they can be shown between iterations
@@ -534,7 +618,7 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 }
 
 void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
-                                       const rc::RoomOptimizer::Result &result,
+                                       const rc::RoomConcept::Result &result,
                                        QGraphicsScene *scene)
 {
 	// draw room in robot viewer
@@ -545,10 +629,10 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 		delete room_draw_robot;
 	}
 	// compute room in robot frame
-	Eigen::Vector2f top_left(-room.get_room_parameters()[0], room.get_room_parameters()[1]);
-	Eigen::Vector2f top_right(room.get_room_parameters()[0], room.get_room_parameters()[1]);
-	Eigen::Vector2f bottom_left(-room.get_room_parameters()[0], -room.get_room_parameters()[1]);
-	Eigen::Vector2f bottom_right(room.get_room_parameters()[0], -room.get_room_parameters()[1]);
+	Eigen::Vector2f top_left(-room->get_room_parameters()[0], room->get_room_parameters()[1]);
+	Eigen::Vector2f top_right(room->get_room_parameters()[0], room->get_room_parameters()[1]);
+	Eigen::Vector2f bottom_left(-room->get_room_parameters()[0], -room->get_room_parameters()[1]);
+	Eigen::Vector2f bottom_right(room->get_room_parameters()[0], -room->get_room_parameters()[1]);
 	const Eigen::Matrix2f R = robot_pose.rotation().transpose();
 	const Eigen::Vector2f t = -R * robot_pose.translation();
 	top_left = R * top_left + t;
@@ -606,7 +690,7 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 	const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
 	lcdNumber_angle->display(angle);
 	label_state->setText(
-		optimizer.room_freezing_manager.state_to_string(optimizer.room_freezing_manager.get_state()).data());
+		room_concept->room_freezing_manager.state_to_string(room_concept->room_freezing_manager.get_state()).data());
 }
 
 QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(

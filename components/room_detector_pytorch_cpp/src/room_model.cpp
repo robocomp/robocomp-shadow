@@ -29,6 +29,12 @@
 void RoomModel::init(const RoboCompLidar3D::TPoints &points)
 {
 
+    // Guard against double initialization
+    if (half_extents_.defined()) {
+        qWarning() << "RoomModel::init() called twice - ignoring";
+        return;
+    }
+
     // Compute initial guess for room SIZE from point cloud bounds
 	// Convert LiDAR points to PyTorch tensor [N, 2]
 	// Keep points in ROBOT FRAME - the model will transform them
@@ -52,13 +58,10 @@ void RoomModel::init(const RoboCompLidar3D::TPoints &points)
 	const float x_max = x_coords.max().item<float>();
 	const float y_min = y_coords.min().item<float>();
 	const float y_max = y_coords.max().item<float>();
-    const float z_min = y_coords.min().item<float>();
-    const float z_max = y_coords.max().item<float>();
 
 	// Initial room size (room will be at origin by definition)
 	const float half_width = (x_max - x_min) / 2.0f;
 	const float half_depth = (y_max - y_min) / 2.0f;
-    const float half_height = (z_max - z_min) / 2.0f;
 
 	// Initial robot pose (offset from room center to point cloud center)
     rc::PointcloudCenterEstimator center_estimator;
@@ -210,6 +213,14 @@ std::vector<float> RoomModel::get_robot_pose() const
     return {pos_acc[0], pos_acc[1], theta_acc[0]};
 }
 
+Eigen::Vector3f RoomModel::get_robot_pose_as_eigen() const
+{
+    return Eigen::Vector3f{
+        robot_pos_.accessor<float, 1>()[0],
+        robot_pos_.accessor<float, 1>()[1],
+        robot_theta_.accessor<float, 1>()[0]
+    };
+}
 std::vector<torch::Tensor> RoomModel::parameters() const
 {
     return {half_extents_, robot_pos_, robot_theta_};

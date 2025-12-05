@@ -87,6 +87,12 @@ class RoomModel : public torch::nn::Module
         std::vector<float> get_robot_pose() const;
 
         /**
+         * @brief Get current robot pose (relative to room center at origin)
+         * @return Vector with [robot_x, robot_y, robot_theta]
+         */
+        Eigen::Vector3f get_robot_pose_as_eigen() const;
+
+        /**
          * @brief Get all trainable parameters for optimization (5 total)
          */
         std::vector<torch::Tensor> parameters() const;
