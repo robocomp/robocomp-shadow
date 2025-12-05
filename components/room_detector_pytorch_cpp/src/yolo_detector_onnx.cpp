@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <numeric>
 #include <iostream>
+#include <cmath>
 
 YOLODetectorONNX::YOLODetectorONNX(const std::string& modelPath,
                                    const std::vector<std::string>& classNames,
@@ -120,6 +121,226 @@ std::vector<Detection> YOLODetectorONNX::detectFromCapture() {
     }
     return detect(image);
 }
+
+// ============================================================================
+// PANORAMIC DETECTION IMPLEMENTATION
+// ============================================================================
+
+std::vector<cv::Rect> YOLODetectorONNX::computeSliceRegions(const cv::Size& imageSize,
+                                                            const SliceConfig& config)
+{
+    std::vector<cv::Rect> regions;
+
+    const int imgWidth = imageSize.width;
+    const int imgHeight = imageSize.height;
+
+    // Calculate effective step size based on overlap
+    const int stepX = static_cast<int>(config.targetWidth * (1.0f - config.overlapRatio));
+    const int stepY = static_cast<int>(config.targetHeight * (1.0f - config.overlapRatio));
+
+    // Ensure at least 1 pixel step to avoid infinite loops
+    const int effectiveStepX = std::max(1, stepX);
+    const int effectiveStepY = std::max(1, stepY);
+
+    // Calculate number of slices needed in each dimension
+    // We want to cover the entire image, so we need ceiling division
+    int numSlicesX = 1;
+    int numSlicesY = 1;
+
+    if (imgWidth > config.targetWidth) {
+        numSlicesX = static_cast<int>(std::ceil(
+            static_cast<float>(imgWidth - config.targetWidth) / effectiveStepX)) + 1;
+    }
+
+    if (imgHeight > config.targetHeight) {
+        numSlicesY = static_cast<int>(std::ceil(
+            static_cast<float>(imgHeight - config.targetHeight) / effectiveStepY)) + 1;
+    }
+
+    // Generate slice regions
+    for (int yi = 0; yi < numSlicesY; yi++) {
+        for (int xi = 0; xi < numSlicesX; xi++) {
+            int x = xi * effectiveStepX;
+            int y = yi * effectiveStepY;
+
+            // Clamp to image boundaries
+            int sliceWidth = std::min(config.targetWidth, imgWidth - x);
+            int sliceHeight = std::min(config.targetHeight, imgHeight - y);
+
+            // If slice is at the edge and smaller than target, shift it back to get full size
+            if (sliceWidth < config.targetWidth && x > 0) {
+                x = imgWidth - config.targetWidth;
+                sliceWidth = config.targetWidth;
+            }
+            if (sliceHeight < config.targetHeight && y > 0) {
+                y = imgHeight - config.targetHeight;
+                sliceHeight = config.targetHeight;
+            }
+
+            // Final bounds check
+            x = std::max(0, std::min(x, imgWidth - 1));
+            y = std::max(0, std::min(y, imgHeight - 1));
+            sliceWidth = std::min(sliceWidth, imgWidth - x);
+            sliceHeight = std::min(sliceHeight, imgHeight - y);
+
+            regions.emplace_back(x, y, sliceWidth, sliceHeight);
+        }
+    }
+
+    // Remove duplicate regions (can happen at edges)
+    std::vector<cv::Rect> uniqueRegions;
+    for (const auto& region : regions) {
+        bool isDuplicate = false;
+        for (const auto& existing : uniqueRegions) {
+            if (region == existing) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            uniqueRegions.push_back(region);
+        }
+    }
+
+    return uniqueRegions;
+}
+
+std::vector<Detection> YOLODetectorONNX::mergeSliceDetections(
+    const std::vector<std::vector<Detection>>& sliceDetections,
+    const std::vector<cv::Rect>& sliceRegions,
+    float mergeIouThreshold)
+{
+    // Collect all detections with coordinates transformed to original image space
+    std::vector<Detection> allDetections;
+
+    for (size_t i = 0; i < sliceDetections.size(); i++) {
+        const cv::Rect& sliceRegion = sliceRegions[i];
+
+        for (const Detection& det : sliceDetections[i]) {
+            // Transform detection coordinates from slice space to original image space
+            cv::Rect transformedRoi(
+                det.roi.x + sliceRegion.x,
+                det.roi.y + sliceRegion.y,
+                det.roi.width,
+                det.roi.height
+            );
+
+            allDetections.emplace_back(transformedRoi, det.classId, det.label, det.score);
+        }
+    }
+
+    if (allDetections.empty()) {
+        return {};
+    }
+
+    // Group detections by class
+    std::map<int, std::vector<size_t>> classGroups;
+    for (size_t i = 0; i < allDetections.size(); i++) {
+        classGroups[allDetections[i].classId].push_back(i);
+    }
+
+    // Apply NMS per class to merge overlapping detections
+    std::vector<Detection> mergedDetections;
+
+    for (auto& [classId, indices] : classGroups) {
+        std::vector<cv::Rect> boxes;
+        std::vector<float> scores;
+
+        for (size_t idx : indices) {
+            boxes.push_back(allDetections[idx].roi);
+            scores.push_back(allDetections[idx].score);
+        }
+
+        // Use the merge IoU threshold (typically higher than detection NMS threshold)
+        std::vector<int> keepIndices = nms(boxes, scores, mergeIouThreshold);
+
+        for (int keepIdx : keepIndices) {
+            size_t originalIdx = indices[keepIdx];
+            mergedDetections.push_back(allDetections[originalIdx]);
+        }
+    }
+
+    return mergedDetections;
+}
+
+std::vector<Detection> YOLODetectorONNX::detectPanoramic(const cv::Mat& image,
+                                                         const SliceConfig& config)
+{
+    if (image.empty()) {
+        std::cerr << "Empty image provided to detectPanoramic()" << std::endl;
+        return {};
+    }
+
+    const cv::Size imageSize = image.size();
+
+    // Check if slicing is actually needed
+    // If image is smaller than or equal to target size, just use regular detection
+    if (imageSize.width <= config.targetWidth && imageSize.height <= config.targetHeight) {
+        m_lastSliceInfo.clear();
+        m_lastSliceInfo.push_back({cv::Rect(0, 0, imageSize.width, imageSize.height), 0});
+        return detect(image);
+    }
+
+    // Compute slice regions
+    std::vector<cv::Rect> sliceRegions = computeSliceRegions(imageSize, config);
+
+    // Store slice info for debugging/visualization
+    m_lastSliceInfo.clear();
+    for (size_t i = 0; i < sliceRegions.size(); i++) {
+        m_lastSliceInfo.push_back({sliceRegions[i], static_cast<int>(i)});
+    }
+
+    std::cout << "Panoramic detection: " << sliceRegions.size() << " slices for "
+              << imageSize.width << "x" << imageSize.height << " image" << std::endl;
+
+    // Extract slices and run detection on each
+    std::vector<std::vector<Detection>> sliceDetections;
+    sliceDetections.reserve(sliceRegions.size());
+
+    for (size_t i = 0; i < sliceRegions.size(); i++) {
+        const cv::Rect& region = sliceRegions[i];
+
+        // Extract slice from image
+        cv::Mat slice = image(region).clone();
+
+        // Run detection on slice
+        std::vector<Detection> detections = detect(slice);
+        sliceDetections.push_back(std::move(detections));
+
+        // Debug output
+        if (!sliceDetections.back().empty()) {
+            std::cout << "  Slice " << i << " (" << region.x << "," << region.y
+                      << " " << region.width << "x" << region.height
+                      << "): " << sliceDetections.back().size() << " detections" << std::endl;
+        }
+    }
+
+    // Merge detections from all slices
+    std::vector<Detection> mergedDetections = mergeSliceDetections(
+        sliceDetections, sliceRegions, config.mergeIouThreshold);
+
+    std::cout << "Panoramic detection complete: " << mergedDetections.size()
+              << " merged detections" << std::endl;
+
+    return mergedDetections;
+}
+
+std::vector<std::vector<Detection>> YOLODetectorONNX::detectBatch(
+    const std::vector<cv::Mat>& images)
+{
+    std::vector<std::vector<Detection>> results;
+    results.reserve(images.size());
+
+    for (const cv::Mat& image : images) {
+        results.push_back(detect(image));
+    }
+
+    return results;
+}
+
+// ============================================================================
+// ORIGINAL METHODS (unchanged)
+// ============================================================================
 
 std::vector<float> YOLODetectorONNX::preprocessImage(const cv::Mat& image) {
     cv::Mat rgbImage, resizedImage, floatImage;

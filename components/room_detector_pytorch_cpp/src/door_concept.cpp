@@ -37,6 +37,11 @@ namespace rc
             initialized_ = true;
             qInfo() << "DoorConcept::update() - Door initialized from detection.";  
         }
+        else  // recompute roi_points
+        {
+            
+        }
+
 
 
         // PREDICT: Adjust door pose for robot motion
@@ -55,22 +60,27 @@ namespace rc
     {
         cv::Mat cv_img(cv::Size(rgbd.width, rgbd.height), CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
         cv::cvtColor(cv_img, cv_img, cv::COLOR_BGR2RGB);
-        auto doors_raw = yolo_detector->detect(cv_img);
+        // Default config: 640x480 slices with 25% overlap
+        //std::vector<Detection> doors = detector.detectPanoramic(panoramic);
+        // Or with custom config
+        //SliceConfig config(640, 480, 0.3f, 0.5f);  // 30% overlap, 0.5 merge IoU
+        //std::vector<Detection> doors = detector.detectPanoramic(panoramic, config);
+        auto doors_raw = yolo_detector->detectPanoramic(cv_img);
         qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
 
         std::vector<DoorModel> doors;
-        for (auto &door : doors_raw)
+        for (auto &d : doors_raw)
         {
             // extract ROI rectangle
             // compute a cv mask from the door.roi rectangle to filter points
             // create an extended mask for ROI and fill rectangle
-            int x_offset = door.roi.width / 10; // 10% of width
-            int y_offset = door.roi.height / 10; // 10% of height
-            door.roi.x = std::max(0, door.roi.x - x_offset);
-            door.roi.y = std::max(0, door.roi.y - y_offset);
-            door.roi.width = std::min(rgbd.width - door.roi.x, door.roi.width + 2 * x_offset);
-            door.roi.height = std::min(rgbd.height - door.roi.y, door.roi.height + 2 * y_offset);
-            const cv::Rect roi(door.roi.x, door.roi.y, door.roi.width, door.roi.height);
+            const int x_offset = d.roi.width / 10; // 10% of width
+            const int y_offset = d.roi.height / 10; // 10% of height
+            d.roi.x = std::max(0, d.roi.x - x_offset);
+            d.roi.y = std::max(0, d.roi.y - y_offset);
+            d.roi.width = std::min(rgbd.width - d.roi.x, d.roi.width + 2 * x_offset);
+            d.roi.height = std::min(rgbd.height - d.roi.y, d.roi.height + 2 * y_offset);
+            const cv::Rect roi(d.roi.x, d.roi.y, d.roi.width, d.roi.height);
             cv::Mat mask = cv::Mat::zeros(rgbd.height, rgbd.width, CV_8UC1);
             cv::rectangle(mask, roi, cv::Scalar(255), cv::FILLED);
             // apply mask to cv_img to get points within ROI
@@ -95,7 +105,7 @@ namespace rc
                     roi_points.emplace_back(point[0]/1000.f, point[1]/1000.f, point[2]/1000.f);
                 }
             auto dm = DoorModel{};
-            dm.init(roi_points, door.roi, door.classId, door.label, 1.0f, 2.0f, 0.0f);
+            dm.init(roi_points, d.roi, d.classId, d.label, 1.0f, 2.0f, 0.0f);
             doors.emplace_back(dm);
         }
         return doors;

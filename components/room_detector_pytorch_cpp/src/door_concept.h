@@ -76,7 +76,8 @@ namespace rc
             {
                 camera360rgbd_proxy = camera_360rgbd_proxy_;
                 std::string model_path = "best.onnx";
-                yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{}, 0.25f, 0.45f, 640, true);
+                yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{},
+                                     0.25f, 0.45f, 640, true);
             }
 
             std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &roi_points,
