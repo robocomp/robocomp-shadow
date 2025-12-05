@@ -123,6 +123,10 @@ private:
     QColor roomColor;
     QColor robotColor;
     QColor uncertaintyColor;
+
+    // door transforms
+    Qt3DCore::QTransform *doorTransform_ = nullptr;
+    Qt3DCore::QTransform *hingeTransform_ = nullptr;
 };
 
 #endif // ROOM_VISUALIZER_3D_H

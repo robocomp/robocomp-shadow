@@ -20,6 +20,7 @@
 #include "yolo_detector_onnx.h"
 #include <Camera360RGBD.h>
 #include <QtCore>
+
 namespace rc
 {
     /**
@@ -27,13 +28,12 @@ namespace rc
      *
      * Implements a predict-update cycle for door state estimation:
      * 1. PREDICT: Use robot motion to predict door pose relative to robot
-     * 2. UPDATE: Optimize door parameters using LiDAR measurements within YOLO ROI
+     * 2. UPDATE: Optimize door parameters using LiDAR measurements within ROI
      *
-     * Similar to RoomOptimizer but simpler:
-     * - No adaptive mode switching (doors don't "freeze")
-     * - Operates on ROI from YOLO detector
-     * - Optimizes door pose, geometry, and articulation state
-     * - Maintains uncertainty estimates
+     * Top-down prediction approach:
+     * - First detection: Full YOLO detection to find doors
+     * - Subsequent iterations: Use optimized door model to predict ROI,
+     *   extract points directly, bypass YOLO unless tracking is lost
      */
 
     class DoorConcept
@@ -70,6 +70,22 @@ namespace rc
                 float typical_width = 0.9f;          // 90cm
                 float typical_height = 2.0f;         // 2m
                 float size_std = 0.2f;               // 20cm tolerance
+
+                // Tracking quality thresholds
+                float tracking_lost_threshold = 0.5f;   // Mean residual above this triggers redetection
+                int min_points_for_tracking = 50;       // Minimum points to maintain tracking
+                float roi_expansion_factor = 1.3f;      // Expand predicted ROI by this factor
+            };
+
+            /**
+             * @brief ROI extraction configuration
+             */
+            struct ROIConfig
+            {
+                float margin_factor = 0.15f;         // Expand ROI by 15% in each direction
+                float max_depth = 5.0f;              // Maximum depth in meters
+                float min_depth = 0.3f;              // Minimum depth in meters
+                bool filter_by_depth = true;         // Filter points outside depth range
             };
 
             explicit DoorConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)
@@ -80,18 +96,47 @@ namespace rc
                                      0.25f, 0.45f, 640, true);
             }
 
-            std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &roi_points,
+            /**
+             * @brief Main update cycle with top-down prediction
+             *
+             * Flow:
+             * 1. If no door tracked: run full YOLO detection
+             * 2. If door exists: predict new pose, extract ROI from prediction
+             * 3. Check tracking quality, redetect if necessary
+             * 4. Optimize door parameters with extracted points
+             */
+            std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &rgbd,
                                          const Eigen::Vector3f& robot_motion = Eigen::Vector3f::Zero());
 
+            /**
+             * @brief Full YOLO-based detection (used for initialization or recovery)
+             */
             std::vector<DoorModel> detect(const RoboCompCamera360RGBD::TRGBD &rgbd);
 
             /**
-             * @brief Initialize door from YOLO detection
+             * @brief Extract ROI points using door model prediction (top-down approach)
              *
-             * @param roi_points LiDAR points within YOLO bounding box
-             * @param initial_width Initial door width estimate (meters)
-             * @param initial_height Initial door height estimate (meters)
-             * @param initial_angle Initial opening angle (radians)
+             * Projects the 3D door bounding box to image space, then extracts
+             * depth points within that region.
+             *
+             * @param rgbd Current RGBD frame
+             * @param door Door model with predicted pose
+             * @return Points within the predicted door ROI
+             */
+            std::vector<Eigen::Vector3f> extract_roi_from_model(
+                const RoboCompCamera360RGBD::TRGBD &rgbd,
+                const DoorModel& door);
+
+            /**
+             * @brief Compute 2D bounding box from 3D door model projection
+             *
+             * Projects door corners to image space and computes enclosing rectangle
+             */
+            cv::Rect compute_projected_roi(const DoorModel& door,
+                                           int image_width, int image_height);
+
+            /**
+             * @brief Initialize door from YOLO detection
              */
             void initialize(const RoboCompLidar3D::TPoints& roi_points,
                            float initial_width = 1.0f,
@@ -109,18 +154,38 @@ namespace rc
             OptimizationConfig& get_config() { return config_; }
 
             /**
+             * @brief Get ROI extraction configuration
+             */
+            ROIConfig& get_roi_config() { return roi_config_; }
+
+            /**
              * @brief Check if door has been initialized
              */
             bool is_initialized() const { return initialized_; }
+
+            /**
+             * @brief Check if tracking is currently active (vs. detection mode)
+             */
+            bool is_tracking() const { return tracking_active_; }
 
             /**
              * @brief Reset door concept (clear state)
              */
             void reset();
 
+            /**
+             * @brief Force redetection on next update
+             */
+            void force_redetection() { tracking_active_ = false; }
+
         private:
             OptimizationConfig config_;
+            ROIConfig roi_config_;
             bool initialized_ = false;
+            bool tracking_active_ = false;
+            int consecutive_tracking_failures_ = 0;
+            static constexpr int MAX_TRACKING_FAILURES = 3;
+
             std::unique_ptr<YOLODetectorONNX> yolo_detector;
             RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera360rgbd_proxy;
             std::shared_ptr<DoorModel> door = nullptr;
@@ -129,7 +194,6 @@ namespace rc
 
             /**
              * @brief Predict step: adjust door pose for robot motion
-             * Robot moved -> door appears to move in opposite direction
              */
             void predict_step(const Eigen::Vector3f& robot_motion);
 
@@ -150,7 +214,6 @@ namespace rc
 
             /**
              * @brief Compute geometry regularization loss
-             * Penalizes door dimensions far from typical values
              */
             torch::Tensor compute_geometry_regularization();
 
@@ -173,6 +236,19 @@ namespace rc
 
             OptimizationResult run_optimization(const torch::Tensor& points_tensor,
                                                torch::optim::Optimizer& optimizer);
+
+            /**
+             * @brief Check if tracking quality is sufficient
+             */
+            bool check_tracking_quality(const Result& result);
+
+            /**
+             * @brief Project 3D point to 2D image coordinates (equirectangular)
+             *
+             * For 360° camera, uses equirectangular projection
+             */
+            cv::Point2f project_point_to_image(const Eigen::Vector3f& point_3d,
+                                               int image_width, int image_height);
     };
 };
 
