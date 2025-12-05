@@ -668,10 +668,10 @@ namespace rc
             result.mean_residual = torch::mean(torch::abs(sdf_vals)).item<float>();
         }
 
-        qInfo() << "DoorConcept::update_step() - Optimization"
-                << (result.success ? "SUCCESS" : "FAILED")
-                << "- Loss:" << result.final_loss
-                << "Mean residual:" << result.mean_residual << "m";
+        // qInfo() << "DoorConcept::update_step() - Optimization"
+        //         << (result.success ? "SUCCESS" : "FAILED")
+        //         << "- Loss:" << result.final_loss
+        //         << "Mean residual:" << result.mean_residual << "m";
 
         return result;
     }

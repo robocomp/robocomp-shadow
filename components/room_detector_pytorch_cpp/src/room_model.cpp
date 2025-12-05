@@ -52,10 +52,13 @@ void RoomModel::init(const RoboCompLidar3D::TPoints &points)
 	const float x_max = x_coords.max().item<float>();
 	const float y_min = y_coords.min().item<float>();
 	const float y_max = y_coords.max().item<float>();
+    const float z_min = y_coords.min().item<float>();
+    const float z_max = y_coords.max().item<float>();
 
 	// Initial room size (room will be at origin by definition)
 	const float half_width = (x_max - x_min) / 2.0f;
-	const float half_height = (y_max - y_min) / 2.0f;
+	const float half_depth = (y_max - y_min) / 2.0f;
+    const float half_height = (z_max - z_min) / 2.0f;
 
 	// Initial robot pose (offset from room center to point cloud center)
     rc::PointcloudCenterEstimator center_estimator;
@@ -69,17 +72,17 @@ void RoomModel::init(const RoboCompLidar3D::TPoints &points)
     }
 	const float robot_x = -room_center.cast<float>().x();  // Negative because room is at origin
 	const float robot_y = -room_center.cast<float>().y();
-	const float robot_theta = 1.0f;
+	const float robot_theta = 1.0f; // TODO: Improve initial orientation estimate
 
 	std::cout << "\n  RoomModel::init()  Initial guess:\n";
 	std::cout << "  Point cloud bounds: X[" << x_min << ", " << x_max << "], Y[" << y_min << ", " << y_max << "]\n";
-	std::cout << "  Room size (at origin): " << 2*half_width << " x " << 2*half_height << " m\n";
+	std::cout << "  Room size (at origin): " << 2*half_width << " x " << 2*half_depth << " m\n";
 	std::cout << "  Robot pose (relative to room): (" << robot_x << ", " << robot_y << ", " << robot_theta << ")\n";
 	std::cout << "----------------------------------------\n";
 
     // Initialize room size as trainable tensors
     // Room center is FIXED at (0, 0) - not a parameter!
-    half_extents_ = torch::tensor({half_width, half_height}, torch::requires_grad(true));
+    half_extents_ = torch::tensor({half_width, half_depth}, torch::requires_grad(true));
 
     // Initialize robot pose as trainable tensors (relative to room at origin)
     robot_pos_ = torch::tensor({robot_x, robot_y}, torch::requires_grad(true));

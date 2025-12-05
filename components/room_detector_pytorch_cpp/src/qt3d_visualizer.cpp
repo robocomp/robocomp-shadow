@@ -187,8 +187,8 @@ void RoomVisualizer3D::createCoordinateAxes()
         coneEntity->addComponent(coneTransform);
     };
 
-    createAxis(QVector3D(1, 0, 0), Qt::red); // X axis - RED (forward in robotics)
-    createAxis(QVector3D(0, 1, 0), Qt::green); // Y axis - GREEN (left in robotics)
+    createAxis(QVector3D(1, 0, 0), Qt::green); // X axis - RED (right in robotics)
+    createAxis(QVector3D(0, 1, 0), Qt::red); // Y axis - GREEN (forward in robotics)
     createAxis(QVector3D(0, 0, 1), Qt::blue); // Z axis - BLUE (up)
 }
 
@@ -376,7 +376,7 @@ Qt3DCore::QEntity *RoomVisualizer3D::createLineBox(float width, float height, co
     return entity;
 }
 
-void RoomVisualizer3D::updateRoom(float half_width, float half_height)
+void RoomVisualizer3D::updateRoom(float half_width, float half_depth)
 {
     // Create room entity only once
     if (!roomEntity)
@@ -389,7 +389,7 @@ void RoomVisualizer3D::updateRoom(float half_width, float half_height)
     }
 
     // Just update the scale to match room dimensions (no recreation!)
-    roomTransform->setScale3D(QVector3D(half_width * 2.0f, half_height * 2.0f, 1.0f));
+    roomTransform->setScale3D(QVector3D(half_width * 2.0f, half_depth * 2.0f, 2.5f));
 }
 
 void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
@@ -460,7 +460,12 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
 
 void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float width, float height, float open_angle)
 {
-    const float theta_deg = theta * 180.0f / static_cast<float>(M_PI);
+    // // Transform: Robot(x,y) -> Vis(y, -x), theta -> theta - 90°  TODO: CHECK THIS
+    const float vis_x = -y;
+    const float vis_y = x;
+    const float vis_theta = theta + static_cast<float>(M_PI_2);
+
+    const float theta_deg = vis_theta * 180.0f / static_cast<float>(M_PI);
     const float open_deg = open_angle * 180.0f / static_cast<float>(M_PI);
 
     // Frame parameters (match DoorModel)
@@ -472,7 +477,7 @@ void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float w
     if (doorEntity and doorTransform_ and hingeTransform_)
     {
         // Update global door pose
-        doorTransform_->setTranslation(QVector3D(x, y, z));
+        doorTransform_->setTranslation(QVector3D(vis_x, vis_y, z));
         doorTransform_->setRotationZ(theta_deg);
 
         // Update leaf opening angle
@@ -488,7 +493,7 @@ void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float w
 
     // Global transform
     doorTransform_ = new Qt3DCore::QTransform();
-    doorTransform_->setTranslation(QVector3D(x, y, z));
+    doorTransform_->setTranslation(QVector3D(vis_x, vis_y, z));
     doorTransform_->setRotationZ(theta_deg);
     doorEntity->addComponent(doorTransform_);
 

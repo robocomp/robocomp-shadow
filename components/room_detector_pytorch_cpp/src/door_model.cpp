@@ -262,7 +262,7 @@ torch::Tensor DoorModel::sdf_leaf(const torch::Tensor& points_door) const
     const torch::Tensor p1 = points_door - hinge_pos;
 
     // 2. Rotate by -opening_angle around Z-axis
-    const torch::Tensor neg_angle = -opening_angle_;
+    const torch::Tensor neg_angle = opening_angle_;
     const torch::Tensor c = torch::cos(neg_angle);
     const torch::Tensor s = torch::sin(neg_angle);
 

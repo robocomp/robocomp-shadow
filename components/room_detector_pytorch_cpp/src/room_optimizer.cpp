@@ -40,7 +40,7 @@ namespace rc
         // Compute odometry prior between lidar timestamps
         auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
 
-        // ===== EKF PREDICT STEP =====
+        // ===== PREDICT STEP =====
         // Propagates state: x_pred = x_prev + f(u, dt)
         // Propagates covariance: P_pred = F*P*F^T + Q where F is motion model Jacobian
         // Sets room.robot_pos_ = x_pred (initialization for optimization)

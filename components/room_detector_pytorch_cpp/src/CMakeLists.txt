@@ -74,8 +74,8 @@ LIST(APPEND SOURCES
         ../src/door_concept.cpp
         ../src/door_model.cpp
         ../src/equirectangular_projection.cpp
+        ../src/door_projection.cpp
 )
-
 # Headers set
 LIST(APPEND HEADERS
   ../src/specificworker.h
@@ -94,6 +94,7 @@ LIST(APPEND HEADERS
         ../src/door_concept.h
         ../src/door_model.h
         ../src/equirectangular_projection.h
+        ../src/door_projection.h
 )
 
 # Include OpenCV

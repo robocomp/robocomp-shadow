@@ -156,29 +156,24 @@ void SpecificWorker::compute()
 	// auto now = std::chrono::high_resolution_clock::now();
 	// qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	// Optimize SDF likelihood + odometry prior
-	// const auto result = optimizer.optimize(time_points,
-	//                                        room, velocity_history_,
-	//                                        10,
-	//                                        0.01f,
-	//                                        0.01f);
+	// Room detector
+	const auto result = optimizer.optimize(time_points,
+	                                        room, velocity_history_,
+	                                        10,
+	                                        0.01f,
+	                                        0.01f);
+	update_viewers(time_points, result, &viewer->scene);
+	// print_status(result);
 
-	// door detection
+
+	// Door detector
 	auto rgbd = read_image();
-	cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
-	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
 	if (const auto res = door_concept->update(rgbd); res.has_value())
 	{
+		cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
+		cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
 		//cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
 		DoorProjection::projectDoorOnImage(res->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
-		qInfo() << "Door parameters" << res->optimized_params[0]
-				 << res->optimized_params[1]
-				 << res->optimized_params[2]
-				 << res->optimized_params[3]
-				 << res->optimized_params[4]
-				 << res->optimized_params[5]
-				 << res->optimized_params[6];
-
 		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
 		label_img->clear();
 		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
@@ -193,9 +188,6 @@ void SpecificWorker::compute()
 
 	// auto now = std::chrono::high_resolution_clock::now();
 	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	// update_viewers(time_points, result, &viewer->scene);
-	// print_status(result);
 
 	// now = std::chrono::high_resolution_clock::now();
 	// qInfo() << "dt4" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();

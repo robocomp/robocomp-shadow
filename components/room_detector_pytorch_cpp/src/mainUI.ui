@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1145</width>
-    <height>768</height>
+    <height>963</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -25,7 +25,7 @@
      <property name="orientation">
       <enum>Qt::Vertical</enum>
      </property>
-     <widget class="QWidget" name="">
+     <widget class="QWidget" name="layoutWidget">
       <layout class="QVBoxLayout" name="verticalLayout_9">
        <item>
         <widget class="QSplitter" name="splitter">
@@ -44,6 +44,12 @@
              </property>
              <property name="minimumSize">
               <size>
+               <width>300</width>
+               <height>300</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
                <width>400</width>
                <height>300</height>
               </size>
@@ -61,7 +67,7 @@
              <property name="minimumSize">
               <size>
                <width>500</width>
-               <height>300</height>
+               <height>400</height>
               </size>
              </property>
              <property name="frameShape">

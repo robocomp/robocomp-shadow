@@ -158,7 +158,7 @@ class RoomModel : public torch::nn::Module
     private:
         // Room parameters (FIXED at origin)
         // No trainable center - it's always (0, 0)
-        torch::Tensor half_extents_;  // [half_width, half_height]
+        torch::Tensor half_extents_;  // [half_width, half_depth]
 
         /**
          * @brief Transform points from robot frame to room frame (at origin)

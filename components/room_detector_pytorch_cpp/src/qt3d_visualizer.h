@@ -33,7 +33,7 @@ public:
 
     void updatePointCloud(const RoboCompLidar3D::TPoints &points);
 
-    void updateRoom(float half_width, float half_height);
+    void updateRoom(float half_width, float half_depth);
 
     void updateRobotPose(float x, float y, float theta);
 
