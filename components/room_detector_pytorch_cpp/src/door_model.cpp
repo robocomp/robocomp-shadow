@@ -27,7 +27,7 @@
 
 void DoorModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
                      const cv::Rect &roi_,
-                     int classId_,
+                     unsigned int id_,
                      const std::string &label_,
                      float initial_width,
                      float initial_height,
@@ -35,7 +35,7 @@ void DoorModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
 {
     roi_points = roi_points_;
     roi = roi_;
-    classId = classId_;
+    id = id_;
     label = label_;
 
     if (roi_points.empty())

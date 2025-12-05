@@ -73,6 +73,7 @@ LIST(APPEND SOURCES
         ../src/pointcloud_center_estimator.cpp
         ../src/door_concept.cpp
         ../src/door_model.cpp
+        ../src/equirectangular_projection.cpp
 )
 
 # Headers set
@@ -92,6 +93,7 @@ LIST(APPEND HEADERS
         ../src/pointcloud_center_estimator.h
         ../src/door_concept.h
         ../src/door_model.h
+        ../src/equirectangular_projection.h
 )
 
 # Include OpenCV

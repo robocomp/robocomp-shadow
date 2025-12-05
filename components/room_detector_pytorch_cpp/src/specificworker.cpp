@@ -36,6 +36,7 @@
 #include "common_types.h"
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/groupby.hpp>
+#include "door_projection.h"
 
 SpecificWorker::SpecificWorker(const ConfigLoader &configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(
 	configLoader, tprx)
@@ -168,25 +169,21 @@ void SpecificWorker::compute()
 	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
 	if (const auto res = door_concept->update(rgbd); res.has_value())
 	{
-		cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
+		//cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
+		DoorProjection::projectDoorOnImage(res->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
+		qInfo() << "Door parameters" << res->optimized_params[0]
+				 << res->optimized_params[1]
+				 << res->optimized_params[2]
+				 << res->optimized_params[3]
+				 << res->optimized_params[4]
+				 << res->optimized_params[5]
+				 << res->optimized_params[6];
+
 		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
 		label_img->clear();
 		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-		qInfo() << "==============================";
-		qInfo() << "Door optimization result:"
-				<< "	Final loss:" <<  res->final_loss
-				<< "	Measurement loss:"  << res->measurement_loss
-				<< "	Num points:" << res->num_points_used
-				<< "	Success:" << res->success;
+		//res.value().print();
 		const auto params = res->optimized_params;
-		qInfo() << "Optimized door parameters:"
-				<< "	x:"  << params[0]
-				<< "	y:"  << params[1]
-				<< "	z:"  << params[2]
-				<< "	theta:"   << params[3]
-				<< "	width:"   << params[4]
-				<< "	height:"  << params[5]
-				<< "	angle:"  << params[6];
 		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
 	}
 	else

@@ -50,6 +50,24 @@ namespace rc
                 int num_points_used = 0;            // Number of LiDAR points in ROI
                 float mean_residual = 0.0f;         // Mean SDF residual
                 std::shared_ptr<DoorModel> door;
+                void print() const
+                {
+                    qInfo() << "==============================";
+                    qInfo() << "Door " << door->id << "optimization result:"
+                            << "	Final loss:" <<  final_loss
+                            << "	Measurement loss:"  << measurement_loss
+                            << "	Num points:" << num_points_used
+                            << "	Success:" << success;
+                    const auto params = optimized_params;
+                    qInfo() << "Optimized door parameters:"
+                            << "	x:"  << params[0]
+                            << "	y:"  << params[1]
+                            << "	z:"  << params[2]
+                            << "	theta:"   << params[3]
+                            << "	width:"   << params[4]
+                            << "	height:"  << params[5]
+                            << "	angle:"  << params[6];
+                }
             };
 
             struct OptimizationConfig

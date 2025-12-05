@@ -56,15 +56,15 @@ namespace rc
             tracking_active_ = true;
             consecutive_tracking_failures_ = 0;
 
-            qInfo() << "DoorConcept::update() - Door initialized from YOLO detection,"
-                    << roi_points.size() << "points";
+            // qInfo() << "DoorConcept::update() - Door initialized from YOLO detection,"
+            //         << roi_points.size() << "points";
         }
         else
         {
             // -----------------------------------------------------------------
             // TRACKING MODE: Use model prediction to extract ROI (bypass YOLO)
             // -----------------------------------------------------------------
-            qDebug() << "DoorConcept::update() - Using model-based ROI extraction";
+            //qDebug() << "DoorConcept::update() - Using model-based ROI extraction";
 
             // PREDICT: Adjust door pose for robot motion FIRST
             predict_step(robot_motion);
@@ -155,9 +155,9 @@ namespace rc
         projected_roi.height = std::min(rgbd.height - projected_roi.y,
                                         projected_roi.height + 2 * margin_y);
 
-        qDebug() << "DoorConcept::extract_roi_from_model() - Projected ROI:"
-                 << projected_roi.x << "," << projected_roi.y
-                 << projected_roi.width << "x" << projected_roi.height;
+        //qDebug() << "DoorConcept::extract_roi_from_model() - Projected ROI:"
+        //         << projected_roi.x << "," << projected_roi.y
+        //         << projected_roi.width << "x" << projected_roi.height;
 
         // Get door pose for depth filtering
         auto pose = door_model.get_door_pose();
@@ -204,8 +204,8 @@ namespace rc
             }
         }
 
-        qDebug() << "DoorConcept::extract_roi_from_model() - Extracted"
-                 << roi_points.size() << "points from model prediction";
+        //qDebug() << "DoorConcept::extract_roi_from_model() - Extracted"
+        //          << roi_points.size() << "points from model prediction";
 
         return roi_points;
     }
@@ -402,7 +402,7 @@ namespace rc
             }
 
             auto dm = DoorModel{};
-            dm.init(roi_points, d.roi, d.classId, d.label, 1.0f, 2.0f, 0.0f);
+            dm.init(roi_points, d.roi, doors.size(), d.label, 1.0f, 2.0f, 0.0f);
             doors.emplace_back(dm);
         }
         return doors;
@@ -473,8 +473,8 @@ namespace rc
 
         door->set_pose(door_x, door_y, door_z, door_theta);
 
-        qDebug() << "DoorConcept::predict_step() - Applied motion: dx=" << dx_robot
-                 << "dy=" << dy_robot << "dθ=" << dtheta_robot;
+        //qDebug() << "DoorConcept::predict_step() - Applied motion: dx=" << dx_robot
+        //         << "dy=" << dy_robot << "dθ=" << dtheta_robot;
     }
 
     torch::Tensor DoorConcept::compute_measurement_loss(const torch::Tensor& points_tensor)
@@ -537,9 +537,9 @@ namespace rc
 
             if (iter % 50 == 0)
             {
-                qDebug() << "  Iter" << iter << ": loss=" << current_loss
-                         << "(meas=" << meas_loss.item<float>()
-                         << ", reg=" << reg_loss.item<float>() << ")";
+                //qDebug() << "  Iter" << iter << ": loss=" << current_loss
+                //         << "(meas=" << meas_loss.item<float>()
+                //         << ", reg=" << reg_loss.item<float>() << ")";
             }
 
             if (std::abs(best_loss - current_loss) < config_.convergence_delta)
@@ -547,7 +547,7 @@ namespace rc
                 patience_counter++;
                 if (patience_counter >= config_.convergence_patience)
                 {
-                    qInfo() << "DoorConcept::run_optimization() - Converged at iteration" << iter;
+                    //qInfo() << "DoorConcept::run_optimization() - Converged at iteration" << iter;
                     result.converged = true;
                     result.iterations = iter;
                     result.total_loss = current_loss;
@@ -563,7 +563,7 @@ namespace rc
 
             if (current_loss < config_.min_loss_threshold)
             {
-                qInfo() << "DoorConcept::run_optimization() - Loss below threshold at iteration" << iter;
+                //qInfo() << "DoorConcept::run_optimization() - Loss below threshold at iteration" << iter;
                 result.converged = true;
                 result.iterations = iter;
                 result.total_loss = current_loss;
@@ -641,7 +641,7 @@ namespace rc
             return result;
         }
 
-        qInfo() << "DoorConcept::update_step() - Optimizing with" << result.num_points_used << "points";
+        //qInfo() << "DoorConcept::update_step() - Optimizing with" << result.num_points_used << "points";
 
         auto params = door->parameters();
         torch::optim::Adam optimizer(params, torch::optim::AdamOptions(config_.learning_rate));

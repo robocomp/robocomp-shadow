@@ -59,157 +59,157 @@
  *   - opening_angle: leaf rotation around Z-axis at hinge position
  */
 class DoorModel final : public torch::nn::Module
-{
-public:
-    /**
-     * @brief Default constructor
-     */
-    DoorModel() = default;
+    {
+    public:
+        /**
+         * @brief Default constructor
+         */
+        DoorModel() = default;
 
-    std::vector<Eigen::Vector3f> roi_points;
-    cv::Rect roi;
-    int classId;  // debug
-    std::string label;  // debug
-    float score;
+        std::vector<Eigen::Vector3f> roi_points;
+        cv::Rect roi;
+        unsigned int id;
+        std::string label;  // debug
+        float score;
 
-    /**
-     * @brief Initialize door model from YOLO detection ROI
-     *
-     * @param roi_points LiDAR points within YOLO bounding box
-     * @param initial_width Initial guess for door width (meters)
-     * @param initial_height Initial guess for door height (meters)
-     * @param initial_angle Initial opening angle (radians, 0 = closed)
-     */
-    void init(const std::vector<Eigen::Vector3f>& roi_points_,
-              const cv::Rect &roi_,
-              int classId_,
-              const std::string &label_,
-              float initial_width = 1.0f,
-              float initial_height = 2.0f,
-              float initial_angle = 0.0f);
+        /**
+         * @brief Initialize door model from YOLO detection ROI
+         *
+         * @param roi_points LiDAR points within YOLO bounding box
+         * @param initial_width Initial guess for door width (meters)
+         * @param initial_height Initial guess for door height (meters)
+         * @param initial_angle Initial opening angle (radians, 0 = closed)
+         */
+        void init(const std::vector<Eigen::Vector3f>& roi_points_,
+                  const cv::Rect &roi_,
+                  unsigned int id_,
+                  const std::string &label_,
+                  float initial_width = 1.0f,
+                  float initial_height = 2.0f,
+                  float initial_angle = 0.0f);
 
-    /**
-     * @brief Compute signed distance from points to door surface
-     *
-     * Points are in ROBOT frame. The door pose transforms them to DOOR local frame
-     * where the SDF is computed.
-     *
-     * @param points_robot Tensor [N, 3] with (x, y, z) in robot frame
-     * @return Tensor [N] with signed distances
-     */
-    torch::Tensor sdf(const torch::Tensor& points_robot) const;
+        /**
+         * @brief Compute signed distance from points to door surface
+         *
+         * Points are in ROBOT frame. The door pose transforms them to DOOR local frame
+         * where the SDF is computed.
+         *
+         * @param points_robot Tensor [N, 3] with (x, y, z) in robot frame
+         * @return Tensor [N] with signed distances
+         */
+        torch::Tensor sdf(const torch::Tensor& points_robot) const;
 
-    /**
-     * @brief Get current door parameters
-     * @return Vector with [x, y, z, theta, width, height, angle]
-     */
-    std::vector<float> get_door_parameters() const;
+        /**
+         * @brief Get current door parameters
+         * @return Vector with [x, y, z, theta, width, height, angle]
+         */
+        std::vector<float> get_door_parameters() const;
 
-    /**
-     * @brief Get door pose (position and orientation)
-     * @return Vector with [x, y, z, theta]
-     */
-    std::vector<float> get_door_pose() const;
+        /**
+         * @brief Get door pose (position and orientation)
+         * @return Vector with [x, y, z, theta]
+         */
+        std::vector<float> get_door_pose() const;
 
-    /**
-     * @brief Get door geometry
-     * @return Vector with [width, height]
-     */
-    std::vector<float> get_door_geometry() const;
+        /**
+         * @brief Get door geometry
+         * @return Vector with [width, height]
+         */
+        std::vector<float> get_door_geometry() const;
 
-    /**
-     * @brief Get door opening angle
-     * @return Opening angle in radians
-     */
-    float get_opening_angle() const;
+        /**
+         * @brief Get door opening angle
+         * @return Opening angle in radians
+         */
+        float get_opening_angle() const;
 
-    /**
-     * @brief Get all trainable parameters
-     */
-    std::vector<torch::Tensor> parameters() const;
+        /**
+         * @brief Get all trainable parameters
+         */
+        std::vector<torch::Tensor> parameters() const;
 
-    /**
-     * @brief Get only pose parameters (for selective optimization)
-     */
-    std::vector<torch::Tensor> get_pose_parameters() const;
+        /**
+         * @brief Get only pose parameters (for selective optimization)
+         */
+        std::vector<torch::Tensor> get_pose_parameters() const;
 
-    /**
-     * @brief Get only geometry parameters (for selective optimization)
-     */
-    std::vector<torch::Tensor> get_geometry_parameters() const;
+        /**
+         * @brief Get only geometry parameters (for selective optimization)
+         */
+        std::vector<torch::Tensor> get_geometry_parameters() const;
 
-    /**
-     * @brief Freeze geometry parameters (optimize only pose and angle)
-     */
-    void freeze_geometry();
+        /**
+         * @brief Freeze geometry parameters (optimize only pose and angle)
+         */
+        void freeze_geometry();
 
-    /**
-     * @brief Unfreeze geometry parameters
-     */
-    void unfreeze_geometry();
+        /**
+         * @brief Unfreeze geometry parameters
+         */
+        void unfreeze_geometry();
 
-    /**
-     * @brief Check if geometry is frozen
-     */
-    bool is_geometry_frozen() const;
+        /**
+         * @brief Check if geometry is frozen
+         */
+        bool is_geometry_frozen() const;
 
-    void set_door_position(float x, float y, float z);
+        void set_door_position(float x, float y, float z);
 
-    void set_theta(float theta);
+        void set_theta(float theta);
 
-    void set_pose(float x, float y, float z, float theta);
+        void set_pose(float x, float y, float z, float theta);
 
-    /**
-     * @brief Print current door configuration
-     */
-    void print_info() const;
+        /**
+         * @brief Print current door configuration
+         */
+        void print_info() const;
 
-    // Fixed door frame parameters (not optimized)
-    float frame_thickness_ = 0.10f;  // 10cm frame thickness
-    float frame_depth_ = 0.15f;      // 15cm frame depth (along Y)
-    float leaf_thickness_ = 0.04f;   // 4cm door leaf thickness
+        // Fixed door frame parameters (not optimized)
+        float frame_thickness_ = 0.10f;  // 10cm frame thickness
+        float frame_depth_ = 0.15f;      // 15cm frame depth (along Y)
+        float leaf_thickness_ = 0.04f;   // 4cm door leaf thickness
 
-    // Door pose in robot frame (trainable)
-    torch::Tensor door_position_;  // [x, y, z] - door center position (at floor level)
-    torch::Tensor door_theta_;     // [theta] - yaw orientation around Z-axis
+        // Door pose in robot frame (trainable)
+        torch::Tensor door_position_;  // [x, y, z] - door center position (at floor level)
+        torch::Tensor door_theta_;     // [theta] - yaw orientation around Z-axis
 
-    // Door geometry (trainable)
-    torch::Tensor door_width_;     // [width] - opening width (along X)
-    torch::Tensor door_height_;    // [height] - door height (along Z)
+        // Door geometry (trainable)
+        torch::Tensor door_width_;     // [width] - opening width (along X)
+        torch::Tensor door_height_;    // [height] - door height (along Z)
 
-    // Door articulation state (trainable)
-    torch::Tensor opening_angle_;  // [angle] - rotation of leaf around Z at hinge (0 = closed)
+        // Door articulation state (trainable)
+        torch::Tensor opening_angle_;  // [angle] - rotation of leaf around Z at hinge (0 = closed)
 
-private:
+    private:
 
-    /**
-     * @brief Transform points from robot frame to door local frame
-     * @param points_robot Points in robot's frame [N, 3]
-     * @return Points in door local frame [N, 3]
-     */
-    torch::Tensor transform_to_door_frame(const torch::Tensor& points_robot) const;
+        /**
+         * @brief Transform points from robot frame to door local frame
+         * @param points_robot Points in robot's frame [N, 3]
+         * @return Points in door local frame [N, 3]
+         */
+        torch::Tensor transform_to_door_frame(const torch::Tensor& points_robot) const;
 
-    /**
-     * @brief SDF for axis-aligned box (batched)
-     * @param p Query points [N, 3]
-     * @param b Box half-extents [3]
-     * @return Signed distances [N]
-     */
-    torch::Tensor sdBox(const torch::Tensor& p, const torch::Tensor& b) const;
+        /**
+         * @brief SDF for axis-aligned box (batched)
+         * @param p Query points [N, 3]
+         * @param b Box half-extents [3]
+         * @return Signed distances [N]
+         */
+        torch::Tensor sdBox(const torch::Tensor& p, const torch::Tensor& b) const;
 
-    /**
-     * @brief Compute SDF for door frame (three boxes)
-     * @param points_door Points in door local frame [N, 3]
-     * @return Signed distances to frame [N]
-     */
-    torch::Tensor sdf_frame(const torch::Tensor& points_door) const;
+        /**
+         * @brief Compute SDF for door frame (three boxes)
+         * @param points_door Points in door local frame [N, 3]
+         * @return Signed distances to frame [N]
+         */
+        torch::Tensor sdf_frame(const torch::Tensor& points_door) const;
 
-    /**
-     * @brief Compute SDF for articulated door leaf
-     * @param points_door Points in door local frame [N, 3]
-     * @return Signed distances to leaf [N]
-     */
-    torch::Tensor sdf_leaf(const torch::Tensor& points_door) const;
+        /**
+         * @brief Compute SDF for articulated door leaf
+         * @param points_door Points in door local frame [N, 3]
+         * @return Signed distances to leaf [N]
+         */
+        torch::Tensor sdf_leaf(const torch::Tensor& points_door) const;
 };
 
 #endif // DOOR_MODEL_H
