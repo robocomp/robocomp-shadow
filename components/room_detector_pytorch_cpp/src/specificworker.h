@@ -130,9 +130,11 @@ class SpecificWorker final : public GenericWorker
 		RoboCompCamera360RGBD::TRGBD read_image();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result, QGraphicsScene *scene);
-		void update_viewers(const TimePoints &points,
-							const rc::RoomConcept::Result &result,
-							QGraphicsScene *scene);
+		// Helper to update GUI widgets (extracted from update_robot_view)
+		void update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result);
+		void update_viewers(const TimePoints &points_,
+		                    const rc::RoomConcept::Result &room_result,
+		                    const std::optional<rc::DoorConcept::Result> &door_result, QGraphicsScene *scene);
 
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
 				QGraphicsScene *scene,
@@ -156,7 +158,7 @@ class SpecificWorker final : public GenericWorker
 		std::chrono::time_point<std::chrono::high_resolution_clock> last_time = std::chrono::high_resolution_clock::now();
 
 		// plotter
-		std::shared_ptr<TimeSeriesPlotter> loss_plotter, stddev_plotter;
+		std::shared_ptr<TimeSeriesPlotter> room_loss_plotter, stddev_plotter, epoch_plotter, door_loss_plotter;
 		std::vector<int> graphs;
 
 		// qt3d
@@ -166,7 +168,7 @@ class SpecificWorker final : public GenericWorker
 		std::unique_ptr<YOLODetectorONNX> yolo_detector;
 
 		// room
-		std::shared_ptr<RoomModel> room;
+		std::shared_ptr<RoomModel> room;  //TODO: should go in room concept
 		std::unique_ptr<rc::RoomConcept> room_concept;
 
 		// doors
@@ -174,6 +176,7 @@ class SpecificWorker final : public GenericWorker
 		std::unique_ptr<rc::DoorConcept> door_concept;
 
 		// consensus manager
+		void run_consensus(const rc::RoomConcept::Result &room_result, const std::optional<rc::DoorConcept::Result> &door_result);
 		ConsensusManager consensus_manager;
 
 	Q_SIGNALS:

@@ -1,7 +1,5 @@
 find_package(Qt6 COMPONENTS 3DCore 3DRender 3DExtras REQUIRED)
 
-
-
 # Set LibTorch path
 set(CMAKE_PREFIX_PATH "/home/robocomp/software/libtorch")
 
@@ -81,6 +79,7 @@ LIST(APPEND SOURCES
         ../src/door_projection.cpp
        ../src/consensus_graph.cpp
         ../src/consensus_manager.cpp
+        ../src/custom_camera_controller.cpp
 )
 # Headers set
 LIST(APPEND HEADERS
@@ -103,6 +102,7 @@ LIST(APPEND HEADERS
         ../src/door_projection.h
         ../src/consensus_graph.h
         ../src/consensus_manager.h
+        ../src/custom_camera_controller.h
 )
 
 # Include OpenCV

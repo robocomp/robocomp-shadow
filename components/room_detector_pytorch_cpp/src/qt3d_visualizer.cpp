@@ -1,5 +1,7 @@
 #include "qt3d_visualizer.h"
 #include <Qt3DCore/QGeometry>
+#include <Qt3DCore/QBuffer>
+#include <Qt3DCore/QAttribute>
 #include <Qt3DExtras/QForwardRenderer>
 #include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DExtras/QCylinderMesh>
@@ -81,10 +83,12 @@ void RoomVisualizer3D::setupCamera()
     camera->setUpVector(QVector3D(0, 0, 1));
 
     // Camera controller
-    camController = new Qt3DExtras::QOrbitCameraController(rootEntity);
+    camController = new CustomCameraController(rootEntity);
     camController->setCamera(camera);
-    camController->setLinearSpeed(50.0f);
-    camController->setLookSpeed(180.0f);
+    camController->setRotationSpeed(0.005f);
+    camController->setPanSpeed(0.01f);
+    camController->setZoomSpeed(0.15f);
+    camController->setTarget(QVector3D(0, 0, 0));
 }
 
 void RoomVisualizer3D::setupLighting()
@@ -272,38 +276,104 @@ void RoomVisualizer3D::createGroundGrid()
     groundEntity->addComponent(material);
 }
 
-void RoomVisualizer3D::updatePointCloud(const std::vector<Eigen::Vector2f> &points)
+void RoomVisualizer3D::updatePointCloud(const std::vector<Eigen::Vector3f> &points)
 {
-    // Clear old points
-    for (auto *const entity: pointEntities)
+    if (points.empty())
     {
-        entity->setParent((Qt3DCore::QNode *) nullptr);
-        entity->deleteLater();
+        // Hide existing point cloud if any
+        if (!pointEntities.empty() && pointEntities[0])
+            pointEntities[0]->setEnabled(false);
+        return;
     }
-    pointEntities.clear();
 
-    // Create new points (all share same mesh and material - efficient!)
-    for (const auto &p: points)
+    // Prepare position data
+    QByteArray positionData;
+    positionData.resize(static_cast<int>(points.size() * 3 * sizeof(float)));
+    float *posPtr = reinterpret_cast<float *>(positionData.data());
+
+    for (const auto &p : points)
     {
+        *posPtr++ = p.x();
+        *posPtr++ = p.y();
+        *posPtr++ = p.z();
+    }
+
+    // Reuse existing entity or create new one
+    if (pointEntities.empty() || !pointEntities[0])
+    {
+        // First time: create entity and all components
         auto *const entity = new Qt3DCore::QEntity(sceneEntity);
-        entity->addComponent(sharedPointMesh);
-        entity->addComponent(sharedPointMaterial);
 
-        auto *const transform = new Qt3DCore::QTransform();
-        transform->setTranslation(QVector3D(p.x(), p.y(), 0.1f)); // Slightly above ground
-        entity->addComponent(transform);
+        auto *geometry = new Qt3DCore::QGeometry(entity);
 
+        auto *positionBuffer = new Qt3DCore::QBuffer(geometry);
+        positionBuffer->setObjectName("pointCloudBuffer");
+        positionBuffer->setData(positionData);
+
+        auto *positionAttribute = new Qt3DCore::QAttribute(geometry);
+        positionAttribute->setName(Qt3DCore::QAttribute::defaultPositionAttributeName());
+        positionAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
+        positionAttribute->setVertexSize(3);
+        positionAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
+        positionAttribute->setBuffer(positionBuffer);
+        positionAttribute->setByteStride(3 * sizeof(float));
+        positionAttribute->setCount(static_cast<uint>(points.size()));
+
+        geometry->addAttribute(positionAttribute);
+
+        auto *geometryRenderer = new Qt3DRender::QGeometryRenderer(entity);
+        geometryRenderer->setObjectName("pointCloudRenderer");
+        geometryRenderer->setGeometry(geometry);
+        geometryRenderer->setPrimitiveType(Qt3DRender::QGeometryRenderer::Points);
+        geometryRenderer->setVertexCount(static_cast<int>(points.size()));
+
+        auto *material = new Qt3DExtras::QPhongMaterial(entity);
+        material->setDiffuse(pointColor);
+        material->setAmbient(pointColor);
+
+        entity->addComponent(geometryRenderer);
+        entity->addComponent(material);
+
+        pointEntities.clear();
         pointEntities.push_back(entity);
+    }
+    else
+    {
+        // Reuse existing: just update buffer and count
+        auto *entity = pointEntities[0];
+        entity->setEnabled(true);
+
+        // Find the geometry renderer and update it
+        for (auto *component : entity->components())
+        {
+            if (auto *renderer = qobject_cast<Qt3DRender::QGeometryRenderer *>(component))
+            {
+                renderer->setVertexCount(static_cast<int>(points.size()));
+
+                // Update buffer data
+                auto *geometry = renderer->geometry();
+                for (auto *attr : geometry->attributes())
+                {
+                    if (attr->name() == Qt3DCore::QAttribute::defaultPositionAttributeName())
+                    {
+                        attr->buffer()->setData(positionData);
+                        attr->setCount(static_cast<uint>(points.size()));
+                        break;
+                    }
+                }
+                break;
+            }
+        }
     }
 }
 
 void RoomVisualizer3D::updatePointCloud(const RoboCompLidar3D::TPoints &points)
 {
-    std::vector<Eigen::Vector2f> epoints;
-    epoints.reserve(points.size());
-    for (const auto &p: points)
-        epoints.emplace_back(p.x / 1000.0f, p.y / 1000.0f); // Convert mm to meters
-    updatePointCloud(epoints);
+    // std::vector<Eigen::Vector2f> epoints;
+    // epoints.reserve(points.size());
+    // for (const auto &p: points)
+    //     epoints.emplace_back(p.x / 1000.0f, p.y / 1000.0f); // Convert mm to meters
+    // updatePointCloud(epoints);
 }
 
 Qt3DCore::QEntity *RoomVisualizer3D::createLineBox(float width, float height, const QColor &color)
@@ -461,9 +531,11 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
 void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float width, float height, float open_angle)
 {
     // // Transform: Robot(x,y) -> Vis(y, -x), theta -> theta - 90°  TODO: CHECK THIS
-    const float vis_x = -y;
-    const float vis_y = x;
-    const float vis_theta = theta + static_cast<float>(M_PI_2);
+    //const float vis_x = -y;
+    //const float vis_y = x;
+    const float vis_x = x;
+    const float vis_y = y;
+    const float vis_theta = theta;// + static_cast<float>(M_PI_2);
 
     const float theta_deg = vis_theta * 180.0f / static_cast<float>(M_PI);
     const float open_deg = open_angle * 180.0f / static_cast<float>(M_PI);

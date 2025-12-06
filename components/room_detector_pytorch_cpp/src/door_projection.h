@@ -3,7 +3,7 @@
  *
  *    This file is part of RoboComp
  *
- *    Door model projection utilities for visualizing door model on 360° images
+ *    Door model projection utilities for visualizing door model on 360 images
  */
 
 #ifndef DOOR_PROJECTION_H
@@ -14,63 +14,56 @@
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <vector>
-#include <cmath>
 #include <memory>
 
+/**
+ * @brief ROI (Region of Interest) structure for predicted door bounding box
+ */
+struct PredictedROI
+{
+    int u_min = 0;
+    int u_max = 0;
+    int v_min = 0;
+    int v_max = 0;
+
+    bool valid = false;
+    bool wraps_around = false;
+
+    int u_min_2 = 0;
+    int u_max_2 = 0;
+
+    cv::Rect toCvRect() const;
+    cv::Rect toCvRect2() const;
+    PredictedROI expanded(int margin, int image_width, int image_height) const;
+    int area() const;
+    Eigen::Vector2i center() const;
+};
+
+/**
+ * @brief Door projection utilities for 360 equirectangular images
+ */
 class DoorProjection
 {
 public:
-    /**
-     * @brief Sample 3D points from the door frame (jambs and lintel) with backface culling
-     *
-     * @param door Door model to sample from
-     * @param camera_pos Camera/robot position in world frame (for backface culling)
-     * @param num_samples Number of samples along each edge
-     * @return Vector of 3D points on visible frame surfaces
-     */
     static std::vector<Eigen::Vector3f> sampleFrameSurface(
         const std::shared_ptr<DoorModel> &door,
         const Eigen::Vector3f& camera_pos,
         int num_samples = 20);
 
-    /**
-     * @brief Sample 3D points from the door leaf with backface culling
-     *
-     * The leaf opens INWARD (negative Y direction in door frame, into the room)
-     *
-     * @param door Door model to sample from
-     * @param camera_pos Camera/robot position (for backface culling)
-     * @param num_samples Number of samples along each edge
-     * @return Vector of 3D points on visible leaf surface
-     */
     static std::vector<Eigen::Vector3f> sampleLeafSurface(
         const std::shared_ptr<DoorModel> &door,
         const Eigen::Vector3f& camera_pos,
         int num_samples = 20);
 
-    /**
-     * @brief Project door model onto equirectangular image with separate colors
-     *
-     * @param door Door model to project
-     * @param image Background equirectangular image (will be modified)
-     * @param camera_pos Camera position for backface culling (default: origin)
-     * @param frame_color Color for frame (BGR format)
-     * @param leaf_color Color for leaf (BGR format)
-     * @param num_samples Number of samples per edge
-     * @param point_radius Radius of projected points
-     */
     static void projectDoorOnImage(
         const std::shared_ptr<DoorModel> &door,
         cv::Mat& image,
         const Eigen::Vector3f& camera_pos = Eigen::Vector3f::Zero(),
-        const cv::Scalar& frame_color = cv::Scalar(255, 165, 0),   // RGB: Orange
-        const cv::Scalar& leaf_color = cv::Scalar(0, 255, 0),      // RGB: Green
-        const int num_samples = 30,
-        const int point_radius = 2);
+        const cv::Scalar& frame_color = cv::Scalar(255, 165, 0),
+        const cv::Scalar& leaf_color = cv::Scalar(0, 255, 0),
+        int num_samples = 30,
+        int point_radius = 2);
 
-    /**
-     * @brief Project only the door frame (no leaf)
-     */
     static void projectFrameOnImage(
         const std::shared_ptr<DoorModel> &door,
         cv::Mat& image,
@@ -79,9 +72,6 @@ public:
         int num_samples = 30,
         int point_radius = 2);
 
-    /**
-     * @brief Project only the door leaf (no frame)
-     */
     static void projectLeafOnImage(
         const std::shared_ptr<DoorModel> &door,
         cv::Mat& image,
@@ -90,9 +80,30 @@ public:
         int num_samples = 30,
         int point_radius = 2);
 
-    /**
-     * @brief Sample door surface for dense visualization (with backface culling)
-     */
+    static PredictedROI predictROI(
+        const std::shared_ptr<DoorModel> &door,
+        int image_width,
+        int image_height,
+        const Eigen::Vector3f& camera_pos = Eigen::Vector3f(0.0f, 0.0f, 1.2f),
+        int margin_pixels = 20,
+        int num_samples = 15);
+
+    static PredictedROI predictAndDrawROI(
+        const std::shared_ptr<DoorModel> &door,
+        cv::Mat& image,
+        const Eigen::Vector3f& camera_pos = Eigen::Vector3f(0.0f, 0.0f, 1.2f),
+        const cv::Scalar& color = cv::Scalar(0, 255, 255),
+        int margin_pixels = 20,
+        int line_thickness = 2);
+
+    static bool isInsideROI(const PredictedROI& roi, int u, int v);
+
+    static std::vector<size_t> filterPointsByROI(
+        const std::vector<Eigen::Vector3f>& points_3d,
+        const PredictedROI& roi,
+        int image_width,
+        int image_height);
+
     static std::vector<Eigen::Vector3f> sampleDoorSurfaceDense(
         const std::shared_ptr<DoorModel> &door,
         const Eigen::Vector3f& camera_pos,
@@ -100,4 +111,3 @@ public:
 };
 
 #endif // DOOR_PROJECTION_H
-

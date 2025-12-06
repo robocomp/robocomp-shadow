@@ -108,38 +108,43 @@ void SpecificWorker::initialize()
 	// Room concept
 	room_concept = std::make_unique<rc::RoomConcept>();
 	room = std::make_shared<RoomModel>();
+	room->init(points);
+	room->init_odometry_calibration(1.0f, 1.0f); // Start with no correction
 
 	// Door concept
 	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
 
-	room->init(points);
-	room->init_odometry_calibration(1.0f, 1.0f); // Start with no correction
-
 	// loss plotter for match error
 	TimeSeriesPlotter::Config plotConfig;
-	// all fields have to be initialized, otherwise garbage values get to the constructor
+
 	plotConfig.title = "Loss (likelihood + prior)";
 	plotConfig.yAxisLabel = "Error";
 	plotConfig.xAxisLabel = "";
 	plotConfig.timeWindowSeconds = 7.0; // Show a 15-second window
 	plotConfig.autoScaleY = true; // We will set a fixed range
 	plotConfig.showLegend = true; // Show graph legend
-	plotConfig.yMin = 0;
-	plotConfig.yMax = 0.;
-	loss_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error_1, plotConfig);
-	graphs.push_back(loss_plotter->addGraph("post", Qt::blue));
-	graphs.push_back(loss_plotter->addGraph("like", Qt::green));
-	graphs.push_back(loss_plotter->addGraph("prior", Qt::red));
 
-	plotConfig.title = "standard deviation";
+	room_loss_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error_1, plotConfig);
+	graphs.push_back(room_loss_plotter->addGraph("post", Qt::blue));
+	graphs.push_back(room_loss_plotter->addGraph("like", Qt::green));
+	graphs.push_back(room_loss_plotter->addGraph("prior", Qt::red));
+
+	plotConfig.title = "robot pose std";
 	plotConfig.yAxisLabel = "std";
 	stddev_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error_2, plotConfig);
-	// stddev_plotter->addGraph("prop_x", Qt::red); // Orange
-	// stddev_plotter->addGraph("prop_y", Qt::magenta); // Orange
-	// stddev_plotter->addGraph("prop_theta", Qt::green); // Orange
 	stddev_plotter->addGraph("upd_x", Qt::blue);
 	stddev_plotter->addGraph("upd_y", Qt::cyan);
 	stddev_plotter->addGraph("upd_theta", Qt::red);
+
+	plotConfig.title = "door loss";
+	plotConfig.yAxisLabel = "loss";
+	door_loss_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error_3, plotConfig);
+	door_loss_plotter->addGraph("post", Qt::blue);
+
+	plotConfig.title = "epoch time";
+	plotConfig.yAxisLabel = "time ms";
+	epoch_plotter = std::make_shared<TimeSeriesPlotter>(frame_plot_error_4, plotConfig);
+	epoch_plotter->addGraph("elapsed", Qt::blue);
 
 	// Create 3D viewer
 	viewer3d = std::make_unique<RoomVisualizer3D>("src/meshes/shadow.obj");
@@ -148,7 +153,6 @@ void SpecificWorker::initialize()
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
-
 
 }
 
@@ -160,26 +164,28 @@ void SpecificWorker::compute()
 	if (std::get<0>(time_points).empty())
 	{	std::cout << "No LiDAR points available\n";	return;	}
 
-	// auto now = std::chrono::high_resolution_clock::now();
-	// qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
 	// Room detector
 	const auto room_result = room_concept->update(time_points,
 	                                        room, velocity_history_,
 	                                        10,
 	                                        0.01f,
 	                                        0.01f);
-	update_viewers(time_points, room_result, &viewer->scene);
 	// print_status(result);
+
+	//auto now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt1" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	// Door detector
 	auto rgbd = read_image();
+	//auto door_candidates = door_concept->detect(rgbd);
+
 	std::optional<rc::DoorConcept::Result> door_result;
-	if (door_result = door_concept->update(rgbd); door_result.has_value())
+	if (door_result = door_concept->update(rgbd); door_result.has_value() and door_concept->is_tracking() and door_result.value().door)
 	{
 		cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
 		cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
-		//cv::rectangle(img, res.value().door->roi, cv::Scalar(0, 255, 0), 2);
+		// yolo roi
+		cv::rectangle(img, door_result.value().door->roi, cv::Scalar(0, 255, 0), 2);
 		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
 		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
 		label_img->clear();
@@ -187,55 +193,64 @@ void SpecificWorker::compute()
 		//res.value().print();
 		const auto params = door_result->optimized_params;
 		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
+		viewer3d->updatePointCloud(door_result->door->roi_points);
 	}
-	else
-	{qInfo() << "Door optimization: No door detected/initialized.";	}
+	else {qInfo() << "Door optimization: No door detected/initialized.";	}
 
-	// Consensus manager
-	// if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
-	// {
-	// 	Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
-	// 	auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
-	// 	Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-	// 	Eigen::Matrix3f cov = cov_row;
-	// 	consensus_manager.initializeFromRoom(room, pose, cov);
-	// }
+	//now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	// if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
-	// {
-	// 	auto params = door_result->optimized_params;
-	// 	auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
-	// 	// extract the 3x3 covariance matrix from the 7x7 tensor
-	// 	Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-	// 	consensus_manager.addDoor(door_concept->get_model(), cov_pose);
-	// }
-	// // Run optimization
-	// ConsensusResult result = consensus_manager.optimize();
+	update_viewers(time_points, room_result, door_result, &viewer->scene);
 
-
-	// auto now = std::chrono::high_resolution_clock::now();
-	//  qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
+	//now = std::chrono::high_resolution_clock::now();
+	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
 	last_time = std::chrono::high_resolution_clock::now();;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
+									const std::optional<rc::DoorConcept::Result> &door_result)
+{
+	// Consensus manager
+	if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
+	{
+		Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
+		auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
+		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+		Eigen::Matrix3f cov = cov_row;
+		consensus_manager.initializeFromRoom(room, pose, cov);
+	}
+
+	if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
+	{
+		auto params = door_result->optimized_params;
+		auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
+		// extract the 3x3 covariance matrix from the 7x7 tensor
+		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+		consensus_manager.addDoor(door_concept->get_model(), cov_pose);
+	}
+	// Run optimization
+	ConsensusResult result = consensus_manager.optimize();
+}
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
-                                    const rc::RoomConcept::Result &result,
+                                    const rc::RoomConcept::Result &room_result,
+                                    const std::optional<rc::DoorConcept::Result> &door_result,
                                     QGraphicsScene *scene)
 {
+	static auto last_time = std::chrono::high_resolution_clock::now();
 	const auto &[points, lidar_timestamp] = points_;
 	const auto robot_pose = room->get_robot_pose();
 
 	Eigen::Affine2f robot_pose_display;
 	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
 	robot_pose_display.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
-    draw_lidar(points, scene);
-    update_robot_view(robot_pose_display, result, scene);
+	draw_lidar(points, scene);
+	update_robot_view(robot_pose_display, room_result, scene);
 
 	// Detect and draw doors
-    door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
+	door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
 
 	//viewer3d->updatePointCloud(points);
 	const auto room_params = room->get_room_parameters();
@@ -243,31 +258,31 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	viewer3d->updateRobotPose(room->get_robot_pose()[0], room->get_robot_pose()[1], room->get_robot_pose()[2]);
 
 	// Time series plot
-	loss_plotter->addDataPoint(0, result.final_loss);
-	loss_plotter->addDataPoint(2, result.prior_loss);
-	loss_plotter->addDataPoint(1, result.measurement_loss);
-
-	// Plot propagated uncertainty (before measurement update)
-	// if (result.propagated_cov.defined() && result.propagated_cov.numel() > 0)
-	// {
-	// 	const float prop_std_x = std::sqrt(result.propagated_cov[0][0].item<float>()) * 1000;
-	// 	const float prop_std_y = std::sqrt(result.propagated_cov[1][1].item<float>()) * 1000;
-	// 	const float prop_std_theta = std::sqrt(result.propagated_cov[1][1].item<float>()) * 1000;
-	// 	stddev_plotter->addDataPoint(3, prop_std_x);  // Orange line
-	// 	stddev_plotter->addDataPoint(4, prop_std_y);  // Orange line
-	// 	stddev_plotter->addDataPoint(5, prop_std_theta); // Orange line
-	// }
+	room_loss_plotter->addDataPoint(0, room_result.final_loss);
+	room_loss_plotter->addDataPoint(2, room_result.prior_loss);
+	room_loss_plotter->addDataPoint(1, room_result.measurement_loss);
 
 	// Plot updated uncertainty (after measurement update)
-	const float upd_std_x = std::sqrt(result.covariance[0][0].item<float>()) ;
-	const float upd_std_y = std::sqrt(result.covariance[1][1].item<float>()) ;
-	const float upd_std_theta = std::sqrt(result.covariance[2][2].item<float>()) ;
+	const float upd_std_x = std::sqrt(room_result.covariance[0][0].item<float>()) ;
+	const float upd_std_y = std::sqrt(room_result.covariance[1][1].item<float>()) ;
+	const float upd_std_theta = std::sqrt(room_result.covariance[2][2].item<float>()) ;
 	stddev_plotter->addDataPoint(0, upd_std_x);    // Green line
 	stddev_plotter->addDataPoint(1, upd_std_y);    // Green line
 	stddev_plotter->addDataPoint(2, upd_std_theta); // Green line
 
-	loss_plotter->update();
+	if (door_concept->is_tracking())
+	{
+		float loss_rounded = std::round(door_result->measurement_loss * 1000.0f) / 1000.0f; // 3 decimales
+		if (std::fabs(loss_rounded) < 1e-6f) loss_rounded = 0.0f;   // opcional: evitar -0.000
+		door_loss_plotter->addDataPoint(0, loss_rounded);
+	}
+	epoch_plotter->addDataPoint(0, std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - last_time).count());
+
+	room_loss_plotter->update();
 	stddev_plotter->update();
+	epoch_plotter->update();
+	door_loss_plotter->update();
+	last_time = std::chrono::high_resolution_clock::now();
 }
 
 RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
@@ -379,6 +394,8 @@ void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
     qInfo().noquote() << QString(60, '=') << "\n";
 }
 
+
+
 // RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
 // {
 // 	RoboCompCamera360RGB::TImage img;
@@ -453,8 +470,8 @@ TimePoints SpecificWorker::read_data()
 			no_outliers.push_back(p);
 	ldata.points = std::move(no_outliers); */
 
-	//ldata.points = filter_same_phi(ldata.points);
-	ldata.points = filter_isolated_points(ldata.points, 100);
+	ldata.points = filter_same_phi(ldata.points);
+	//ldata.points = filter_isolated_points(ldata.points, 150);
 
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
@@ -655,8 +672,8 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 
 
 	const std::vector<float> robot_pose_vec{robot_pose.translation().x(),
-	 										robot_pose.translation().y(),
-	 										Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
+										    robot_pose.translation().y(),
+										    Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
 
 	// 2. Draw UPDATED uncertainty (after measurements)
 	//    This shows how measurements reduced uncertainty
@@ -671,26 +688,28 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 		);
 	}
 
-	// update GUI
-	// get last adv and rot commands from buffer
-	float adv = 0.0f;
-	float rot = 0.0f;
-	if (not velocity_history_.empty())
-	{
-		const auto v = velocity_history_.back();
-		adv = v.adv_z;
-		rot = v.rot;
-	}
-	lcdNumber_adv->display(adv);
-	lcdNumber_rot->display(rot);
-	lcdNumber_x->display(robot_pose.translation().x());
-	lcdNumber_y->display(robot_pose.translation().y());
-	//lcdNumber_room->display(current_room);
-	//const double angle = qRadiansToDegrees(std::atan2(robot_pose.rotation()(1, 0), robot_pose.rotation()(0, 0)));
-	const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
-	lcdNumber_angle->display(angle);
-	label_state->setText(
-		room_concept->room_freezing_manager.state_to_string(room_concept->room_freezing_manager.get_state()).data());
+	update_gui(robot_pose, result);
+}
+
+void SpecificWorker::update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result)
+{
+    // get last adv and rot commands from buffer
+    float adv = 0.0f;
+    float rot = 0.0f;
+    if (not velocity_history_.empty())
+    {
+        const auto v = velocity_history_.back();
+        adv = v.adv_z;
+        rot = v.rot;
+    }
+    lcdNumber_adv->display(adv);
+    lcdNumber_rot->display(rot);
+    lcdNumber_x->display(robot_pose.translation().x());
+    lcdNumber_y->display(robot_pose.translation().y());
+    const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
+    lcdNumber_angle->display(angle);
+    label_state->setText(
+        room_concept->room_freezing_manager.state_to_string(room_concept->room_freezing_manager.get_state()).data());
 }
 
 QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(

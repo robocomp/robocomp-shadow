@@ -105,7 +105,7 @@ void DoorModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
     const float center_x = x_sum / n;
     const float center_y = y_sum / n;
     // z position is at floor level (use z_min or assume 0)
-    const float center_z = 0.0f;
+    const float center_z = 0.2f;
 
     // Estimate door orientation from principal direction
     // For now, assume door is perpendicular to viewing direction (facing robot)

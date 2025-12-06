@@ -16,6 +16,7 @@
 #include <Eigen/Dense>
 #include <Lidar3D.h>
 #include "door_model.h"
+#include "door_projection.h"
 #include "common_types.h"
 #include "yolo_detector_onnx.h"
 #include <Camera360RGBD.h>
@@ -50,14 +51,18 @@ namespace rc
                 int num_points_used = 0;            // Number of LiDAR points in ROI
                 float mean_residual = 0.0f;         // Mean SDF residual
                 std::shared_ptr<DoorModel> door;
+                unsigned int iterations = 0;
                 void print() const
                 {
                     qInfo() << "==============================";
-                    qInfo() << "Door " << door->id << "optimization result:"
+                    if (door) { qInfo() << "Current door ID" << door->id; }
+                    qInfo() << "optimization result:"
                             << "	Final loss:" <<  final_loss
                             << "	Measurement loss:"  << measurement_loss
                             << "	Num points:" << num_points_used
-                            << "	Success:" << success;
+                            << "	Success:" << success
+                            << "    Iterations:" << iterations;
+
                     const auto params = optimized_params;
                     qInfo() << "Optimized door parameters:"
                             << "	x:"  << params[0]
@@ -77,17 +82,17 @@ namespace rc
                 float min_loss_threshold = 0.001f;
 
                 // Convergence criteria
-                float convergence_patience = 10;     // Iterations without improvement
-                float convergence_delta = 1e-5f;     // Minimum loss change
+                float convergence_patience = 8;     // Iterations without improvement
+                float convergence_delta = 1e-4f;     // Minimum loss change
 
-                // Regularization
+                // Regularization (priors to loss function)
                 bool use_geometry_regularization = true;
-                float geometry_reg_weight = 0.01f;   // Penalize unrealistic sizes
+                float geometry_reg_weight = 0.5f;    // Strong prior on door dimensions
 
                 // Standard door dimensions for regularization (meters)
-                float typical_width = 0.9f;          // 90cm
-                float typical_height = 2.0f;         // 2m
-                float size_std = 0.2f;               // 20cm tolerance
+                float typical_width = 0.9f;          // 90cm standard door
+                float typical_height = 2.0f;         // 2m standard door
+                float size_std = 0.15f;              // 15cm tolerance (tighter)
 
                 // Tracking quality thresholds
                 float tracking_lost_threshold = 0.5f;   // Mean residual above this triggers redetection
@@ -104,6 +109,7 @@ namespace rc
                 float max_depth = 5.0f;              // Maximum depth in meters
                 float min_depth = 0.3f;              // Minimum depth in meters
                 bool filter_by_depth = true;         // Filter points outside depth range
+                float camera_height = 1.2f;          // Camera/sensor height for projection (meters)
             };
 
             explicit DoorConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)

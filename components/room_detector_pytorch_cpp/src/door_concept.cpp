@@ -16,6 +16,7 @@
 #endif
 
 #include "door_concept.h"
+#include "door_projection.h"  // NEW: Include DoorProjection for model-based ROI
 #include <iostream>
 #include <QDebug>
 #include <cmath>
@@ -106,16 +107,12 @@ namespace rc
 
         // UPDATE: Optimize door parameters
         auto result = update_step(points_tensor);
-        result.door = door;
+        result.print();
 
         // Check tracking quality
-        if (!check_tracking_quality(result))
+        if (not check_tracking_quality(result))
         {
             consecutive_tracking_failures_++;
-            qWarning() << "DoorConcept::update() - Poor tracking quality, residual:"
-                       << result.mean_residual
-                       << "- Failure" << consecutive_tracking_failures_ << "/" << MAX_TRACKING_FAILURES;
-
             if (consecutive_tracking_failures_ >= MAX_TRACKING_FAILURES)
             {
                 qWarning() << "DoorConcept::update() - Tracking quality too low, will redetect";
@@ -126,6 +123,7 @@ namespace rc
         {
             // Good tracking, reset failure counter
             consecutive_tracking_failures_ = 0;
+            result.door = door;
         }
 
         return result;
@@ -141,23 +139,37 @@ namespace rc
     {
         std::vector<Eigen::Vector3f> roi_points;
 
-        // Compute the 2D projected ROI from the 3D door model
-        cv::Rect projected_roi = compute_projected_roi(door_model, rgbd.width, rgbd.height);
+        // =====================================================================
+        // USE DoorProjection::predictROI() for consistent equirectangular projection
+        // =====================================================================
 
-        // Expand ROI slightly to catch points at the edges
-        const int margin_x = static_cast<int>(projected_roi.width * roi_config_.margin_factor);
-        const int margin_y = static_cast<int>(projected_roi.height * roi_config_.margin_factor);
+        // Camera height for projection (sensor mounted at ~1.2m typically)
+        const Eigen::Vector3f camera_pos(0.0f, 0.0f, roi_config_.camera_height);
 
-        projected_roi.x = std::max(0, projected_roi.x - margin_x);
-        projected_roi.y = std::max(0, projected_roi.y - margin_y);
-        projected_roi.width = std::min(rgbd.width - projected_roi.x,
-                                       projected_roi.width + 2 * margin_x);
-        projected_roi.height = std::min(rgbd.height - projected_roi.y,
-                                        projected_roi.height + 2 * margin_y);
+        // Get predicted ROI using the proper equirectangular projection
+        // This accounts for the full door geometry (frame + leaf)
+        const int margin_pixels = static_cast<int>(
+            std::max(rgbd.width, rgbd.height) * roi_config_.margin_factor);
 
-        //qDebug() << "DoorConcept::extract_roi_from_model() - Projected ROI:"
-        //         << projected_roi.x << "," << projected_roi.y
-        //         << projected_roi.width << "x" << projected_roi.height;
+        PredictedROI predicted_roi = DoorProjection::predictROI(
+            std::make_shared<DoorModel>(door_model),  // Create shared_ptr for the API
+            rgbd.width,
+            rgbd.height,
+            camera_pos,
+            margin_pixels,
+            15  // num_samples for projection
+        );
+
+        if (!predicted_roi.valid)
+        {
+            qWarning() << "DoorConcept::extract_roi_from_model() - ROI projection failed";
+            return roi_points;
+        }
+
+        // qDebug() << "DoorConcept::extract_roi_from_model() - Predicted ROI:"
+        //          << predicted_roi.u_min << "-" << predicted_roi.u_max << "x"
+        //          << predicted_roi.v_min << "-" << predicted_roi.v_max
+        //          << (predicted_roi.wraps_around ? "(wraps)" : "");
 
         // Get door pose for depth filtering
         auto pose = door_model.get_door_pose();
@@ -171,37 +183,52 @@ namespace rc
         const float min_depth = std::max(roi_config_.min_depth, door_depth - depth_margin);
         const float max_depth = std::min(roi_config_.max_depth, door_depth + depth_margin);
 
-        // Extract points from depth data within the projected ROI
+        // Extract points from depth data within the predicted ROI
         const auto depth_ptr = reinterpret_cast<const cv::Vec3f*>(rgbd.depth.data());
 
-        for (int y = projected_roi.y; y < projected_roi.y + projected_roi.height; ++y)
+        // Helper lambda to process a rectangular region
+        auto process_region = [&](int u_start, int u_end, int v_start, int v_end)
         {
-            for (int x = projected_roi.x; x < projected_roi.x + projected_roi.width; ++x)
+            for (int v = v_start; v < v_end; ++v)
             {
-                const int index = y * rgbd.width + x;
-                const cv::Vec3f& point = depth_ptr[index];
-
-                // Skip invalid points
-                if (std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
-                    continue;
-                if (point[0] == 0.0f && point[1] == 0.0f && point[2] == 0.0f)
-                    continue;
-
-                // Convert to meters
-                const float px = point[0] / 1000.f;
-                const float py = point[1] / 1000.f;
-                const float pz = point[2] / 1000.f;
-
-                // Depth filtering
-                if (roi_config_.filter_by_depth)
+                for (int u = u_start; u < u_end; ++u)
                 {
-                    const float point_depth = std::sqrt(px*px + py*py);
-                    if (point_depth < min_depth || point_depth > max_depth)
-                        continue;
-                }
+                    const int index = v * rgbd.width + u;
+                    const cv::Vec3f& point = depth_ptr[index];
 
-                roi_points.emplace_back(px, py, pz);
+                    // Skip invalid points
+                    if (std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
+                        continue;
+                    if (point[0] == 0.0f && point[1] == 0.0f && point[2] == 0.0f)
+                        continue;
+
+                    // Convert to meters
+                    const float px = point[0] / 1000.f;
+                    const float py = point[1] / 1000.f;
+                    const float pz = point[2] / 1000.f;
+
+                    // Depth filtering
+                    if (roi_config_.filter_by_depth)
+                    {
+                        const float point_depth = std::sqrt(px*px + py*py);
+                        if (point_depth < min_depth || point_depth > max_depth)
+                            continue;
+                    }
+
+                    roi_points.emplace_back(px, py, pz);
+                }
             }
+        };
+
+        // Process primary ROI region
+        process_region(predicted_roi.u_min, predicted_roi.u_max,
+                       predicted_roi.v_min, predicted_roi.v_max);
+
+        // Process secondary region if ROI wraps around image boundary
+        if (predicted_roi.wraps_around)
+        {
+            process_region(predicted_roi.u_min_2, predicted_roi.u_max_2,
+                           predicted_roi.v_min, predicted_roi.v_max);
         }
 
         //qDebug() << "DoorConcept::extract_roi_from_model() - Extracted"
@@ -210,271 +237,248 @@ namespace rc
         return roi_points;
     }
 
+    // =========================================================================
+    // LEGACY: compute_projected_roi - Kept for backward compatibility
+    // Now internally uses DoorProjection::predictROI
+    // =========================================================================
+
     cv::Rect DoorConcept::compute_projected_roi(const DoorModel& door_model,
                                                  int image_width, int image_height)
     {
-        // Get door pose and geometry
-        auto pose = door_model.get_door_pose();
-        auto geom = door_model.get_door_geometry();
+        const Eigen::Vector3f camera_pos(0.0f, 0.0f, roi_config_.camera_height);
+        const int margin = static_cast<int>(image_width * roi_config_.margin_factor);
 
-        const float door_x = pose[0];      // X position in robot frame
-        const float door_y = pose[1];      // Y position (forward)
-        const float door_z = pose[2];      // Z position
-        const float door_theta = pose[3];  // Orientation
+        PredictedROI roi = DoorProjection::predictROI(
+            std::make_shared<DoorModel>(door_model),
+            image_width,
+            image_height,
+            camera_pos,
+            margin
+        );
 
-        const float door_width = geom[0];
-        const float door_height = geom[1];
-
-        // Compute 8 corners of the door bounding box in 3D
-        // Door local frame: width along X, depth along Y, height along Z
-        const float half_width = door_width / 2.0f;
-        const float frame_depth = door_model.frame_depth_;
-        const float half_depth = frame_depth / 2.0f;
-
-        // Corners in door local frame (before rotation)
-        std::vector<Eigen::Vector3f> corners_local = {
-            {-half_width, -half_depth, 0.0f},           // Bottom-left-front
-            { half_width, -half_depth, 0.0f},           // Bottom-right-front
-            {-half_width,  half_depth, 0.0f},           // Bottom-left-back
-            { half_width,  half_depth, 0.0f},           // Bottom-right-back
-            {-half_width, -half_depth, door_height},    // Top-left-front
-            { half_width, -half_depth, door_height},    // Top-right-front
-            {-half_width,  half_depth, door_height},    // Top-left-back
-            { half_width,  half_depth, door_height}     // Top-right-back
-        };
-
-        // Rotation matrix around Z-axis
-        const float cos_theta = std::cos(door_theta);
-        const float sin_theta = std::sin(door_theta);
-
-        // Transform corners to robot frame and project to image
-        float min_u = std::numeric_limits<float>::max();
-        float max_u = std::numeric_limits<float>::lowest();
-        float min_v = std::numeric_limits<float>::max();
-        float max_v = std::numeric_limits<float>::lowest();
-
-        for (const auto& corner_local : corners_local)
+        if (!roi.valid)
         {
-            // Rotate around Z-axis
-            float rotated_x = cos_theta * corner_local.x() - sin_theta * corner_local.y();
-            float rotated_y = sin_theta * corner_local.x() + cos_theta * corner_local.y();
-            float rotated_z = corner_local.z();
-
-            // Translate to door position in robot frame
-            Eigen::Vector3f corner_robot(
-                door_x + rotated_x,
-                door_y + rotated_y,
-                door_z + rotated_z
-            );
-
-            // Project to image
-            cv::Point2f pixel = project_point_to_image(corner_robot, image_width, image_height);
-
-            min_u = std::min(min_u, pixel.x);
-            max_u = std::max(max_u, pixel.x);
-            min_v = std::min(min_v, pixel.y);
-            max_v = std::max(max_v, pixel.y);
+            // Return a default ROI at image center if projection fails
+            return cv::Rect(image_width/4, image_height/4,
+                            image_width/2, image_height/2);
         }
 
-        // Convert to cv::Rect with bounds checking
-        int x = static_cast<int>(std::floor(min_u));
-        int y = static_cast<int>(std::floor(min_v));
-        int w = static_cast<int>(std::ceil(max_u - min_u));
-        int h = static_cast<int>(std::ceil(max_v - min_v));
+        // For cv::Rect, we can only return one rectangle
+        // If wrapping, merge the two regions or return the larger one
+        if (roi.wraps_around)
+        {
+            // For simplicity, return a rect spanning the entire horizontal range
+            // This is conservative but ensures we don't miss the door
+            int v_min = roi.v_min;
+            int v_max = roi.v_max;
+            return cv::Rect(0, v_min, image_width, v_max - v_min);
+        }
 
-        // Clamp to image bounds
-        x = std::max(0, std::min(x, image_width - 1));
-        y = std::max(0, std::min(y, image_height - 1));
-        w = std::max(1, std::min(w, image_width - x));
-        h = std::max(1, std::min(h, image_height - y));
-
-        // Apply expansion factor for safety margin
-        const int expand_x = static_cast<int>(w * (config_.roi_expansion_factor - 1.0f) / 2.0f);
-        const int expand_y = static_cast<int>(h * (config_.roi_expansion_factor - 1.0f) / 2.0f);
-
-        x = std::max(0, x - expand_x);
-        y = std::max(0, y - expand_y);
-        w = std::min(image_width - x, w + 2 * expand_x);
-        h = std::min(image_height - y, h + 2 * expand_y);
-
-        return cv::Rect(x, y, w, h);
+        return roi.toCvRect();
     }
 
     cv::Point2f DoorConcept::project_point_to_image(const Eigen::Vector3f& point_3d,
                                                      int image_width, int image_height)
     {
-        // Equirectangular projection for 360° camera
-        // Robot frame: X+ right, Y+ forward, Z+ up
+        // Use EquirectangularProjection for consistency
+        int u, v;
+        if (EquirectangularProjection::projectPoint(point_3d, image_width, image_height, u, v))
+        {
+            return cv::Point2f(static_cast<float>(u), static_cast<float>(v));
+        }
 
-        const float x = point_3d.x();
-        const float y = point_3d.y();
-        const float z = point_3d.z();
-
-        // Compute horizontal angle (azimuth) from Y-axis (forward)
-        // atan2(x, y) gives angle from forward direction
-        const float azimuth = std::atan2(x, y);  // Range: [-π, π]
-
-        // Compute vertical angle (elevation)
-        const float range_xy = std::sqrt(x*x + y*y);
-        const float elevation = std::atan2(z, range_xy);  // Range: [-π/2, π/2]
-
-        // Map to image coordinates
-        // Horizontal: azimuth [-π, π] -> [0, width]
-        // For equirectangular: center of image is forward (azimuth=0)
-        float u = (azimuth / M_PI + 1.0f) * 0.5f * image_width;
-
-        // Vertical: elevation [-π/2, π/2] -> [height, 0] (image Y increases downward)
-        // Center of image is horizon (elevation=0)
-        float v = (0.5f - elevation / M_PI) * image_height;
-
-        // Clamp to image bounds
-        u = std::max(0.0f, std::min(u, static_cast<float>(image_width - 1)));
-        v = std::max(0.0f, std::min(v, static_cast<float>(image_height - 1)));
-
-        return cv::Point2f(u, v);
+        // Fallback to center if projection fails
+        return cv::Point2f(image_width / 2.0f, image_height / 2.0f);
     }
 
     bool DoorConcept::check_tracking_quality(const Result& result)
     {
         // Check if optimization succeeded
-        if (!result.success)
-            return false;
+        if (not result.success)
+        { qWarning() << __FUNCTION__ << "No result success"; return false;}
 
         // Check if mean residual is below threshold
         if (result.mean_residual > config_.tracking_lost_threshold)
-            return false;
+        { qWarning() << __FUNCTION__ << "Mean residual" << result.mean_residual << "below threshold"; return false;}
 
         // Check if we have enough points
         if (result.num_points_used < config_.min_points_for_tracking)
-            return false;
+        { qWarning() << __FUNCTION__ << "Not enough points" << result.num_points_used; return false;}
+
 
         return true;
     }
 
+    void DoorConcept::reset()
+    {
+        door = nullptr;
+        initialized_ = false;
+        tracking_active_ = false;
+        consecutive_tracking_failures_ = 0;
+    }
+
     // =========================================================================
-    // YOLO DETECTION (for initialization and recovery)
+    // DETECT: Full YOLO-based detection (initialization or recovery)
     // =========================================================================
 
     std::vector<DoorModel> DoorConcept::detect(const RoboCompCamera360RGBD::TRGBD &rgbd)
     {
-        cv::Mat cv_img(cv::Size(rgbd.width, rgbd.height), CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
-        cv::cvtColor(cv_img, cv_img, cv::COLOR_BGR2RGB);
+        std::vector<DoorModel> detected_doors;
 
-        // Use panoramic detection for 360° images
-        auto doors_raw = yolo_detector->detectPanoramic(cv_img);
-        qInfo() << __FUNCTION__ << "Detected" << doors_raw.size() << "doors";
+        // Get RGB image for YOLO
+        cv::Mat rgb_image(rgbd.height, rgbd.width, CV_8UC3,
+                          const_cast<uint8_t*>(rgbd.rgb.data()));
 
-        std::vector<DoorModel> doors;
-        for (auto &d : doors_raw)
+        // Run YOLO detection
+        auto detections = yolo_detector->detect(rgb_image);
+
+        if (detections.empty())
         {
+            //qDebug() << "DoorConcept::detect() - No YOLO detections";
+            return detected_doors;
+        }
+
+        //qInfo() << "DoorConcept::detect() - YOLO found" << detections.size() << "candidate(s)";
+
+        // Process each detection
+        const auto depth_ptr = reinterpret_cast<const cv::Vec3f*>(rgbd.depth.data());
+
+        for (const auto& det : detections)
+        {
+            // Extract ROI from detection bounding box
+            cv::Rect roi = det.roi;
+
             // Expand ROI slightly
-            const int x_offset = d.roi.width / 10;
-            const int y_offset = d.roi.height / 10;
-            d.roi.x = std::max(0, d.roi.x - x_offset);
-            d.roi.y = std::max(0, d.roi.y - y_offset);
-            d.roi.width = std::min(rgbd.width - d.roi.x, d.roi.width + 2 * x_offset);
-            d.roi.height = std::min(rgbd.height - d.roi.y, d.roi.height + 2 * y_offset);
+            const int margin_x = static_cast<int>(roi.width * roi_config_.margin_factor);
+            const int margin_y = static_cast<int>(roi.height * roi_config_.margin_factor);
 
-            const cv::Rect roi(d.roi.x, d.roi.y, d.roi.width, d.roi.height);
+            roi.x = std::max(0, roi.x - margin_x);
+            roi.y = std::max(0, roi.y - margin_y);
+            roi.width = std::min(rgbd.width - roi.x, roi.width + 2 * margin_x);
+            roi.height = std::min(rgbd.height - roi.y, roi.height + 2 * margin_y);
 
-            // Extract points within ROI
+            // Extract 3D points from ROI
             std::vector<Eigen::Vector3f> roi_points;
-            const auto depth_ptr = reinterpret_cast<const cv::Vec3f*>(rgbd.depth.data());
 
-            for (int y = 0; y < rgbd.height; ++y)
+            for (int y = roi.y; y < roi.y + roi.height; ++y)
             {
-                for (int x = 0; x < rgbd.width; ++x)
+                for (int x = roi.x; x < roi.x + roi.width; ++x)
                 {
-                    if (x < roi.x || x >= roi.x + roi.width ||
-                        y < roi.y || y >= roi.y + roi.height)
-                        continue;
-
                     const int index = y * rgbd.width + x;
                     const cv::Vec3f& point = depth_ptr[index];
 
+                    // Skip invalid points
                     if (std::isnan(point[0]) || std::isnan(point[1]) || std::isnan(point[2]))
                         continue;
                     if (point[0] == 0.0f && point[1] == 0.0f && point[2] == 0.0f)
                         continue;
 
-                    roi_points.emplace_back(point[0]/1000.f, point[1]/1000.f, point[2]/1000.f);
+                    // Convert to meters and filter by depth
+                    const float px = point[0] / 1000.f;
+                    const float py = point[1] / 1000.f;
+                    const float pz = point[2] / 1000.f;
+
+                    const float depth = std::sqrt(px*px + py*py);
+                    if (depth < roi_config_.min_depth || depth > roi_config_.max_depth)
+                        continue;
+
+                    roi_points.emplace_back(px, py, pz);
                 }
             }
 
-            auto dm = DoorModel{};
-            dm.init(roi_points, d.roi, doors.size(), d.label, 1.0f, 2.0f, 0.0f);
-            doors.emplace_back(dm);
+            if (roi_points.size() < static_cast<size_t>(config_.min_points_for_tracking))
+            {
+                qDebug() << "DoorConcept::detect() - Skipping detection with only"
+                         << roi_points.size() << "points";
+                continue;
+            }
+
+            // Create door model from ROI points
+            DoorModel door_model;
+            door_model.init(roi_points, roi, det.classId, det.label);
+            door_model.roi_points = roi_points;
+            door_model.roi = roi;
+
+            detected_doors.push_back(door_model);
+
+            //qInfo() << "DoorConcept::detect() - Created door model with"
+            //        << roi_points.size() << "points";
         }
-        return doors;
+
+        return detected_doors;
     }
 
     // =========================================================================
-    // REMAINING METHODS (unchanged from original)
+    // PREDICT STEP: Adjust door pose for robot motion
     // =========================================================================
-
-    void DoorConcept::initialize(const RoboCompLidar3D::TPoints& roi_points,
-                                 float initial_width,
-                                 float initial_height,
-                                 float initial_angle)
-    {
-        if (roi_points.empty())
-        {
-            return;
-        }
-    }
-
-    void DoorConcept::reset()
-    {
-        initialized_ = false;
-        tracking_active_ = false;
-        consecutive_tracking_failures_ = 0;
-        door = nullptr;
-        qInfo() << "DoorConcept::reset() - Door concept reset";
-    }
-
-    torch::Tensor DoorConcept::convert_points_to_tensor(const std::vector<Eigen::Vector3f> &points)
-    {
-        std::vector<float> points_data;
-        points_data.reserve(points.size() * 3);
-
-        for (const auto& p : points)
-        {
-            points_data.push_back(p.x());
-            points_data.push_back(p.y());
-            points_data.push_back(p.z());
-        }
-
-        return torch::from_blob(
-            points_data.data(),
-            {static_cast<long>(points.size()), 3},
-            torch::kFloat32
-        ).clone();
-    }
 
     void DoorConcept::predict_step(const Eigen::Vector3f& robot_motion)
     {
-        if (robot_motion.norm() < 1e-6f)
+        if (!door)
             return;
 
+        // robot_motion contains [dx, dy, dtheta] in robot frame
+        const float dx_robot = robot_motion.x();
+        const float dy_robot = robot_motion.y();
+        const float dtheta_robot = robot_motion.z();
+
+        // Get current door pose in robot frame
         auto pose = door->get_door_pose();
         float door_x = pose[0];
         float door_y = pose[1];
         float door_z = pose[2];
         float door_theta = pose[3];
 
-        const float dx_robot = robot_motion[0];
-        const float dy_robot = robot_motion[1];
-        const float dtheta_robot = robot_motion[2];
+        // Transform door pose: door moves in opposite direction to robot motion
+        // 1. First rotate around robot (new origin)
+        const float cos_dtheta = std::cos(-dtheta_robot);
+        const float sin_dtheta = std::sin(-dtheta_robot);
 
-        // Door moves opposite to robot in robot's frame
-        door_x -= dx_robot;
-        door_y -= dy_robot;
-        door_theta -= dtheta_robot;
+        float new_x = cos_dtheta * door_x - sin_dtheta * door_y;
+        float new_y = sin_dtheta * door_x + cos_dtheta * door_y;
+
+        // 2. Then translate (robot moved forward, so door appears to move backward)
+        new_x -= dx_robot;
+        new_y -= dy_robot;
+
+        // 3. Update door orientation (relative to robot)
+        float new_theta = door_theta - dtheta_robot;
+
+        // Normalize theta to [-π, π]
+        while (new_theta > M_PI) new_theta -= 2 * M_PI;
+        while (new_theta < -M_PI) new_theta += 2 * M_PI;
+
+        door_x = new_x;
+        door_y = new_y;
+        door_theta = new_theta;
 
         door->set_pose(door_x, door_y, door_z, door_theta);
 
         //qDebug() << "DoorConcept::predict_step() - Applied motion: dx=" << dx_robot
         //         << "dy=" << dy_robot << "dθ=" << dtheta_robot;
+    }
+
+    // =========================================================================
+    // OPTIMIZATION FUNCTIONS
+    // =========================================================================
+
+    torch::Tensor DoorConcept::convert_points_to_tensor(const std::vector<Eigen::Vector3f> &points)
+    {
+        if (points.empty())
+            return torch::empty({0, 3});
+
+        std::vector<float> data;
+        data.reserve(points.size() * 3);
+
+        for (const auto& p : points)
+        {
+            data.push_back(p.x());
+            data.push_back(p.y());
+            data.push_back(p.z());
+        }
+
+        return torch::from_blob(data.data(), {static_cast<long>(points.size()), 3},
+                                torch::kFloat32).clone();
     }
 
     torch::Tensor DoorConcept::compute_measurement_loss(const torch::Tensor& points_tensor)
@@ -488,16 +492,23 @@ namespace rc
         if (!config_.use_geometry_regularization)
             return torch::tensor(0.0f);
 
-        const auto ps = door->get_door_geometry();
-        const float width = ps[0];
-        const float height = ps[1];
+        // Use tensors directly for proper gradient flow
+        const torch::Tensor width = door->door_width_;
+        const torch::Tensor height = door->door_height_;
 
-        const float width_dev = (width - config_.typical_width) / config_.size_std;
-        const float height_dev = (height - config_.typical_height) / config_.size_std;
+        // Typical door dimensions as tensors
+        const torch::Tensor typical_width = torch::tensor(config_.typical_width);
+        const torch::Tensor typical_height = torch::tensor(config_.typical_height);
+        const torch::Tensor size_std = torch::tensor(config_.size_std);
 
-        const float reg_loss = 0.5f * (width_dev * width_dev + height_dev * height_dev);
+        // Normalized deviations (Mahalanobis-style)
+        const torch::Tensor width_dev = (width - typical_width) / size_std;
+        const torch::Tensor height_dev = (height - typical_height) / size_std;
 
-        return torch::tensor(reg_loss) * config_.geometry_reg_weight;
+        // Squared error (Gaussian prior)
+        const torch::Tensor reg_loss = 0.5f * (width_dev * width_dev + height_dev * height_dev);
+
+        return reg_loss * config_.geometry_reg_weight;
     }
 
     DoorConcept::OptimizationResult DoorConcept::run_optimization(
@@ -643,14 +654,15 @@ namespace rc
 
         //qInfo() << "DoorConcept::update_step() - Optimizing with" << result.num_points_used << "points";
 
-        auto params = door->parameters();
+        const auto params = door->parameters();
         torch::optim::Adam optimizer(params, torch::optim::AdamOptions(config_.learning_rate));
 
         const auto opt_result = run_optimization(points_tensor, optimizer);
 
         result.final_loss = opt_result.total_loss;
         result.measurement_loss = opt_result.measurement_loss;
-        result.success = opt_result.converged || opt_result.total_loss < config_.min_loss_threshold * 10.0f;
+        result.success = opt_result.converged || opt_result.total_loss < config_.min_loss_threshold * 10.0f;  // TODO:: why?
+        result.iterations = opt_result.iterations;
 
         result.covariance = estimate_uncertainty(points_tensor, result.final_loss);
 

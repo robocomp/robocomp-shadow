@@ -18,6 +18,7 @@
 #include <vector>
 #include <Lidar3D.h>
 #include <QWidget>
+#include "custom_camera_controller.h"
 
 class RoomVisualizer3D : public QObject
 {
@@ -29,7 +30,7 @@ public:
     ~RoomVisualizer3D();
 
     // Main update methods
-    void updatePointCloud(const std::vector<Eigen::Vector2f> &points);
+    void updatePointCloud(const std::vector<Eigen::Vector3f> &points);
 
     void updatePointCloud(const RoboCompLidar3D::TPoints &points);
 
@@ -94,7 +95,7 @@ private:
     Qt3DCore::QEntity *rootEntity = nullptr;
     Qt3DCore::QEntity *sceneEntity;
     Qt3DRender::QCamera *camera;
-    Qt3DExtras::QOrbitCameraController *camController;
+    CustomCameraController *camController;
 
     // Visualization entities
     QVector<Qt3DCore::QEntity *> pointEntities;

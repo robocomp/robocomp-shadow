@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
+# Opción A: fijar la política explícitamente (recomendado)
+if(POLICY CMP0177)
+    cmake_policy(SET CMP0177 NEW)
+endif()
+
 #Select the compiler standard
 if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
     message(FATAL_ERROR "Version of g++ is lower than 11, g++ 11 or higher is required.")

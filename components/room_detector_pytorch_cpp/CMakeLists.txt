@@ -1,6 +1,11 @@
 cmake_minimum_required( VERSION 3.10 )
 PROJECT( room_detector_pytorch_cpp )
 
+# Opción A: fijar la política explícitamente (recomendado)
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+endif()
+
 IF ( "$ENV{ROBOCOMP}" STREQUAL "")
   MESSAGE(WARNING "ROBOCOMP variable not set. Using the default value: /home/robocomp/robocomp")
   SET (ENV{ROBOCOMP} "/home/robocomp/robocomp/")

@@ -75,7 +75,7 @@ void RoomModel::init(const RoboCompLidar3D::TPoints &points)
     }
 	const float robot_x = -room_center.cast<float>().x();  // Negative because room is at origin
 	const float robot_y = -room_center.cast<float>().y();
-	const float robot_theta = 1.0f; // TODO: Improve initial orientation estimate
+	const float robot_theta = 0.f; // TODO: Improve initial orientation estimate
 
 	std::cout << "\n  RoomModel::init()  Initial guess:\n";
 	std::cout << "  Point cloud bounds: X[" << x_min << ", " << x_max << "], Y[" << y_min << ", " << y_max << "]\n";
