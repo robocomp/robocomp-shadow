@@ -105,11 +105,82 @@ void DoorModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
     const float center_x = x_sum / n;
     const float center_y = y_sum / n;
     // z position is at floor level (use z_min or assume 0)
-    const float center_z = 0.2f;
+    const float center_z = 0.0f;
 
-    // Estimate door orientation from principal direction
-    // For now, assume door is perpendicular to viewing direction (facing robot)
-    const float initial_theta = 0.0f;  // TODO: Estimate from geometry using PCA
+    // Estimate door orientation from principal direction using PCA on XY plane
+    // The door surface normal should point toward the robot (at origin)
+    float initial_theta = 0.0f;
+
+    if (filtered_points.size() >= 3)
+    {
+        // Compute covariance matrix in XY plane
+        float cov_xx = 0.0f, cov_xy = 0.0f, cov_yy = 0.0f;
+        for (const auto& p : filtered_points)
+        {
+            float dx = p.x() - center_x;
+            float dy = p.y() - center_y;
+            cov_xx += dx * dx;
+            cov_xy += dx * dy;
+            cov_yy += dy * dy;
+        }
+        cov_xx /= n;
+        cov_xy /= n;
+        cov_yy /= n;
+
+        // Find principal eigenvector (direction of maximum variance = along door surface)
+        // For 2x2 symmetric matrix, eigenvector can be computed directly
+        float trace = cov_xx + cov_yy;
+        float det = cov_xx * cov_yy - cov_xy * cov_xy;
+        float discriminant = std::sqrt(std::max(0.0f, trace * trace / 4.0f - det));
+
+        // Larger eigenvalue corresponds to the door surface direction
+        float lambda1 = trace / 2.0f + discriminant;
+
+        // Eigenvector for lambda1: (cov_xy, lambda1 - cov_xx) or (lambda1 - cov_yy, cov_xy)
+        float ev_x, ev_y;
+        if (std::abs(cov_xy) > 1e-6f)
+        {
+            ev_x = cov_xy;
+            ev_y = lambda1 - cov_xx;
+        }
+        else
+        {
+            // Diagonal matrix - pick axis with larger variance
+            ev_x = (cov_xx > cov_yy) ? 1.0f : 0.0f;
+            ev_y = (cov_xx > cov_yy) ? 0.0f : 1.0f;
+        }
+
+        // Normalize
+        float ev_len = std::sqrt(ev_x * ev_x + ev_y * ev_y);
+        if (ev_len > 1e-6f)
+        {
+            ev_x /= ev_len;
+            ev_y /= ev_len;
+        }
+
+        // The door normal is perpendicular to the surface direction
+        // Normal = (-ev_y, ev_x) or (ev_y, -ev_x)
+        // Door's Y+ axis should point AWAY from robot (the direction the door opens toward)
+        // So we want the normal pointing away from robot (opposite to toward-robot)
+        float normal_x = -ev_y;
+        float normal_y = ev_x;
+
+        // Check if normal points AWAY from robot (dot product with center should be positive)
+        // center is the door position relative to robot, so normal should align with center direction
+        if (normal_x * center_x + normal_y * center_y < 0)
+        {
+            normal_x = ev_y;
+            normal_y = -ev_x;
+        }
+
+        // Theta is the angle of the door's forward direction (Y+ in door frame)
+        // Door frame: Y+ is the normal direction (pointing away from robot)
+        initial_theta = std::atan2(normal_x, normal_y);
+
+        std::cout << "  PCA eigenvector (surface dir): (" << ev_x << ", " << ev_y << ")\n";
+        std::cout << "  Door normal (away from robot): (" << normal_x << ", " << normal_y << ")\n";
+        std::cout << "  Estimated theta: " << initial_theta << " rad (" << (initial_theta * 180.0 / M_PI) << " deg)\n";
+    }
 
     // Refine size estimates from point cloud bounds if available
     // Width is along X, height is along Z

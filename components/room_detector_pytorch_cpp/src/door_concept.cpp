@@ -107,12 +107,16 @@ namespace rc
 
         // UPDATE: Optimize door parameters
         auto result = update_step(points_tensor);
-        result.print();
+        result.door = door;
 
         // Check tracking quality
-        if (not check_tracking_quality(result))
+        if (!check_tracking_quality(result))
         {
             consecutive_tracking_failures_++;
+            qWarning() << "DoorConcept::update() - Poor tracking quality, residual:"
+                       << result.mean_residual
+                       << "- Failure" << consecutive_tracking_failures_ << "/" << MAX_TRACKING_FAILURES;
+
             if (consecutive_tracking_failures_ >= MAX_TRACKING_FAILURES)
             {
                 qWarning() << "DoorConcept::update() - Tracking quality too low, will redetect";
@@ -123,7 +127,6 @@ namespace rc
         {
             // Good tracking, reset failure counter
             consecutive_tracking_failures_ = 0;
-            result.door = door;
         }
 
         return result;
@@ -183,6 +186,9 @@ namespace rc
         const float min_depth = std::max(roi_config_.min_depth, door_depth - depth_margin);
         const float max_depth = std::min(roi_config_.max_depth, door_depth + depth_margin);
 
+        // Collect candidate points from depth data within the predicted ROI
+        std::vector<Eigen::Vector3f> candidate_points;
+
         // Extract points from depth data within the predicted ROI
         const auto depth_ptr = reinterpret_cast<const cv::Vec3f*>(rgbd.depth.data());
 
@@ -215,7 +221,7 @@ namespace rc
                             continue;
                     }
 
-                    roi_points.emplace_back(px, py, pz);
+                    candidate_points.emplace_back(px, py, pz);
                 }
             }
         };
@@ -231,8 +237,47 @@ namespace rc
                            predicted_roi.v_min, predicted_roi.v_max);
         }
 
-        //qDebug() << "DoorConcept::extract_roi_from_model() - Extracted"
-        //          << roi_points.size() << "points from model prediction";
+        // =====================================================================
+        // SDF-based filtering: keep only points close to the door surface
+        // =====================================================================
+        if (!candidate_points.empty())
+        {
+            // Convert to tensor for SDF computation
+            std::vector<float> pts_data;
+            pts_data.reserve(candidate_points.size() * 3);
+            for (const auto& p : candidate_points)
+            {
+                pts_data.push_back(p.x());
+                pts_data.push_back(p.y());
+                pts_data.push_back(p.z());
+            }
+
+            torch::NoGradGuard no_grad;
+            torch::Tensor pts_tensor = torch::from_blob(
+                pts_data.data(),
+                {static_cast<long>(candidate_points.size()), 3},
+                torch::kFloat32
+            ).clone();
+
+            // Compute SDF for all candidate points
+            torch::Tensor sdf_values = door_model.sdf(pts_tensor);
+
+            // Filter: keep points with |SDF| < threshold (close to surface)
+            // The SDF accounts for both frame and articulated leaf geometry
+            const float sdf_threshold = 0.10f;  // 10cm from door surface
+            auto sdf_accessor = sdf_values.accessor<float, 1>();
+
+            for (size_t i = 0; i < candidate_points.size(); ++i)
+            {
+                if (std::abs(sdf_accessor[i]) < sdf_threshold)
+                {
+                    roi_points.push_back(candidate_points[i]);
+                }
+            }
+
+            // qDebug() << "DoorConcept::extract_roi_from_model() - SDF filtered:"
+            //          << candidate_points.size() << "->" << roi_points.size() << "points";
+        }
 
         return roi_points;
     }
@@ -294,17 +339,16 @@ namespace rc
     bool DoorConcept::check_tracking_quality(const Result& result)
     {
         // Check if optimization succeeded
-        if (not result.success)
-        { qWarning() << __FUNCTION__ << "No result success"; return false;}
+        if (!result.success)
+            return false;
 
         // Check if mean residual is below threshold
         if (result.mean_residual > config_.tracking_lost_threshold)
-        { qWarning() << __FUNCTION__ << "Mean residual" << result.mean_residual << "below threshold"; return false;}
+            return false;
 
         // Check if we have enough points
         if (result.num_points_used < config_.min_points_for_tracking)
-        { qWarning() << __FUNCTION__ << "Not enough points" << result.num_points_used; return false;}
-
+            return false;
 
         return true;
     }
@@ -390,6 +434,53 @@ namespace rc
             {
                 qDebug() << "DoorConcept::detect() - Skipping detection with only"
                          << roi_points.size() << "points";
+                continue;
+            }
+
+            // Filter outliers using depth-based MAD (Median Absolute Deviation)
+            // Points from behind the door opening will have larger depth
+            {
+                // Collect depths
+                std::vector<float> depths;
+                depths.reserve(roi_points.size());
+                for (const auto& p : roi_points)
+                    depths.push_back(std::sqrt(p.x()*p.x() + p.y()*p.y()));
+
+                // Compute median depth
+                std::vector<float> sorted_depths = depths;
+                std::sort(sorted_depths.begin(), sorted_depths.end());
+                const float median_depth = sorted_depths[sorted_depths.size() / 2];
+
+                // Compute MAD (Median Absolute Deviation)
+                std::vector<float> abs_devs;
+                abs_devs.reserve(depths.size());
+                for (float d : depths)
+                    abs_devs.push_back(std::abs(d - median_depth));
+                std::sort(abs_devs.begin(), abs_devs.end());
+                const float mad = abs_devs[abs_devs.size() / 2];
+
+                // Keep points within 3*MAD of median (robust outlier rejection)
+                // Use at least 0.2m tolerance to handle door+frame depth variation
+                const float threshold = std::max(3.0f * mad, 0.2f);
+
+                std::vector<Eigen::Vector3f> filtered_points;
+                for (size_t i = 0; i < roi_points.size(); ++i)
+                {
+                    if (std::abs(depths[i] - median_depth) <= threshold)
+                        filtered_points.push_back(roi_points[i]);
+                }
+
+                // qDebug() << "DoorConcept::detect() - MAD filter: median=" << median_depth
+                //          << "mad=" << mad << "threshold=" << threshold
+                //          << "kept" << filtered_points.size() << "/" << roi_points.size();
+
+                roi_points = std::move(filtered_points);
+            }
+
+            if (roi_points.size() < static_cast<size_t>(config_.min_points_for_tracking))
+            {
+                qDebug() << "DoorConcept::detect() - After MAD filter, only"
+                         << roi_points.size() << "points remain";
                 continue;
             }
 
@@ -520,6 +611,25 @@ namespace rc
         float best_loss = std::numeric_limits<float>::max();
         int patience_counter = 0;
 
+        // Check initial loss - if already good, skip heavy optimization
+        {
+            torch::NoGradGuard no_grad;
+            const torch::Tensor initial_meas = compute_measurement_loss(points_tensor);
+            const torch::Tensor initial_reg = compute_geometry_regularization();
+            const float initial_loss = (initial_meas + initial_reg).item<float>();
+
+            // If initial loss is below threshold, we're already converged
+            if (initial_loss < config_.min_loss_threshold)
+            {
+                result.converged = true;
+                result.iterations = 0;
+                result.total_loss = initial_loss;
+                result.measurement_loss = initial_meas.item<float>();
+                return result;
+            }
+            best_loss = initial_loss;
+        }
+
         for (int iter = 0; iter < config_.max_iterations; ++iter)
         {
             optimizer.zero_grad();
@@ -546,51 +656,44 @@ namespace rc
 
             const float current_loss = total_loss.item<float>();
 
-            if (iter % 50 == 0)
-            {
-                //qDebug() << "  Iter" << iter << ": loss=" << current_loss
-                //         << "(meas=" << meas_loss.item<float>()
-                //         << ", reg=" << reg_loss.item<float>() << ")";
-            }
-
+            // Early convergence: loss change is tiny
             if (std::abs(best_loss - current_loss) < config_.convergence_delta)
             {
                 patience_counter++;
                 if (patience_counter >= config_.convergence_patience)
                 {
-                    //qInfo() << "DoorConcept::run_optimization() - Converged at iteration" << iter;
                     result.converged = true;
                     result.iterations = iter;
                     result.total_loss = current_loss;
                     result.measurement_loss = meas_loss.item<float>();
-                    break;
+                    return result;
                 }
             }
             else
             {
                 patience_counter = 0;
-                best_loss = current_loss;
+                if (current_loss < best_loss)
+                    best_loss = current_loss;
             }
 
+            // Absolute threshold reached
             if (current_loss < config_.min_loss_threshold)
             {
-                //qInfo() << "DoorConcept::run_optimization() - Loss below threshold at iteration" << iter;
                 result.converged = true;
                 result.iterations = iter;
                 result.total_loss = current_loss;
                 result.measurement_loss = meas_loss.item<float>();
-                break;
+                return result;
             }
         }
 
-        if (!result.converged)
-        {
-            result.iterations = config_.max_iterations;
-            const torch::Tensor final_meas = compute_measurement_loss(points_tensor);
-            const torch::Tensor final_reg = compute_geometry_regularization();
-            result.total_loss = (final_meas + final_reg).item<float>();
-            result.measurement_loss = final_meas.item<float>();
-        }
+        // Did not converge within max iterations
+        result.converged = false;
+        result.iterations = config_.max_iterations;
+        const torch::Tensor final_meas = compute_measurement_loss(points_tensor);
+        const torch::Tensor final_reg = compute_geometry_regularization();
+        result.total_loss = (final_meas + final_reg).item<float>();
+        result.measurement_loss = final_meas.item<float>();
 
         return result;
     }
@@ -654,15 +757,14 @@ namespace rc
 
         //qInfo() << "DoorConcept::update_step() - Optimizing with" << result.num_points_used << "points";
 
-        const auto params = door->parameters();
+        auto params = door->parameters();
         torch::optim::Adam optimizer(params, torch::optim::AdamOptions(config_.learning_rate));
 
         const auto opt_result = run_optimization(points_tensor, optimizer);
 
         result.final_loss = opt_result.total_loss;
         result.measurement_loss = opt_result.measurement_loss;
-        result.success = opt_result.converged || opt_result.total_loss < config_.min_loss_threshold * 10.0f;  // TODO:: why?
-        result.iterations = opt_result.iterations;
+        result.success = opt_result.converged || opt_result.total_loss < config_.min_loss_threshold * 10.0f;
 
         result.covariance = estimate_uncertainty(points_tensor, result.final_loss);
 

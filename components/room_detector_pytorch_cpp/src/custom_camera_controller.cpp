@@ -169,6 +169,8 @@ bool CustomCameraController::eventFilter(QObject *obj, QEvent *event)
         else if (m_rightButtonPressed)
         {
             // Pan - move target in camera's local XY plane
+            // Moving mouse right should drag scene right (move target left)
+            // Moving mouse up should drag scene up (move target down)
             QVector3D right = QVector3D::crossProduct(
                 m_camera->upVector(),
                 (m_target - m_camera->position()).normalized()
@@ -176,15 +178,8 @@ bool CustomCameraController::eventFilter(QObject *obj, QEvent *event)
             QVector3D up = m_camera->upVector();
 
             float panScale = m_panSpeed * m_distance;  // Scale pan by distance
-            m_target += right * (-delta.x() * panScale);
-            m_target += up * (delta.y() * panScale);
-            updateCameraPosition();
-            return true;
-        }
-        else if (m_middleButtonPressed)
-        {
-            // Zoom with middle drag (up/down)
-            m_distance *= (1.0f + delta.y() * m_zoomSpeed * 0.1f);
+            m_target += right * (delta.x() * panScale);
+            m_target += up * (-delta.y() * panScale);
             updateCameraPosition();
             return true;
         }
