@@ -130,7 +130,6 @@ namespace rc
              * 4. Optimize door parameters with extracted points
              */
             std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &rgbd,
-                                         const RoboCompLidar3D::TPoints &lidar_points,
                                          const Eigen::Vector3f &robot_motion = Eigen::Vector3f::Zero());
 
             /**

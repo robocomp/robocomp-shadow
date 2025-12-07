@@ -49,6 +49,8 @@
 #include "yolo_detector_onnx.h"
 #include "room_concept.h"
 #include "consensus_manager.h"
+#include "room_thread.h"
+#include "door_thread.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -75,8 +77,7 @@ class SpecificWorker final : public GenericWorker
 
 		void initialize();
 		void compute();
-
-	void emergency();
+		void emergency();
 		void restore();
 		int startup_check();
 
@@ -93,20 +94,9 @@ class SpecificWorker final : public GenericWorker
 			float MAX_TRANSLATION = 500; // mm/s
 			float MAX_ROTATION = 0.2;
 			float STOP_THRESHOLD = 700; // mm
-			float ADVANCE_THRESHOLD = ROBOT_WIDTH * 3; // mm
-			float LIDAR_FRONT_SECTION = 0.2; // rads, aprox 12 degrees
-			// wall
-			float LIDAR_RIGHT_SIDE_SECTION = M_PI/3; // rads, 90 degrees
-			float LIDAR_LEFT_SIDE_SECTION = -M_PI/3; // rads, 90 degrees
-			float WALL_MIN_DISTANCE = ROBOT_WIDTH*1.2;
-			// match error correction
-			float MATCH_ERROR_SIGMA = 150.f; // mm
-			float DOOR_REACHED_DIST = 300.f;
 			std::string LIDAR_NAME_LOW = "bpearl";
 			std::string LIDAR_NAME_HIGH = "helios";
 			QRectF GRID_MAX_DIM{-5000, 2500, 10000, -5000};
-			// float NOISE_TRANS = 0.02f;  // 2cm stddev per meter
-			// float NOISE_ROT = 0.1f;     // 0.1 rad
 		};
 		Params params;
 
@@ -127,10 +117,8 @@ class SpecificWorker final : public GenericWorker
 
 		// aux
 		TimePoints read_data();
-
-	RoboCompLidar3D::TPoints filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d);
-
-	RoboCompCamera360RGBD::TRGBD read_image();
+		RoboCompLidar3D::TPoints filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d);
+		RoboCompCamera360RGBD::TRGBD read_image();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result, QGraphicsScene *scene);
 		// Helper to update GUI widgets (extracted from update_robot_view)
@@ -147,9 +135,6 @@ class SpecificWorker final : public GenericWorker
 				const QColor &color,
 				float scale_factor);  // 2-sigma = 95% confidence
 
-		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
-		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);
-		static RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
 		void print_status(
@@ -180,10 +165,50 @@ class SpecificWorker final : public GenericWorker
 
 		// consensus manager
 		void run_consensus(const rc::RoomConcept::Result &room_result, const std::optional<rc::DoorConcept::Result> &door_result);
-		ConsensusManager consensus_manager;
+
+	void update_visualization(const std::chrono::high_resolution_clock::time_point &last_time);
+
+	ConsensusManager consensus_manager;
+
+		// Threaded detectors
+		std::unique_ptr<RoomThread> room_thread_;
+		std::unique_ptr<DoorThread> door_thread_;
+
+		// Consensus manager (runs in main thread for now)
+		ConsensusManager consensus_manager_;
+
+		// Thread-safe caches of latest results (for visualization)
+		mutable QMutex results_mutex_;
+		std::shared_ptr<RoomModel> latest_room_model_;
+		std::optional<rc::RoomConcept::Result> latest_room_result_;
+		std::shared_ptr<DoorModel> latest_door_model_;
+		std::optional<rc::DoorConcept::Result> latest_door_result_;
+
+		// Cached room parameters (thread-safe, extracted in RoomThread)
+		std::vector<float> cached_room_params_{0.0f, 0.0f};  // [half_width, half_depth]
+
+		// Cached RGBD for door visualization
+		RoboCompCamera360RGBD::TRGBD cached_rgbd_;
 
 	Q_SIGNALS:
-		//void customSignal();
+		// Signals to send data to threads
+		void newLidarData(const TimePoints& points, const VelocityHistory &velocity_history);
+		void newRGBDData(const RoboCompCamera360RGBD::TRGBD& rgbd);
+		void newRoomOdometry(const rc::RoomConcept::OdometryPrior& odometry);
+		void newDoorOdometry(const Eigen::Vector3f& motion);
+
+		// Signal for consensus prior to door
+		void consensusPriorReady(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance);
+
+	private Q_SLOTS:
+		// Slots to receive results from threads
+		void onRoomInitialized(std::shared_ptr<RoomModel> model, std::vector<float> room_params);
+		void onRoomUpdated(std::shared_ptr<RoomModel> model, rc::RoomConcept::Result result, std::vector<float> room_params);
+		void onRoomStateChanged(RoomState new_state);
+
+		void onDoorDetected(std::shared_ptr<DoorModel> model);
+		void onDoorUpdated(std::shared_ptr<DoorModel> model, rc::DoorConcept::Result result);
+		void onDoorTrackingLost();
 };
 
 #endif

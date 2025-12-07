@@ -38,12 +38,12 @@ bool RoomFreezingManager::update(const std::vector<float>& room_params,
     if (time_in_state < params_.min_time_in_state)
         return false;  // Not enough time elapsed
 
-    State previous_state = state_;
+    RoomState previous_state = state_;
 
     // State machine logic
     switch(state_)
     {
-        case State::MAPPING:
+        case RoomState::MAPPING:
         {
             // Check if we should transition to LOCALIZED (freeze room)
             if (check_freeze_conditions(room_params, room_std_devs, mean_residual))
@@ -55,14 +55,14 @@ bool RoomFreezingManager::update(const std::vector<float>& room_params,
                 std::cout << "   Residual: " << mean_residual << "\n";
                 std::cout << "   Distance traveled: " << cumulative_distance_ << " m\n";
                 std::cout << "   Rotation traveled: " << cumulative_rotation_ << " rad\n";
-                state_ = State::LOCALIZED;
+                state_ = RoomState::LOCALIZED;
                 state_entry_time_ = std::chrono::steady_clock::now();
                 reset_movement_tracking(robot_pose);
             }
             break;
         }
 
-        case State::LOCALIZED:
+        case RoomState::LOCALIZED:
         {
             // Check if we should transition back to MAPPING (unfreeze due to anomaly)
             if (check_unfreeze_conditions(room_params, robot_std_devs, mean_residual))
@@ -74,14 +74,14 @@ bool RoomFreezingManager::update(const std::vector<float>& room_params,
                           << " m\n";
                 if (check_structural_change(room_params))
                     std::cout << "   Significant room shape change detected!\n";
-                state_ = State::MAPPING;
+                state_ = RoomState::MAPPING;
                 state_entry_time_ = std::chrono::steady_clock::now();
                 reset_movement_tracking(robot_pose);
             }
             break;
         }
 
-        case State::TRANSITIONING:
+        case RoomState::TRANSITIONING:
             // Could add a transition state if needed for smoothing
             break;
     }

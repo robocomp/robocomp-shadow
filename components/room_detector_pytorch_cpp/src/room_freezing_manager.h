@@ -12,6 +12,7 @@
 #include <deque>
 #include <iostream>
 #include <chrono>
+#include "common_types.h"
 
 /**
  * @brief Manages adaptive freezing of room parameters with hysteresis
@@ -29,12 +30,6 @@
 class RoomFreezingManager
 {
 public:
-    enum class State
-    {
-        MAPPING,      // Optimize all parameters (room + robot)
-        LOCALIZED,    // Optimize only robot pose (room frozen)
-        TRANSITIONING // Optional intermediate state
-    };
 
     struct Params
     {
@@ -80,7 +75,7 @@ public:
     };
 
     RoomFreezingManager(const Params& params = Params())
-        : params_(params), state_(State::MAPPING), observation_count_(0),
+        : params_(params), state_(RoomState::MAPPING), observation_count_(0),
           cumulative_distance_(0.0f), cumulative_rotation_(0.0f)
     {
         state_entry_time_ = std::chrono::steady_clock::now();
@@ -107,12 +102,12 @@ public:
     /**
      * @brief Check if room parameters should be frozen (not optimized)
      */
-    bool should_freeze_room() const { return state_ == State::LOCALIZED; }
+    bool should_freeze_room() const { return state_ == RoomState::LOCALIZED; }
 
     /**
      * @brief Get current state
      */
-    State get_state() const { return state_; }
+    RoomState get_state() const { return state_; }
 
     /**
      * @brief Get state as string for logging
@@ -121,9 +116,9 @@ public:
     {
         switch(state_)
         {
-            case State::MAPPING: return "MAPPING";
-            case State::LOCALIZED: return "LOCALIZED";
-            case State::TRANSITIONING: return "TRANSITIONING";
+            case RoomState::MAPPING: return "MAPPING";
+            case RoomState::LOCALIZED: return "LOCALIZED";
+            case RoomState::TRANSITIONING: return "TRANSITIONING";
             default: return "UNKNOWN";
         }
     }
@@ -136,7 +131,7 @@ public:
     /**
      * @brief Force state change (for testing or external triggers)
      */
-    void force_state(State new_state)
+    void force_state(RoomState new_state)
     {
         if (state_ != new_state)
         {
@@ -152,7 +147,7 @@ public:
      */
     void reset()
     {
-        state_ = State::MAPPING;
+        state_ = RoomState::MAPPING;
         observation_count_ = 0;
         room_history_.clear();
         residual_history_.clear();
@@ -182,20 +177,20 @@ public:
 
     Statistics get_statistics() const;
 
-    static std::string state_to_string(State s)
+    static std::string state_to_string(RoomState s)
     {
         switch(s)
         {
-            case State::MAPPING: return "MAPPING";
-            case State::LOCALIZED: return "LOCALIZED";
-            case State::TRANSITIONING: return "TRANSITIONING";
+            case RoomState::MAPPING: return "MAPPING";
+            case RoomState::LOCALIZED: return "LOCALIZED";
+            case RoomState::TRANSITIONING: return "TRANSITIONING";
             default: return "UNKNOWN";
         }
     }
 
 private:
     Params params_;
-    State state_;
+    RoomState state_;
     int observation_count_;
 
     // History tracking

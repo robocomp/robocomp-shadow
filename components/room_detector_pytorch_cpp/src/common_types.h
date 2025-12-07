@@ -118,4 +118,11 @@ struct VelocityCommand
 };
 using VelocityHistory = boost::circular_buffer<VelocityCommand>;
 using TimePoints = std::tuple<RoboCompLidar3D::TPoints, std::chrono::time_point<std::chrono::high_resolution_clock>>; // points and timestamp
+enum class RoomState
+{
+    MAPPING,      // Optimize all parameters (room + robot)
+    LOCALIZED,    // Optimize only robot pose (room frozen)
+    TRANSITIONING // Optional intermediate state
+};
+
 #endif //COMMON_TYPES_H

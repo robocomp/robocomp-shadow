@@ -31,7 +31,8 @@ Eigen::Vector3f ConsensusManager::fromPose2(const gtsam::Pose2& pose)
 
 void ConsensusManager::initializeFromRoom(const std::shared_ptr<RoomModel>& room_model,
                                           const Eigen::Vector3f& robot_pose_in_room,
-                                          const Eigen::Matrix3f& robot_pose_covariance)
+                                          const Eigen::Matrix3f& robot_pose_covariance,
+                                          const std::vector<float>& room_params)
 {
     if (initialized_)
     {
@@ -42,8 +43,12 @@ void ConsensusManager::initializeFromRoom(const std::shared_ptr<RoomModel>& room
     // Store room model reference
     room_model_ = room_model;
 
-    // Get room dimensions from model
-    const auto room_params = room_model->get_room_parameters();
+    // Use passed room dimensions (extracted thread-safely by caller)
+    if (room_params.size() < 2)
+    {
+        std::cerr << "ConsensusManager: Invalid room_params size\n";
+        return;
+    }
     room_half_width_ = room_params[0];   // half_width
     room_half_depth_ = room_params[1];   // half_height (depth in Y direction)
 

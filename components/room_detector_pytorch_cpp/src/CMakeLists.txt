@@ -80,6 +80,8 @@ LIST(APPEND SOURCES
        ../src/consensus_graph.cpp
         ../src/consensus_manager.cpp
         ../src/custom_camera_controller.cpp
+        ../src/room_thread.cpp
+        ../src/door_thread.cpp
 )
 # Headers set
 LIST(APPEND HEADERS
@@ -103,6 +105,8 @@ LIST(APPEND HEADERS
         ../src/consensus_graph.h
         ../src/consensus_manager.h
         ../src/custom_camera_controller.h
+        ../src/room_thread.h
+        ../src/door_thread.h
 )
 
 # Include OpenCV

@@ -28,7 +28,6 @@
 namespace rc
 {
     std::optional<DoorConcept::Result> DoorConcept::update(const RoboCompCamera360RGBD::TRGBD &rgbd,
-                                                           const RoboCompLidar3D::TPoints &lidar_points,
                                                            const Eigen::Vector3f& robot_motion)
     {
         std::vector<Eigen::Vector3f> roi_points;
@@ -73,7 +72,6 @@ namespace rc
 
             // Extract ROI points using the predicted door model
             roi_points = extract_roi_from_model(rgbd, door);
-            //roi_points = extract_points_from_lidar(lidar_points, door,0.20f,1.5f);
 
             // Check if we got enough points
             if (static_cast<int>(roi_points.size()) < config_.min_points_for_tracking)

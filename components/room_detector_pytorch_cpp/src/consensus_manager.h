@@ -39,10 +39,12 @@ public:
      * @param room_model Current room model from RoomOptimizer
      * @param robot_pose_in_room Robot's current pose in room frame
      * @param robot_pose_covariance Full 3x3 covariance matrix for robot pose
+     * @param room_params Room parameters [half_width, half_depth] extracted thread-safely
      */
     void initializeFromRoom(const std::shared_ptr<RoomModel>& room_model,
                             const Eigen::Vector3f& robot_pose_in_room,
-                            const Eigen::Matrix3f& robot_pose_covariance);
+                            const Eigen::Matrix3f& robot_pose_covariance,
+                            const std::vector<float>& room_params);
 
     /**
      * @brief Add a door detection to the graph

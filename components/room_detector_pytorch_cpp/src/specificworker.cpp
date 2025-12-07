@@ -66,6 +66,21 @@ SpecificWorker::SpecificWorker(const ConfigLoader &configLoader, TuplePrx tprx, 
 SpecificWorker::~SpecificWorker()
 {
 	std::cout << "Destroying SpecificWorker" << std::endl;
+	qInfo() << "Stopping detector threads...";
+
+	if (room_thread_)
+	{
+		room_thread_->requestStop();
+		room_thread_->wait(3000);
+	}
+
+	if (door_thread_)
+	{
+		door_thread_->requestStop();
+		door_thread_->wait(3000);
+	}
+
+	qInfo() << "Detector threads stopped";
 }
 
 
@@ -151,6 +166,65 @@ void SpecificWorker::initialize()
 	layout->addWidget(viewer3d_widget);
 	viewer3d->show();
 
+	/////////////////////////////////////////////////////////
+	qInfo() << "Initializing detector threads...";
+
+    // Create room thread
+    room_thread_ = std::make_unique<RoomThread>();
+
+    // Create door thread (with camera proxy if needed)
+    door_thread_ = std::make_unique<DoorThread>(camera360rgbd_proxy);
+
+    // === Connect signals FROM main thread TO room thread ===
+    connect(this, &SpecificWorker::newLidarData,
+            room_thread_.get(), &RoomThread::onNewLidarData,
+            Qt::QueuedConnection);
+
+    // === Connect signals FROM room thread TO main thread ===
+    connect(room_thread_.get(), &RoomThread::roomInitialized,
+            this, &SpecificWorker::onRoomInitialized,
+            Qt::QueuedConnection);
+
+    connect(room_thread_.get(), &RoomThread::roomUpdated,
+            this, &SpecificWorker::onRoomUpdated,
+            Qt::QueuedConnection);
+
+    connect(room_thread_.get(), &RoomThread::stateChanged,
+            this, &SpecificWorker::onRoomStateChanged,
+            Qt::QueuedConnection);
+
+    // === Connect signals FROM main thread TO door thread ===
+    connect(this, &SpecificWorker::newRGBDData,
+            door_thread_.get(), &DoorThread::onNewRGBDData,
+            Qt::QueuedConnection);
+
+    connect(this, &SpecificWorker::newDoorOdometry,
+            door_thread_.get(), &DoorThread::onNewOdometry,
+            Qt::QueuedConnection);
+
+    connect(this, &SpecificWorker::consensusPriorReady,
+            door_thread_.get(), &DoorThread::onConsensusPrior,
+            Qt::QueuedConnection);
+
+    // === Connect signals FROM door thread TO main thread ===
+    connect(door_thread_.get(), &DoorThread::doorDetected,
+            this, &SpecificWorker::onDoorDetected,
+            Qt::QueuedConnection);
+
+    connect(door_thread_.get(), &DoorThread::doorUpdated,
+            this, &SpecificWorker::onDoorUpdated,
+            Qt::QueuedConnection);
+
+    connect(door_thread_.get(), &DoorThread::trackingLost,
+            this, &SpecificWorker::onDoorTrackingLost,
+            Qt::QueuedConnection);
+
+    // Start threads
+    room_thread_->start();
+    door_thread_->start();
+
+    qInfo() << "Detector threads started";
+
 }
 
 void SpecificWorker::compute()
@@ -158,26 +232,34 @@ void SpecificWorker::compute()
 	//auto init_time = std::chrono::high_resolution_clock::now();
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
-	if (std::get<0>(time_points).empty())
-	{	std::cout << "No LiDAR points available\n";	return;	}
+	if (std::get<0>(time_points).empty()) {	std::cout << "No LiDAR points available\n";	return;	}
+	draw_lidar(std::get<0>(time_points), &viewer->scene);
 
-	// Room detector
-	const auto room_result = room_concept->update(time_points,velocity_history_,10);
-	// print_status(result);
+
+	// === Emit data to threads (non-blocking) ===
+	Q_EMIT newLidarData(time_points, velocity_history_);
+
+	// === Read and cache RGBD for door detection and visualization ===
+	const auto rgbd = read_image();
+	if (not rgbd.rgb.empty())
+	{
+		{
+			QMutexLocker lock(&results_mutex_);
+			cached_rgbd_ = rgbd;
+		}
+		// Emit to door thread
+		Q_EMIT newRGBDData(rgbd);
+	}
+
+	// === Update visualization from cached results ===
+	update_visualization(last_time);
 
 	//auto now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt1" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	// Door detector
-	auto rgbd = read_image();
-	const auto door_result = door_concept->update(rgbd, std::get<0>(time_points));
-
-	//now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	update_viewers(time_points, rgbd, room_result, door_result, &viewer->scene,
-					std::chrono::duration_cast<std::chrono::milliseconds>(
-						std::chrono::high_resolution_clock::now() - last_time).count());
+	// update_viewers(time_points, rgbd, room_result, door_result, &viewer->scene,
+	// 				std::chrono::duration_cast<std::chrono::milliseconds>(
+	// 					std::chrono::high_resolution_clock::now() - last_time).count());
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -186,32 +268,118 @@ void SpecificWorker::compute()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
-									const std::optional<rc::DoorConcept::Result> &door_result)
+void SpecificWorker::update_visualization(const std::chrono::high_resolution_clock::time_point & last_time)
 {
-	// Consensus manager
-	if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
-	{
-		Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
-		auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
-		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-		Eigen::Matrix3f cov = cov_row;
-		consensus_manager.initializeFromRoom(room_concept->get_room_model(), pose, cov);
-	}
+    QMutexLocker lock(&results_mutex_);
 
-	if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
-	{
-		auto params = door_result->optimized_params;
-		auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
-		// extract the 3x3 covariance matrix from the 7x7 tensor
-		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-		consensus_manager.addDoor(door_concept->get_model(), cov_pose);
-	}
-	// Run optimization
-	ConsensusResult result = consensus_manager.optimize();
+    // Check if we have valid room data
+    if (!latest_room_result_.has_value() || latest_room_result_->optimized_pose.empty())
+        return;
+
+    if (cached_room_params_.size() < 2 || (cached_room_params_[0] == 0.0f && cached_room_params_[1] == 0.0f))
+        return;
+
+    const auto& room_result = latest_room_result_.value();
+    const auto& pose = room_result.optimized_pose;
+    const auto& room_params = cached_room_params_;
+
+    // Build robot pose transform
+    Eigen::Affine2f robot_pose_display;
+    robot_pose_display.translation() = Eigen::Vector2f(pose[0], pose[1]);
+    robot_pose_display.linear() = Eigen::Rotation2Df(pose[2]).toRotationMatrix();
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// 2D Viewer - Robot frame
+    //////////////////////////////////////////////////////////////////////////////
+    update_robot_view(robot_pose_display, room_result, &viewer->scene);
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// 3D Viewer - Room
+    //////////////////////////////////////////////////////////////////////////////
+    if (viewer3d)
+    {
+        viewer3d->updateRoom(room_params[0], room_params[1]);
+        viewer3d->updateRobotPose(Eigen::Vector3f{pose[0], pose[1], pose[2]});
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// 3D Viewer - Door
+    //////////////////////////////////////////////////////////////////////////////
+    if (viewer3d && latest_door_result_.has_value() && latest_door_result_->success && latest_door_model_)
+    {
+        const auto& door_params = latest_door_result_->optimized_params;
+        if (door_params.size() >= 7)
+        {
+            viewer3d->draw_door(door_params[0], door_params[1], door_params[2],
+                               door_params[3], door_params[4], door_params[5], door_params[6]);
+            viewer3d->updatePointCloud(latest_door_model_->roi_points);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// RGB panoramic with door overlay
+    //////////////////////////////////////////////////////////////////////////////
+    if (cached_rgbd_.rgb.size() > 0 && cached_rgbd_.width > 0 && cached_rgbd_.height > 0)
+    {
+        cv::Mat img(cached_rgbd_.height, cached_rgbd_.width, CV_8UC3,
+                    const_cast<unsigned char*>(cached_rgbd_.rgb.data()));
+        cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+
+        // Draw door ROI and projection if available
+        if (latest_door_result_.has_value() && latest_door_result_->success && latest_door_model_)
+        {
+            cv::rectangle(img, latest_door_model_->roi, cv::Scalar(0, 255, 0), 2);
+            DoorProjection::projectDoorOnImage(latest_door_model_, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
+        }
+
+        const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+        label_img->clear();
+        label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// Time series plots - Room
+    //////////////////////////////////////////////////////////////////////////////
+    room_loss_plotter->addDataPoint(0, room_result.final_loss);
+    room_loss_plotter->addDataPoint(1, room_result.measurement_loss);
+    room_loss_plotter->addDataPoint(2, room_result.prior_loss);
+
+    // Extract std devs from covariance (use data_ptr for thread safety)
+    if (room_result.covariance.defined() && room_result.covariance.numel() >= 9)
+    {
+        const auto cov_cpu = room_result.covariance.to(torch::kCPU).contiguous();
+        const auto cov_ptr = cov_cpu.data_ptr<float>();
+        const float upd_std_x = std::sqrt(std::max(1e-10f, cov_ptr[0]));      // [0][0]
+        const float upd_std_y = std::sqrt(std::max(1e-10f, cov_ptr[4]));      // [1][1]
+        const float upd_std_theta = std::sqrt(std::max(1e-10f, cov_ptr[8]));  // [2][2]
+        stddev_plotter->addDataPoint(0, upd_std_x);
+        stddev_plotter->addDataPoint(1, upd_std_y);
+        stddev_plotter->addDataPoint(2, upd_std_theta);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    /// Time series plots - Door
+    //////////////////////////////////////////////////////////////////////////////
+    if (latest_door_result_.has_value() && latest_door_result_->success)
+    {
+        float loss_rounded = std::round(latest_door_result_->measurement_loss * 1000.0f) / 1000.0f;
+        if (std::fabs(loss_rounded) < 1e-6f) loss_rounded = 0.0f;
+        door_loss_plotter->addDataPoint(0, loss_rounded);
+    }
+
+	//////////////////////////////////////////////////////////////////////////////
+	/// Time series plots - Elapsed time
+	//////////////////////////////////////////////////////////////////////////////
+	const auto now = std::chrono::high_resolution_clock::now();
+	epoch_plotter->addDataPoint(0, std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count());
+
+    // Update all plotters
+    room_loss_plotter->update();
+    stddev_plotter->update();
+    door_loss_plotter->update();
+	epoch_plotter->update();
 }
 
-///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
 									const RoboCompCamera360RGBD::TRGBD &rgbd,
                                     const rc::RoomConcept::Result &room_result,
@@ -522,139 +690,6 @@ RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points_torch(const Robo
     return result;
 }
 
-// Filter isolated points: keep only points with at least one neighbor within distance d
-RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d)
-{
-	if (points.empty()) return {};
-
-	const float d_squared = d * d; // Avoid sqrt by comparing squared distances
-	std::vector<bool> hasNeighbor(points.size(), false);
-
-	// Create index std::vector for parallel iteration
-	std::vector<size_t> indices(points.size());
-	std::iota(indices.begin(), indices.end(), size_t{0});
-
-	// Parallelize outer loop - each thread checks one point
-	std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i)
-	{
-		const auto &p1 = points[i];
-		// Sequential inner loop (avoid nested parallelism)
-		for (auto &&[j,p2]: iter::enumerate(points))
-		//for (size_t j = 0; j < points.size(); ++j)
-		{
-			if (i == j) continue;
-			//const auto& p2 = points[j]
-			const float dx = p1.x - p2.x;
-			const float dy = p1.y - p2.y;
-			if (dx * dx + dy * dy <= d_squared)
-			{
-				hasNeighbor[i] = true;
-				break;
-			}
-		}
-	});
-
-	// Collect results
-	std::vector<RoboCompLidar3D::TPoint> result;
-	result.reserve(points.size());
-	for (auto &&[i, p]: iter::enumerate(points))
-		if (hasNeighbor[i])
-			result.push_back(points[i]);
-	return result;
-}
-
-std::expected<int, std::string> SpecificWorker::closest_lidar_index_to_given_angle(const auto &points, float angle)
-{
-	// search for the point in points whose phi value is closest to angle
-	auto res = std::ranges::find_if(points, [angle](auto &a) { return a.phi > angle; });
-	if (res != std::end(points))
-		return std::distance(std::begin(points), res);
-	else
-		return std::unexpected("No closest value found in method <closest_lidar_index_to_given_angle>");
-}
-
-RoboCompLidar3D::TPoints SpecificWorker::filter_same_phi(const RoboCompLidar3D::TPoints &points)
-{
-	if (points.empty())
-		return {};
-
-	RoboCompLidar3D::TPoints result;
-	result.reserve(points.size());
-
-	for (auto &&[angle, group]: iter::groupby(points, [](const auto &p)
-	{
-		float multiplier = std::pow(10.0f, 2);
-		return std::floor(p.phi * multiplier) / multiplier;
-	}))
-	{
-		auto min = std::min_element(std::begin(group), std::end(group),
-		                            [](const auto &a, const auto &b) { return a.r < b.r; });
-		result.emplace_back(*min);
-	}
-	return result;
-}
-
-// TimePoints SpecificWorker::filter_with_doors(const TimePoints &time_points, const std::vector<float> &robot_pose)
-// {
-// 	const auto &[points, timestamp] = time_points;
-// 	if (points.empty())
-// 		return time_points;
-//
-// 	// Get doors in robot frame
-// 	if (not door_concept->get_model())
-// 		return time_points;
-// 	const auto door = door_concept->get_model();
-//
-// 	Eigen::Vector3f{robot_pose[0], robot_pose[1], robot_pose[2]};
-//
-// 	// Filter points that fall beyond doors
-// 	RoboCompLidar3D::TPoints filtered_points;
-// 	filtered_points.reserve(points.size());
-//
-// 	// Get door pose in robot frame
-// 	auto door_pose = door->get_door_pose();
-// 	auto door_geom = door->get_door_geometry();
-// 	// given the pose and geometry, compute door endpoints using the door middlepoint (pose) and door angle
-// 	// d1 is a points half width along the door line
-// 	const Eigen::Vector2f door_dir(std::cos(door_pose[2]), std::sin(door_pose[2]));
-// 	const Eigen::Vector2f door_perp(-door_dir.y(), door_dir.x()); // perpendicular direction
-// 	const Eigen::Vector2f door_center(door_pose[0], door_pose[1]);
-// 	const Eigen::Vector2f d1 = (door_geom[0] / 2.0f) * door_dir;
-// 	const Eigen::Vector2f p1 = door_center - d1; // door endpoint 1
-// 	const Eigen::Vector2f p2 = door_center + d1; // door endpoint 2
-// 	// compute angles to door endpoints
-// 	auto d1_angle = atan2(p2.y - p1.y, p2.x - p1.x);
-// 	auto d2_angle = atan2(p1.y - p2.y, p1.x - p2.x);
-// 	// normalize angles to [0, 2pi]
-// 	if (d1_angle < 0) d1_angle += 2 * M_PI;
-// 	if (d2_angle < 0) d2_angle += 2 * M_PI;
-//
-// 	const bool angle_wraps = d.p2_angle < d.p1_angle;
-//
-// 	for (const auto &p: points)
-// 	{
-// 		// Determine if point is within the door's angular range
-// 		bool point_in_angular_range;
-// 		if (angle_wraps)
-// 		{
-// 			// If the range wraps around, point is in range if it's > p1_angle OR < p2_angle
-// 			point_in_angular_range = (p.phi > d.p1_angle) or (p.phi < d.p2_angle);
-// 		}
-// 		else
-// 		{
-// 			// Normal case: point is in range if it's between p1_angle and p2_angle
-// 			point_in_angular_range = (p.phi > d.p1_angle) and (p.phi < d.p2_angle);
-// 		}
-//
-// 		// Filter out points that are through the door (in angular range and farther than door)
-// 		if(point_in_angular_range and p.distance2d >= dist_to_door)
-// 			continue;
-//
-// 		filtered_points.emplace_back(p);
-// 	}
-// 	return {filtered_points, timestamp};
-// }
-
 void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene)
 {
 	static std::vector<QGraphicsItem *> items; // store items so they can be shown between iterations
@@ -688,8 +723,11 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 		viewer->scene.removeItem(room_draw_robot);
 		delete room_draw_robot;
 	}
-	// compute room in robot frame
-	const auto rp = room_concept->get_room_model()->get_room_parameters();
+	// compute room in robot frame - use cached_room_params_ (thread-safe)
+	const auto& rp = cached_room_params_;
+	if (rp.size() < 2 || (rp[0] == 0.0f && rp[1] == 0.0f))
+		return;  // Room not initialized yet
+
 	Eigen::Vector2f top_left(-rp[0], rp[1]);
 	Eigen::Vector2f top_right(rp[0], rp[1]);
 	Eigen::Vector2f bottom_left(-rp[0], -rp[1]);
@@ -752,8 +790,8 @@ void SpecificWorker::update_gui(const Eigen::Affine2f &robot_pose, const rc::Roo
     lcdNumber_y->display(robot_pose.translation().y());
     const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
     lcdNumber_angle->display(angle);
-    label_state->setText(
-        room_concept->room_freezing_manager.state_to_string(room_concept->room_freezing_manager.get_state()).data());
+    // Use cached state - don't access room_concept from main thread
+    // label_state is updated in onRoomStateChanged
 }
 
 QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
@@ -763,14 +801,18 @@ QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
 	    const QColor &color,
 	    float scale_factor)  // 2-sigma = 95% confidence
 {
-    if (!covariance.defined() || covariance.numel() == 0) {
+    if (!covariance.defined() || covariance.numel() < 9) {
         return nullptr;
     }
 
-    // Extract position covariance (2x2 submatrix)
-    float var_x = covariance[0][0].item<float>();
-    float var_y = covariance[1][1].item<float>();
-    float cov_xy = covariance[0][1].item<float>();
+    // Extract position covariance (2x2 submatrix) using data_ptr (thread-safe with cloned tensor)
+    auto cov_cpu = covariance.to(torch::kCPU).contiguous();
+    auto cov_ptr = cov_cpu.data_ptr<float>();
+
+    // Assuming row-major 3x3: [0][0]=0, [0][1]=1, [1][0]=3, [1][1]=4
+    float var_x = cov_ptr[0];      // [0][0]
+    float var_y = cov_ptr[4];      // [1][1]
+    float cov_xy = cov_ptr[1];     // [0][1]
 
     // Compute eigenvalues and eigenvectors for ellipse orientation
     // Covariance matrix: [var_x  cov_xy]
@@ -842,6 +884,113 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// =============================================================================
+// SLOTS - Receive results from threads
+// =============================================================================
+
+void SpecificWorker::onRoomInitialized(std::shared_ptr<RoomModel> model, std::vector<float> room_params)
+{
+    qInfo() << "Room initialized callback received";
+
+    // Store room params and model reference (both thread-safe now)
+    {
+        QMutexLocker lock(&results_mutex_);
+        latest_room_model_ = model;
+        cached_room_params_ = room_params;
+    }
+
+    qInfo() << "Room model reference stored, params:" << room_params[0] << "x" << room_params[1];
+}
+
+void SpecificWorker::onRoomUpdated(std::shared_ptr<RoomModel> model, rc::RoomConcept::Result result, std::vector<float> room_params)
+{
+    {
+        QMutexLocker lock(&results_mutex_);
+        latest_room_model_ = model;
+        latest_room_result_ = result;
+        cached_room_params_ = room_params;
+    }
+
+    // Initialize consensus manager on first valid result
+    // Use result.optimized_pose which is a std::vector<float> - thread-safe
+    if (!consensus_manager_.isInitialized() && result.uncertainty_valid && !result.optimized_pose.empty())
+    {
+        Eigen::Vector3f robot_pose(result.optimized_pose[0], result.optimized_pose[1], result.optimized_pose[2]);
+
+        // Extract covariance from cloned tensor
+        Eigen::Matrix3f cov = Eigen::Matrix3f::Identity() * 0.1f;
+        if (result.covariance.defined() && result.covariance.numel() >= 9)
+        {
+            auto cov_cpu = result.covariance.to(torch::kCPU).contiguous();
+            auto cov_ptr = cov_cpu.data_ptr<float>();
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    cov(i, j) = cov_ptr[i * 3 + j];
+        }
+
+        // Pass room_params directly (thread-safe)
+        consensus_manager_.initializeFromRoom(model, robot_pose, cov, room_params);
+        qInfo() << "Consensus manager initialized from room";
+    }
+}
+
+void SpecificWorker::onRoomStateChanged(RoomState new_state)
+{
+	const auto state_str = (new_state == RoomState::MAPPING) ? "MAPPING" : "LOCALIZED";
+    qInfo() << "Room state changed to:" << state_str;
+
+    // Update UI
+    label_state->setText(state_str);
+}
+
+void SpecificWorker::onDoorDetected(std::shared_ptr<DoorModel> model)
+{
+    qInfo() << "Door detected - ID:" << model->id;
+
+    {
+        QMutexLocker lock(&results_mutex_);
+        latest_door_model_ = model;
+    }
+
+    // Add door to consensus manager
+    if (consensus_manager_.isInitialized() && !consensus_manager_.has_doors())
+    {
+        // Extract covariance from latest result if available
+        Eigen::Matrix3f cov = Eigen::Matrix3f::Identity() * 0.15f;
+        {
+            QMutexLocker lock(&results_mutex_);
+            if (latest_door_result_.has_value())
+            {
+                auto cov_tensor = latest_door_result_->covariance.to(torch::kCPU).contiguous();
+                Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row =
+                    Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+                cov = cov_row;
+            }
+        }
+        consensus_manager_.addDoor(model, cov);
+    }
+}
+
+void SpecificWorker::onDoorUpdated(std::shared_ptr<DoorModel> model, rc::DoorConcept::Result result)
+{
+	// Cache results for visualization (called from compute via update_visualization)
+	QMutexLocker lock(&results_mutex_);
+	latest_door_model_ = model;
+	latest_door_result_ = result;
+}
+
+void SpecificWorker::onDoorTrackingLost()
+{
+    qInfo() << "Door tracking lost";
+
+    {
+        QMutexLocker lock(&results_mutex_);
+        latest_door_model_ = nullptr;
+        latest_door_result_.reset();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 void SpecificWorker::emergency()
 {
@@ -866,35 +1015,3 @@ int SpecificWorker::startup_check()
 	QTimer::singleShot(200, QCoreApplication::instance(), SLOT(quit()));
 	return 0;
 }
-
-/**************************************/
-// From the RoboCompLidar3D you can call this methods:
-// RoboCompLidar3D::TColorCloudData this->lidar3d_proxy->getColorCloudData()
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarData(string name, float start, float len, int decimationDegreeFactor)
-// RoboCompLidar3D::TDataImage this->lidar3d_proxy->getLidarDataArrayProyectedInImage(string name)
-// RoboCompLidar3D::TDataCategory this->lidar3d_proxy->getLidarDataByCategory(TCategories categories, long timestamp)
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataProyectedInImage(string name)
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataWithThreshold2d(string name, float distance, int decimationDegreeFactor)
-
-/**************************************/
-// From the RoboCompLidar3D you can use this types:
-// RoboCompLidar3D::TPoint
-// RoboCompLidar3D::TDataImage
-// RoboCompLidar3D::TData
-// RoboCompLidar3D::TDataCategory
-// RoboCompLidar3D::TColorCloudData
-
-/**************************************/
-// From the RoboCompOmniRobot you can call this methods:
-// RoboCompOmniRobot::void this->omnirobot_proxy->correctOdometer(int x, int z, float alpha)
-// RoboCompOmniRobot::void this->omnirobot_proxy->getBasePose(int x, int z, float alpha)
-// RoboCompOmniRobot::void this->omnirobot_proxy->getBaseState(RoboCompGenericBase::TBaseState state)
-// RoboCompOmniRobot::void this->omnirobot_proxy->resetOdometer()
-// RoboCompOmniRobot::void this->omnirobot_proxy->setOdometer(RoboCompGenericBase::TBaseState state)
-// RoboCompOmniRobot::void this->omnirobot_proxy->setOdometerPose(int x, int z, float alpha)
-// RoboCompOmniRobot::void this->omnirobot_proxy->setSpeedBase(float advx, float advz, float rot)
-// RoboCompOmniRobot::void this->omnirobot_proxy->stopBase()
-
-/**************************************/
-// From the RoboCompOmniRobot you can use this types:
-// RoboCompOmniRobot::TMechParams

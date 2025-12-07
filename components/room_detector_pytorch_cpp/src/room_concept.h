@@ -110,12 +110,16 @@ namespace rc
              */
             Result update( const TimePoints &points,
                            const VelocityHistory &velocity_history,
-                           int num_iterations = 150,
+                           int num_iterations = 20,
                            float min_loss_threshold = 0.01f,
                            float learning_rate = 0.01f
             );
 
             [[nodiscard]] std::shared_ptr<RoomModel> get_room_model() const { return room; }
+
+            bool is_initialized() const { return room != nullptr; }
+
+            RoomState get_state() const { return room_freezing_manager.get_state();};
 
             // Public components
             RoomFreezingManager room_freezing_manager;
