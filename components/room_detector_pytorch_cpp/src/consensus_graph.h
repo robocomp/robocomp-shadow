@@ -4,9 +4,9 @@
  *    This file is part of RoboComp - CORTEX
  *
  *    Consensus Graph using GTSAM for combining room and door detections
- *    
+ *
  *    Factor Graph Structure (Scenario 3: Room as Origin with Walls):
- *    
+ *
  *         Room (fixed origin)
  *           |
  *      φ_prior (anchors room at origin)
@@ -28,13 +28,13 @@
  *   φ_odom (odometry between poses)
  *     │
  *    r_{i+1}
- *    
+ *
  *    Variables:
  *      - Room: Fixed at origin (gauge freedom elimination)
  *      - W_N, W_S, W_E, W_W: Wall poses (derived from room via rigid constraints)
  *      - r_0, r_1, ..., r_n: Robot poses over time
  *      - L_0, L_1, ...: Object/landmark poses (doors, etc.)
- *    
+ *
  *    Factors:
  *      - φ_prior: Room fixed at origin
  *      - φ_rigid_X: Rigid body constraints (walls relative to room)
@@ -80,19 +80,19 @@ struct ConsensusResult
     // Room pose (fixed at origin in this formulation)
     gtsam::Pose2 room_pose;
     Eigen::Matrix3d room_covariance;
-    
+
     // Wall poses (derived from room)
     std::map<WallID, gtsam::Pose2> wall_poses;
     std::map<WallID, Eigen::Matrix3d> wall_covariances;
-    
+
     // Robot poses over time
     std::vector<gtsam::Pose2> robot_poses;
     std::vector<Eigen::Matrix3d> robot_covariances;
-    
+
     // Object/landmark poses (doors, etc.)
     std::map<size_t, gtsam::Pose2> object_poses;
     std::map<size_t, Eigen::Matrix3d> object_covariances;
-    
+
     // Optimization statistics
     double initial_error;
     double final_error;
@@ -102,7 +102,7 @@ struct ConsensusResult
 
 /**
  * @brief GTSAM-based factor graph for spatial consensus between room and object detectors
- * 
+ *
  * This class implements the factor graph shown in the schema:
  * - Room is fixed at origin (eliminates gauge freedom)
  * - Walls are rigidly attached to room
@@ -124,22 +124,22 @@ public:
 
     /**
      * @brief Initialize the room at origin with given dimensions
-     * 
+     *
      * Creates:
      * - Room node fixed at origin
      * - Four wall nodes with rigid constraints
-     * 
+     *
      * @param half_width Room half-width (X direction)
      * @param half_depth Room half-depth (Y direction)
      * @param room_uncertainty Uncertainty in room dimensions (σ for x, y, θ)
      */
-    void initializeRoom(double half_width, 
+    void initializeRoom(double half_width,
                         double half_depth,
                         const Eigen::Vector3d& room_uncertainty = Eigen::Vector3d(0.1, 0.1, 0.05));
 
     /**
      * @brief Add a robot pose to the graph
-     * 
+     *
      * @param pose Robot pose in room frame
      * @param pose_uncertainty Uncertainty (σ for x, y, θ)
      * @param odometry_from_previous Odometry from previous pose (if not first pose)
@@ -153,10 +153,10 @@ public:
 
     /**
      * @brief Add room observation factor from a robot pose
-     * 
+     *
      * Creates a factor connecting robot pose to room based on
      * LiDAR room detection measurements.
-     * 
+     *
      * @param robot_index Index of the observing robot pose
      * @param observed_room_pose Room pose as observed from robot
      * @param observation_uncertainty Measurement uncertainty
@@ -167,11 +167,15 @@ public:
 
     /**
      * @brief Add an object (door/landmark) to the graph
-     * 
+     *
+     * NOTE: This method does NOT add a prior factor. The object is constrained by:
+     * - Wall attachment factor (geometric constraint)
+     * - Robot observation factors (added separately)
+     *
      * @param object_pose Initial pose estimate in room frame
      * @param attached_wall Which wall the object is attached to (for geometric constraint)
      * @param wall_offset Offset along the wall (in wall's local X direction)
-     * @param pose_uncertainty Initial pose uncertainty
+     * @param pose_uncertainty Initial pose uncertainty (used for wall constraint)
      * @return size_t Index of the added object
      */
     size_t addObject(const Pose2& object_pose,
@@ -180,11 +184,34 @@ public:
                      const Eigen::Vector3d& pose_uncertainty);
 
     /**
+     * @brief Add an object with initial robot observation
+     *
+     * Combines addObject + addObjectObservation in one call.
+     * The object is constrained by:
+     * - Wall attachment factor (geometric constraint: door ON wall)
+     * - Robot observation factor (measurement: robot saw door at relative pose)
+     *
+     * @param robot_index Index of the robot pose that observed this object
+     * @param object_pose_in_room Object pose in room frame (for initial value)
+     * @param object_pose_in_robot Object pose as observed from robot (relative pose)
+     * @param attached_wall Which wall the object is attached to
+     * @param wall_offset Offset along the wall
+     * @param observation_uncertainty Measurement uncertainty
+     * @return size_t Index of the added object
+     */
+    size_t addObjectWithObservation(size_t robot_index,
+                                    const Pose2& object_pose_in_room,
+                                    const Pose2& object_pose_in_robot,
+                                    WallID attached_wall,
+                                    double wall_offset,
+                                    const Eigen::Vector3d& observation_uncertainty);
+
+    /**
      * @brief Add object observation factor from a robot pose
-     * 
+     *
      * Creates a factor connecting robot pose to object based on
      * detection measurements (e.g., YOLO + LiDAR for doors).
-     * 
+     *
      * @param robot_index Index of the observing robot pose
      * @param object_index Index of the observed object
      * @param observed_pose Object pose as observed from robot
@@ -197,22 +224,24 @@ public:
 
     /**
      * @brief Add geometric constraint: object attached to wall
-     * 
+     *
      * Creates a BetweenFactor constraining the object to lie on the specified wall.
-     * 
+     *
      * @param object_index Index of the object
      * @param wall Wall the object is attached to
      * @param offset_along_wall Position along wall (wall's local X)
+     * @param door_theta_in_room Door's theta in room frame (to compute relative theta)
      * @param constraint_uncertainty How tight the constraint is
      */
     void addWallAttachmentConstraint(size_t object_index,
                                      WallID wall,
                                      double offset_along_wall,
-                                     const Eigen::Vector3d& constraint_uncertainty = Eigen::Vector3d(0.05, 0.02, 0.05));
+                                     double door_theta_in_room,
+                                     const Eigen::Vector3d& constraint_uncertainty = Eigen::Vector3d(0.05, 0.02, 0.1));
 
     /**
      * @brief Run the optimization
-     * 
+     *
      * @param max_iterations Maximum LM iterations
      * @param convergence_threshold Relative error decrease threshold
      * @return ConsensusResult Optimized poses and covariances
@@ -254,7 +283,7 @@ private:
 
     /**
      * @brief Compute wall pose relative to room center
-     * 
+     *
      * @param wall Which wall
      * @param half_width Room half-width
      * @param half_depth Room half-depth
@@ -275,7 +304,7 @@ private:
     bool room_initialized_ = false;
     double room_half_width_ = 0.0;
     double room_half_depth_ = 0.0;
-    
+
     size_t robot_pose_count_ = 0;
     size_t object_count_ = 0;
 

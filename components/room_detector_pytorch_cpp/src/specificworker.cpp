@@ -108,8 +108,17 @@ void SpecificWorker::initialize()
 	// viewer_room = new AbstractGraphicViewer(this->frame_room, params.GRID_MAX_DIM);
 	// auto [rr, re] = viewer_room->add_robot(params.ROBOT_WIDTH, params.ROBOT_LENGTH, 0, 100, QColor("Blue"));
 	// robot_room_draw = rr;
-	this->resize(1000, 800);
+	this->resize(1500, 800);
 	show();
+
+	// Factor graph widget
+	consensus_graph_widget = std::make_unique<ConsensusGraphWidget>(this->frame_graph);
+	QVBoxLayout* layout_graph = new QVBoxLayout(this->frame_graph);
+	layout_graph->setContentsMargins(0, 0, 0, 0);  // No margins
+	layout_graph->addWidget(consensus_graph_widget.get());
+	this->frame_graph->setLayout(layout_graph);
+	viz_adapter = std::make_unique<ConsensusVisualizationAdapter>(&consensus_manager_, consensus_graph_widget.get(), this->frame_graph);
+	consensus_graph_widget->show();
 
 	// Initialize RoomModel
 	const auto &[points, lidar_time] = read_data();
@@ -198,14 +207,6 @@ void SpecificWorker::initialize()
             door_thread_.get(), &DoorThread::onNewRGBDData,
             Qt::QueuedConnection);
 
-    connect(this, &SpecificWorker::newDoorOdometry,
-            door_thread_.get(), &DoorThread::onNewOdometry,
-            Qt::QueuedConnection);
-
-    connect(this, &SpecificWorker::consensusPriorReady,
-            door_thread_.get(), &DoorThread::onConsensusPrior,
-            Qt::QueuedConnection);
-
     // === Connect signals FROM door thread TO main thread ===
     connect(door_thread_.get(), &DoorThread::doorDetected,
             this, &SpecificWorker::onDoorDetected,
@@ -219,6 +220,39 @@ void SpecificWorker::initialize()
             this, &SpecificWorker::onDoorTrackingLost,
             Qt::QueuedConnection);
 
+    // === Connect signals TO consensus manager ===
+    connect(this, &SpecificWorker::roomDataReady,
+            &consensus_manager_, &ConsensusManager::onRoomUpdated,
+            Qt::DirectConnection);  // Same thread, direct is fine
+
+    connect(this, &SpecificWorker::doorDetectionReady,
+            &consensus_manager_, &ConsensusManager::onDoorDetected,
+            Qt::DirectConnection);
+
+    connect(this, &SpecificWorker::doorUpdateReady,
+            &consensus_manager_, &ConsensusManager::onDoorUpdated,
+            Qt::DirectConnection);
+
+    // === Connect consensus manager output TO door thread ===
+    // NOTE: Disabled for now - consensus prior is in room frame but DoorThread works in robot frame
+    // This frame mismatch causes the opening angle to oscillate as the robot moves
+    // TODO: Transform consensus prior to robot frame before sending, or make DoorConcept work in room frame
+    /*
+    connect(&consensus_manager_, &ConsensusManager::doorPriorReady,
+            this, [this](size_t door_index, const Eigen::Vector3f& pose, const Eigen::Matrix3f& cov) {
+                // Forward to door thread (index 0 for now, single door)
+                if (door_index == 0 && door_thread_)
+                {
+                    door_thread_->onConsensusPrior(pose, cov);
+                }
+            }, Qt::DirectConnection);
+    */
+
+    // === Connect consensus door pose for visualization ===
+    connect(&consensus_manager_, &ConsensusManager::doorPoseInRoom,
+            this, &SpecificWorker::onConsensusDoorPose,
+            Qt::DirectConnection);
+
     // Start threads
     room_thread_->start();
     door_thread_->start();
@@ -229,19 +263,20 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
-	//auto init_time = std::chrono::high_resolution_clock::now();
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
 	if (std::get<0>(time_points).empty()) {	std::cout << "No LiDAR points available\n";	return;	}
-	draw_lidar(std::get<0>(time_points), &viewer->scene);
 
+	// === Draw LiDAR points in 2D view (every frame) ===
+	const auto& [points, lidar_timestamp] = time_points;
+	draw_lidar(points, &viewer->scene);
 
-	// === Emit data to threads (non-blocking) ===
+	// === Emit LiDAR data to room thread (non-blocking) ===
 	Q_EMIT newLidarData(time_points, velocity_history_);
 
 	// === Read and cache RGBD for door detection and visualization ===
 	const auto rgbd = read_image();
-	if (not rgbd.rgb.empty())
+	if (!rgbd.rgb.empty())
 	{
 		{
 			QMutexLocker lock(&results_mutex_);
@@ -253,22 +288,44 @@ void SpecificWorker::compute()
 
 	// === Update visualization from cached results ===
 	update_visualization(last_time);
+	// Update visualization
+	//consensus_graph_widget->updateFromGraph(consensus_manager_.getGraph());
+	// consensus_graph_widget->setOptimizationInfo(result.initial_error,
+	// 							   			   result.final_error,
+	// 							               result.iterations);
 
-	//auto now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt1" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	// update_viewers(time_points, rgbd, room_result, door_result, &viewer->scene,
-	// 				std::chrono::duration_cast<std::chrono::milliseconds>(
-	// 					std::chrono::high_resolution_clock::now() - last_time).count());
-
-	//now = std::chrono::high_resolution_clock::now();
-	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
-
-	last_time = std::chrono::high_resolution_clock::now();;
+	last_time = std::chrono::high_resolution_clock::now();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-void SpecificWorker::update_visualization(const std::chrono::high_resolution_clock::time_point & last_time)
+// OLD non-threaded version - commented out
+// void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
+// 									const std::optional<rc::DoorConcept::Result> &door_result)
+// {
+// 	// Consensus manager
+// 	if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
+// 	{
+// 		Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
+// 		auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
+// 		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+// 		Eigen::Matrix3f cov = cov_row;
+// 		consensus_manager.initializeFromRoom(room_concept->get_room_model(), pose, cov, cached_room_params_);
+// 	}
+//
+// 	if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
+// 	{
+// 		auto params = door_result->optimized_params;
+// 		auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
+// 		// extract the 3x3 covariance matrix from the 7x7 tensor
+// 		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
+// 		consensus_manager.addDoor(door_concept->get_model(), cov_pose);
+// 	}
+// 	// Run optimization
+// 	ConsensusResult result = consensus_manager.optimize();
+// }
+
+///////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::update_visualization(const std::chrono::high_resolution_clock::time_point &last_time)
 {
     QMutexLocker lock(&results_mutex_);
 
@@ -303,9 +360,47 @@ void SpecificWorker::update_visualization(const std::chrono::high_resolution_clo
     }
 
     //////////////////////////////////////////////////////////////////////////////
-    /// 3D Viewer - Door
+    /// 3D Viewer - Door (use consensus pose in room coordinates)
     //////////////////////////////////////////////////////////////////////////////
-    if (viewer3d && latest_door_result_.has_value() && latest_door_result_->success && latest_door_model_)
+    if (viewer3d && cached_consensus_door_.valid)
+    {
+        // Draw door using consensus-optimized pose (in room coordinates)
+        viewer3d->draw_door(
+            cached_consensus_door_.x,
+            cached_consensus_door_.y,
+            cached_consensus_door_.z,
+            cached_consensus_door_.theta,
+            cached_consensus_door_.width,
+            cached_consensus_door_.height,
+            cached_consensus_door_.opening_angle
+        );
+
+        // Transform point cloud from robot frame to room frame
+        if (latest_door_model_ && !latest_door_model_->roi_points.empty())
+        {
+            // Get robot pose in room frame
+            float rx = pose[0], ry = pose[1], rtheta = pose[2];
+            float cos_t = std::cos(rtheta);
+            float sin_t = std::sin(rtheta);
+
+            // Transform points: p_room = R * p_robot + t
+            std::vector<Eigen::Vector3f> points_room;
+            points_room.reserve(latest_door_model_->roi_points.size());
+
+            for (const auto& p : latest_door_model_->roi_points)
+            {
+                Eigen::Vector3f p_room;
+                p_room.x() = cos_t * p.x() - sin_t * p.y() + rx;
+                p_room.y() = sin_t * p.x() + cos_t * p.y() + ry;
+                p_room.z() = p.z();  // z unchanged
+                points_room.push_back(p_room);
+            }
+
+            viewer3d->updatePointCloud(points_room);
+        }
+    }
+    // Fallback to detector pose if no consensus yet (points in robot frame)
+    else if (viewer3d && latest_door_result_.has_value() && latest_door_result_->success && latest_door_model_)
     {
         const auto& door_params = latest_door_result_->optimized_params;
         if (door_params.size() >= 7)
@@ -347,8 +442,8 @@ void SpecificWorker::update_visualization(const std::chrono::high_resolution_clo
     // Extract std devs from covariance (use data_ptr for thread safety)
     if (room_result.covariance.defined() && room_result.covariance.numel() >= 9)
     {
-        const auto cov_cpu = room_result.covariance.to(torch::kCPU).contiguous();
-        const auto cov_ptr = cov_cpu.data_ptr<float>();
+        auto cov_cpu = room_result.covariance.to(torch::kCPU).contiguous();
+        auto cov_ptr = cov_cpu.data_ptr<float>();
         const float upd_std_x = std::sqrt(std::max(1e-10f, cov_ptr[0]));      // [0][0]
         const float upd_std_y = std::sqrt(std::max(1e-10f, cov_ptr[4]));      // [1][1]
         const float upd_std_theta = std::sqrt(std::max(1e-10f, cov_ptr[8]));  // [2][2]
@@ -373,13 +468,12 @@ void SpecificWorker::update_visualization(const std::chrono::high_resolution_clo
 	const auto now = std::chrono::high_resolution_clock::now();
 	epoch_plotter->addDataPoint(0, std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count());
 
-    // Update all plotters
-    room_loss_plotter->update();
-    stddev_plotter->update();
-    door_loss_plotter->update();
+	// Update all plotters
+	room_loss_plotter->update();
+	stddev_plotter->update();
+	door_loss_plotter->update();
 	epoch_plotter->update();
 }
-
 void SpecificWorker::update_viewers(const TimePoints &points_,
 									const RoboCompCamera360RGBD::TRGBD &rgbd,
                                     const rc::RoomConcept::Result &room_result,
@@ -904,6 +998,7 @@ void SpecificWorker::onRoomInitialized(std::shared_ptr<RoomModel> model, std::ve
 
 void SpecificWorker::onRoomUpdated(std::shared_ptr<RoomModel> model, rc::RoomConcept::Result result, std::vector<float> room_params)
 {
+    // Cache results for visualization (called from compute)
     {
         QMutexLocker lock(&results_mutex_);
         latest_room_model_ = model;
@@ -911,9 +1006,8 @@ void SpecificWorker::onRoomUpdated(std::shared_ptr<RoomModel> model, rc::RoomCon
         cached_room_params_ = room_params;
     }
 
-    // Initialize consensus manager on first valid result
-    // Use result.optimized_pose which is a std::vector<float> - thread-safe
-    if (!consensus_manager_.isInitialized() && result.uncertainty_valid && !result.optimized_pose.empty())
+    // Emit to consensus manager (via signal)
+    if (result.uncertainty_valid && !result.optimized_pose.empty())
     {
         Eigen::Vector3f robot_pose(result.optimized_pose[0], result.optimized_pose[1], result.optimized_pose[2]);
 
@@ -928,9 +1022,7 @@ void SpecificWorker::onRoomUpdated(std::shared_ptr<RoomModel> model, rc::RoomCon
                     cov(i, j) = cov_ptr[i * 3 + j];
         }
 
-        // Pass room_params directly (thread-safe)
-        consensus_manager_.initializeFromRoom(model, robot_pose, cov, room_params);
-        qInfo() << "Consensus manager initialized from room";
+        Q_EMIT roomDataReady(model, robot_pose, cov, room_params);
     }
 }
 
@@ -952,31 +1044,51 @@ void SpecificWorker::onDoorDetected(std::shared_ptr<DoorModel> model)
         latest_door_model_ = model;
     }
 
-    // Add door to consensus manager
-    if (consensus_manager_.isInitialized() && !consensus_manager_.has_doors())
+    // Emit to consensus manager (it will check if initialized)
+    Eigen::Matrix3f cov = Eigen::Matrix3f::Identity() * 0.15f;
     {
-        // Extract covariance from latest result if available
-        Eigen::Matrix3f cov = Eigen::Matrix3f::Identity() * 0.15f;
+        QMutexLocker lock(&results_mutex_);
+        if (latest_door_result_.has_value() && latest_door_result_->covariance.defined())
         {
-            QMutexLocker lock(&results_mutex_);
-            if (latest_door_result_.has_value())
+            auto cov_tensor = latest_door_result_->covariance.to(torch::kCPU).contiguous();
+            if (cov_tensor.numel() >= 9)
             {
-                auto cov_tensor = latest_door_result_->covariance.to(torch::kCPU).contiguous();
-                Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row =
-                    Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-                cov = cov_row;
+                auto cov_ptr = cov_tensor.data_ptr<float>();
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        cov(i, j) = cov_ptr[i * 3 + j];
             }
         }
-        consensus_manager_.addDoor(model, cov);
     }
+    Q_EMIT doorDetectionReady(model, cov);
 }
 
 void SpecificWorker::onDoorUpdated(std::shared_ptr<DoorModel> model, rc::DoorConcept::Result result)
 {
-	// Cache results for visualization (called from compute via update_visualization)
-	QMutexLocker lock(&results_mutex_);
-	latest_door_model_ = model;
-	latest_door_result_ = result;
+    // Cache results for visualization
+    {
+        QMutexLocker lock(&results_mutex_);
+        latest_door_model_ = model;
+        latest_door_result_ = result;
+    }
+
+    // Emit to consensus manager for optimization
+    if (!result.optimized_params.empty())
+    {
+        Eigen::Vector3f door_pose(result.optimized_params[0], result.optimized_params[1], result.optimized_params[3]);
+
+        Eigen::Matrix3f cov = Eigen::Matrix3f::Identity() * 0.1f;
+        if (result.covariance.defined() && result.covariance.numel() >= 9)
+        {
+            auto cov_cpu = result.covariance.to(torch::kCPU).contiguous();
+            auto cov_ptr = cov_cpu.data_ptr<float>();
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    cov(i, j) = cov_ptr[i * 3 + j];
+        }
+
+        Q_EMIT doorUpdateReady(door_pose, cov);
+    }
 }
 
 void SpecificWorker::onDoorTrackingLost()
@@ -987,7 +1099,22 @@ void SpecificWorker::onDoorTrackingLost()
         QMutexLocker lock(&results_mutex_);
         latest_door_model_ = nullptr;
         latest_door_result_.reset();
+        cached_consensus_door_.valid = false;
     }
+}
+
+void SpecificWorker::onConsensusDoorPose(size_t door_index, float x, float y, float z, float theta,
+                                          float width, float height, float opening_angle)
+{
+    QMutexLocker lock(&results_mutex_);
+    cached_consensus_door_.valid = true;
+    cached_consensus_door_.x = x;
+    cached_consensus_door_.y = y;
+    cached_consensus_door_.z = z;
+    cached_consensus_door_.theta = theta;
+    cached_consensus_door_.width = width;
+    cached_consensus_door_.height = height;
+    cached_consensus_door_.opening_angle = opening_angle;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

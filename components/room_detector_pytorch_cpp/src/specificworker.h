@@ -51,6 +51,8 @@
 #include "consensus_manager.h"
 #include "room_thread.h"
 #include "door_thread.h"
+#include "consensus_graph_widget.h"
+#include "consensus_visualization_adapter.h"
 
 /**
  * \brief Class SpecificWorker implements the core functionality of the component.
@@ -163,19 +165,16 @@ class SpecificWorker final : public GenericWorker
 		DoorDetector door_detector;
 		std::unique_ptr<rc::DoorConcept> door_concept;
 
-		// consensus manager
-		void run_consensus(const rc::RoomConcept::Result &room_result, const std::optional<rc::DoorConcept::Result> &door_result);
-
-	void update_visualization(const std::chrono::high_resolution_clock::time_point &last_time);
-
-	ConsensusManager consensus_manager;
+		void update_visualization(const std::chrono::high_resolution_clock::time_point &last_time);
 
 		// Threaded detectors
 		std::unique_ptr<RoomThread> room_thread_;
 		std::unique_ptr<DoorThread> door_thread_;
 
-		// Consensus manager (runs in main thread for now)
+		// Consensus manager (QObject, runs in main thread)
 		ConsensusManager consensus_manager_;
+		std::unique_ptr<ConsensusGraphWidget> consensus_graph_widget;
+		std::unique_ptr<ConsensusVisualizationAdapter> viz_adapter;
 
 		// Thread-safe caches of latest results (for visualization)
 		mutable QMutex results_mutex_;
@@ -190,6 +189,14 @@ class SpecificWorker final : public GenericWorker
 		// Cached RGBD for door visualization
 		RoboCompCamera360RGBD::TRGBD cached_rgbd_;
 
+		// Cached consensus door pose (in room coordinates)
+		struct ConsensusDoorPose {
+			bool valid = false;
+			float x = 0, y = 0, z = 0, theta = 0;
+			float width = 0, height = 0, opening_angle = 0;
+		};
+		ConsensusDoorPose cached_consensus_door_;
+
 	Q_SIGNALS:
 		// Signals to send data to threads
 		void newLidarData(const TimePoints& points, const VelocityHistory &velocity_history);
@@ -197,8 +204,15 @@ class SpecificWorker final : public GenericWorker
 		void newRoomOdometry(const rc::RoomConcept::OdometryPrior& odometry);
 		void newDoorOdometry(const Eigen::Vector3f& motion);
 
-		// Signal for consensus prior to door
-		void consensusPriorReady(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance);
+		// Signals to consensus manager
+		void roomDataReady(const std::shared_ptr<RoomModel>& model,
+		                   const Eigen::Vector3f& robot_pose,
+		                   const Eigen::Matrix3f& robot_covariance,
+		                   const std::vector<float>& room_params);
+		void doorDetectionReady(const std::shared_ptr<DoorModel>& model,
+		                        const Eigen::Matrix3f& detection_covariance);
+		void doorUpdateReady(const Eigen::Vector3f& door_pose,
+		                     const Eigen::Matrix3f& door_covariance);
 
 	private Q_SLOTS:
 		// Slots to receive results from threads
@@ -209,6 +223,10 @@ class SpecificWorker final : public GenericWorker
 		void onDoorDetected(std::shared_ptr<DoorModel> model);
 		void onDoorUpdated(std::shared_ptr<DoorModel> model, rc::DoorConcept::Result result);
 		void onDoorTrackingLost();
+
+		// Slot for consensus door pose (in room coordinates)
+		void onConsensusDoorPose(size_t door_index, float x, float y, float z, float theta,
+		                         float width, float height, float opening_angle);
 };
 
 #endif
