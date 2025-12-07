@@ -80,7 +80,7 @@ private:
 
     // Speeds
     float m_rotationSpeed = 0.005f;
-    float m_panSpeed = 0.01f;
+    float m_panSpeed = 0.005f;
     float m_zoomSpeed = 0.1f;
 
     // Limits

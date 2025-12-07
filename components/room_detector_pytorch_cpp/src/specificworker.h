@@ -127,14 +127,18 @@ class SpecificWorker final : public GenericWorker
 
 		// aux
 		TimePoints read_data();
-		RoboCompCamera360RGBD::TRGBD read_image();
+
+	RoboCompLidar3D::TPoints filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d);
+
+	RoboCompCamera360RGBD::TRGBD read_image();
 		void draw_lidar(const RoboCompLidar3D::TPoints &filtered_points, QGraphicsScene *scene);
 		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result, QGraphicsScene *scene);
 		// Helper to update GUI widgets (extracted from update_robot_view)
 		void update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result);
 		void update_viewers(const TimePoints &points_,
-		                    const rc::RoomConcept::Result &room_result,
-		                    const std::optional<rc::DoorConcept::Result> &door_result, QGraphicsScene *scene);
+		                    const RoboCompCamera360RGBD::TRGBD &rgbd,
+		                    const rc::RoomConcept::Result &room_result, const std::optional<rc::DoorConcept::Result> &door_result, QGraphicsScene *
+		                    robot_scene, double elapsed);
 
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
 				QGraphicsScene *scene,
@@ -145,7 +149,7 @@ class SpecificWorker final : public GenericWorker
 
 		std::expected<int, std::string> closest_lidar_index_to_given_angle(const auto &points, float angle);
 		RoboCompLidar3D::TPoints filter_same_phi(const RoboCompLidar3D::TPoints &points);
-		RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
+		static RoboCompLidar3D::TPoints filter_isolated_points(const RoboCompLidar3D::TPoints &points, float d);
 		inline QPointF to_qpointf(const Eigen::Vector2f &v) const
         { return QPointF(v.x(), v.y()); }
 		void print_status(

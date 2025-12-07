@@ -177,30 +177,14 @@ void SpecificWorker::compute()
 
 	// Door detector
 	auto rgbd = read_image();
-	//auto door_candidates = door_concept->detect(rgbd);
-
-	std::optional<rc::DoorConcept::Result> door_result;
-	if (door_result = door_concept->update(rgbd); door_result.has_value() and door_concept->is_tracking() and door_result.value().door)
-	{
-		cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, rgbd.rgb.data());
-		cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
-		// yolo roi
-		cv::rectangle(img, door_result.value().door->roi, cv::Scalar(0, 255, 0), 2);
-		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
-		const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
-		label_img->clear();
-		label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-		//res.value().print();
-		const auto params = door_result->optimized_params;
-		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
-		viewer3d->updatePointCloud(door_result->door->roi_points);
-	}
-	else {qInfo() << "Door optimization: No door detected/initialized.";	}
+	const auto door_result = door_concept->update(rgbd, std::get<0>(time_points));
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt2" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
 
-	update_viewers(time_points, room_result, door_result, &viewer->scene);
+	update_viewers(time_points, rgbd, room_result, door_result, &viewer->scene,
+					std::chrono::duration_cast<std::chrono::milliseconds>(
+						std::chrono::high_resolution_clock::now() - last_time).count());
 
 	//now = std::chrono::high_resolution_clock::now();
 	//qInfo() << "dt3" << std::chrono::duration_cast<std::chrono::milliseconds>(now - init_time).count();
@@ -233,31 +217,65 @@ void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
 	// Run optimization
 	ConsensusResult result = consensus_manager.optimize();
 }
+
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_viewers(const TimePoints &points_,
+									const RoboCompCamera360RGBD::TRGBD &rgbd,
                                     const rc::RoomConcept::Result &room_result,
                                     const std::optional<rc::DoorConcept::Result> &door_result,
-                                    QGraphicsScene *scene)
+                                    QGraphicsScene *robot_scene,
+                                    double elapsed)
 {
-	static auto last_time = std::chrono::high_resolution_clock::now();
 	const auto &[points, lidar_timestamp] = points_;
 	const auto robot_pose = room->get_robot_pose();
 
+	//////////////////////////////////////////////////////////////////////////////
+	/// Robot frame
+	//////////////////////////////////////////////////////////////////////////////
 	Eigen::Affine2f robot_pose_display;
 	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
 	robot_pose_display.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
-	draw_lidar(points, scene);
-	update_robot_view(robot_pose_display, room_result, scene);
+	draw_lidar(points, robot_scene);
+	update_robot_view(robot_pose_display, room_result, robot_scene);
 
 	// Detect and draw doors
-	door_detector.draw_doors(false, scene, nullptr, robot_pose_display);
+	door_detector.draw_doors(false, robot_scene, nullptr, robot_pose_display);
 
+	//////////////////////////////////////////////////////////////////////////////
+	/// Viewer 3D ROOM
+	//////////////////////////////////////////////////////////////////////////////
 	//viewer3d->updatePointCloud(points);
 	const auto room_params = room->get_room_parameters();
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
 	viewer3d->updateRobotPose(room->get_robot_pose()[0], room->get_robot_pose()[1], room->get_robot_pose()[2]);
 
-	// Time series plot
+	//////////////////////////////////////////////////////////////////////////////
+	/// Viewer 3D DOORS
+	//////////////////////////////////////////////////////////////////////////////
+	if (door_result.has_value() and door_result->door)
+	{
+		const auto params = door_result->optimized_params;
+		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
+		viewer3d->updatePointCloud(door_result->door->roi_points);
+	}
+
+	//////////////////////////////////////////////////////////////////////////////
+	/// RGB panoramic
+	//////////////////////////////////////////////////////////////////////////////
+	cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
+	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+	if (door_result.has_value() and door_result->door)
+	{
+		cv::rectangle(img, door_result.value().door->roi, cv::Scalar(0, 255, 0), 2);
+		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
+	}
+	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+	label_img->clear();
+	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+
+	//////////////////////////////////////////////////////////////////////////////
+	/// Time series plot
+	//////////////////////////////////////////////////////////////////////////////
 	room_loss_plotter->addDataPoint(0, room_result.final_loss);
 	room_loss_plotter->addDataPoint(2, room_result.prior_loss);
 	room_loss_plotter->addDataPoint(1, room_result.measurement_loss);
@@ -270,13 +288,14 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	stddev_plotter->addDataPoint(1, upd_std_y);    // Green line
 	stddev_plotter->addDataPoint(2, upd_std_theta); // Green line
 
-	if (door_concept->is_tracking())
+	if (door_result.has_value())
 	{
 		float loss_rounded = std::round(door_result->measurement_loss * 1000.0f) / 1000.0f; // 3 decimales
 		if (std::fabs(loss_rounded) < 1e-6f) loss_rounded = 0.0f;   // opcional: evitar -0.000
 		door_loss_plotter->addDataPoint(0, loss_rounded);
 	}
-	epoch_plotter->addDataPoint(0, std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - last_time).count());
+
+	epoch_plotter->addDataPoint(0, elapsed);
 
 	room_loss_plotter->update();
 	stddev_plotter->update();
@@ -424,59 +443,90 @@ void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
 // 	return display_img.clone();
 // }
 
+
+/// Read LiDAR data and apply filters. Points are converted to meters
 TimePoints SpecificWorker::read_data()
 {
 	RoboCompLidar3D::TData ldata;
 	try
 	{
-		ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 2);
+		ldata = lidar3d_proxy->getLidarData("helios", 0, 2 * M_PI, 1);
 	} catch (const Ice::Exception &e)
-	{
-		std::cout << e << " " << "No lidar data from sensor" << std::endl;
-		return {};
-	}
+	{ std::cout << e << " " << "No lidar data from sensor" << std::endl; return {}; }
 	if (ldata.points.empty()) return {};
 
-/*
-	// // Compute mean and variance (Welford) only over valid z (>1000 <2000)
-	double mean = 0.0;
-	double M2 = 0.0;
-	std::size_t count = 0;
-	for (const auto &p: ldata.points)
-	{
-		if (p.z <= 1000 or p.z > 2000) continue; // keep same validity criterion
-		++count;
-		const double delta = p.r - mean;
-		mean += delta / static_cast<double>(count);
-		M2 += delta * (p.r - mean);
-	}
-	if (count == 0) { return {}; }
-
-	// population variance to match original behavior (divide by N)
-	const double var = M2 / static_cast<double>(count);
-	const double stddev = std::sqrt(var);
-	if (stddev == 0.0)
-	{
-		qInfo() << __FUNCTION__ << "Zero variance in range data, all points have same r: " << mean;
-		return {};
-	}
-
-	// filter out points with r beyond 2 stddevs (apply only if stddev > 0)
-	RoboCompLidar3D::TPoints no_outliers;
-	no_outliers.reserve(ldata.points.size());
-	const double threshold = 2.0 * stddev;
-	for (const auto &p: ldata.points)
-		if (std::fabs(p.r - mean) <= threshold)
-			no_outliers.push_back(p);
-	ldata.points = std::move(no_outliers); */
-
-	ldata.points = filter_same_phi(ldata.points);
+	//ldata.points = filter_same_phi(ldata.points);
 	//ldata.points = filter_isolated_points(ldata.points, 150);
+	ldata.points = filter_isolated_points_torch(ldata.points, 150);
 
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
 
 	return {ldata.points,std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::milliseconds(ldata.timestamp))};
+}
+
+// Filter isolated points using GPU acceleration (LibTorch)
+RoboCompLidar3D::TPoints SpecificWorker::filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d)
+{
+    if (points.empty()) return {};
+
+    int n = points.size();
+
+    // --- 1. PREPARE DATA (CPU) ---
+    // We flatten them into a vector for easy conversion to Tensor.
+    std::vector<float> flat_points;
+    flat_points.reserve(n * 3);  //3D
+    for(const auto& p : points)
+    {
+        flat_points.push_back(p.x);
+        flat_points.push_back(p.y);
+    	flat_points.push_back(p.z);
+    }
+
+    // --- 2. MOVE TO GPU (LibTorch) ---
+    // Create tensor of shape (N, 2)
+    torch::Tensor t_points = torch::from_blob(flat_points.data(), {n, 3}, torch::kFloat);
+
+    // Transfer to GPU (ensure you have a CUDA device available)
+    if (torch::cuda::is_available()) {
+        t_points = t_points.to(torch::kCUDA);
+    }
+
+    // --- 3. COMPUTE DISTANCES ---
+    // torch::cdist computes the Euclidean distance between every pair of points.
+    // Result is an (N, N) matrix.
+    const auto dists = torch::cdist(t_points, t_points);
+
+    // --- 4. APPLY LOGIC ---
+    // We need dist <= d.
+    // However, the distance from a point to itself is 0, which is always <= d.
+    // We must ignore the diagonal (self-loops).
+
+    // Fill diagonal with infinity so it doesn't trigger the threshold
+    dists.fill_diagonal_(std::numeric_limits<float>::infinity());
+
+    // Check threshold: creates a boolean matrix (N, N)
+    // Then .any(1) reduces it to (N), true if *any* neighbor exists for that row.
+    const auto has_neighbor_tensor = (dists <= d).any(1);
+
+    // --- 5. RETRIEVE RESULTS ---
+    // Move the boolean mask back to CPU
+    const auto has_neighbor_cpu = has_neighbor_tensor.to(torch::kCPU);
+
+    // Get efficient access to the data
+    auto accessor = has_neighbor_cpu.accessor<bool, 1>();
+
+    RoboCompLidar3D::TPoints result;
+    result.reserve(n);
+
+    // Filter the original C++ vector using the Torch mask
+    for(int i = 0; i < n; ++i) {
+        if (accessor[i]) {
+            result.push_back(points[i]);
+        }
+    }
+
+    return result;
 }
 
 // Filter isolated points: keep only points with at least one neighbor within distance d

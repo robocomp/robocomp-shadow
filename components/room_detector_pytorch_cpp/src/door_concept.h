@@ -51,18 +51,14 @@ namespace rc
                 int num_points_used = 0;            // Number of LiDAR points in ROI
                 float mean_residual = 0.0f;         // Mean SDF residual
                 std::shared_ptr<DoorModel> door;
-                unsigned int iterations = 0;
                 void print() const
                 {
                     qInfo() << "==============================";
-                    if (door) { qInfo() << "Current door ID" << door->id; }
-                    qInfo() << "optimization result:"
+                    qInfo() << "Door " << door->id << "optimization result:"
                             << "	Final loss:" <<  final_loss
                             << "	Measurement loss:"  << measurement_loss
                             << "	Num points:" << num_points_used
-                            << "	Success:" << success
-                            << "    Iterations:" << iterations;
-
+                            << "	Success:" << success;
                     const auto params = optimized_params;
                     qInfo() << "Optimized door parameters:"
                             << "	x:"  << params[0]
@@ -82,10 +78,10 @@ namespace rc
                 float min_loss_threshold = 0.001f;
 
                 // Convergence criteria
-                float convergence_patience = 8;     // Iterations without improvement
-                float convergence_delta = 1e-4f;     // Minimum loss change
+                float convergence_patience = 5;      // Iterations without improvement (reduced)
+                float convergence_delta = 1e-4f;     // Minimum loss change (increased for faster exit)
 
-                // Regularization (priors to loss function)
+                // Regularization
                 bool use_geometry_regularization = true;
                 float geometry_reg_weight = 0.5f;    // Strong prior on door dimensions
 
@@ -98,6 +94,10 @@ namespace rc
                 float tracking_lost_threshold = 0.5f;   // Mean residual above this triggers redetection
                 int min_points_for_tracking = 50;       // Minimum points to maintain tracking
                 float roi_expansion_factor = 1.3f;      // Expand predicted ROI by this factor
+
+                // Consensus prior (from factor graph)
+                bool use_consensus_prior = true;        // Enable consensus prior in loss
+                float consensus_prior_weight = 1.0f;    // Weight for consensus prior term
             };
 
             /**
@@ -109,7 +109,7 @@ namespace rc
                 float max_depth = 5.0f;              // Maximum depth in meters
                 float min_depth = 0.3f;              // Minimum depth in meters
                 bool filter_by_depth = true;         // Filter points outside depth range
-                float camera_height = 1.2f;          // Camera/sensor height for projection (meters)
+                float camera_height = 1.34f;          // Camera/sensor height for projection (meters)
             };
 
             explicit DoorConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)
@@ -130,7 +130,7 @@ namespace rc
              * 4. Optimize door parameters with extracted points
              */
             std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &rgbd,
-                                         const Eigen::Vector3f& robot_motion = Eigen::Vector3f::Zero());
+                                         const RoboCompLidar3D::TPoints &lidar_points, const Eigen::Vector3f &robot_motion = Eigen::Vector3f::Zero());
 
             /**
              * @brief Full YOLO-based detection (used for initialization or recovery)
@@ -144,12 +144,11 @@ namespace rc
              * depth points within that region.
              *
              * @param rgbd Current RGBD frame
-             * @param door Door model with predicted pose
+             * @param door_model
              * @return Points within the predicted door ROI
              */
             std::vector<Eigen::Vector3f> extract_roi_from_model(
-                const RoboCompCamera360RGBD::TRGBD &rgbd,
-                const DoorModel& door);
+                const RoboCompCamera360RGBD::TRGBD &rgbd, const std::shared_ptr<DoorModel> &door_model);
 
             /**
              * @brief Compute 2D bounding box from 3D door model projection
@@ -202,6 +201,28 @@ namespace rc
              */
             void force_redetection() { tracking_active_ = false; }
 
+            /**
+             * @brief Set consensus prior from factor graph optimization
+             *
+             * The prior is a (pose, covariance) pair that constrains the door
+             * to lie on a wall. This is computed by ConsensusManager after
+             * running the factor graph optimization.
+             *
+             * @param pose Prior pose [x, y, theta] from consensus
+             * @param covariance Prior covariance (3x3) from consensus marginals
+             */
+            void setConsensusPrior(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance);
+
+            /**
+             * @brief Clear consensus prior (disable prior term)
+             */
+            void clearConsensusPrior();
+
+            /**
+             * @brief Check if consensus prior is set
+             */
+            bool hasConsensusPrior() const { return consensus_prior_set_; }
+
         private:
             OptimizationConfig config_;
             ROIConfig roi_config_;
@@ -209,6 +230,12 @@ namespace rc
             bool tracking_active_ = false;
             int consecutive_tracking_failures_ = 0;
             static constexpr int MAX_TRACKING_FAILURES = 3;
+
+            // Consensus prior from factor graph
+            bool consensus_prior_set_ = false;
+            Eigen::Vector3f consensus_prior_pose_;
+            Eigen::Matrix3f consensus_prior_covariance_;
+            Eigen::Matrix3f consensus_prior_info_;  // Inverse of covariance (precision)
 
             std::unique_ptr<YOLODetectorONNX> yolo_detector;
             RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera360rgbd_proxy;
@@ -242,6 +269,11 @@ namespace rc
             torch::Tensor compute_geometry_regularization();
 
             /**
+             * @brief Compute consensus prior loss (Mahalanobis distance to prior)
+             */
+            torch::Tensor compute_consensus_prior_loss();
+
+            /**
              * @brief Estimate uncertainty from Hessian
              */
             torch::Tensor estimate_uncertainty(const torch::Tensor& points_tensor,
@@ -273,7 +305,27 @@ namespace rc
              */
             cv::Point2f project_point_to_image(const Eigen::Vector3f& point_3d,
                                                int image_width, int image_height);
-    };
+
+            /**
+            * @brief Extract points from full LiDAR stream by filtering with door model SDF
+            *
+            * Unlike extract_roi_from_model which uses image projection, this method
+            * directly filters 3D LiDAR points based on their distance to the door surface.
+            * This can capture more of the door geometry (including upper parts) that
+            * might be outside the RGBD camera's field of view.
+            *
+            * @param lidar_points Full LiDAR point cloud (in robot frame, mm)
+            * @param door_model Door model to filter against
+            * @param sdf_threshold Maximum SDF distance to keep (meters), default 0.1
+            * @param depth_margin Depth range around door center to consider (meters), default 1.0
+            * @return Points close to the door surface
+            */
+            std::vector<Eigen::Vector3f> extract_points_from_lidar(
+                        const RoboCompLidar3D::TPoints& lidar_points,
+                        const std::shared_ptr<DoorModel>& door_model,
+                        float sdf_threshold = 0.10f,
+                        float depth_margin = 1.0f);
+        };
 };
 
 #endif // DOOR_CONCEPT_H
