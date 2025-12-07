@@ -36,7 +36,7 @@ public:
 
     void updateRoom(float half_width, float half_depth);
 
-    void updateRobotPose(float x, float y, float theta);
+    void updateRobotPose(const Eigen::Vector3f &robot_pose);
 
     void draw_door(float x, float y, float z, float theta, float width, float height, float open_angle);
 

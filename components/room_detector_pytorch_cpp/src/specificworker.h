@@ -171,11 +171,10 @@ class SpecificWorker final : public GenericWorker
 		// Yolo detector
 		std::unique_ptr<YOLODetectorONNX> yolo_detector;
 
-		// room
-		std::shared_ptr<RoomModel> room;  //TODO: should go in room concept
+		// room concept
 		std::unique_ptr<rc::RoomConcept> room_concept;
 
-		// doors
+		// door concept
 		DoorDetector door_detector;
 		std::unique_ptr<rc::DoorConcept> door_concept;
 

@@ -462,7 +462,7 @@ void RoomVisualizer3D::updateRoom(float half_width, float half_depth)
     roomTransform->setScale3D(QVector3D(half_width * 2.0f, half_depth * 2.0f, 2.5f));
 }
 
-void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
+void RoomVisualizer3D::updateRobotPose(const Eigen::Vector3f &robot_pose)
 {
     // Create robot entity if it doesn't exist
     if (!robotEntity)
@@ -515,8 +515,8 @@ void RoomVisualizer3D::updateRobotPose(float x, float y, float theta)
     }
 
     // Update robot pose
-    robotTransform->setTranslation(QVector3D(x, y, 0.15f)); // Raise slightly above ground
-    robotTransform->setRotationZ(qRadiansToDegrees(theta));
+    robotTransform->setTranslation(QVector3D(robot_pose.x(), robot_pose.y(), 0.15f)); // Raise slightly above ground
+    robotTransform->setRotationZ(qRadiansToDegrees(robot_pose[2]));
 
     // Scale: try different scales depending on what's loaded
     if (robotMesh)

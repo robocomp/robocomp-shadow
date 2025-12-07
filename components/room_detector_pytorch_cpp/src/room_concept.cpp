@@ -22,7 +22,6 @@ namespace rc
 {
     RoomConcept::Result RoomConcept::update(
         const TimePoints &points_,
-        std::shared_ptr<RoomModel> &room,
         const VelocityHistory &velocity_history,
         int num_iterations,
         float min_loss_threshold,
@@ -32,6 +31,14 @@ namespace rc
         if (points_r.empty()) {
             qWarning() << "No points to optimize";
             return {};
+        }
+
+        if (room == nullptr)
+        {
+            room = std::make_shared<RoomModel>();
+            room->init(std::get<RoboCompLidar3D::TPoints>(points_));
+            room->init_odometry_calibration(1.0f, 1.0f); // Start with no correction
+            qInfo() << "RoomConcept::update() - RoomModel initialized";
         }
 
         // Check if in LOCALIZED mode

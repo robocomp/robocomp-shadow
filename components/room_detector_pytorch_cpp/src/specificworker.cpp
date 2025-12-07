@@ -107,9 +107,6 @@ void SpecificWorker::initialize()
 
 	// Room concept
 	room_concept = std::make_unique<rc::RoomConcept>();
-	room = std::make_shared<RoomModel>();
-	room->init(points);
-	room->init_odometry_calibration(1.0f, 1.0f); // Start with no correction
 
 	// Door concept
 	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
@@ -165,11 +162,7 @@ void SpecificWorker::compute()
 	{	std::cout << "No LiDAR points available\n";	return;	}
 
 	// Room detector
-	const auto room_result = room_concept->update(time_points,
-	                                        room, velocity_history_,
-	                                        10,
-	                                        0.01f,
-	                                        0.01f);
+	const auto room_result = room_concept->update(time_points,velocity_history_,10);
 	// print_status(result);
 
 	//auto now = std::chrono::high_resolution_clock::now();
@@ -203,7 +196,7 @@ void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
 		auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
 		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
 		Eigen::Matrix3f cov = cov_row;
-		consensus_manager.initializeFromRoom(room, pose, cov);
+		consensus_manager.initializeFromRoom(room_concept->get_room_model(), pose, cov);
 	}
 
 	if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
@@ -227,7 +220,7 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
                                     double elapsed)
 {
 	const auto &[points, lidar_timestamp] = points_;
-	const auto robot_pose = room->get_robot_pose();
+	const auto robot_pose = room_concept->get_room_model()->get_robot_pose();
 
 	//////////////////////////////////////////////////////////////////////////////
 	/// Robot frame
@@ -245,9 +238,9 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	/// Viewer 3D ROOM
 	//////////////////////////////////////////////////////////////////////////////
 	//viewer3d->updatePointCloud(points);
-	const auto room_params = room->get_room_parameters();
+	const auto room_params = room_concept->get_room_model()->get_room_parameters();
 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
-	viewer3d->updateRobotPose(room->get_robot_pose()[0], room->get_robot_pose()[1], room->get_robot_pose()[2]);
+	viewer3d->updateRobotPose(Eigen::Vector3f(robot_pose[0], robot_pose[1], robot_pose[2]));
 
 	//////////////////////////////////////////////////////////////////////////////
 	/// Viewer 3D DOORS
@@ -319,8 +312,8 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
 void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
 {
     static int frame_counter = 0;
-    const auto &robot_pose = room->get_robot_pose();
-    const auto &room_params = room->get_room_parameters();
+    const auto &robot_pose = room_concept->get_room_model()->get_robot_pose();
+    const auto &room_params = room_concept->get_room_model()->get_room_parameters();
     const bool is_localized = room_concept->room_freezing_manager.should_freeze_room();
 
     // --- Header ---
@@ -696,10 +689,11 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 		delete room_draw_robot;
 	}
 	// compute room in robot frame
-	Eigen::Vector2f top_left(-room->get_room_parameters()[0], room->get_room_parameters()[1]);
-	Eigen::Vector2f top_right(room->get_room_parameters()[0], room->get_room_parameters()[1]);
-	Eigen::Vector2f bottom_left(-room->get_room_parameters()[0], -room->get_room_parameters()[1]);
-	Eigen::Vector2f bottom_right(room->get_room_parameters()[0], -room->get_room_parameters()[1]);
+	const auto rp = room_concept->get_room_model()->get_room_parameters();
+	Eigen::Vector2f top_left(-rp[0], rp[1]);
+	Eigen::Vector2f top_right(rp[0], rp[1]);
+	Eigen::Vector2f bottom_left(-rp[0], -rp[1]);
+	Eigen::Vector2f bottom_right(rp[0], -rp[1]);
 	const Eigen::Matrix2f R = robot_pose.rotation().transpose();
 	const Eigen::Vector2f t = -R * robot_pose.translation();
 	top_left = R * top_left + t;

@@ -109,12 +109,13 @@ namespace rc
              * Runs adaptive optimization (MAPPING or LOCALIZED mode) and computes uncertainty
              */
             Result update( const TimePoints &points,
-                             std::shared_ptr<RoomModel> &room,
-                             const VelocityHistory &velocity_history,
-                             int num_iterations = 150,
-                             float min_loss_threshold = 0.001f,
-                             float learning_rate = 0.01f
+                           const VelocityHistory &velocity_history,
+                           int num_iterations = 150,
+                           float min_loss_threshold = 0.01f,
+                           float learning_rate = 0.01f
             );
+
+            [[nodiscard]] std::shared_ptr<RoomModel> get_room_model() const { return room; }
 
             // Public components
             RoomFreezingManager room_freezing_manager;
@@ -125,7 +126,7 @@ namespace rc
             unsigned long int frame_number = 0;
 
         private:
-
+            std::shared_ptr<RoomModel> room;
             float prior_weight = 1.0f; // Adaptive prior weight
 
             // ===== EKF PREDICT PHASE =====
