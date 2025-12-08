@@ -234,19 +234,56 @@ void SpecificWorker::initialize()
             Qt::DirectConnection);
 
     // === Connect consensus manager output TO door thread ===
-    // NOTE: Disabled for now - consensus prior is in room frame but DoorThread works in robot frame
-    // This frame mismatch causes the opening angle to oscillate as the robot moves
-    // TODO: Transform consensus prior to robot frame before sending, or make DoorConcept work in room frame
-    /*
+    // Transform consensus prior from room frame to robot frame before sending
     connect(&consensus_manager_, &ConsensusManager::doorPriorReady,
-            this, [this](size_t door_index, const Eigen::Vector3f& pose, const Eigen::Matrix3f& cov) {
+            this, [this](size_t door_index, const Eigen::Vector3f& pose_room, const Eigen::Matrix3f& cov) {
                 // Forward to door thread (index 0 for now, single door)
                 if (door_index == 0 && door_thread_)
                 {
-                    door_thread_->onConsensusPrior(pose, cov);
+                    // Get current robot pose in room frame
+                    Eigen::Vector3f robot_pose_room;
+                    {
+                        QMutexLocker lock(&results_mutex_);
+                        if (!latest_room_result_.has_value() || latest_room_result_->optimized_pose.size() < 3)
+                        {
+                            qWarning() << "Cannot transform consensus prior: no robot pose available";
+                            return;
+                        }
+                        const auto& pose = latest_room_result_->optimized_pose;
+                        robot_pose_room = Eigen::Vector3f(pose[0], pose[1], pose[2]);
+                    }
+
+                    // Transform door pose from room frame to robot frame
+                    // door_robot = robot_room⁻¹ * door_room
+                    float cos_r = std::cos(robot_pose_room.z());
+                    float sin_r = std::sin(robot_pose_room.z());
+
+                    // Translation: p_robot = R(-theta) * (p_room - t_robot)
+                    float dx = pose_room.x() - robot_pose_room.x();
+                    float dy = pose_room.y() - robot_pose_room.y();
+
+                    Eigen::Vector3f pose_robot;
+                    pose_robot.x() = cos_r * dx + sin_r * dy;
+                    pose_robot.y() = -sin_r * dx + cos_r * dy;
+                    pose_robot.z() = pose_room.z() - robot_pose_room.z();
+
+                    // Normalize theta to [-π, π]
+                    while (pose_robot.z() > M_PI) pose_robot.z() -= 2 * M_PI;
+                    while (pose_robot.z() < -M_PI) pose_robot.z() += 2 * M_PI;
+
+                    // Transform covariance: Cov_robot = R * Cov_room * R^T
+                    // For simplicity, we rotate the position covariance but keep theta covariance
+                    Eigen::Matrix2f R;
+                    R << cos_r, sin_r,
+                        -sin_r, cos_r;
+
+                    Eigen::Matrix3f cov_robot = Eigen::Matrix3f::Zero();
+                    cov_robot.block<2,2>(0,0) = R * cov.block<2,2>(0,0) * R.transpose();
+                    cov_robot(2,2) = cov(2,2);  // theta variance unchanged
+
+                    door_thread_->onConsensusPrior(pose_robot, cov_robot);
                 }
             }, Qt::DirectConnection);
-    */
 
     // === Connect consensus door pose for visualization ===
     connect(&consensus_manager_, &ConsensusManager::doorPoseInRoom,

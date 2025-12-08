@@ -97,7 +97,8 @@ namespace rc
 
                 // Consensus prior (from factor graph)
                 bool use_consensus_prior = true;        // Enable consensus prior in loss
-                float consensus_prior_weight = 1.0f;    // Weight for consensus prior term
+                float consensus_prior_weight = 1.0f;    // Weight for position prior term
+                float consensus_orientation_weight = 5.0f;  // Weight for orientation alignment (stronger)
             };
 
             /**
@@ -109,7 +110,7 @@ namespace rc
                 float max_depth = 5.0f;              // Maximum depth in meters
                 float min_depth = 0.3f;              // Minimum depth in meters
                 bool filter_by_depth = true;         // Filter points outside depth range
-                float camera_height = 1.34f;          // Camera/sensor height for projection (meters)
+                float camera_height = 1.2f;          // Camera/sensor height for projection (meters)
             };
 
             explicit DoorConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)
@@ -130,7 +131,7 @@ namespace rc
              * 4. Optimize door parameters with extracted points
              */
             std::optional<Result> update(const RoboCompCamera360RGBD::TRGBD &rgbd,
-                                         const Eigen::Vector3f &robot_motion = Eigen::Vector3f::Zero());
+                                         const Eigen::Vector3f& robot_motion = Eigen::Vector3f::Zero());
 
             /**
              * @brief Full YOLO-based detection (used for initialization or recovery)
@@ -144,11 +145,12 @@ namespace rc
              * depth points within that region.
              *
              * @param rgbd Current RGBD frame
-             * @param door_model
+             * @param door Door model with predicted pose
              * @return Points within the predicted door ROI
              */
             std::vector<Eigen::Vector3f> extract_roi_from_model(
-                const RoboCompCamera360RGBD::TRGBD &rgbd, const std::shared_ptr<DoorModel> &door_model);
+                const RoboCompCamera360RGBD::TRGBD &rgbd,
+                const DoorModel& door);
 
             /**
              * @brief Compute 2D bounding box from 3D door model projection
@@ -305,27 +307,7 @@ namespace rc
              */
             cv::Point2f project_point_to_image(const Eigen::Vector3f& point_3d,
                                                int image_width, int image_height);
-
-            /**
-            * @brief Extract points from full LiDAR stream by filtering with door model SDF
-            *
-            * Unlike extract_roi_from_model which uses image projection, this method
-            * directly filters 3D LiDAR points based on their distance to the door surface.
-            * This can capture more of the door geometry (including upper parts) that
-            * might be outside the RGBD camera's field of view.
-            *
-            * @param lidar_points Full LiDAR point cloud (in robot frame, mm)
-            * @param door_model Door model to filter against
-            * @param sdf_threshold Maximum SDF distance to keep (meters), default 0.1
-            * @param depth_margin Depth range around door center to consider (meters), default 1.0
-            * @return Points close to the door surface
-            */
-            std::vector<Eigen::Vector3f> extract_points_from_lidar(
-                        const RoboCompLidar3D::TPoints& lidar_points,
-                        const std::shared_ptr<DoorModel>& door_model,
-                        float sdf_threshold = 0.10f,
-                        float depth_margin = 1.0f);
-        };
+    };
 };
 
 #endif // DOOR_CONCEPT_H

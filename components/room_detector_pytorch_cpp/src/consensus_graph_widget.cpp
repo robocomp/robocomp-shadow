@@ -463,8 +463,8 @@ void ConsensusGraphWidget::layoutRoomAndWalls()
 void ConsensusGraphWidget::layoutRobots()
 {
     // Place robots in a vertical column to the right
-    float x = config_.horizontal_spacing * 2;
-    float y = -config_.vertical_spacing * 1.5f;
+    float x = config_.horizontal_spacing * 3;
+    float y = -config_.vertical_spacing * 1.5;  // Start at top
 
     for (auto& node : nodes_)
     {
@@ -478,9 +478,10 @@ void ConsensusGraphWidget::layoutRobots()
 
 void ConsensusGraphWidget::layoutObjects()
 {
-    // Place objects in a vertical column to the left
-    float x = -config_.horizontal_spacing * 2;
-    float y = -config_.vertical_spacing * 1.5f;
+    // Place objects (doors) to the right of robots, since robot observes doors
+    // This creates a visual flow: Room -> Walls -> Robot -> Door
+    float x = config_.horizontal_spacing * 1.5;  // closer than robots
+    float y = 0;  // Start at same height as robots
 
     for (auto& node : nodes_)
     {

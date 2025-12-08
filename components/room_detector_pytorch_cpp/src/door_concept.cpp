@@ -71,7 +71,7 @@ namespace rc
             predict_step(robot_motion);
 
             // Extract ROI points using the predicted door model
-            roi_points = extract_roi_from_model(rgbd, door);
+            roi_points = extract_roi_from_model(rgbd, *door);
 
             // Check if we got enough points
             if (static_cast<int>(roi_points.size()) < config_.min_points_for_tracking)
@@ -135,112 +135,10 @@ namespace rc
     // =========================================================================
     // TOP-DOWN ROI EXTRACTION FROM MODEL PREDICTION
     // =========================================================================
-    /**
-     * @brief Extract points from full LiDAR stream by filtering with door model SDF
-     *
-     * Unlike extract_roi_from_model which uses image projection, this method
-     * directly filters 3D LiDAR points based on their distance to the door surface.
-     *
-     * @param lidar_points Full LiDAR point cloud (in robot frame, mm)
-     * @param door_model Door model to filter against
-     * @param sdf_threshold Maximum SDF distance to keep (meters)
-     * @param depth_margin Depth range around door center to consider (meters)
-     * @return Points close to the door surface
-     */
-    std::vector<Eigen::Vector3f> DoorConcept::extract_points_from_lidar(
-        const RoboCompLidar3D::TPoints& lidar_points,
-        const std::shared_ptr<DoorModel>& door_model,
-        float sdf_threshold,
-        float depth_margin)
-    {
-        std::vector<Eigen::Vector3f> filtered_points;
 
-        if (!door_model || lidar_points.empty())
-            return filtered_points;
-
-        // Get door pose for depth filtering
-        auto pose = door_model->get_door_pose();
-        const float door_x = pose[0];
-        const float door_y = pose[1];
-        const float door_depth = std::sqrt(door_x * door_x + door_y * door_y);
-
-        // Get door geometry for bounding
-        auto geom = door_model->get_door_geometry();
-        const float door_width = geom[0];
-        const float door_height = geom[1];
-
-        // // Pre-filter: collect candidate points within reasonable bounds
-        std::vector<Eigen::Vector3f> candidates;
-        // candidates.reserve(lidar_points.size() / 10);  // Rough estimate
-        //
-        // const float min_depth = std::max(0.3f, door_depth - depth_margin);
-        // const float max_depth = door_depth + depth_margin;
-        // const float max_z = door_height + 0.5f;  // Some margin above door
-        // const float min_z = -0.2f;  // Slightly below floor level
-        //
-        for (const auto& p : lidar_points)
-        {
-            // Convert mm to meters
-            const float px = p.x / 1000.0f;
-            const float py = p.y / 1000.0f;
-            const float pz = p.z / 1000.0f;
-            candidates.emplace_back(px, py, pz);
-        }
-        //
-        //     // Quick depth filter
-        //     const float point_depth = std::sqrt(px * px + py * py);
-        //     if (point_depth < min_depth || point_depth > max_depth)
-        //         continue;
-        //
-        //     // Quick height filter
-        //     //if (pz < min_z || pz > max_z)
-        //     //    continue;
-        //
-        //     candidates.emplace_back(px, py, pz);
-        // }
-        //
-        // if (candidates.empty())
-        //     return filtered_points;
-
-
-        // Convert to tensor for SDF computation
-         std::vector<float> pts_data;
-         pts_data.reserve(candidates.size() * 3);
-         for (const auto& p : candidates)
-         {
-             pts_data.push_back(p.x());
-             pts_data.push_back(p.y());
-             pts_data.push_back(p.z());
-         }
-
-         torch::NoGradGuard no_grad;
-         torch::Tensor pts_tensor = torch::from_blob(
-             pts_data.data(),
-             {static_cast<long>(candidates.size()), 3},
-             torch::kFloat32
-         ).clone();
-
-         // Compute SDF for all candidate points
-         torch::Tensor sdf_values = door_model->sdf(pts_tensor);
-         auto sdf_accessor = sdf_values.accessor<float, 1>();
-
-         // Keep points close to door surface
-         filtered_points.reserve(candidates.size() / 2);
-         for (size_t i = 0; i < candidates.size(); ++i)
-         {
-             if (std::abs(sdf_accessor[i]) < sdf_threshold)
-             {
-                 filtered_points.push_back(candidates[i]);
-             }
-         }
-
-        return filtered_points;
-    }
-
-    /// Extract ROI points from RGB-D data using door model prediction
     std::vector<Eigen::Vector3f> DoorConcept::extract_roi_from_model(
         const RoboCompCamera360RGBD::TRGBD &rgbd,
-        const std::shared_ptr<DoorModel> &door_model)
+        const DoorModel& door_model)
     {
         std::vector<Eigen::Vector3f> roi_points;
 
@@ -257,7 +155,7 @@ namespace rc
             std::max(rgbd.width, rgbd.height) * roi_config_.margin_factor);
 
         PredictedROI predicted_roi = DoorProjection::predictROI(
-            door_model,
+            std::make_shared<DoorModel>(door_model),  // Create shared_ptr for the API
             rgbd.width,
             rgbd.height,
             camera_pos,
@@ -277,11 +175,11 @@ namespace rc
         //          << (predicted_roi.wraps_around ? "(wraps)" : "");
 
         // Get door pose for depth filtering
-        const auto pose = door_model->get_door_pose();
+        auto pose = door_model.get_door_pose();
         const float door_depth = std::sqrt(pose[0]*pose[0] + pose[1]*pose[1]);
 
         // Depth range based on door position and geometry
-        const auto geom = door_model->get_door_geometry();
+        auto geom = door_model.get_door_geometry();
         const float door_width = geom[0];
         const float depth_margin = door_width * 0.5f;  // Half door width margin
 
@@ -362,7 +260,7 @@ namespace rc
             ).clone();
 
             // Compute SDF for all candidate points
-            torch::Tensor sdf_values = door_model->sdf(pts_tensor);
+            torch::Tensor sdf_values = door_model.sdf(pts_tensor);
 
             // Filter: keep points with |SDF| < threshold (close to surface)
             // The SDF accounts for both frame and articulated leaf geometry
@@ -744,22 +642,27 @@ namespace rc
         // Normalize to [-π, π]
         dtheta = torch::fmod(dtheta + M_PI, 2 * M_PI) - M_PI;
 
-        // Mahalanobis distance: (x - μ)ᵀ Σ⁻¹ (x - μ)
-        // Using the information matrix (inverse covariance)
+        // Separate position and orientation losses for better control
+        // Position loss: weighted by covariance
         const float I00 = consensus_prior_info_(0, 0);
         const float I01 = consensus_prior_info_(0, 1);
-        const float I02 = consensus_prior_info_(0, 2);
         const float I11 = consensus_prior_info_(1, 1);
-        const float I12 = consensus_prior_info_(1, 2);
-        const float I22 = consensus_prior_info_(2, 2);
 
-        // Compute quadratic form: d' * I * d
-        const torch::Tensor mahal_dist =
-            dx * (I00 * dx + I01 * dy + I02 * dtheta) +
-            dy * (I01 * dx + I11 * dy + I12 * dtheta) +
-            dtheta * (I02 * dx + I12 * dy + I22 * dtheta);
+        // Position Mahalanobis distance (2D)
+        const torch::Tensor pos_mahal =
+            dx * (I00 * dx + I01 * dy) +
+            dy * (I01 * dx + I11 * dy);
 
-        return 0.5f * mahal_dist * config_.consensus_prior_weight;
+        // Orientation loss: simple squared error with separate weight
+        // This encourages the door to align with the wall-constrained orientation
+        const torch::Tensor orientation_loss = dtheta * dtheta;
+
+        // Combined loss with separate weights
+        const torch::Tensor total_loss =
+            0.5f * pos_mahal * config_.consensus_prior_weight +
+            0.5f * orientation_loss * config_.consensus_orientation_weight;
+
+        return total_loss;
     }
 
     DoorConcept::OptimizationResult DoorConcept::run_optimization(
