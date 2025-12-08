@@ -8,7 +8,7 @@ Endpoints.Lidar3D = "tcp -h localhost -p 12001"
 Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
 Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
 
-display = true
+display = false 
 lidar = "helios"
 
 Ice.Warn.Connections = "0"
