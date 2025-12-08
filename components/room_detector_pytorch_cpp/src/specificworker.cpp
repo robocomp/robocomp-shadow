@@ -83,7 +83,6 @@ SpecificWorker::~SpecificWorker()
 	qInfo() << "Detector threads stopped";
 }
 
-
 void SpecificWorker::initialize()
 {
 	std::cout << "initialize worker" << std::endl;
@@ -131,6 +130,7 @@ void SpecificWorker::initialize()
 
 	// Room concept
 	room_concept = std::make_unique<rc::RoomConcept>();
+	label_state->setText("MAPPING");  // Initial state
 
 	// Door concept
 	door_concept = std::make_unique<rc::DoorConcept>(camera360rgbd_proxy);
@@ -220,6 +220,10 @@ void SpecificWorker::initialize()
             this, &SpecificWorker::onDoorTrackingLost,
             Qt::QueuedConnection);
 
+	connect(this, &SpecificWorker::newDoorOdometry,
+			door_thread_.get(), &DoorThread::onNewOdometry,
+			Qt::QueuedConnection);
+
     // === Connect signals TO consensus manager ===
     connect(this, &SpecificWorker::roomDataReady,
             &consensus_manager_, &ConsensusManager::onRoomUpdated,
@@ -232,6 +236,10 @@ void SpecificWorker::initialize()
     connect(this, &SpecificWorker::doorUpdateReady,
             &consensus_manager_, &ConsensusManager::onDoorUpdated,
             Qt::DirectConnection);
+
+	connect(room_thread_.get(), &RoomThread::stateChanged,
+			&consensus_manager_, &ConsensusManager::onRoomStateChanged,
+		    Qt::QueuedConnection);
 
     // === Connect consensus manager output TO door thread ===
     // Transform consensus prior from room frame to robot frame before sending
@@ -293,23 +301,31 @@ void SpecificWorker::initialize()
     // Start threads
     room_thread_->start();
     door_thread_->start();
-
     qInfo() << "Detector threads started";
 
+	setPeriod("Compute", 50); // 50ms
 }
 
 void SpecificWorker::compute()
 {
+	const auto now = std::chrono::high_resolution_clock::now();
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
 	if (std::get<0>(time_points).empty()) {	std::cout << "No LiDAR points available\n";	return;	}
 
+	const auto &motion_lag = compute_fast_odometry(std::get<1>(time_points));
+	Q_EMIT newDoorOdometry(motion_lag);
+	auto warped_points = compensate_lidar_latency(std::get<0>(time_points), motion_lag);
+
 	// === Draw LiDAR points in 2D view (every frame) ===
 	const auto& [points, lidar_timestamp] = time_points;
-	draw_lidar(points, &viewer->scene);
+	draw_lidar(warped_points, &viewer->scene);
 
 	// === Emit LiDAR data to room thread (non-blocking) ===
 	Q_EMIT newLidarData(time_points, velocity_history_);
+
+	double elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	qInfo() << "elapsed0: " << elapsed << " ms";
 
 	// === Read and cache RGBD for door detection and visualization ===
 	const auto rgbd = read_image();
@@ -323,44 +339,84 @@ void SpecificWorker::compute()
 		Q_EMIT newRGBDData(rgbd);
 	}
 
+	// print elapsed time here
+	elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	qInfo() << "elapsed1: " << elapsed << " ms";
+
 	// === Update visualization from cached results ===
 	update_visualization(last_time);
-	// Update visualization
-	//consensus_graph_widget->updateFromGraph(consensus_manager_.getGraph());
-	// consensus_graph_widget->setOptimizationInfo(result.initial_error,
-	// 							   			   result.final_error,
-	// 							               result.iterations);
+
+	elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	qInfo() << "elapsed2: " << elapsed << " ms";
 
 	last_time = std::chrono::high_resolution_clock::now();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// OLD non-threaded version - commented out
-// void SpecificWorker::run_consensus( const rc::RoomConcept::Result &room_result,
-// 									const std::optional<rc::DoorConcept::Result> &door_result)
-// {
-// 	// Consensus manager
-// 	if (not consensus_manager.isInitialized() and room_result.uncertainty_valid)
-// 	{
-// 		Eigen::Vector3f pose = {room_result.optimized_pose[0], room_result.optimized_pose[1], room_result.optimized_pose[2]};
-// 		auto cov_tensor = room_result.covariance.to(torch::kCPU).contiguous();
-// 		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_row = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-// 		Eigen::Matrix3f cov = cov_row;
-// 		consensus_manager.initializeFromRoom(room_concept->get_room_model(), pose, cov, cached_room_params_);
-// 	}
-//
-// 	if (not consensus_manager.has_doors() and door_result.has_value() and door_result->success)
-// 	{
-// 		auto params = door_result->optimized_params;
-// 		auto cov_tensor = door_result->covariance.to(torch::kCPU).contiguous();
-// 		// extract the 3x3 covariance matrix from the 7x7 tensor
-// 		Eigen::Matrix<float, 3, 3, Eigen::RowMajor> cov_pose = Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(cov_tensor.data_ptr<float>());
-// 		consensus_manager.addDoor(door_concept->get_model(), cov_pose);
-// 	}
-// 	// Run optimization
-// 	ConsensusResult result = consensus_manager.optimize();
-// }
+Eigen::Vector3f SpecificWorker::compute_fast_odometry(const std::chrono::high_resolution_clock::time_point &lidar_timestamp)
+{
+	// Calculate time delta ===
+	const auto now = std::chrono::high_resolution_clock::now();
 
+	float latency_sec = std::chrono::duration<float>(now - lidar_timestamp).count();
+
+	// 3. Integrate Velocity during Latency Window [lidar_t -> now]
+	Eigen::Vector3f motion_lag = Eigen::Vector3f::Zero();
+
+	// Reuse the history logic, but specifically for the latency window
+	if (!velocity_history_.empty() && latency_sec > 0)
+	{
+		// Simple approximation: use latest velocity * latency
+		// (For 100ms, assuming constant velocity is usually fine)
+		const auto& cmd = velocity_history_.back();
+
+		// Motion in meters/rads
+		motion_lag.x() = (cmd.adv_z / 1000.0f) * latency_sec;
+		motion_lag.y() = (cmd.adv_x / 1000.0f) * latency_sec;
+		motion_lag.z() = cmd.rot * latency_sec;
+	}
+	return motion_lag;
+};
+// specificworker.cpp
+
+// Transform points by the INVERSE of the motion (bringing past points to current frame)
+RoboCompLidar3D::TPoints SpecificWorker::compensate_lidar_latency(const RoboCompLidar3D::TPoints &points,
+																  const Eigen::Vector3f &motion_delta)
+{
+	RoboCompLidar3D::TPoints corrected_points;
+	corrected_points.reserve(points.size());
+
+	// We apply the INVERSE motion:
+	// 1. Subtract translation
+	// 2. Rotate by negative angle
+
+	// Precompute sin/cos for rotation
+	// Note: The order depends on coordinate system.
+	// Standard approach: P_new = R(-theta) * (P_old - Translation)
+
+	float cos_t = std::cos(-motion_delta.z()); // Rotate opposite to robot turn
+	float sin_t = std::sin(-motion_delta.z());
+	float dx = motion_delta.x() * 1000.0f;     // Convert meters to mm (if motion is in m)
+	float dy = motion_delta.y() * 1000.0f;
+
+	for (const auto& p : points)
+	{
+		RoboCompLidar3D::TPoint new_p;
+
+		// 1. Translate (move point closer if robot moved forward)
+		float tx = p.x - dx;
+		float ty = p.y - dy;
+
+		// 2. Rotate (counter-rotate)
+		new_p.x = tx * cos_t - ty * sin_t;
+		new_p.y = tx * sin_t + ty * cos_t;
+		new_p.z = p.z; // Z usually unchanged in 2D odometry
+
+		corrected_points.push_back(new_p);
+	}
+
+	return corrected_points;
+}
 ///////////////////////////////////////////////////////////////////////////////
 void SpecificWorker::update_visualization(const std::chrono::high_resolution_clock::time_point &last_time)
 {
@@ -596,6 +652,88 @@ void SpecificWorker::update_viewers(const TimePoints &points_,
 	last_time = std::chrono::high_resolution_clock::now();
 }
 
+void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
+                                       const rc::RoomConcept::Result &result,
+                                       QGraphicsScene *scene)
+{
+	// draw room in robot viewer
+	static QGraphicsItem *room_draw_robot = nullptr;
+	if (room_draw_robot != nullptr)
+	{
+		viewer->scene.removeItem(room_draw_robot);
+		delete room_draw_robot;
+	}
+	// compute room in robot frame - use cached_room_params_ (thread-safe)
+	const auto& rp = cached_room_params_;
+	if (rp.size() < 2 || (rp[0] == 0.0f && rp[1] == 0.0f))
+		return;  // Room not initialized yet
+
+	Eigen::Vector2f top_left(-rp[0], rp[1]);
+	Eigen::Vector2f top_right(rp[0], rp[1]);
+	Eigen::Vector2f bottom_left(-rp[0], -rp[1]);
+	Eigen::Vector2f bottom_right(rp[0], -rp[1]);
+	const Eigen::Matrix2f R = robot_pose.rotation().transpose();
+	const Eigen::Vector2f t = -R * robot_pose.translation();
+	top_left = R * top_left + t;
+	top_right = R * top_right + t;
+	bottom_left = R * bottom_left + t;
+	bottom_right = R * bottom_right + t;
+	QPolygonF polygon;
+	polygon << QPointF(top_left.x() * 1000, top_left.y() * 1000)
+			<< QPointF(top_right.x() * 1000, top_right.y() * 1000)
+			<< QPointF(bottom_right.x() * 1000, bottom_right.y() * 1000)
+			<< QPointF(bottom_left.x() * 1000, bottom_left.y() * 1000);
+	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 40));
+
+	// ===== DRAW DUAL UNCERTAINTY VISUALIZATION =====
+	static QGraphicsItem *cov_item=nullptr, *propagated_cov_item=nullptr;
+	if (cov_item != nullptr)
+	{ scene->removeItem(cov_item); delete cov_item; cov_item=nullptr; }
+	if (propagated_cov_item != nullptr)
+	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; propagated_cov_item = nullptr; }
+
+
+	const std::vector<float> robot_pose_vec{robot_pose.translation().x(),
+										    robot_pose.translation().y(),
+										    Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
+
+	// 2. Draw UPDATED uncertainty (after measurements)
+	//    This shows how measurements reduced uncertainty
+	if (result.covariance.defined() && result.covariance.numel() > 0)
+	{
+		cov_item = draw_uncertainty_ellipse(
+			scene,
+			result.covariance,
+			robot_pose_vec,
+			QColor(0, 255, 0, 100), // Green, semi-transparent
+			2.0f // 2-sigma
+		);
+	}
+
+	update_gui(robot_pose, result);
+}
+
+void SpecificWorker::update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result)
+{
+	// get last adv and rot commands from buffer
+	float adv = 0.0f;
+	float rot = 0.0f;
+	if (not velocity_history_.empty())
+	{
+		const auto v = velocity_history_.back();
+		adv = v.adv_z;
+		rot = v.rot;
+	}
+	lcdNumber_adv->display(adv);
+	lcdNumber_rot->display(rot);
+	lcdNumber_x->display(robot_pose.translation().x());
+	lcdNumber_y->display(robot_pose.translation().y());
+	const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
+	lcdNumber_angle->display(angle);
+	// Use cached state - don't access room_concept from main thread
+	// label_state is updated in onRoomStateChanged
+}
+
 RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
 {
 	RoboCompCamera360RGBD::TRGBD rgbd;
@@ -705,8 +843,6 @@ void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
     qInfo().noquote() << QString(60, '=') << "\n";
 }
 
-
-
 // RoboCompCamera360RGBD::TRGBD SpecificWorker::read_image()
 // {
 // 	RoboCompCamera360RGB::TImage img;
@@ -734,7 +870,6 @@ void SpecificWorker::print_status(const rc::RoomConcept::Result &result)
 //
 // 	return display_img.clone();
 // }
-
 
 /// Read LiDAR data and apply filters. Points are converted to meters
 TimePoints SpecificWorker::read_data()
@@ -843,87 +978,6 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 	}
 }
 
-void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
-                                       const rc::RoomConcept::Result &result,
-                                       QGraphicsScene *scene)
-{
-	// draw room in robot viewer
-	static QGraphicsItem *room_draw_robot = nullptr;
-	if (room_draw_robot != nullptr)
-	{
-		viewer->scene.removeItem(room_draw_robot);
-		delete room_draw_robot;
-	}
-	// compute room in robot frame - use cached_room_params_ (thread-safe)
-	const auto& rp = cached_room_params_;
-	if (rp.size() < 2 || (rp[0] == 0.0f && rp[1] == 0.0f))
-		return;  // Room not initialized yet
-
-	Eigen::Vector2f top_left(-rp[0], rp[1]);
-	Eigen::Vector2f top_right(rp[0], rp[1]);
-	Eigen::Vector2f bottom_left(-rp[0], -rp[1]);
-	Eigen::Vector2f bottom_right(rp[0], -rp[1]);
-	const Eigen::Matrix2f R = robot_pose.rotation().transpose();
-	const Eigen::Vector2f t = -R * robot_pose.translation();
-	top_left = R * top_left + t;
-	top_right = R * top_right + t;
-	bottom_left = R * bottom_left + t;
-	bottom_right = R * bottom_right + t;
-	QPolygonF polygon;
-	polygon << QPointF(top_left.x() * 1000, top_left.y() * 1000)
-			<< QPointF(top_right.x() * 1000, top_right.y() * 1000)
-			<< QPointF(bottom_right.x() * 1000, bottom_right.y() * 1000)
-			<< QPointF(bottom_left.x() * 1000, bottom_left.y() * 1000);
-	room_draw_robot = viewer->scene.addPolygon(polygon, QPen(QColor("cyan"), 40));
-
-	// ===== DRAW DUAL UNCERTAINTY VISUALIZATION =====
-	static QGraphicsItem *cov_item=nullptr, *propagated_cov_item=nullptr;
-	if (cov_item != nullptr)
-	{ scene->removeItem(cov_item); delete cov_item; cov_item=nullptr; }
-	if (propagated_cov_item != nullptr)
-	{ scene->removeItem(propagated_cov_item); delete propagated_cov_item; propagated_cov_item = nullptr; }
-
-
-	const std::vector<float> robot_pose_vec{robot_pose.translation().x(),
-										    robot_pose.translation().y(),
-										    Eigen::Rotation2Df(robot_pose.rotation()).angle()}; // ellipse is drawn at origin in robot frame
-
-	// 2. Draw UPDATED uncertainty (after measurements)
-	//    This shows how measurements reduced uncertainty
-	if (result.covariance.defined() && result.covariance.numel() > 0)
-	{
-		cov_item = draw_uncertainty_ellipse(
-			scene,
-			result.covariance,
-			robot_pose_vec,
-			QColor(0, 255, 0, 100), // Green, semi-transparent
-			2.0f // 2-sigma
-		);
-	}
-
-	update_gui(robot_pose, result);
-}
-
-void SpecificWorker::update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result)
-{
-    // get last adv and rot commands from buffer
-    float adv = 0.0f;
-    float rot = 0.0f;
-    if (not velocity_history_.empty())
-    {
-        const auto v = velocity_history_.back();
-        adv = v.adv_z;
-        rot = v.rot;
-    }
-    lcdNumber_adv->display(adv);
-    lcdNumber_rot->display(rot);
-    lcdNumber_x->display(robot_pose.translation().x());
-    lcdNumber_y->display(robot_pose.translation().y());
-    const float angle = Eigen::Rotation2Df(robot_pose.rotation()).angle();
-    lcdNumber_angle->display(angle);
-    // Use cached state - don't access room_concept from main thread
-    // label_state is updated in onRoomStateChanged
-}
 
 QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
 	    QGraphicsScene *scene,

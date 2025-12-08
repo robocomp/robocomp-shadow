@@ -72,7 +72,7 @@ void DoorThread::onNewLidarData(const RoboCompLidar3D::TPoints& points)
 void DoorThread::onNewOdometry(const Eigen::Vector3f& motion)
 {
     QMutexLocker lock(&data_mutex_);
-    pending_motion_ = motion;
+    pending_motion_ += motion;
     has_new_motion_ = true;
     data_condition_.wakeOne();
 }
@@ -164,6 +164,7 @@ void DoorThread::run()
             if (has_new_motion_)
             {
                 motion = pending_motion_;
+                pending_motion_.setZero();
                 has_motion = true;
                 has_new_motion_ = false;
             }

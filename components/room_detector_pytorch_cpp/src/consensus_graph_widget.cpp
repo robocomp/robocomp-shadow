@@ -682,7 +682,8 @@ void ConsensusGraphWidget::drawInfoPanel(QPainter& painter)
     float margin = 10;
 
     QRectF panel_rect(
-        width() - panel_width - margin,   // Right side
+
+    margin,   // Left side
         height() - panel_height - margin,  // Bottom side
         panel_width,
         panel_height

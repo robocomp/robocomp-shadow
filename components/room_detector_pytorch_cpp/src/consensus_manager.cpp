@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <QDebug>
 
+#include "room_freezing_manager.h"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -53,19 +55,112 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
     {
         initializeFromRoom(room_model, robot_pose, robot_covariance, room_params);
         has_room_ = true;
+        last_robot_pose_ = robot_pose;
+        has_last_pose_ = true;
+        return;
+    }
+
+    // If the room estimate has grown/shrunk by > 20cm, we need to rebuild the graph so the walls move to the correct place.
+    if (std::abs(room_params[0] - room_half_width_) > 100.0f || std::abs(room_params[1] - room_half_depth_) > 100.0f)
+    {
+        qInfo() << "ConsensusManager: Room dimensions changed significantly. Resetting graph.";
+        reset();
+        // Re-initialize immediately with new params
+        initializeFromRoom(room_model, robot_pose, robot_covariance, room_params);
+        has_room_ = true;
+        return;
+    }
+
+    // Add new robot pose if moved enough
+    if (last_room_state_ == RoomState::LOCALIZED and has_last_pose_ and initialized_)
+    {
+        float dx = robot_pose.x() - last_robot_pose_.x();
+        float dy = robot_pose.y() - last_robot_pose_.y();
+        float dtheta = robot_pose.z() - last_robot_pose_.z();
+
+        // Normalize dtheta to [-π, π]
+        while (dtheta > M_PI) dtheta -= 2 * M_PI;
+        while (dtheta < -M_PI) dtheta += 2 * M_PI;
+
+        float translation = std::sqrt(dx * dx + dy * dy);
+        float rotation = std::abs(dtheta);
+
+        if (translation > MIN_TRANSLATION_FOR_NEW_NODE || rotation > MIN_ROTATION_FOR_NEW_NODE)
+        {
+            // Compute odometry (relative motion from last pose to current)
+            // odom = last_pose^(-1) * current_pose
+            float cos_last = std::cos(last_robot_pose_.z());
+            float sin_last = std::sin(last_robot_pose_.z());
+
+            // Transform delta to last pose's frame
+            float odom_x = cos_last * dx + sin_last * dy;
+            float odom_y = -sin_last * dx + cos_last * dy;
+            float odom_theta = dtheta;
+
+            gtsam::Pose2 odometry(odom_x, odom_y, odom_theta);
+
+            // Odometry uncertainty (scales with motion)
+            Eigen::Vector3d odom_uncertainty(
+                0.1 * translation + 0.02,  // x uncertainty
+                0.1 * translation + 0.02,  // y uncertainty
+                0.1 * rotation + 0.01      // theta uncertainty
+            );
+
+            // Current pose uncertainty from room detector
+            Eigen::Vector3d pose_sigmas(
+                std::sqrt(std::max(1e-6f, robot_covariance(0, 0))),
+                std::sqrt(std::max(1e-6f, robot_covariance(1, 1))),
+                std::sqrt(std::max(1e-6f, robot_covariance(2, 2)))
+            );
+
+            // In LOCALIZED mode, we want the DOORS to correct the pose.
+            // If we trust the RoomModel perfectly, the doors can't move the robot.
+            // Multiply the uncertainty by a factor (e.g., 2.0 or 5.0) to loosen the grip.
+            if (last_room_state_ == RoomState::LOCALIZED) {
+                pose_sigmas *= 5.0;
+            }
+
+            // Add new robot pose with odometry factor
+            const gtsam::Pose2 new_pose(robot_pose.x(), robot_pose.y(), robot_pose.z());
+            current_robot_pose_index_ = graph_.addRobotPose(
+                new_pose,
+                pose_sigmas,
+                odometry,
+                odom_uncertainty
+            );
+
+            graph_dirty_ = true;
+            last_robot_pose_ = robot_pose;
+
+            qInfo() << "ConsensusManager: Added robot pose" << current_robot_pose_index_
+                    << "with odometry (" << odom_x << "," << odom_y << "," << odom_theta << ")";
+
+            // Run optimization if we have doors
+            if (!door_models_.empty())
+            {
+                lock.unlock();
+                runOptimization();
+            }
+        }
     }
 
     // If we have doors, run optimization
-    if (initialized_ && !door_models_.empty())
-    {
-        // Update robot pose in graph (could add odometry factor here)
-        // For now, we just run optimization with current state
-        // runOptimization();  // Uncomment if you want continuous updates
-    }
+    // if (initialized_ && !door_models_.empty())
+    // {
+    //     // Update robot pose in graph (could add odometry factor here)
+    //     // For now, we just run optimization with current state
+    //     // runOptimization();  // Uncomment if you want continuous updates
+    // }
+}
+
+void ConsensusManager::onRoomStateChanged(RoomState new_state)
+{
+    QMutexLocker lock(&mutex_);
+    last_room_state_ = new_state;
 }
 
 void ConsensusManager::onDoorDetected(const std::shared_ptr<DoorModel>& door_model,
-                                       const Eigen::Matrix3f& detection_covariance)
+                                      const Eigen::Matrix3f& detection_covariance)
 {
     QMutexLocker lock(&mutex_);
 
@@ -152,28 +247,40 @@ void ConsensusManager::runOptimization()
                 // Get geometry from door model, pose from consensus
                 const auto& door_model = door_models_[i];
                 auto geom = door_model->get_door_geometry();
-
-                // Opening angle is relative to the door frame, not room/robot frame
-                // So we can use it directly from the detector
                 float opening_angle = door_model->get_opening_angle();
+                float smooth_angle = opening_angle;
+
+                // Check if we have a history for this door
+                if (smoothed_angles_.find(i) != smoothed_angles_.end())
+                {
+                    const float prev_angle = smoothed_angles_[i];
+                    // Handle angle wrapping (-PI to PI) if necessary
+                    // (Assuming opening angle is usually 0 to PI/2, simple math works)
+                    // Exponential Moving Average: New = Alpha * Raw + (1 - Alpha) * Old
+                    smooth_angle = ALPHA_SMOOTHING * opening_angle + (1.0f - ALPHA_SMOOTHING) * prev_angle;
+                }
+                // Update history
+                smoothed_angles_[i] = smooth_angle;
 
                 // Get z from original door model (consensus only handles 2D)
-                auto original_pose = door_model->get_door_pose();
-                float z = original_pose[2];  // z position
+                //auto original_pose = door_model->get_door_pose();
+                //float z = original_pose[2];  // z position
+                const float height = geom[1]; // Full height
+                const float z = 0.f; // Use half height as z position
 
                 Q_EMIT doorPoseInRoom(i,
                     prior->first.x(),      // x from consensus
                     prior->first.y(),      // y from consensus
-                    z,                     // z from detector
+                    z,                     // z from door model
                     prior->first.z(),      // theta from consensus
                     geom[0],               // width from detector
-                    geom[1],               // height from detector
-                    opening_angle          // opening angle from detector (relative to door frame)
+                    height,                     // height from detector
+                    smooth_angle          // opening angle from detector (relative to door frame)
                 );
 
-                qDebug() << "ConsensusManager: Emitted door" << i << "in room frame:"
-                         << prior->first.x() << prior->first.y() << z << prior->first.z()
-                         << "opening:" << opening_angle;
+                // qDebug() << "ConsensusManager: Emitted door" << i << "in room frame:"
+                //          << prior->first.x() << prior->first.y() << z << prior->first.z()
+                //          << "opening:" << opening_angle;
             }
         }
     }
@@ -288,17 +395,34 @@ WallID ConsensusManager::determineWallAttachment(const Eigen::Vector3f& door_pos
     return WallID::WEST;
 }
 
+// In consensus_manager.cpp
+
 double ConsensusManager::computeWallOffset(WallID wall, const Eigen::Vector3f& door_pose) const
 {
+    // Transforms the global door coordinate into the wall's local "Along-Wall" (X) coordinate.
+    // Must match the frame definitions in ConsensusGraph::computeWallPose
+
     switch (wall)
     {
         case WallID::NORTH:
+            // Frame is rotated 180 deg (X points West).
+            // Positive Global X is "Left" in local frame (Negative Local X).
+            return -door_pose.x();
+
         case WallID::SOUTH:
+            // Frame is rotated 0 deg (X points East).
+            // Positive Global X is "Right" in local frame (Positive Local X).
             return door_pose.x();
 
         case WallID::EAST:
-        case WallID::WEST:
+            // Frame is rotated 90 deg (X points North).
+            // Positive Global Y is "Right/Forward" in local frame (Positive Local X).
             return door_pose.y();
+
+        case WallID::WEST:
+            // Frame is rotated -90 deg (X points South).
+            // Positive Global Y is "Back/Left" in local frame (Negative Local X).
+            return -door_pose.y();
 
         default:
             return 0.0;
@@ -348,6 +472,7 @@ size_t ConsensusManager::addDoor(const std::shared_ptr<DoorModel>& door_model,
         std::sqrt(std::max(1e-6f, detection_covariance(1, 1))),
         std::sqrt(std::max(1e-6f, detection_covariance(2, 2)))
     );
+
 
     // Add door with observation factor (not prior factor)
     // Use original theta from detector (not flipped)
@@ -422,8 +547,8 @@ ConsensusManager::getDoorConsensusPrior(size_t door_index) const
             return std::nullopt;
         }
 
-        gtsam::Pose2 opt_pose = graph_.getValues().at<gtsam::Pose2>(object_sym);
-        Eigen::Matrix3d cov = marginals.marginalCovariance(object_sym);
+        const auto opt_pose = graph_.getValues().at<gtsam::Pose2>(object_sym);
+        const Eigen::Matrix3d cov = marginals.marginalCovariance(object_sym);
 
         Eigen::Vector3f pose(opt_pose.x(), opt_pose.y(), opt_pose.theta());
         Eigen::Matrix3f cov_f = cov.cast<float>();
@@ -431,11 +556,11 @@ ConsensusManager::getDoorConsensusPrior(size_t door_index) const
         // Set high uncertainty on theta to avoid fighting with detector's measurements
         // The consensus manager's theta might differ from detector's due to orientation correction
         // Let the detector's measurements determine orientation, consensus refines position
-        cov_f(2, 2) = std::max(cov_f(2, 2), 1.0f);  // At least 1 radian^2 variance on theta
-        cov_f(0, 2) = 0.0f;  // Remove correlations with theta
-        cov_f(1, 2) = 0.0f;
-        cov_f(2, 0) = 0.0f;
-        cov_f(2, 1) = 0.0f;
+        // cov_f(2, 2) = std::max(cov_f(2, 2), 1.0f);  // At least 1 radian^2 variance on theta
+        // cov_f(0, 2) = 0.0f;
+        // cov_f(1, 2) = 0.0f;
+        // cov_f(2, 0) = 0.0f;
+        // cov_f(2, 1) = 0.0f;
 
         return std::make_pair(pose, cov_f);
     }

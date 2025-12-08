@@ -57,9 +57,9 @@ void ConsensusVisualizationAdapter::onManagerInitialized()
 
 void ConsensusVisualizationAdapter::onConsensusReady(const ConsensusResult& result)
 {
-    qDebug() << "ConsensusVisualizationAdapter: Consensus ready, updating visualization";
-    qDebug() << "  Error:" << result.initial_error << "→" << result.final_error
-             << "Iterations:" << result.iterations;
+    // qDebug() << "ConsensusVisualizationAdapter: Consensus ready, updating visualization";
+    // qDebug() << "  Error:" << result.initial_error << "→" << result.final_error
+    //          << "Iterations:" << result.iterations;
 
     // Get current graph state
     const auto& graph = manager_->getGraph();

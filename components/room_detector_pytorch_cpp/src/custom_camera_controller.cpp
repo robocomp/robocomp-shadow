@@ -12,12 +12,12 @@ CustomCameraController::CustomCameraController(Qt3DCore::QNode *parent)
     : Qt3DCore::QEntity(parent)
 {
     // Install event filter on application to catch mouse events
-    QCoreApplication::instance()->installEventFilter(this);
+    //QCoreApplication::instance()->installEventFilter(this);
 }
 
 CustomCameraController::~CustomCameraController()
 {
-    QCoreApplication::instance()->removeEventFilter(this);
+    //QCoreApplication::instance()->removeEventFilter(this);
 }
 
 void CustomCameraController::setCamera(Qt3DRender::QCamera *camera)

@@ -614,8 +614,8 @@ namespace rc
 
         consensus_prior_set_ = true;
 
-        qDebug() << "DoorConcept: Set consensus prior at ("
-                 << pose.x() << "," << pose.y() << "," << pose.z() << ")";
+        // qDebug() << "DoorConcept: Set consensus prior at ("
+        //          << pose.x() << "," << pose.y() << "," << pose.z() << ")";
     }
 
     void DoorConcept::clearConsensusPrior()

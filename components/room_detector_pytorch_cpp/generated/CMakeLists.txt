@@ -53,6 +53,14 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 # Specify construction and link process
 ADD_EXECUTABLE( room_detector_pytorch_cpp ${SOURCES} ${MOC_SOURCES} ${RC_SOURCES} ${UI_HEADERS} )
+# ===================================================================
+# OPTIMIZACIÓN DE COMPILACIÓN: CABECERAS PRECOMPILADAS (PCH)
+# ===================================================================
+# Esto compila las cabeceras pesadas de 'src/pch.h' una sola vez.
+target_precompile_headers(room_detector_pytorch_cpp
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/pch.h
+)
 TARGET_LINK_LIBRARIES( room_detector_pytorch_cpp ${LIBS}  ${STATIC_LIBS} ${SPECIFIC_LIBS} ${QT_LIBRARIES} ${Ice_LIBRARIES} )
 SET_TARGET_PROPERTIES(room_detector_pytorch_cpp
         PROPERTIES

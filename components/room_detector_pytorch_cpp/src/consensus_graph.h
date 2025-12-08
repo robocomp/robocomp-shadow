@@ -237,7 +237,7 @@ public:
                                      WallID wall,
                                      double offset_along_wall,
                                      double door_theta_in_room,
-                                     const Eigen::Vector3d& constraint_uncertainty = Eigen::Vector3d(0.05, 0.02, 0.1));
+                                     const Eigen::Vector3d& constraint_uncertainty = Eigen::Vector3d(0.05, 0.0001, 0.00001));
 
     /**
      * @brief Run the optimization

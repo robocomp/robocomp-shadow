@@ -76,6 +76,7 @@ namespace rc
                 std::vector<float> optimized_pose;   // Final robot pose after optimization
                 float innovation_norm = 0.0f;        // For diagnostics
                 float motion_magnitude = 0.0f;       // For diagnostics
+                RoomState state = RoomState::MAPPING;
             };
 
             struct CalibrationConfig

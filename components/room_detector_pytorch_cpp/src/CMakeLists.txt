@@ -121,3 +121,4 @@ LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExt
 
 # no-char8_t to avoid a problem with ICE Connection lib.
 add_definitions(-O4 -fmax-errors=1 -fno-char8_t)
+

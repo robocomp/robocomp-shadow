@@ -123,6 +123,8 @@ namespace rc
         res.innovation_norm = innovation_norm;
         res.motion_magnitude = motion_magnitude;
         res.prediction_state = prediction;
+        res.state = room_freezing_manager.get_state();
+        room->state_ = res.state;
 
         // ===== FINALIZE RESULT =====
         frame_number++;

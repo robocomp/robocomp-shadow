@@ -86,7 +86,7 @@ protected:
 
 private:
 
-public slots:
+public Q_SLOTS:
 	virtual void initialize() = 0;
 	virtual void compute() = 0;
 	virtual void emergency() = 0;
@@ -94,7 +94,7 @@ public slots:
 	void hibernationCheck();
 	void hibernationTick();
 	
-signals:
+Q_SIGNALS:
 	void kill();
 	void goToEmergency();
 	void goToRestore();

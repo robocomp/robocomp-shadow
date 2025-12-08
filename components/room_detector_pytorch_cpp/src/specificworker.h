@@ -118,6 +118,10 @@ class SpecificWorker final : public GenericWorker
 		QGraphicsItem *room_draw = nullptr;
 
 		// aux
+	    RoboCompLidar3D::TPoints compensate_lidar_latency(const RoboCompLidar3D::TPoints &points,
+								          			      const Eigen::Vector3f &motion_during_latency);
+
+	Eigen::Vector3f compute_fast_odometry(const std::chrono::high_resolution_clock::time_point &lidar_timestamp);
 		TimePoints read_data();
 		RoboCompLidar3D::TPoints filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d);
 		RoboCompCamera360RGBD::TRGBD read_image();

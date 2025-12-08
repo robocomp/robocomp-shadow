@@ -108,6 +108,8 @@ public Q_SLOTS:
                        const Eigen::Matrix3f& robot_covariance,
                        const std::vector<float>& room_params);
 
+    void onRoomStateChanged(RoomState new_state);
+
     /**
      * @brief Handle first door detection
      *
@@ -212,9 +214,26 @@ private:
     Eigen::Matrix3f cached_robot_covariance_;
     std::vector<float> cached_room_params_;
 
+    // Odometry tracking
+    Eigen::Vector3f last_robot_pose_{0, 0, 0};  // Last pose when we added a node
+    bool has_last_pose_ = false;
+
+    // Thresholds for adding new robot pose nodes
+    static constexpr float MIN_TRANSLATION_FOR_NEW_NODE = 0.3f;  // 30cm
+    static constexpr float MIN_ROTATION_FOR_NEW_NODE = 0.2f;     // ~11 degrees
+
     // Optimization state
     bool graph_dirty_ = true;  // True when graph changed since last optimization
     ConsensusResult last_result_;  // Cached result from last optimization
+
+    // room state
+    RoomState last_room_state_ = RoomState::MAPPING;
+
+    // leaf mass simulations with exponential filter
+    std::map<size_t, float> smoothed_angles_;
+    // Smoothing factor (0.0 = infinite memory/no update, 1.0 = no smoothing)
+    // 0.1 gives a very smooth, slow response. 0.3 is a good balance.
+    const float ALPHA_SMOOTHING = 0.2f;
 };
 
 #endif // CONSENSUS_MANAGER_H

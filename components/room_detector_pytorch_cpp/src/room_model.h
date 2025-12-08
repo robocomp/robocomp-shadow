@@ -117,7 +117,7 @@ class RoomModel : public torch::nn::Module
         /**
          * @brief Check if room parameters are frozen
          */
-        bool are_room_parameters_frozen() const;
+        bool are_room_parameters_frozen() const;            //TODO: might not be working
 
         /**
          * @brief Get only robot parameters (for selective optimization)
@@ -161,10 +161,13 @@ class RoomModel : public torch::nn::Module
         torch::Tensor k_translation_;  // Scale factor for translation (adv_x, adv_z)
         torch::Tensor k_rotation_;     // Scale factor for rotation
 
+        RoomState state_ = RoomState::MAPPING;
+
     private:
         // Room parameters (FIXED at origin)
         // No trainable center - it's always (0, 0)
         torch::Tensor half_extents_;  // [half_width, half_depth]
+
 
         /**
          * @brief Transform points from robot frame to room frame (at origin)

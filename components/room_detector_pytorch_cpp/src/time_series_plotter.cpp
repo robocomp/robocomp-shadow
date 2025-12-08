@@ -36,7 +36,8 @@ TimeSeriesPlotter::TimeSeriesPlotter(QWidget *parent, const Config &config)
     parent->layout()->addWidget(customPlot);
 
     // Configure the plot appearance
-    customPlot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom | QCP::iSelectPlottables);
+    //customPlot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom | QCP::iSelectPlottables);
+
     
     // Set up axes
     customPlot->xAxis->setLabel(config.xAxisLabel);
@@ -46,6 +47,11 @@ TimeSeriesPlotter::TimeSeriesPlotter(QWidget *parent, const Config &config)
     QSharedPointer<QCPAxisTickerTime> timeTicker(new QCPAxisTickerTime);
     timeTicker->setTimeFormat("%h:%m:%s");
     customPlot->xAxis->setTicker(timeTicker);
+
+    // Set fonts for Y axis
+    QFont yFont;
+    yFont.setPointSize(7);
+    customPlot->yAxis->setTickLabelFont(yFont);
     
     // Set Y-axis range
     if (!config.autoScaleY)
@@ -57,7 +63,7 @@ TimeSeriesPlotter::TimeSeriesPlotter(QWidget *parent, const Config &config)
     if (!config.title.isEmpty())
     {
         customPlot->plotLayout()->insertRow(0);
-        QCPTextElement *title = new QCPTextElement(customPlot, config.title, QFont("sans", 12, QFont::Bold));
+        QCPTextElement *title = new QCPTextElement(customPlot, config.title, QFont("sans", 9, QFont::Bold));
         customPlot->plotLayout()->addElement(0, 0, title);
     }
     
@@ -65,7 +71,7 @@ TimeSeriesPlotter::TimeSeriesPlotter(QWidget *parent, const Config &config)
     if (config.showLegend)
     {
         customPlot->legend->setVisible(true);
-        customPlot->legend->setFont(QFont("sans", 9));
+        customPlot->legend->setFont(QFont("Verdana", 8));
         customPlot->axisRect()->insetLayout()->setInsetAlignment(0, Qt::AlignTop | Qt::AlignRight);
     }
     

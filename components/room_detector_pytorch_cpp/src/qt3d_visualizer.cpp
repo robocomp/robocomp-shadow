@@ -89,6 +89,7 @@ void RoomVisualizer3D::setupCamera()
     camController->setPanSpeed(0.01f);
     camController->setZoomSpeed(0.15f);
     camController->setTarget(QVector3D(0, 0, 0));
+    view->installEventFilter(camController);
 }
 
 void RoomVisualizer3D::setupLighting()

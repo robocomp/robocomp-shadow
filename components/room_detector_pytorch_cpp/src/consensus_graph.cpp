@@ -38,28 +38,40 @@ ConsensusGraph::SharedNoiseModel ConsensusGraph::createNoiseModel(const Eigen::V
 gtsam::Pose2 ConsensusGraph::computeWallPose(WallID wall, double half_width, double half_depth) const
 {
     // Wall poses are defined in room frame
-    // Each wall's local frame has:
-    //   - Origin at wall center
-    //   - X axis along the wall (left to right when facing the wall from inside)
-    //   - Y axis pointing into the room
+    // We strictly follow the convention:
+    //   - Origin: Wall center
+    //   - Y axis (Green): Points INTO the room (Normal)
+    //   - X axis (Red): Points ALONG the wall (Tangent, following CCW winding)
 
     switch (wall)
     {
         case WallID::NORTH:
-            // North wall at y = +half_depth, facing -Y (into room)
-            return Pose2(0.0, half_depth, -M_PI / 2.0);
+            // North wall (Top, y = +half_depth)
+            // Normal points South (0, -1) -> Y axis
+            // Tangent points West (-1, 0) -> X axis
+            // Rotation: 180 degrees (PI)
+            return Pose2(0.0, half_depth, M_PI);
 
         case WallID::SOUTH:
-            // South wall at y = -half_depth, facing +Y (into room)
-            return Pose2(0.0, -half_depth, M_PI / 2.0);
+            // South wall (Bottom, y = -half_depth)
+            // Normal points North (0, 1) -> Y axis
+            // Tangent points East (1, 0) -> X axis
+            // Rotation: 0 degrees
+            return Pose2(0.0, -half_depth, 0.0);
 
         case WallID::EAST:
-            // East wall at x = +half_width, facing -X (into room)
-            return Pose2(half_width, 0.0, M_PI);
+            // East wall (Right, x = +half_width)
+            // Normal points West (-1, 0) -> Y axis
+            // Tangent points North (0, 1) -> X axis
+            // Rotation: +90 degrees (PI/2)
+            return Pose2(half_width, 0.0, M_PI / 2.0);
 
         case WallID::WEST:
-            // West wall at x = -half_width, facing +X (into room)
-            return Pose2(-half_width, 0.0, 0.0);
+            // West wall (Left, x = -half_width)
+            // Normal points East (1, 0) -> Y axis
+            // Tangent points South (0, -1) -> X axis
+            // Rotation: -90 degrees (-PI/2)
+            return Pose2(-half_width, 0.0, -M_PI / 2.0);
 
         default:
             throw std::runtime_error("Unknown wall ID");
@@ -299,20 +311,29 @@ void ConsensusGraph::addWallAttachmentConstraint(size_t object_index,
     // This way the constraint preserves the detector's orientation, while
     // enforcing that the door is ON the wall surface (y = 0 in wall frame).
 
-    Pose2 wall_pose = computeWallPose(wall, room_half_width_, room_half_depth_);
-    double wall_theta = wall_pose.theta();
+    const Pose2 wall_pose = computeWallPose(wall, room_half_width_, room_half_depth_);
+    const double wall_theta = wall_pose.theta();
 
-    // Compute door's theta relative to wall frame
-    double theta_in_wall = door_theta_in_room - wall_theta;
-
+    // We assume doors are built into walls, not angled.
+    double raw_theta_diff = door_theta_in_room - wall_theta;
+    qInfo() << door_theta_in_room << wall_theta;
+    
     // Normalize to [-π, π]
-    while (theta_in_wall > M_PI) theta_in_wall -= 2 * M_PI;
-    while (theta_in_wall < -M_PI) theta_in_wall += 2 * M_PI;
+    while (raw_theta_diff > M_PI) raw_theta_diff -= 2 * M_PI;
+    while (raw_theta_diff < -M_PI) raw_theta_diff += 2 * M_PI;
+
+    // Snap to nearest: 0 (facing same way) or PI (facing opposite)
+    const double theta_in_wall = (std::abs(raw_theta_diff) < M_PI / 2.0) ? 0.0 : M_PI;
+    // double theta_in_wall;
+    // if (std::abs(raw_theta_diff) < M_PI_2 )
+    //     theta_in_wall = M_PI; // Force exactly parallel
+    // else
+    //     theta_in_wall = 0.0; // Force exactly anti-parallel
 
     // Door position in wall frame: (offset along wall, 0 on wall surface, relative theta)
-    Pose2 object_in_wall_frame(offset_along_wall, 0.0, theta_in_wall);
+    const Pose2 object_in_wall_frame(offset_along_wall, 0.0, theta_in_wall);
 
-    auto constraint_noise = createNoiseModel(constraint_uncertainty);
+    const auto constraint_noise = createNoiseModel(constraint_uncertainty);
 
     // BetweenFactor: wall -> object
     graph_.add(gtsam::BetweenFactor<Pose2>(
@@ -324,7 +345,7 @@ void ConsensusGraph::addWallAttachmentConstraint(size_t object_index,
 
     std::cout << "  Wall attachment: wall_theta=" << wall_theta
               << " door_theta_room=" << door_theta_in_room
-              << " theta_in_wall=" << theta_in_wall << std::endl;
+              << " raw_theta_diff=" << raw_theta_diff << std::endl;
 }
 
 ConsensusResult ConsensusGraph::optimize(int max_iterations, double convergence_threshold)
