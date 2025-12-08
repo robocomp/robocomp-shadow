@@ -308,117 +308,157 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
+	// compute odometry
 	const auto now = std::chrono::high_resolution_clock::now();
+	if (const auto &fast_odom = compute_fast_odometry(); !fast_odom.isZero())
+		Q_EMIT newDoorOdometry(fast_odom);
+
 	// Read LiDAR data (in robot frame)
 	const auto time_points = read_data();
 	if (std::get<0>(time_points).empty()) {	std::cout << "No LiDAR points available\n";	return;	}
-
-	const auto &motion_lag = compute_fast_odometry(std::get<1>(time_points));
-	Q_EMIT newDoorOdometry(motion_lag);
-	auto warped_points = compensate_lidar_latency(std::get<0>(time_points), motion_lag);
-
-	// === Draw LiDAR points in 2D view (every frame) ===
 	const auto& [points, lidar_timestamp] = time_points;
-	draw_lidar(warped_points, &viewer->scene);
 
 	// === Emit LiDAR data to room thread (non-blocking) ===
 	Q_EMIT newLidarData(time_points, velocity_history_);
 
-	double elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
-	qInfo() << "elapsed0: " << elapsed << " ms";
+	// 40ms
+	//double elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	//qInfo() << "elapsed0: " << elapsed << " ms";
 
 	// === Read and cache RGBD for door detection and visualization ===
 	const auto rgbd = read_image();
+	// 40 ms
 	if (!rgbd.rgb.empty())
 	{
-		{
-			QMutexLocker lock(&results_mutex_);
-			cached_rgbd_ = rgbd;
-		}
 		// Emit to door thread
 		Q_EMIT newRGBDData(rgbd);
+
+		// Integrate velocity from LIDAR timestamp to NOW for latency compensation
+		const Eigen::Vector3f motion_lag = integrate_velocity_relative(lidar_timestamp, now);
+		const auto warped_points = compensate_lidar_latency(std::get<0>(time_points), motion_lag);
+		update_visualization(rgbd, warped_points, now);
 	}
 
-	// print elapsed time here
-	elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
-	qInfo() << "elapsed1: " << elapsed << " ms";
 
-	// === Update visualization from cached results ===
-	update_visualization(last_time);
-
-	elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
-	qInfo() << "elapsed2: " << elapsed << " ms";
+	// 10ms
+	// elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	// qInfo() << "elapsed2: " << elapsed << " ms";
 
 	last_time = std::chrono::high_resolution_clock::now();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-Eigen::Vector3f SpecificWorker::compute_fast_odometry(const std::chrono::high_resolution_clock::time_point &lidar_timestamp)
+Eigen::Vector3f SpecificWorker::compute_fast_odometry()
 {
-	// Calculate time delta ===
 	const auto now = std::chrono::high_resolution_clock::now();
 
-	float latency_sec = std::chrono::duration<float>(now - lidar_timestamp).count();
-
-	// 3. Integrate Velocity during Latency Window [lidar_t -> now]
-	Eigen::Vector3f motion_lag = Eigen::Vector3f::Zero();
-
-	// Reuse the history logic, but specifically for the latency window
-	if (!velocity_history_.empty() && latency_sec > 0)
-	{
-		// Simple approximation: use latest velocity * latency
-		// (For 100ms, assuming constant velocity is usually fine)
-		const auto& cmd = velocity_history_.back();
-
-		// Motion in meters/rads
-		motion_lag.x() = (cmd.adv_z / 1000.0f) * latency_sec;
-		motion_lag.y() = (cmd.adv_x / 1000.0f) * latency_sec;
-		motion_lag.z() = cmd.rot * latency_sec;
+	// Safety check for first run
+	if (last_time.time_since_epoch().count() == 0) {
+		return Eigen::Vector3f::Zero();
 	}
-	return motion_lag;
-};
-// specificworker.cpp
+
+	// 1. Compute time elapsed since the LAST ITERATION
+	float dt = std::chrono::duration<float>(now - last_time).count();
+
+	if (dt <= 0 || velocity_history_.empty()) {
+		return Eigen::Vector3f::Zero();
+	}
+
+	// 2. Integrate velocity for this exact interval
+	// Since dt is small (~30-100ms), using the latest command is sufficient and stable.
+	const auto& cmd = velocity_history_.back();
+
+	float dx_mm = cmd.adv_z * dt;
+	float dy_mm = cmd.adv_x * dt;
+	float dtheta = -cmd.rot * dt; // Negative for right-hand rule corrections if needed
+
+	// Return in METERS for the tracker (assuming standard units)
+	return Eigen::Vector3f(dx_mm / 1000.0f, dy_mm / 1000.0f, dtheta);
+}
+
+Eigen::Vector3f SpecificWorker::integrate_velocity_relative(
+	const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
+	const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end)
+{
+	Eigen::Vector3f total_delta = Eigen::Vector3f::Zero();
+
+	// Start with 0 orientation (Relative Frame)
+	float running_theta = 0.0f;
+
+	for (size_t i = 0; i < velocity_history_.size(); ++i) {
+		const auto& cmd = velocity_history_[i];
+
+		// --- Time Window Logic (Same as RoomConcept) ---
+		auto cmd_start = cmd.timestamp;
+		auto cmd_end = (i + 1 < velocity_history_.size())
+					   ? velocity_history_[i + 1].timestamp
+					   : t_end;
+
+		// Clip command duration to our requested window
+		if (cmd_end < t_start) continue;
+		if (cmd_start > t_end) break;
+
+		auto effective_start = std::max(cmd_start, t_start);
+		auto effective_end = std::min(cmd_end, t_end);
+
+		const float dt = std::chrono::duration<float>(effective_end - effective_start).count();
+		if (dt <= 0) continue;
+
+		// --- Integration Logic ---
+		// cmd.adv_z is forward (mm/s), cmd.adv_x is side (mm/s)
+		// Convert to METERS
+		const float dx_local = (cmd.adv_z * dt) / 1000.0f;
+		const float dy_local = (cmd.adv_x * dt) / 1000.0f;
+		const float dtheta = -cmd.rot * dt; // Negative for standard Right-Hand Rule if necessary
+
+		// Accumulate in the running frame
+		total_delta[0] += dx_local * std::cos(running_theta) - dy_local * std::sin(running_theta);
+		total_delta[1] += dx_local * std::sin(running_theta) + dy_local * std::cos(running_theta);
+		total_delta[2] += dtheta;
+
+		running_theta += dtheta;
+	}
+
+	return total_delta;
+}
 
 // Transform points by the INVERSE of the motion (bringing past points to current frame)
-RoboCompLidar3D::TPoints SpecificWorker::compensate_lidar_latency(const RoboCompLidar3D::TPoints &points,
-																  const Eigen::Vector3f &motion_delta)
+RoboCompLidar3D::TPoints SpecificWorker::compensate_lidar_latency(
+	const RoboCompLidar3D::TPoints &points,
+	const Eigen::Vector3f &motion_lag)
 {
-	RoboCompLidar3D::TPoints corrected_points;
-	corrected_points.reserve(points.size());
+	RoboCompLidar3D::TPoints corrected;
+	corrected.reserve(points.size());
 
-	// We apply the INVERSE motion:
-	// 1. Subtract translation
-	// 2. Rotate by negative angle
+	// We apply the INVERSE motion because if the robot moves Forward (+X),
+	// the world moves Backward (-X) relative to the robot.
+	float dx_mm = motion_lag.x() * 1000.0f; // Convert m to mm
+	float dy_mm = motion_lag.y() * 1000.0f;
+	float theta = motion_lag.z();
 
-	// Precompute sin/cos for rotation
-	// Note: The order depends on coordinate system.
-	// Standard approach: P_new = R(-theta) * (P_old - Translation)
-
-	float cos_t = std::cos(-motion_delta.z()); // Rotate opposite to robot turn
-	float sin_t = std::sin(-motion_delta.z());
-	float dx = motion_delta.x() * 1000.0f;     // Convert meters to mm (if motion is in m)
-	float dy = motion_delta.y() * 1000.0f;
+	float c = std::cos(-theta); // Inverse rotation
+	float s = std::sin(-theta);
 
 	for (const auto& p : points)
 	{
 		RoboCompLidar3D::TPoint new_p;
+		// 1. Translate (Inverse)
+		float px = p.x - dx_mm;
+		float py = p.y - dy_mm;
 
-		// 1. Translate (move point closer if robot moved forward)
-		float tx = p.x - dx;
-		float ty = p.y - dy;
+		// 2. Rotate (Inverse)
+		new_p.x = px * c - py * s;
+		new_p.y = px * s + py * c;
+		new_p.z = p.z;
 
-		// 2. Rotate (counter-rotate)
-		new_p.x = tx * cos_t - ty * sin_t;
-		new_p.y = tx * sin_t + ty * cos_t;
-		new_p.z = p.z; // Z usually unchanged in 2D odometry
-
-		corrected_points.push_back(new_p);
+		corrected.push_back(new_p);
 	}
-
-	return corrected_points;
+	return corrected;
 }
 ///////////////////////////////////////////////////////////////////////////////
-void SpecificWorker::update_visualization(const std::chrono::high_resolution_clock::time_point &last_time)
+void SpecificWorker::update_visualization(const RoboCompCamera360RGBD::TRGBD &rgbd,
+										  const RoboCompLidar3D::TPoints &points,
+										  const std::chrono::high_resolution_clock::time_point &last_time)
 {
     QMutexLocker lock(&results_mutex_);
 
@@ -431,17 +471,25 @@ void SpecificWorker::update_visualization(const std::chrono::high_resolution_clo
 
     const auto& room_result = latest_room_result_.value();
     const auto& pose = room_result.optimized_pose;
+	const auto & res_timestamp = room_result.timestamp;
     const auto& room_params = cached_room_params_;
-
-    // Build robot pose transform
-    Eigen::Affine2f robot_pose_display;
-    robot_pose_display.translation() = Eigen::Vector2f(pose[0], pose[1]);
-    robot_pose_display.linear() = Eigen::Rotation2Df(pose[2]).toRotationMatrix();
 
     //////////////////////////////////////////////////////////////////////////////
     /// 2D Viewer - Robot frame
     //////////////////////////////////////////////////////////////////////////////
-    update_robot_view(robot_pose_display, room_result, &viewer->scene);
+	// Build robot pose transform from real time pose
+	Eigen::Vector3f motion_lag = integrate_velocity_relative(room_result.timestamp, std::chrono::high_resolution_clock::now());
+	// Compound Pose (Base + Motion)
+	const float c = std::cos(pose[2]);
+	const float s = std::sin(pose[2]);
+	const float x_now = pose[0] + (motion_lag.x() * c - motion_lag.y() * s);
+	const float y_now = pose[1]+ (motion_lag.x() * s + motion_lag.y() * c);
+	const float theta_now = pose[2] + motion_lag.z();
+	Eigen::Affine2f robot_pose_display;
+	robot_pose_display.translation() = Eigen::Vector2f(x_now, y_now);
+	robot_pose_display.linear() = Eigen::Rotation2Df(theta_now).toRotationMatrix();
+	update_robot_view(robot_pose_display, room_result, &viewer->scene);
+	draw_lidar(points, &viewer->scene);
 
     //////////////////////////////////////////////////////////////////////////////
     /// 3D Viewer - Room
@@ -507,10 +555,10 @@ void SpecificWorker::update_visualization(const std::chrono::high_resolution_clo
     //////////////////////////////////////////////////////////////////////////////
     /// RGB panoramic with door overlay
     //////////////////////////////////////////////////////////////////////////////
-    if (cached_rgbd_.rgb.size() > 0 && cached_rgbd_.width > 0 && cached_rgbd_.height > 0)
+    if (rgbd.rgb.size() > 0 && rgbd.width > 0 && rgbd.height > 0)
     {
-        cv::Mat img(cached_rgbd_.height, cached_rgbd_.width, CV_8UC3,
-                    const_cast<unsigned char*>(cached_rgbd_.rgb.data()));
+        cv::Mat img(rgbd.height, rgbd.width, CV_8UC3,
+                    const_cast<unsigned char*>(rgbd.rgb.data()));
         cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
 
         // Draw door ROI and projection if available

@@ -149,9 +149,15 @@ size_t ConsensusGraph::addRobotPose(const Pose2& pose,
     // Add robot pose to values
     values_.insert(robot_sym, pose);
 
-    // Add prior factor for this pose (from detector estimate)
-    auto pose_noise = createNoiseModel(pose_uncertainty);
-    graph_.add(gtsam::PriorFactor<Pose2>(robot_sym, pose, pose_noise));
+    const auto pose_noise = createNoiseModel(pose_uncertainty);
+    const Pose2 room_from_robot = pose.inverse();
+
+    graph_.add(gtsam::BetweenFactor<Pose2>(
+        robot_sym,
+        RoomSymbol(),
+        room_from_robot,
+        pose_noise
+    ));
 
     // Add odometry factor if not the first pose
     if (index > 0 && odometry_from_previous.has_value())

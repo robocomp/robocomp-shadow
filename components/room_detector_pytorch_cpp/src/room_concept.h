@@ -63,20 +63,21 @@ namespace rc
 
             struct Result
             {
-                torch::Tensor covariance;            // 3x3 or 5x5
-                torch::Tensor propagated_cov;        // 3x3 or 5x5 (after motion, before measurement)
-                std::vector<float> std_devs;         // flat std dev vector
-                float final_loss = 0.0f;             // Total loss after optimization
-                float prior_loss = 0.0f;             // For calibration learning
-                float measurement_loss = 0.0f;       // Final measurement loss
-                bool uncertainty_valid = true;       // Whether covariance is valid
-                bool used_fusion = false;            // Whether odometry prior was used
-                OdometryPrior prior;                 // Odometry prior used
-                PredictionState prediction_state;    // For diagnostics
-                std::vector<float> optimized_pose;   // Final robot pose after optimization
-                float innovation_norm = 0.0f;        // For diagnostics
-                float motion_magnitude = 0.0f;       // For diagnostics
-                RoomState state = RoomState::MAPPING;
+                torch::Tensor covariance;                   // 3x3 or 5x5
+                torch::Tensor propagated_cov;               // 3x3 or 5x5 (after motion, before measurement)
+                std::vector<float> std_devs;                 // flat std dev vector
+                float final_loss = 0.0f;                  // Total loss after optimization
+                float prior_loss = 0.0f;                  // For calibration learning
+                float measurement_loss = 0.0f;            // Final measurement loss
+                bool uncertainty_valid = true;            // Whether covariance is valid
+                bool used_fusion = false;                 // Whether odometry prior was used
+                OdometryPrior prior;                        // Odometry prior used
+                PredictionState prediction_state;         // For diagnostics
+                std::vector<float> optimized_pose;        // Final robot pose after optimization
+                float innovation_norm = 0.0f;                // For diagnostics
+                float motion_magnitude = 0.0f;              // For diagnostics
+                RoomState state = RoomState::MAPPING;;
+                std::chrono::time_point<std::chrono::high_resolution_clock> timestamp;   // Predicted robot pose in current time
             };
 
             struct CalibrationConfig

@@ -108,10 +108,6 @@ class SpecificWorker final : public GenericWorker
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
 					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
 
-		Eigen::Vector3f integrate_velocity_over_window(
-					std::chrono::time_point<std::chrono::high_resolution_clock> t_start,
-					std::chrono::time_point<std::chrono::high_resolution_clock> t_end) const;
-
 		// viewer
 		AbstractGraphicViewer *viewer, *viewer_room;
 		QGraphicsPolygonItem *robot_draw, *robot_room_draw;
@@ -121,7 +117,11 @@ class SpecificWorker final : public GenericWorker
 	    RoboCompLidar3D::TPoints compensate_lidar_latency(const RoboCompLidar3D::TPoints &points,
 								          			      const Eigen::Vector3f &motion_during_latency);
 
-	Eigen::Vector3f compute_fast_odometry(const std::chrono::high_resolution_clock::time_point &lidar_timestamp);
+		Eigen::Vector3f compute_fast_odometry();
+		// Helper to calculate relative motion between two timestamps
+		Eigen::Vector3f integrate_velocity_relative(
+		const std::chrono::time_point<std::chrono::high_resolution_clock> &t_start,
+		const std::chrono::time_point<std::chrono::high_resolution_clock> &t_end);
 		TimePoints read_data();
 		RoboCompLidar3D::TPoints filter_isolated_points_torch(const RoboCompLidar3D::TPoints &points, float d);
 		RoboCompCamera360RGBD::TRGBD read_image();
@@ -169,7 +169,8 @@ class SpecificWorker final : public GenericWorker
 		DoorDetector door_detector;
 		std::unique_ptr<rc::DoorConcept> door_concept;
 
-		void update_visualization(const std::chrono::high_resolution_clock::time_point &last_time);
+		void update_visualization(const RoboCompCamera360RGBD::TRGBD &rgbd, const RoboCompLidar3D::TPoints &points, const std::chrono::
+		                          high_resolution_clock::time_point &last_time);
 
 		// Threaded detectors
 		std::unique_ptr<RoomThread> room_thread_;
@@ -191,7 +192,7 @@ class SpecificWorker final : public GenericWorker
 		std::vector<float> cached_room_params_{0.0f, 0.0f};  // [half_width, half_depth]
 
 		// Cached RGBD for door visualization
-		RoboCompCamera360RGBD::TRGBD cached_rgbd_;
+		//RoboCompCamera360RGBD::TRGBD cached_rgbd_;
 
 		// Cached consensus door pose (in room coordinates)
 		struct ConsensusDoorPose {

@@ -124,6 +124,7 @@ namespace rc
         res.motion_magnitude = motion_magnitude;
         res.prediction_state = prediction;
         res.state = room_freezing_manager.get_state();
+        res.timestamp = std::chrono::high_resolution_clock::now();
         room->state_ = res.state;
 
         // ===== FINALIZE RESULT =====
