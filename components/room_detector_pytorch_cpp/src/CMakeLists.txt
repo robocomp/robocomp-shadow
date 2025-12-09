@@ -60,6 +60,11 @@ set(CMAKE_PREFIX_PATH "/home/robocomp/software/kiss_icp;${CMAKE_PREFIX_PATH}")
 include_directories(specificworker PRIVATE "/home/robocomp/software/kiss-icp/cpp"
 )
 
+# 1. FIX FMT ERROR: Force header-only mode for fmt
+# LibTorch and KISS-ICP usage of fmt can conflict. This forces the compiler
+# to use the implementation in the headers instead of looking for a missing library.
+add_definitions(-DFMT_HEADER_ONLY)
+
 # Include directories
 include_directories(
         ${ONNXRUNTIME_ROOT}/include,
@@ -132,7 +137,7 @@ INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
 
 
 LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport onnxruntime
-                gtsam Eigen3::Eigen Boost::system Boost::filesystem ${OpenCV_LIBS} kiss_icp_core)
+                gtsam Eigen3::Eigen Boost::system Boost::filesystem ${OpenCV_LIBS} kiss_icp_core kiss_icp_pipeline )
 
 # no-char8_t to avoid a problem with ICE Connection lib.
 add_definitions(-O4 -fmax-errors=1 -fno-char8_t)
