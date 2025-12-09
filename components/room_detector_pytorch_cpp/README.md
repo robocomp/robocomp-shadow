@@ -23,7 +23,9 @@ then
 ## Dependencies
 The following dependencies are required to build and run room_detector_pytorch_cpp. Ensure they are installed and properly configured on your system before proceeding:
 ```
-<YOUR DEPENDENCIES>
+You need to install onnxruntime following the instructions at: https://github.com/microsoft/onnxruntime
+You need to install https://github.com/PRBonn/kiss-icp
+You need to install this library:  sudo aptitude install robin-map-dev
 ```
 
 ## Configuration parameters

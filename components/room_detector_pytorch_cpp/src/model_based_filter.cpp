@@ -29,8 +29,8 @@ ModelBasedFilter::Result ModelBasedFilter::filter(
     std::vector<float> points_data;
     points_data.reserve(points.size() * 2);
     for (const auto& p : points) {
-        points_data.push_back(p.x / 1000.0f);
-        points_data.push_back(p.y / 1000.0f);
+        points_data.push_back(p.x);
+        points_data.push_back(p.y);
     }
 
     torch::Tensor points_tensor = torch::from_blob(

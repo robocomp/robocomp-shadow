@@ -209,9 +209,9 @@ namespace rc
                         continue;
 
                     // Convert to meters
-                    const float px = point[0] / 1000.f;
-                    const float py = point[1] / 1000.f;
-                    const float pz = point[2] / 1000.f;
+                    const float px = point[0] / 1000.0f;
+                    const float py = point[1] / 1000.0f;
+                    const float pz = point[2] / 1000.0f;
 
                     // Depth filtering
                     if (roi_config_.filter_by_depth)
@@ -418,9 +418,9 @@ namespace rc
                         continue;
 
                     // Convert to meters and filter by depth
-                    const float px = point[0] / 1000.f;
-                    const float py = point[1] / 1000.f;
-                    const float pz = point[2] / 1000.f;
+                    const float px = point[0]/1000.0f;
+                    const float py = point[1]/1000.0f;
+                    const float pz = point[2]/1000.0f;
 
                     const float depth = std::sqrt(px*px + py*py);
                     if (depth < roi_config_.min_depth || depth > roi_config_.max_depth)

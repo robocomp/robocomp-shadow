@@ -43,8 +43,8 @@ torch::Tensor UncertaintyManager::propagate_with_velocity(
     float theta = previous_pose_[2];  // Current heading
 
     // Compute motion in robot frame
-    float dx_local = (cmd.adv_x * dt) / 1000.0f;
-    float dy_local = (cmd.adv_z * dt) / 1000.0f;
+    float dx_local = (cmd.adv_x * dt);
+    float dy_local = (cmd.adv_z * dt);
     float dtheta = -cmd.rot * dt;
 
     // ===== MOTION MODEL JACOBIAN =====

@@ -42,8 +42,8 @@ void RoomModel::init(const RoboCompLidar3D::TPoints &points)
 	points_data.reserve(points.size() * 2);
 	for (const auto& p : points)
 	{
-		points_data.push_back(p.x / 1000.0f);  // Convert mm to meters
-		points_data.push_back(p.y / 1000.0f);
+		points_data.push_back(p.x);  // Convert mm to meters
+		points_data.push_back(p.y);
 	}
 	const torch::Tensor points_tensor = torch::from_blob
 	(
@@ -184,8 +184,8 @@ Eigen::Vector3f RoomModel::calibrate_velocity(const VelocityCommand& cmd, float 
     float k_r = k_rotation_.item<float>();
 
     // Apply calibration
-    float dx_local = (cmd.adv_x * k_t * dt) / 1000.0f;
-    float dy_local = (cmd.adv_z * k_t * dt) / 1000.0f;
+    float dx_local = (cmd.adv_x * k_t * dt);
+    float dy_local = (cmd.adv_z * k_t * dt);
     float dtheta = -cmd.rot * k_r * dt;
 
     // Transform to room frame
@@ -264,8 +264,8 @@ torch::Tensor RoomModel::predict_pose_tensor(const torch::Tensor& current_pose_t
     const auto k_r = k_rotation_.squeeze();     // [1] -> scalar, keeps requires_grad
 
     // Convert velocity commands to tensors for autodiff
-    const auto v_x_raw = torch::tensor(cmd.adv_x / 1000.0f, torch::kFloat32);  // mm/s -> m/s
-    const auto v_z_raw = torch::tensor(cmd.adv_z / 1000.0f, torch::kFloat32);
+    const auto v_x_raw = torch::tensor(cmd.adv_x, torch::kFloat32);  // mm/s -> m/s
+    const auto v_z_raw = torch::tensor(cmd.adv_z, torch::kFloat32);
     const auto w_raw = torch::tensor(-cmd.rot, torch::kFloat32);
     const auto dt_tensor = torch::tensor(dt, torch::kFloat32);
 

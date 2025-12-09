@@ -45,7 +45,7 @@ namespace rc
         const bool is_localized = room_freezing_manager.should_freeze_room();
 
         // Compute odometry prior between lidar timestamps
-        auto odometry_prior = compute_odometry_prior(room, velocity_history, lidar_timestamp);
+        auto odometry_prior = compute_odometry_prior(room, velocity_history, points_);
 
         // ===== PREDICT STEP =====
         // Propagates state: x_pred = x_prev + f(u, dt)
@@ -662,8 +662,8 @@ namespace rc
 
         for (size_t i = 0; i < points.size(); ++i)
         {
-            accessor[i][0] = points[i].x / 1000.0f; // Convert mm to meters
-            accessor[i][1] = points[i].y / 1000.0f;
+            accessor[i][0] = points[i].x; // Convert mm to meters
+            accessor[i][1] = points[i].y;
         }
 
         return points_tensor;
@@ -701,8 +701,8 @@ namespace rc
             if (dt <= 0) continue;
 
             // Integrate this segment
-            const float dx_local = (adv_x * dt) / 1000.0f;
-            const float dy_local = (adv_z * dt) / 1000.0f;
+            const float dx_local = (adv_x * dt);
+            const float dy_local = (adv_z * dt);
             const float dtheta = -rot * dt;  // Negative for right-hand rule
 
             // Transform to global frame using RUNNING theta
@@ -720,10 +720,11 @@ namespace rc
     RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
         const std::shared_ptr<RoomModel> &room,
         const boost::circular_buffer<VelocityCommand>& velocity_history,
-        const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp)
+        const TimePoints &pooints)
     {
         OdometryPrior prior;
         prior.valid = false;
+        const auto &[points, lidar_timestamp] = pooints;
 
         // Check 1: First frame (no previous timestamp)
         if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{})
@@ -753,8 +754,12 @@ namespace rc
         }
 
         // Integrate velocity over the time window
-        prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
-                                                          last_lidar_timestamp, lidar_timestamp);
+        const auto res = lidar_odometry.update(points);
+        if (res.success)
+            prior.delta_pose = res.delta_pose;
+        else
+            prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
+                                                        last_lidar_timestamp, lidar_timestamp);
 
         prior.dt = dt;
 

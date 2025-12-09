@@ -338,10 +338,6 @@ std::vector<std::vector<Detection>> YOLODetectorONNX::detectBatch(
     return results;
 }
 
-// ============================================================================
-// ORIGINAL METHODS (unchanged)
-// ============================================================================
-
 std::vector<float> YOLODetectorONNX::preprocessImage(const cv::Mat& image) {
     cv::Mat rgbImage, resizedImage, floatImage;
 

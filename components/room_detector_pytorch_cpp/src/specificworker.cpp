@@ -328,21 +328,17 @@ void SpecificWorker::compute()
 	// === Read and cache RGBD for door detection and visualization ===
 	const auto rgbd = read_image();
 	// 40 ms
-	if (!rgbd.rgb.empty())
-	{
-		// Emit to door thread
+	if (!rgbd.rgb.empty()) // Emit to door thread
 		Q_EMIT newRGBDData(rgbd);
 
-		// Integrate velocity from LIDAR timestamp to NOW for latency compensation
-		const Eigen::Vector3f motion_lag = integrate_velocity_relative(lidar_timestamp, now);
-		const auto warped_points = compensate_lidar_latency(std::get<0>(time_points), motion_lag);
-		update_visualization(rgbd, warped_points, now);
-	}
-
+	// Integrate velocity from LIDAR timestamp to NOW for latency compensation
+	const Eigen::Vector3f motion_lag = integrate_velocity_relative(lidar_timestamp, now);
+	const auto warped_points = compensate_lidar_latency(std::get<0>(time_points), motion_lag);
+	update_visualization(rgbd, warped_points, now);
 
 	// 10ms
-	// elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
-	// qInfo() << "elapsed2: " << elapsed << " ms";
+	//double elapsed = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - now).count();
+	//qInfo() << "elapsed2: " << elapsed << " ms";
 
 	last_time = std::chrono::high_resolution_clock::now();
 }
@@ -373,7 +369,7 @@ Eigen::Vector3f SpecificWorker::compute_fast_odometry()
 	float dtheta = -cmd.rot * dt; // Negative for right-hand rule corrections if needed
 
 	// Return in METERS for the tracker (assuming standard units)
-	return Eigen::Vector3f(dx_mm / 1000.0f, dy_mm / 1000.0f, dtheta);
+	return Eigen::Vector3f(dx_mm, dy_mm, dtheta);
 }
 
 Eigen::Vector3f SpecificWorker::integrate_velocity_relative(
@@ -406,9 +402,8 @@ Eigen::Vector3f SpecificWorker::integrate_velocity_relative(
 
 		// --- Integration Logic ---
 		// cmd.adv_z is forward (mm/s), cmd.adv_x is side (mm/s)
-		// Convert to METERS
-		const float dx_local = (cmd.adv_z * dt) / 1000.0f;
-		const float dy_local = (cmd.adv_x * dt) / 1000.0f;
+		const float dx_local = (cmd.adv_z * dt);
+		const float dy_local = (cmd.adv_x * dt);
 		const float dtheta = -cmd.rot * dt; // Negative for standard Right-Hand Rule if necessary
 
 		// Accumulate in the running frame
@@ -423,17 +418,15 @@ Eigen::Vector3f SpecificWorker::integrate_velocity_relative(
 }
 
 // Transform points by the INVERSE of the motion (bringing past points to current frame)
-RoboCompLidar3D::TPoints SpecificWorker::compensate_lidar_latency(
-	const RoboCompLidar3D::TPoints &points,
-	const Eigen::Vector3f &motion_lag)
+RoboCompLidar3D::TPoints SpecificWorker::compensate_lidar_latency(const RoboCompLidar3D::TPoints &points, const Eigen::Vector3f &motion_lag)
 {
 	RoboCompLidar3D::TPoints corrected;
 	corrected.reserve(points.size());
 
 	// We apply the INVERSE motion because if the robot moves Forward (+X),
 	// the world moves Backward (-X) relative to the robot.
-	float dx_mm = motion_lag.x() * 1000.0f; // Convert m to mm
-	float dy_mm = motion_lag.y() * 1000.0f;
+	float dx_mm = motion_lag.x(); // Convert m to mm
+	float dy_mm = motion_lag.y();
 	float theta = motion_lag.z();
 
 	float c = std::cos(-theta); // Inverse rotation
@@ -490,8 +483,7 @@ void SpecificWorker::update_visualization(const RoboCompCamera360RGBD::TRGBD &rg
 	robot_pose_display.linear() = Eigen::Rotation2Df(theta_now).toRotationMatrix();
 	update_robot_view(robot_pose_display, room_result, &viewer->scene);
 	draw_lidar(points, &viewer->scene);
-
-    //////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////
     /// 3D Viewer - Room
     //////////////////////////////////////////////////////////////////////////////
     if (viewer3d)
@@ -930,9 +922,15 @@ TimePoints SpecificWorker::read_data()
 	{ std::cout << e << " " << "No lidar data from sensor" << std::endl; return {}; }
 	if (ldata.points.empty()) return {};
 
+	// convert to meters
+	for (auto &p: ldata.points)
+	{
+		p.x /= 1000.0f, p.y /= 1000.0f, p.z /= 1000.0f; p.distance2d /= 1000.0f; p.r /= 1000.0f;
+	};
+
 	//ldata.points = filter_same_phi(ldata.points);
 	//ldata.points = filter_isolated_points(ldata.points, 150);
-	ldata.points = filter_isolated_points_torch(ldata.points, 150);
+	ldata.points = filter_isolated_points_torch(ldata.points, 0.15f); // 15 cm
 
 	// Use door detector to filter points (removes points near detected doors)
 	ldata.points = door_detector.filter_points(ldata.points);
@@ -1021,7 +1019,7 @@ void SpecificWorker::draw_lidar(const RoboCompLidar3D::TPoints &filtered_points,
 	for (const auto &p: filtered_points)
 	{
 		const auto item = scene->addRect(-25, -25, 50, 50, color, brush);
-		item->setPos(p.x, p.y);
+		item->setPos(p.x*1000.f, p.y*1000.f);  // points come in meters, convert to mm for visualization
 		items.push_back(item);
 	}
 }
@@ -1102,7 +1100,7 @@ void SpecificWorker::JoystickAdapter_sendData(RoboCompJoystickAdapter::TData dat
 		if (axis.name == "rotate")
 			cmd.rot = axis.value;
 		else if (axis.name == "advance") // forward is positive Z. Right-hand rule
-			cmd.adv_z = axis.value;
+			cmd.adv_z = axis.value/1000.0f; // from mm/s to m/s
 		else if (axis.name == "side")
 			cmd.adv_x = 0.0f; // not lateral motion allowed
 	}

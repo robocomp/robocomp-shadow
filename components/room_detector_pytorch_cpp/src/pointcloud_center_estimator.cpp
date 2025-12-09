@@ -46,7 +46,7 @@ namespace rc
         std::vector<Point2D> pc;
         pc.reserve(points.size());
         for (const auto &p : points)
-            pc.emplace_back(p.x/1000.f, p.y/1000.f); // Convert mm to meters
+            pc.emplace_back(p.x, p.y); // Convert mm to meters
         return estimate(pc);
     }
 

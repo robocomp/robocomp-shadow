@@ -19,12 +19,13 @@ Doors DoorDetector::detect(const RoboCompLidar3D::TPoints &points,
     if(points.empty()) return {};
 
     // get the peaks
+    const float MIN_PEAK_HEIGHT = 1.f;  //meter
     Peaks peaks;
     for (const auto &p : iter::sliding_window(points, 2))
     {
         const auto &p1 = p[0]; const auto &p2 = p[1];
         const float d1 = p1.distance2d; const float d2 = p2.distance2d;
-        if (const float dd_da1 = abs(d2 - d1); dd_da1 > 1000.f)
+        if (const float dd_da1 = abs(d2 - d1); dd_da1 > MIN_PEAK_HEIGHT)
         {
             const auto m = std::ranges::min_element(p, [](auto &pa, auto &pb){return pa.distance2d < pb.distance2d;});
             peaks.emplace_back(Eigen::Vector2f(m->x, m->y), m->phi);

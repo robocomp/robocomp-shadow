@@ -47,10 +47,22 @@ find_package(GTSAM REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 
+# --------------------------------------------------------
+# KISS-ICP (Local Source Integration)
+# --------------------------------------------------------
+#   Add the specific subdirectory containing the C++ CMakeLists.txt
+#   Syntax: add_subdirectory(source_dir build_output_dir)
+#   We specify a build dir 'kiss_icp_build' because it's an external path.
+#   You need to install this library:  sudo aptitude install robin-map-dev
+add_subdirectory("/home/robocomp/software/kiss-icp/cpp/kiss_icp" kiss_icp_build)
+set(CMAKE_PREFIX_PATH "/home/robocomp/software/kiss_icp;${CMAKE_PREFIX_PATH}")
+# Add the 'cpp' folder so we can do #include <kiss_icp/pipeline/KissICP.hpp>
+include_directories(specificworker PRIVATE "/home/robocomp/software/kiss-icp/cpp"
+)
 
 # Include directories
 include_directories(
-        ${ONNXRUNTIME_ROOT}/include
+        ${ONNXRUNTIME_ROOT}/include,
 )
 # Link directories
 link_directories(
@@ -84,6 +96,7 @@ LIST(APPEND SOURCES
         ../src/door_thread.cpp
         ../src/consensus_graph_widget.cpp
         ../src/consensus_visualization_adapter.cpp
+        ../src/lidar_odometry.cpp
 )
 # Headers set
 LIST(APPEND HEADERS
@@ -111,13 +124,15 @@ LIST(APPEND HEADERS
         ../src/door_thread.h
         ../src/consensus_graph_widget.h
         ../src/consensus_visualization_adapter.h
+        ../src/lidar_odometry.h
 )
 
 # Include OpenCV
 INCLUDE($ENV{ROBOCOMP}/cmake/modules/opencv4.cmake)
 
 
-LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport onnxruntime gtsam Eigen3::Eigen Boost::system Boost::filesystem ${OpenCV_LIBS})
+LIST(APPEND LIBS ${LIBS} "${TORCH_LIBRARIES}" tbb Qt63DCore Qt63DRender Qt63DExtras Qt6PrintSupport onnxruntime
+                gtsam Eigen3::Eigen Boost::system Boost::filesystem ${OpenCV_LIBS} kiss_icp_core)
 
 # no-char8_t to avoid a problem with ICE Connection lib.
 add_definitions(-O4 -fmax-errors=1 -fno-char8_t)

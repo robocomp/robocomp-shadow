@@ -31,6 +31,7 @@
 #include "room_freezing_manager.h"
 #include "uncertainty_manager.h"
 #include "model_based_filter.h"
+#include "lidar_odometry.h"
 
 namespace rc
 {
@@ -134,6 +135,7 @@ namespace rc
         private:
             std::shared_ptr<RoomModel> room;
             float prior_weight = 1.0f; // Adaptive prior weight
+            LidarOdometry lidar_odometry;
 
             // ===== EKF PREDICT PHASE =====
             /**
@@ -237,8 +239,7 @@ namespace rc
              * Compute odometry prior between LiDAR timestamps
              */
             OdometryPrior compute_odometry_prior(const std::shared_ptr<RoomModel> &room,
-                                                 const boost::circular_buffer<VelocityCommand>& velocity_history,
-                                                 const std::chrono::time_point<std::chrono::high_resolution_clock> &lidar_timestamp);
+                                                 const boost::circular_buffer<VelocityCommand> &velocity_history, const TimePoints &pooints);
 
             /**
              * Compute motion-based covariance for odometry prior
