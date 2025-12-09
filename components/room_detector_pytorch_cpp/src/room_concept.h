@@ -75,6 +75,7 @@ namespace rc
                 OdometryPrior prior;                        // Odometry prior used
                 PredictionState prediction_state;         // For diagnostics
                 std::vector<float> optimized_pose;        // Final robot pose after optimization
+                std::vector<float> predicted_realtime_pose;
                 float innovation_norm = 0.0f;                // For diagnostics
                 float motion_magnitude = 0.0f;              // For diagnostics
                 RoomState state = RoomState::MAPPING;;

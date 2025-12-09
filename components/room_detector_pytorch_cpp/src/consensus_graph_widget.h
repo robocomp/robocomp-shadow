@@ -51,6 +51,7 @@ struct GraphEdge
     QColor color;               // Edge color
     float thickness;            // Edge thickness
     bool is_constraint;         // Whether this is a constraint (rigid)
+    double error;               // Factor error (contribución a la energía)
 };
 
 /**
@@ -291,7 +292,8 @@ private:
     void layoutObjects();
 
     // Node/edge extraction from GTSAM
-    void extractNodes(const gtsam::Values& values);
+    void extractNodes(const gtsam::Values& values,
+                      const std::map<size_t, Eigen::Matrix3d>& covariances);
     void extractEdges(const gtsam::NonlinearFactorGraph& graph,
                       const gtsam::Values& values);
 
@@ -338,6 +340,7 @@ private:
     bool has_optimization_info_;
     double initial_error_;
     double final_error_;
+    double loop_error_;         // Free energy
     int iterations_;
     bool is_optimizing_;
 
@@ -349,6 +352,9 @@ private:
 
     // Node hit testing
     int findNodeAtPosition(const QPointF& widget_pos) const;
+
+    void updateTooltipForNode(int node_idx);
+
 };
 
 #endif // CONSENSUS_GRAPH_WIDGET_H

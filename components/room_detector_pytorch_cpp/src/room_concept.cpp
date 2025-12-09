@@ -86,6 +86,49 @@ namespace rc
         float measurement_loss_for_freezing = res.final_loss - res.prior_loss;
         update_state_management(res, room, is_localized, measurement_loss_for_freezing);
 
+        // ===== PREDICT REAL-TIME POSE (LATENCY COMPENSATION) =====
+        if (!velocity_history.empty())
+        {
+            // Get timestamp of the very latest command (effectively "NOW")
+            auto t_latest = velocity_history.back().timestamp;
+
+            // Only predict forward
+            if (t_latest > lidar_timestamp)
+            {
+                // Integrate velocity from t_lidar (Optimized Time) -> t_latest (Real Time)
+                // Note: 'room' currently holds the optimized pose at t_lidar.
+                // Your integrate_velocity_over_window uses room->get_robot_pose() to start,
+                // so it correctly accumulates from the optimized orientation.
+                Eigen::Vector3f motion_lag = integrate_velocity_over_window(
+                    room,
+                    velocity_history,
+                    lidar_timestamp,
+                    t_latest
+                );
+
+                // Since integrate_velocity_over_window returns GLOBAL displacement
+                // (it applies cos/sin internally), we simply add it.
+                float x_pred = res.optimized_pose[0] + motion_lag.x();
+                float y_pred = res.optimized_pose[1] + motion_lag.y();
+                float t_pred = res.optimized_pose[2] + motion_lag.z();
+
+                // Normalize theta
+                while (t_pred > M_PI) t_pred -= 2 * M_PI;
+                while (t_pred < -M_PI) t_pred += 2 * M_PI;
+
+                res.predicted_realtime_pose = {x_pred, y_pred, t_pred};
+            }
+            else
+            {
+                // No future data available (rare), fallback to optimized
+                res.predicted_realtime_pose = res.optimized_pose;
+            }
+        }
+        else
+        {
+            res.predicted_realtime_pose = res.optimized_pose;
+        }
+
         // ===== ADAPTIVE PRIOR WEIGHTING =====
         // Compute innovation
         Eigen::Matrix3f cov_eigen = Eigen::Matrix3f::Zero();

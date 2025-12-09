@@ -26,6 +26,7 @@ ConsensusGraphWidget::ConsensusGraphWidget(QWidget* parent)
     , has_optimization_info_(false)
     , initial_error_(0.0)
     , final_error_(0.0)
+    , loop_error_(0.0)
     , iterations_(0)
     , is_optimizing_(false)
     , needs_full_layout_(true)
@@ -213,6 +214,7 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     nodes_.clear();
     edges_.clear();
     key_to_node_index_.clear();
+    loop_error_ = 0.0;   // << reset de energía de loops
 
     if (values.empty())
     {
@@ -222,10 +224,13 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     }
 
     // Extract nodes from values
-    extractNodes(values);
+    extractNodes(values, covariances);
 
     // Extract edges from factors
     extractEdges(graph, values);
+
+    if (hovered_node_index_ >= 0)
+        updateTooltipForNode(hovered_node_index_);
 
     // Compute layout
     computeLayout();
@@ -240,8 +245,29 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     emit visualizationUpdated();
 }
 
-void ConsensusGraphWidget::extractNodes(const gtsam::Values& values)
+void ConsensusGraphWidget::extractNodes(const gtsam::Values& values,
+                                        const std::map<size_t, Eigen::Matrix3d>& covariances)
 {
+    // First pass: collect all robot pose keys to identify the latest pose
+    std::vector<uint64_t> robot_keys;
+    uint64_t last_robot_key = 0;
+    bool has_robot = false;
+
+    for (const auto& key_value : values)
+    {
+        uint64_t key = key_value.key;
+        gtsam::Symbol sym(key);
+        char chr = sym.chr();
+
+        if (chr == 'r')
+        {
+            robot_keys.push_back(key);
+            last_robot_key = key;
+            has_robot = true;
+        }
+    }
+
+    // Second pass: create visual nodes
     for (const auto& key_value : values)
     {
         uint64_t key = key_value.key;
@@ -251,16 +277,31 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values)
         {
             gtsam::Pose2 pose = values.at<gtsam::Pose2>(key);
 
+            gtsam::Symbol sym(key);
+            char chr = sym.chr();
+
+            // For robot poses, only create a node for the latest pose.
+            // All older robot poses will be mapped to this node as self-edges
+            // through key_to_node_index_ in the post-processing step.
+            if (chr == 'r' && has_robot && key != last_robot_key)
+            {
+                continue;
+            }
+
             GraphNode node;
             node.label = symbolToString(key);
             node.pose = pose;
             node.is_fixed = false;
             node.covariance = Eigen::Matrix3d::Identity();
 
-            // Determine node type and appearance from symbol
-            gtsam::Symbol sym(key);
-            char chr = sym.chr();
+            // If we have a covariance matrix for this variable, use it
+            auto cov_it = covariances.find(static_cast<size_t>(key));
+            if (cov_it != covariances.end())
+            {
+                node.covariance = cov_it->second;
+            }
 
+            // Determine node type and appearance from symbol
             switch (chr)
             {
                 case 'R':  // Room
@@ -274,7 +315,7 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values)
                     node.radius = config_.wall_node_radius;
                     break;
 
-                case 'r':  // Robot
+                case 'r':  // Robot (only latest pose becomes a node)
                     node.color = config_.robot_color;
                     node.radius = config_.robot_node_radius;
                     break;
@@ -287,6 +328,7 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values)
                 default:
                     node.color = QColor(150, 150, 150);
                     node.radius = 15.0f;
+                    break;
             }
 
             // Fixed nodes get darker color
@@ -305,7 +347,24 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values)
             continue;
         }
     }
+
+    // If we compressed multiple robot poses into a single visual node,
+    // map all robot keys to that node index so that all factors touching
+    // any robot pose become self-edges on the current robot node.
+    if (has_robot)
+    {
+        auto it = key_to_node_index_.find(last_robot_key);
+        if (it != key_to_node_index_.end())
+        {
+            size_t robot_node_index = it->second;
+            for (uint64_t r_key : robot_keys)
+            {
+                key_to_node_index_[r_key] = robot_node_index;
+            }
+        }
+    }
 }
+
 
 void ConsensusGraphWidget::extractEdges(const gtsam::NonlinearFactorGraph& graph,
                                         const gtsam::Values& values)
@@ -320,42 +379,46 @@ void ConsensusGraphWidget::extractEdges(const gtsam::NonlinearFactorGraph& graph
         GraphEdge edge;
         edge.thickness = config_.between_edge_thickness;
         edge.is_constraint = false;
+        edge.error = 0.0;
 
-        // Determine edge type and appearance
+        // FACTOR CON UNA VARIABLE: PRIOR
         if (keys.size() == 1)
         {
-            // Prior factor (single node)
             edge.factor_type = "prior";
             edge.color = config_.prior_edge_color;
             edge.thickness = config_.prior_edge_thickness;
 
-            // Draw as self-loop (or we could skip these)
+            // Self-loop sobre el nodo correspondiente
             auto it = key_to_node_index_.find(keys[0]);
             if (it != key_to_node_index_.end())
             {
                 edge.from_node = it->second;
                 edge.to_node = it->second;
+
+                // Error de este factor
+                edge.error = factor->error(values);
+
                 edges_.push_back(edge);
             }
         }
+        // FACTOR CON DOS VARIABLES: BETWEEN
         else if (keys.size() == 2)
         {
-            // Between factor (two nodes)
             auto it_from = key_to_node_index_.find(keys[0]);
-            auto it_to = key_to_node_index_.find(keys[1]);
+            auto it_to   = key_to_node_index_.find(keys[1]);
 
             if (it_from != key_to_node_index_.end() &&
-                it_to != key_to_node_index_.end())
+                it_to   != key_to_node_index_.end())
             {
                 edge.from_node = it_from->second;
-                edge.to_node = it_to->second;
+                edge.to_node   = it_to->second;
 
-                // Classify edge type by node types
+                // Clasificar tipo de arista por tipo de nodo
                 gtsam::Symbol sym_from(keys[0]);
                 gtsam::Symbol sym_to(keys[1]);
 
                 char chr_from = sym_from.chr();
-                char chr_to = sym_to.chr();
+                char chr_to   = sym_to.chr();
 
                 // Room <-> Wall: rigid constraint
                 if ((chr_from == 'R' && chr_to == 'W') ||
@@ -399,6 +462,19 @@ void ConsensusGraphWidget::extractEdges(const gtsam::NonlinearFactorGraph& graph
                 {
                     edge.factor_type = "between";
                     edge.color = config_.between_edge_color;
+                }
+
+                // Error de este factor
+                edge.error = factor->error(values);
+
+                // Acumular energía de loops:
+                // aquí consideramos como “loops” las observaciones que cierran lazo
+                // entre trayectorias y el mapa (puertas, sala, etc).
+                if (edge.factor_type == "room_obs" ||
+                    edge.factor_type == "object_obs" ||
+                    edge.factor_type == "wall_attachment")  // || edge.factor_type == "rigid_constraint") to include rigid constraints
+                {
+                    loop_error_ += edge.error;
                 }
 
                 edges_.push_back(edge);
@@ -696,14 +772,20 @@ void ConsensusGraphWidget::drawInfoPanel(QPainter& painter)
 
     // Draw text
     painter.setPen(Qt::black);
+    double improvement = 0.0;
+    if (initial_error_ > 0.0)
+        improvement = (initial_error_ - final_error_) / initial_error_ * 100.0;
+
     QString info_text = QString("Initial error: %1\n"
                                "Final error:   %2\n"
-                               "Iterations:    %3\n"
-                               "Improvement:   %4%")
+                               "Loop energy:   %3\n"
+                               "Iterations:    %4\n"
+                               "Improvement:   %5%")
                         .arg(initial_error_, 0, 'f', 3)
                         .arg(final_error_, 0, 'f', 3)
+                        .arg(loop_error_, 0, 'f', 3)
                         .arg(iterations_)
-                        .arg((initial_error_ - final_error_) / initial_error_ * 100.0, 0, 'f', 1);
+                        .arg(improvement, 0, 'f', 1);
 
     painter.drawText(panel_rect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::TextWordWrap, info_text);
 }
@@ -824,12 +906,11 @@ void ConsensusGraphWidget::mouseMoveEvent(QMouseEvent* event)
         {
             const auto& node = nodes_[node_idx];
             emit nodeHovered(node_idx, node.label);
-            setToolTip(QString::fromStdString(node.label));
         }
-        else
-        {
-            setToolTip("");
-        }
+
+        // Rebuild tooltip for the (possibly new) hovered node
+        updateTooltipForNode(hovered_node_index_);
+
         update();
     }
 
@@ -842,10 +923,47 @@ void ConsensusGraphWidget::mouseMoveEvent(QMouseEvent* event)
 
         // Emit view changed signal
         QRectF visible = QRectF(widgetToGraph(QPointF(0, 0)),
-                               widgetToGraph(QPointF(width(), height())));
+                                widgetToGraph(QPointF(width(), height())));
         emit viewChanged(visible);
     }
 }
+
+void ConsensusGraphWidget::updateTooltipForNode(int node_idx)
+{
+    if (node_idx >= 0 && node_idx < static_cast<int>(nodes_.size()))
+    {
+        const auto& node = nodes_[node_idx];
+        const gtsam::Pose2& p = node.pose;
+        const Eigen::Matrix3d& C = node.covariance;
+
+        QString tooltip = QString::fromStdString(node.label);
+        tooltip += "\n";
+        tooltip += QString("μ = [ %1, %2, %3 ]")
+                       .arg(p.x(), 0, 'f', 3)
+                       .arg(p.y(), 0, 'f', 3)
+                       .arg(p.theta(), 0, 'f', 3);
+        tooltip += "\nΣ = ["
+                   + QString(" [%1, %2, %3];")
+                         .arg(C(0,0), 0, 'f', 3)
+                         .arg(C(0,1), 0, 'f', 3)
+                         .arg(C(0,2), 0, 'f', 3)
+                   + QString(" [%1, %2, %3];")
+                         .arg(C(1,0), 0, 'f', 3)
+                         .arg(C(1,1), 0, 'f', 3)
+                         .arg(C(1,2), 0, 'f', 3)
+                   + QString(" [%1, %2, %3] ]")
+                         .arg(C(2,0), 0, 'f', 3)
+                         .arg(C(2,1), 0, 'f', 3)
+                         .arg(C(2,2), 0, 'f', 3);
+
+        setToolTip(tooltip);
+    }
+    else
+    {
+        setToolTip("");
+    }
+}
+
 
 void ConsensusGraphWidget::mouseReleaseEvent(QMouseEvent* event)
 {

@@ -5,6 +5,7 @@
  */
 
 #include "consensus_visualization_adapter.h"
+#include "consensus_graph.h"
 #include <QDebug>
 
 ConsensusVisualizationAdapter::ConsensusVisualizationAdapter(ConsensusManager* manager,
@@ -66,19 +67,36 @@ void ConsensusVisualizationAdapter::onConsensusReady(const ConsensusResult& resu
     const auto& gtsam_graph = graph.getGraph();
     const auto& values = graph.getValues();
 
-    // Extract covariances from result
+    // Extract covariances from result. We store them keyed by the full
+    // GTSAM variable key so that the visualization widget can attach
+    // the correct covariance matrix to each GraphNode.
     std::map<size_t, Eigen::Matrix3d> covariances;
 
-    // Add robot covariances
-    for (size_t i = 0; i < result.robot_covariances.size(); ++i)
+    // Room covariance
     {
-        covariances[i] = result.robot_covariances[i];
+        gtsam::Symbol room_sym = ConsensusGraph::RoomSymbol();
+        covariances[static_cast<size_t>(room_sym.key())] = result.room_covariance;
     }
 
-    // Add object covariances
+    // Wall covariances
+    for (const auto& [wall_id, cov] : result.wall_covariances)
+    {
+        gtsam::Symbol wall_sym = ConsensusGraph::WallSymbol(wall_id);
+        covariances[static_cast<size_t>(wall_sym.key())] = cov;
+    }
+
+    // Robot covariances
+    for (size_t i = 0; i < result.robot_covariances.size(); ++i)
+    {
+        gtsam::Symbol robot_sym = ConsensusGraph::RobotSymbol(i);
+        covariances[static_cast<size_t>(robot_sym.key())] = result.robot_covariances[i];
+    }
+
+    // Object covariances (doors, etc.)
     for (const auto& [idx, cov] : result.object_covariances)
     {
-        covariances[idx] = cov;
+        gtsam::Symbol obj_sym = ConsensusGraph::ObjectSymbol(idx);
+        covariances[static_cast<size_t>(obj_sym.key())] = cov;
     }
 
     // Send optimization completed event

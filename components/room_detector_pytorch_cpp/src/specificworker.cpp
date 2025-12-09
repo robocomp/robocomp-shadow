@@ -252,6 +252,23 @@ void SpecificWorker::initialize()
                     Eigen::Vector3f robot_pose_room;
                     {
                         QMutexLocker lock(&results_mutex_);
+                    	if (!latest_room_result_.has_value()) {
+							 return;
+						}
+
+						// Check if we have a predicted pose (projected to NOW)
+						if (not latest_room_result_->predicted_realtime_pose.empty()) {
+							const auto& p = latest_room_result_->predicted_realtime_pose;
+							robot_pose_room = Eigen::Vector3f(p[0], p[1], p[2]);
+						}
+						// Fallback to optimized pose if prediction is missing
+						else if (!latest_room_result_->optimized_pose.empty()) {
+							const auto& p = latest_room_result_->optimized_pose;
+							robot_pose_room = Eigen::Vector3f(p[0], p[1], p[2]);
+						}
+						else
+							return;
+
                         if (!latest_room_result_.has_value() || latest_room_result_->optimized_pose.size() < 3)
                         {
                             qWarning() << "Cannot transform consensus prior: no robot pose available";
@@ -741,9 +758,42 @@ void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
 	//    This shows how measurements reduced uncertainty
 	if (result.covariance.defined() && result.covariance.numel() > 0)
 	{
+		// === Rotate Covariance to Robot Frame ===
+		// Cov_robot = R^T * Cov_global * R
+
+		// 1. Get rotation matrix R (Robot orientation in Global Frame)
+		float theta = Eigen::Rotation2Df(robot_pose.rotation()).angle(); // or use pose[2]
+		float c = std::cos(theta);
+		float s = std::sin(theta);
+
+		Eigen::Matrix2f R;
+		R << c, -s,
+			 s,  c;
+
+		// 2. Extract Global Position Covariance (2x2)
+		auto cov_cpu = result.covariance.to(torch::kCPU).contiguous();
+		auto cov_ptr = cov_cpu.data_ptr<float>();
+
+		Eigen::Matrix2f cov_global;
+		cov_global << cov_ptr[0], cov_ptr[1],
+					  cov_ptr[3], cov_ptr[4]; // Assuming row-major 3x3 indices
+
+		// 3. Rotate: Cov_robot = R^T * Cov_global * R
+		// We use R^T because we are transforming Global -> Local
+		Eigen::Matrix2f cov_robot = R.transpose() * cov_global * R;
+
+		// 4. Repack into Tensor for the drawing function
+		// We create a temporary 3x3 tensor just to pass the 2x2 part correctly
+		auto options = torch::TensorOptions().dtype(torch::kFloat32);
+		torch::Tensor cov_tensor_robot = result.covariance.clone(); // Copy original to keep theta variance
+		float* ptr = cov_tensor_robot.data_ptr<float>();
+
+		ptr[0] = cov_robot(0,0); ptr[1] = cov_robot(0,1);
+		ptr[3] = cov_robot(1,0); ptr[4] = cov_robot(1,1);
+
 		cov_item = draw_uncertainty_ellipse(
 			scene,
-			result.covariance,
+			cov_tensor_robot,
 			robot_pose_vec,
 			QColor(0, 255, 0, 100), // Green, semi-transparent
 			2.0f // 2-sigma
@@ -1082,7 +1132,7 @@ QGraphicsEllipseItem* SpecificWorker::draw_uncertainty_ellipse(
 
     // Rotate ellipse to match covariance orientation
     ellipse->setTransformOriginPoint(0, 0);
-    ellipse->setRotation(angle_deg);  // Qt uses clockwise, we use counterclockwise
+    ellipse->setRotation(-angle_deg);  // Qt uses clockwise, we use counterclockwise
 
     // Set Z-order (draw on top)
     ellipse->setZValue(100);

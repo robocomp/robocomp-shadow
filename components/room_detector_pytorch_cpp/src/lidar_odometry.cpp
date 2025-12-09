@@ -45,10 +45,6 @@ LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &poin
     for (const auto& p : points)
         eigen_points.emplace_back(p.x , p.y , p.z );
 
-    // std::vector<double> timestamps(eigen_points.size());
-    // std::fill(timestamps.begin(), timestamps.end(),
-    //           std::chrono::duration<double>(timestamp.time_since_epoch()).count());
-
     if (!initialized_)
     {
         // Primer frame: inicializar pose anterior
@@ -66,20 +62,52 @@ LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &poin
     pipeline_.RegisterFrame(eigen_points, {static_cast<double>(timestamp.time_since_epoch().count())});
     const Eigen::Matrix4d current_pose = pipeline_.pose().matrix();  // Pose absoluta actual (4x4)
 
-    // Calcular delta relativo: T_delta = T_last^(-1) * T_current
+    // Compute relative motion: T_delta = T_last^(-1) * T_current
     const Eigen::Matrix4d delta_transform = prev_pose.inverse() * current_pose;
 
     // Extract rotation and translation
     const Eigen::Vector3d translation = delta_transform.block<3,1>(0,3);
     const Eigen::Matrix3d rotation = delta_transform.block<3,3>(0,0);
-    // Yaw (rotación alrededor de Z) usando convención ZYX
-    const double yaw = std::atan2(rotation(1,0), rotation(0,0));
+    double dx = translation(0);
+    double dy = translation(1);
+    // === ROBUST YAW EXTRACTION ===
+    // Instead of manual atan2, let Eigen decompose the 3D rotation.
+    // We assume the standard sequence: Z (Yaw) -> Y (Pitch) -> X (Roll)
+    // The first angle (index 0) is Yaw.
+    Eigen::Vector3d euler = rotation.eulerAngles(2, 1, 0); // Z, Y, X
 
-    res.delta_pose = Eigen::Vector3f{ static_cast<const float &>(translation.x()),
-                                      static_cast<const float &>(translation.y()),
-                                    static_cast<float>(yaw) };
+    // Handle Euler angle multiplicity (Eigen can return angles outside +/- PI)
+    double dtheta = euler[0];
 
-    // Actualizar pose anterior
+    // Normalize to [-PI, PI] for safety
+    while (dtheta > M_PI) dtheta -= 2 * M_PI;
+    while (dtheta < -M_PI) dtheta += 2 * M_PI;
+    //double dtheta = std::atan2(rotation(1,0), rotation(0,0));
+
+    // === PHYSICS FILTER / CLAMPING ===
+    // A. Estimate velocity (assuming ~10Hz or use actual dt)
+    // You might want to pass 'dt' to update() for better accuracy
+    const float assumed_dt = 0.1f;
+    const float linear_speed = std::sqrt(dx*dx + dy*dy) / assumed_dt;
+    const float angular_speed = std::abs(dtheta) / assumed_dt;
+
+    // B. Sanity Check (Max speed of your robot is ~1 m/s)
+    // If ICP says we moved 10 m/s, it failed. Ignore this update.
+    if (linear_speed > 2.0f || angular_speed > 3.0f)
+    {
+        qWarning() << "LidarOdometry: REJECTED jump (Speed: " << linear_speed << "m/s)";
+        res.success = false; // Fallback to velocity commands in RoomConcept!
+        return res;
+    }
+
+    // C. Zero-Velocity Update (ZUPT) / Deadband
+    // If we moved less than 1mm or 0.1 deg, it's just sensor noise. Clamp to 0.
+    // This prevents "Drifting while standing still".
+    if (std::abs(dx) < 0.001f) dx = 0.0f;
+    if (std::abs(dy) < 0.001f) dy = 0.0f;
+    if (std::abs(dtheta) < 0.002f) dtheta = 0.0f;
+
+    res.delta_pose = Eigen::Vector3f(dx, dy, dtheta);
     last_pose_ = current_pose;
 
     res.covariance(0,0) = 1e-5;
