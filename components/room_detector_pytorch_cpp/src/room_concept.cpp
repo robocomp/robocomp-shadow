@@ -720,11 +720,11 @@ namespace rc
     RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
         const std::shared_ptr<RoomModel> &room,
         const boost::circular_buffer<VelocityCommand>& velocity_history,
-        const TimePoints &pooints)
+        const TimePoints &points_)
     {
         OdometryPrior prior;
         prior.valid = false;
-        const auto &[points, lidar_timestamp] = pooints;
+        const auto &[points, lidar_timestamp] = points_;
 
         // Check 1: First frame (no previous timestamp)
         if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{})
@@ -754,12 +754,17 @@ namespace rc
         }
 
         // Integrate velocity over the time window
-        const auto res = lidar_odometry.update(points);
+        const auto res = lidar_odometry.update(points, lidar_timestamp);
+        // qInfo() << "Lidar odometry result: success=" << res.success
+        //         << " delta_pose=[" << res.delta_pose[0] << ", "
+        //                            << res.delta_pose[1] << ", "
+        //                            << res.delta_pose[2] << "]";
         if (res.success)
             prior.delta_pose = res.delta_pose;
         else
+
             prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
-                                                        last_lidar_timestamp, lidar_timestamp);
+                                                    last_lidar_timestamp, lidar_timestamp);
 
         prior.dt = dt;
 

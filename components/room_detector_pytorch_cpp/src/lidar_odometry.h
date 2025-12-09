@@ -33,7 +33,7 @@ public:
      * @param points Raw LiDAR points
      * @return Result containing relative motion since the PREVIOUS scan
      */
-    Result update(const RoboCompLidar3D::TPoints &points);
+    Result update(const RoboCompLidar3D::TPoints &points, const std::chrono::time_point<std::chrono::system_clock> &timestamp);
 
     /**
      * @brief Reset the odometry (e.g., on room change)

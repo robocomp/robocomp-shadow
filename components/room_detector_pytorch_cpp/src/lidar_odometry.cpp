@@ -12,8 +12,12 @@ LidarOdometry::LidarOdometry()
     // 3. Set your specific configuration
     config_.max_range = 40.0;
     config_.min_range = 0.5;
-    config_.voxel_size = 0.05;
+    config_.voxel_size = 0.5;
     config_.deskew = false;
+    config_.max_points_per_voxel = 20;
+    // th parms
+    config_.min_motion_th = 0.001;
+    config_.initial_threshold = 2.0;
 
     // 4. Re-initialize pipeline with the CORRECT config
     pipeline_ = kiss_icp::pipeline::KissICP(config_);
@@ -27,48 +31,60 @@ void LidarOdometry::reset()
     qInfo() << "LidarOdometry: Reset";
 }
 
-LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &points)
+LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &points,
+                                            const std::chrono::time_point<std::chrono::system_clock> &timestamp)
 {
     Result res;
     res.success = false;
     res.delta_pose = Eigen::Vector3f::Zero();
-    res.covariance = Eigen::Matrix3f::Identity(); // High uncertainty fallback
+    res.covariance = Eigen::Matrix3f::Identity();
 
     if (points.empty()) return res;
 
-    // 1. Convert Points
-    // KISS-ICP expects std::vector<Eigen::Vector3d>
-    const auto eigen_points = convert_points(points);
+    std::vector<Eigen::Vector3d> eigen_points; eigen_points.reserve(points.size());
+    for (const auto& p : points)
+        eigen_points.emplace_back(p.x , p.y , p.z );
 
-    // 2. Register Scan
-    // The pipeline returns the global pose of the robot in the odometry frame
-    // NOTE: kiss_icp::pipeline::KissICP::RegisterFrame returns the POSE, not delta.
-    pipeline_.RegisterFrame(eigen_points, {});
-    const auto current_odom = pipeline_.delta(); // Get latest pose
+    // std::vector<double> timestamps(eigen_points.size());
+    // std::fill(timestamps.begin(), timestamps.end(),
+    //           std::chrono::duration<double>(timestamp.time_since_epoch()).count());
 
-    // return values
-    res.delta_pose = Eigen::Vector3f(current_odom.translation().x(), current_odom.translation().y(), current_odom.angleZ());
-    
-    // 4. Estimate Covariance (KISS-ICP provides robust registration but not explicit covariance)
-    // We synthesize a covariance based on the fitness/points matched, or use a tight constant
-    // because Lidar Odometry is extremely accurate locally.
-    res.covariance = Eigen::Matrix3f::Identity();
-    res.covariance(0,0) = 1e-5; // Very precise X
-    res.covariance(1,1) = 1e-5; // Very precise Y
-    res.covariance(2,2) = 1e-4; // Very precise Theta
+    if (!initialized_)
+    {
+        // Primer frame: inicializar pose anterior
+        pipeline_.RegisterFrame(eigen_points, {static_cast<double>(timestamp.time_since_epoch().count())});
+        last_pose_ = pipeline_.pose().matrix();  // Guardar pose absoluta
+        initialized_ = true;
+        res.success = false;
+        qInfo() << "LidarOdometry: Initialized with" << points.size() << "points";
+        return res;
+    }
+
+    const Eigen::Matrix4d prev_pose = last_pose_;
+
+    // Registrar frame actual
+    pipeline_.RegisterFrame(eigen_points, {static_cast<double>(timestamp.time_since_epoch().count())});
+    const Eigen::Matrix4d current_pose = pipeline_.pose().matrix();  // Pose absoluta actual (4x4)
+
+    // Calcular delta relativo: T_delta = T_last^(-1) * T_current
+    const Eigen::Matrix4d delta_transform = prev_pose.inverse() * current_pose;
+
+    // Extract rotation and translation
+    const Eigen::Vector3d translation = delta_transform.block<3,1>(0,3);
+    const Eigen::Matrix3d rotation = delta_transform.block<3,3>(0,0);
+    // Yaw (rotación alrededor de Z) usando convención ZYX
+    const double yaw = std::atan2(rotation(1,0), rotation(0,0));
+
+    res.delta_pose = Eigen::Vector3f{ static_cast<const float &>(translation.x()),
+                                      static_cast<const float &>(translation.y()),
+                                    static_cast<float>(yaw) };
+
+    // Actualizar pose anterior
+    last_pose_ = current_pose;
+
+    res.covariance(0,0) = 1e-5;
+    res.covariance(1,1) = 1e-5;
+    res.covariance(2,2) = 1e-4;
     res.success = true;
     return res;
-}
-
-std::vector<Eigen::Vector3d> LidarOdometry::convert_points(const RoboCompLidar3D::TPoints &points)
-{
-    std::vector<Eigen::Vector3d> eigen_pts;
-    eigen_pts.reserve(points.size());
-    
-    for (const auto& p : points)
-    {
-        // Convert mm to meters
-        eigen_pts.emplace_back(p.x / 1000.0, p.y / 1000.0, p.z / 1000.0);
-    }
-    return eigen_pts;
 }
