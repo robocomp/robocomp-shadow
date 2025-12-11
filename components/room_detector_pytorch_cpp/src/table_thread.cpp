@@ -77,7 +77,7 @@ void TableThread::onNewOdometry(const Eigen::Vector3f& motion)
     data_condition_.wakeOne();
 }
 
-void TableThread::onConsensusPrior(const Eigen::Vector4f& pose, const Eigen::Matrix4f& covariance)
+void TableThread::onConsensusPrior(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance)
 {
     QMutexLocker lock(&data_mutex_);
     pending_prior_pose_ = pose;
@@ -122,11 +122,10 @@ void TableThread::run()
         Eigen::Vector3f motion = Eigen::Vector3f::Zero();
         bool has_rgbd = false;
         bool has_lidar = false;
-        bool has_motion = false;
 
         // Consensus prior
-        Eigen::Vector4f prior_pose;
-        Eigen::Matrix4f prior_covariance;
+        Eigen::Vector3f prior_pose;
+        Eigen::Matrix3f prior_covariance;
         bool apply_prior = false;
         bool clear_prior = false;
 
@@ -165,7 +164,6 @@ void TableThread::run()
             {
                 motion = pending_motion_;
                 pending_motion_.setZero();
-                has_motion = true;
                 has_new_motion_ = false;
             }
 
@@ -258,11 +256,11 @@ void TableThread::run()
                     {
                         has_detection_.store(true);
                         tracking_.store(true);
-                        Q_EMIT tableDetected(result.table);
+                        Q_EMIT doorDetected(result.table);
                         qInfo() << "TableThread: Table detected";
                     }
 
-                    // Emit update
+                    //Q_EMIT update
                     if (result.success && result.table)
                     {
                         tracking_.store(true);
@@ -272,7 +270,7 @@ void TableThread::run()
                         if (result.covariance.defined())
                             result_copy.covariance = result.covariance.clone().contiguous();
 
-                        Q_EMIT tableUpdated(result.table, result_copy);
+                        Q_EMIT doorUpdated(result.table, result_copy);
                     }
                 }
                 else
@@ -281,7 +279,7 @@ void TableThread::run()
                     if (was_tracking && !now_tracking)
                     {
                         tracking_.store(false);
-                        Q_EMIT trackingLost();
+                       Q_EMIT trackingLost();
                         qInfo() << "TableThread: Tracking lost";
                     }
                 }
@@ -289,7 +287,7 @@ void TableThread::run()
             catch (const std::exception& e)
             {
                 qWarning() << "TableThread: Exception during update:" << e.what();
-                Q_EMIT errorOccurred(QString("Update error: %1").arg(e.what()));
+               Q_EMIT errorOccurred(QString("Update error: %1").arg(e.what()));
             }
         }
     }

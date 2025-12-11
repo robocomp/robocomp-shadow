@@ -190,6 +190,12 @@ private:
      */
     static Eigen::Vector3f fromPose2(const gtsam::Pose2& pose);
 
+    bool is_statistically_consistent(const gtsam::Pose2& current_belief,
+                                 const gtsam::Matrix3& belief_cov,
+                                 const gtsam::Pose2& measurement,
+                                 const gtsam::Matrix3& measurement_cov,
+                                 double sigma_threshold = 3.0);
+
     // Thread safety
     mutable QMutex mutex_;
 
@@ -234,6 +240,12 @@ private:
     // Smoothing factor (0.0 = infinite memory/no update, 1.0 = no smoothing)
     // 0.1 gives a very smooth, slow response. 0.3 is a good balance.
     const float ALPHA_SMOOTHING = 0.2f;
+
+    // Track which doors we have already linked to the current robot node
+    std::set<size_t> doors_observed_at_current_pose_;
+
+    // Helper to reset without locking (for internal use)
+    void reset_internal();
 };
 
 #endif // CONSENSUS_MANAGER_H

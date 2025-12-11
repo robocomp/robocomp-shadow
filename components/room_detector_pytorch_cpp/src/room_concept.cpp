@@ -367,7 +367,38 @@ namespace rc
             min_loss_threshold
         );
 
-        // === DIAGNOSTIC: Movement check ===
+        res.optimized_pose = room->get_robot_pose();
+
+        // === JUMP GUARD ===
+        // If the optimizer moved the robot > 20cm or > 45deg from prediction, REJECT IT.
+        // This prevents the 180 degree flip.
+
+        std::vector<float> ref_pose;
+        if (prediction.predicted_pose.size() == 3) ref_pose = prediction.predicted_pose;
+        else if (prediction.previous_pose.size() == 3) ref_pose = prediction.previous_pose;
+
+        if (ref_pose.size() == 3)
+        {
+            float dx = res.optimized_pose[0] - ref_pose[0];
+            float dy = res.optimized_pose[1] - ref_pose[1];
+            float dtheta = res.optimized_pose[2] - ref_pose[2];
+
+            // Normalize angle
+            while (dtheta > M_PI) dtheta -= 2 * M_PI;
+            while (dtheta < -M_PI) dtheta += 2 * M_PI;
+
+            if (std::sqrt(dx*dx + dy*dy) > 0.2f || std::abs(dtheta) > 0.78f) // 0.2m, 45deg
+            {
+                qWarning() << "RoomConcept: REJECTED OPTIMIZATION JUMP. Resetting to prediction."
+                           << "dTheta:" << dtheta;
+
+                // Revert to prediction
+                room->robot_pos_.data()[0] = prediction.predicted_pose[0];
+                room->robot_pos_.data()[1] = prediction.predicted_pose[1];
+                room->robot_theta_.data()[0] = prediction.predicted_pose[2];
+                res.optimized_pose = prediction.predicted_pose;
+            }
+        }
 
         // Estimate uncertainty after optimization
         // Pass the propagated covariance (after motion growth) for proper EKF update
@@ -760,7 +791,7 @@ namespace rc
         return total_delta;
     }
 
-    RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
+RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
         const std::shared_ptr<RoomModel> &room,
         const boost::circular_buffer<VelocityCommand>& velocity_history,
         const TimePoints &points_)
@@ -769,60 +800,60 @@ namespace rc
         prior.valid = false;
         const auto &[points, lidar_timestamp] = points_;
 
-        // Check 1: First frame (no previous timestamp)
         if (last_lidar_timestamp == std::chrono::time_point<std::chrono::high_resolution_clock>{})
         {
             last_lidar_timestamp = lidar_timestamp;
             return prior;
         }
 
-        // Check 2: Empty velocity history
-        if (velocity_history.empty()) {
-            return prior;
-        }
-
-        // Check 3: Time delta between LiDAR scans
+        // Calculate dt
         const float dt = std::chrono::duration<float>(lidar_timestamp - last_lidar_timestamp).count();
-
-        if (dt <= 0) {
-            qWarning() << "Invalid dt <= 0 (" << dt << "s) - timestamp not advancing!";
+        if (dt <= 0 || dt > 0.5f) {
             last_lidar_timestamp = lidar_timestamp;
             return prior;
         }
-
-        if (dt > 0.5f) {
-            qWarning() << "Large dt (" << dt << "s) - possible frame skip";
-            last_lidar_timestamp = lidar_timestamp;
-            return prior;
-        }
-
-        // Integrate velocity over the time window
-        const auto res = lidar_odometry.update(points, lidar_timestamp);
-        // qInfo() << "Lidar odometry result: success=" << res.success
-        //         << " delta_pose=[" << res.delta_pose[0] << ", "
-        //                            << res.delta_pose[1] << ", "
-        //                            << res.delta_pose[2] << "]";
-        if (res.success)
-            prior.delta_pose = res.delta_pose;
-        else
-
-            prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
-                                                    last_lidar_timestamp, lidar_timestamp);
-
         prior.dt = dt;
 
-        // Compute process noise using consistent helper method
-        Eigen::Matrix3f cov_eigen = compute_motion_covariance(prior);
+        // 1. Try Lidar Odometry
+        // (Move the physics check logic here as discussed previously)
+        const auto res = lidar_odometry.update(points, lidar_timestamp);
 
-        // Convert to torch tensor
+        bool accept_lidar = false;
+        if (res.success) {
+            float speed_lin = std::sqrt(res.delta_pose[0]*res.delta_pose[0] +
+                                      res.delta_pose[1]*res.delta_pose[1]) / dt;
+            float speed_rot = std::abs(res.delta_pose[2]) / dt;
+            if (speed_lin < 2.0f && speed_rot < 2.0f) accept_lidar = true;
+            else qWarning() << "RoomConcept: REJECTED LidarOdom jump!";
+        }
+
+        if (accept_lidar)
+        {
+            prior.delta_pose = res.delta_pose;
+            prior.valid = true;
+        }
+        else
+        {
+            // 2. Fallback to Velocity or Zero
+            if (!velocity_history.empty()) {
+                prior.delta_pose = integrate_velocity_over_window(room, velocity_history,
+                                                    last_lidar_timestamp, lidar_timestamp);
+            } else {
+                // If no history, assume STATIONARY (Zero motion)
+                // This protects us when sitting still!
+                prior.delta_pose = Eigen::Vector3f::Zero();
+            }
+            prior.valid = true; // ALWAYS valid now
+        }
+
+        // Compute covariance
+        Eigen::Matrix3f cov_eigen = compute_motion_covariance(prior);
         prior.covariance = torch::eye(3, torch::kFloat32);
         prior.covariance[0][0] = cov_eigen(0, 0);
         prior.covariance[1][1] = cov_eigen(1, 1);
         prior.covariance[2][2] = cov_eigen(2, 2);
 
-        prior.valid = true;
         last_lidar_timestamp = lidar_timestamp;
-
         return prior;
     }
 

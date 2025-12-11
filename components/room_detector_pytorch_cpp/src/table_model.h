@@ -70,6 +70,11 @@ public:
     /**
      * @brief Initialize table model from YOLO detection ROI
      *
+     * Uses improved initialization:
+     * - Median depth filtering for robustness
+     * - PCA-based orientation estimation
+     * - Depth tolerance filtering
+     *
      * @param roi_points LiDAR points within YOLO bounding box
      * @param roi Bounding box from YOLO
      * @param id Unique table identifier
@@ -158,6 +163,7 @@ public:
 
     // Fixed table parameters (not optimized)
     float leg_radius_ = 0.025f;      // 2.5cm leg radius (standard)
+    float leg_thickness_ = 0.025f;
 
     // Table pose in robot frame (trainable)
     torch::Tensor table_position_;   // [x, y, z] - table center position (at tabletop)

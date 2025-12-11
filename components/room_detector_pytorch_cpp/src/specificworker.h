@@ -51,6 +51,7 @@
 #include "consensus_manager.h"
 #include "room_thread.h"
 #include "door_thread.h"
+#include "table_thread.h"
 #include "consensus_graph_widget.h"
 #include "consensus_visualization_adapter.h"
 
@@ -175,6 +176,7 @@ class SpecificWorker final : public GenericWorker
 		// Threaded detectors
 		std::unique_ptr<RoomThread> room_thread_;
 		std::unique_ptr<DoorThread> door_thread_;
+		std::unique_ptr<TableThread> table_thread_;
 
 		// Consensus manager (QObject, runs in main thread)
 		ConsensusManager consensus_manager_;

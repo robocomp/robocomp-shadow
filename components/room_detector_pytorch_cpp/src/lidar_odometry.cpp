@@ -10,9 +10,9 @@ LidarOdometry::LidarOdometry()
     , pipeline_(config_)       // 2. Initialize pipeline with those defaults (satisfies compiler)
 {
     // 3. Set your specific configuration
-    config_.max_range = 40.0;
+    config_.max_range = 10.0;
     config_.min_range = 0.5;
-    config_.voxel_size = 0.5;
+    config_.voxel_size = 0.05;
     config_.deskew = false;
     config_.max_points_per_voxel = 20;
     // th parms
@@ -61,43 +61,56 @@ LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &poin
     // Registrar frame actual
     pipeline_.RegisterFrame(eigen_points, {static_cast<double>(timestamp.time_since_epoch().count())});
     const Eigen::Matrix4d current_pose = pipeline_.pose().matrix();  // Pose absoluta actual (4x4)
+    //const auto delta_pose = pipeline_.delta().matrix();
 
-    // Compute relative motion: T_delta = T_last^(-1) * T_current
-    const Eigen::Matrix4d delta_transform = prev_pose.inverse() * current_pose;
+     // Compute relative motion: T_delta = T_last^(-1) * T_current
+     const Eigen::Matrix4d delta_transform = prev_pose.inverse() * current_pose;
 
-    // Extract rotation and translation
-    const Eigen::Vector3d translation = delta_transform.block<3,1>(0,3);
-    const Eigen::Matrix3d rotation = delta_transform.block<3,3>(0,0);
-    double dx = translation(0);
-    double dy = translation(1);
-    // === ROBUST YAW EXTRACTION ===
-    // Instead of manual atan2, let Eigen decompose the 3D rotation.
-    // We assume the standard sequence: Z (Yaw) -> Y (Pitch) -> X (Roll)
-    // The first angle (index 0) is Yaw.
-    Eigen::Vector3d euler = rotation.eulerAngles(2, 1, 0); // Z, Y, X
+     // Extract rotation and translation
+     const Eigen::Vector3d translation = delta_transform.block<3,1>(0,3);
+     const Eigen::Matrix3d rotation = delta_transform.block<3,3>(0,0);
+     double dx = translation(0);
+     double dy = translation(1);
 
-    // Handle Euler angle multiplicity (Eigen can return angles outside +/- PI)
-    double dtheta = euler[0];
+     // === ROBUST YAW EXTRACTION ===
+     // Instead of manual atan2, let Eigen decompose the 3D rotation.
+     // We assume the standard sequence: Z (Yaw) -> Y (Pitch) -> X (Roll)
+     // The first angle (index 0) is Yaw.
+     //Eigen::Vector3d euler = rotation.eulerAngles(2, 1, 0); // Z, Y, X
 
+     // Handle Euler angle multiplicity (Eigen can return angles outside +/- PI)
+     //double dtheta = euler[0];
+    double dtheta = std::atan2(rotation(1,0), rotation(0,0));
+
+    //const auto rotation = delta_pose.block<3,3>(0,0);
+    //double dtheta = atan2(rotation(1,0), rotation(0,0));
     // Normalize to [-PI, PI] for safety
     while (dtheta > M_PI) dtheta -= 2 * M_PI;
     while (dtheta < -M_PI) dtheta += 2 * M_PI;
-    //double dtheta = std::atan2(rotation(1,0), rotation(0,0));
+    //double dx = delta_pose(0,3);
+    //double dy = delta_pose(1,3);
 
     // === PHYSICS FILTER / CLAMPING ===
     // A. Estimate velocity (assuming ~10Hz or use actual dt)
     // You might want to pass 'dt' to update() for better accuracy
-    const float assumed_dt = 0.1f;
+    float assumed_dt = 0.1f;
+    const float dt = std::chrono::duration<float>(timestamp - last_timestamp).count();
+    if (dt > 0.0f)
+        assumed_dt = dt;
     const float linear_speed = std::sqrt(dx*dx + dy*dy) / assumed_dt;
     const float angular_speed = std::abs(dtheta) / assumed_dt;
 
     // B. Sanity Check (Max speed of your robot is ~1 m/s)
     // If ICP says we moved 10 m/s, it failed. Ignore this update.
-    if (linear_speed > 2.0f || angular_speed > 3.0f)
+    if (linear_speed > 2.0f)
     {
-        qWarning() << "LidarOdometry: REJECTED jump (Speed: " << linear_speed << "m/s)";
-        res.success = false; // Fallback to velocity commands in RoomConcept!
-        return res;
+        qWarning() << "LidarOdometry: REJECTED Linear Jump (" << linear_speed << "m/s)";
+        res.success = false; return res;
+    }
+    if (angular_speed > 2.0f)
+    {
+        qWarning() << "LidarOdometry: REJECTED Angular Jump (" << angular_speed << "rad/s)";
+        res.success = false; return res;
     }
 
     // C. Zero-Velocity Update (ZUPT) / Deadband
@@ -109,10 +122,12 @@ LidarOdometry::Result LidarOdometry::update(const RoboCompLidar3D::TPoints &poin
 
     res.delta_pose = Eigen::Vector3f(dx, dy, dtheta);
     last_pose_ = current_pose;
+    last_timestamp = timestamp;
 
     res.covariance(0,0) = 1e-5;
     res.covariance(1,1) = 1e-5;
     res.covariance(2,2) = 1e-4;
     res.success = true;
+
     return res;
 }

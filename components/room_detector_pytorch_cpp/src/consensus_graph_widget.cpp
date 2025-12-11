@@ -8,13 +8,71 @@
 #include "consensus_graph.h"
 #include <QPainter>
 #include <QPainterPath>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QLabel>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
 
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+class NodeInfoDialog : public QDialog
+{
+public:
+    explicit NodeInfoDialog(QWidget* parent = nullptr)
+        : QDialog(parent)
+    {
+        setWindowFlag(Qt::Tool);
+        setAttribute(Qt::WA_DeleteOnClose, false);
+
+        auto layout = new QVBoxLayout(this);
+        title_label_ = new QLabel(this);
+        pose_label_ = new QLabel(this);
+        cov_label_ = new QLabel(this);
+
+        title_label_->setStyleSheet("font-weight: bold");
+
+        layout->addWidget(title_label_);
+        layout->addWidget(pose_label_);
+        layout->addWidget(cov_label_);
+
+        resize(320, 220);
+    }
+
+
+    void setNode(const GraphNode& node)
+    {
+        title_label_->setText(QString::fromStdString(node.label));
+
+        const auto& p = node.pose;
+        pose_label_->setText(
+            QString("Pose (x, y, theta): [%1, %2, %3]")
+                .arg(p.x(), 0, 'f', 3)
+                .arg(p.y(), 0, 'f', 3)
+                .arg(p.theta(), 0, 'f', 3));
+
+        const auto& C = node.covariance;
+        cov_label_->setText(
+            QString("Covariance Σ:\n"
+                    "[%1, %2, %3]\n"
+                    "[%4, %5, %6]\n"
+                    "[%7, %8, %9]")
+                .arg(C(0,0), 0, 'f', 3).arg(C(0,1), 0, 'f', 3).arg(C(0,2), 0, 'f', 3)
+                .arg(C(1,0), 0, 'f', 3).arg(C(1,1), 0, 'f', 3).arg(C(1,2), 0, 'f', 3)
+                .arg(C(2,0), 0, 'f', 3).arg(C(2,1), 0, 'f', 3).arg(C(2,2), 0, 'f', 3));
+    }
+
+private:
+    QLabel* title_label_;
+    QLabel* pose_label_;
+    QLabel* cov_label_;
+};
+
+ConsensusGraphWidget::~ConsensusGraphWidget() = default;
 
 ConsensusGraphWidget::ConsensusGraphWidget(QWidget* parent)
     : QWidget(parent)
@@ -23,10 +81,11 @@ ConsensusGraphWidget::ConsensusGraphWidget(QWidget* parent)
     , auto_fit_(true)
     , is_dragging_(false)
     , hovered_node_index_(-1)
+    , node_info_dialog_(nullptr)
+    , active_info_label_("")
     , has_optimization_info_(false)
     , initial_error_(0.0)
     , final_error_(0.0)
-    , loop_error_(0.0)
     , iterations_(0)
     , is_optimizing_(false)
     , needs_full_layout_(true)
@@ -239,6 +298,17 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     if (auto_fit_)
     {
         fitToView();
+    }
+
+    // Keep node info dialog in sync while it is open
+    if (node_info_dialog_ && !active_info_label_.empty())
+    {
+        auto it = std::find_if(nodes_.begin(), nodes_.end(),
+                               [&](const GraphNode& n) { return n.label == active_info_label_; });
+        if (it != nodes_.end())
+        {
+            node_info_dialog_->setNode(*it);
+        }
     }
 
     update();
@@ -772,20 +842,15 @@ void ConsensusGraphWidget::drawInfoPanel(QPainter& painter)
 
     // Draw text
     painter.setPen(Qt::black);
-    double improvement = 0.0;
-    if (initial_error_ > 0.0)
-        improvement = (initial_error_ - final_error_) / initial_error_ * 100.0;
-
     QString info_text = QString("Initial error: %1\n"
-                               "Final error:   %2\n"
-                               "Loop energy:   %3\n"
-                               "Iterations:    %4\n"
-                               "Improvement:   %5%")
+                               "Loop error:    %2\n"
+                               "Iterations:    %3\n"
+                               "Improvement:   %4%")
                         .arg(initial_error_, 0, 'f', 3)
+                        // Here we interpret loop_error as the final error of this optimization loop
                         .arg(final_error_, 0, 'f', 3)
-                        .arg(loop_error_, 0, 'f', 3)
                         .arg(iterations_)
-                        .arg(improvement, 0, 'f', 1);
+                        .arg((initial_error_ - final_error_) / initial_error_ * 100.0, 0, 'f', 1);
 
     painter.drawText(panel_rect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::TextWordWrap, info_text);
 }
@@ -888,6 +953,17 @@ void ConsensusGraphWidget::mousePressEvent(QMouseEvent* event)
             const auto& node = nodes_[node_idx];
             emit nodeClicked(node_idx, node.label);
             std::cout << "Node clicked: " << node.label << "\n";
+
+            // Open or update node info dialog
+            active_info_label_ = node.label;
+            if (!node_info_dialog_)
+            {
+                node_info_dialog_ = std::make_unique<NodeInfoDialog>(this);
+            }
+            node_info_dialog_->setNode(node);
+            node_info_dialog_->show();
+            node_info_dialog_->raise();
+            node_info_dialog_->activateWindow();
         }
 
         is_dragging_ = true;

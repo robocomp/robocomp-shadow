@@ -436,6 +436,29 @@ ConsensusResult ConsensusGraph::optimize(int max_iterations, double convergence_
     return result;
 }
 
+void ConsensusGraph::addObservation(size_t robot_idx,
+                                    size_t object_idx,
+                                    const gtsam::Pose2& measurement,
+                                    const Eigen::Vector3d& sigmas)
+{
+    // 1. Create Noise Model
+    auto noise = gtsam::noiseModel::Diagonal::Sigmas(
+        (gtsam::Vector(3) << sigmas.x(), sigmas.y(), sigmas.z()).finished()
+    );
+
+    // 2. Add BetweenFactor (Robot -> Object)
+    // Connects X(robot_idx) to L(object_idx)
+    graph_.emplace_shared<gtsam::BetweenFactor<gtsam::Pose2>>(
+        RobotSymbol(robot_idx),
+        ObjectSymbol(object_idx),
+        measurement,
+        noise
+    );
+
+    // Note: We do NOT add a new value to initial_estimates_
+    // because the Object node already exists.
+}
+
 void ConsensusGraph::print(const std::string& prefix) const
 {
     std::cout << prefix << "=== ConsensusGraph ===" << std::endl;

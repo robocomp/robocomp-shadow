@@ -102,6 +102,10 @@ LIST(APPEND SOURCES
         ../src/consensus_graph_widget.cpp
         ../src/consensus_visualization_adapter.cpp
         ../src/lidar_odometry.cpp
+        ../src/table_thread.cpp
+        ../src/table_concept.cpp
+        ../src/table_model.cpp
+        ../src/table_projection.cpp
 )
 # Headers set
 LIST(APPEND HEADERS
@@ -127,9 +131,13 @@ LIST(APPEND HEADERS
         ../src/custom_camera_controller.h
         ../src/room_thread.h
         ../src/door_thread.h
+        ../src/table_thread.h
+        ../src/table_concept.h
+        ../src/table_model.h
         ../src/consensus_graph_widget.h
         ../src/consensus_visualization_adapter.h
         ../src/lidar_odometry.h
+        ../src/table_projection.h
 )
 
 # Include OpenCV

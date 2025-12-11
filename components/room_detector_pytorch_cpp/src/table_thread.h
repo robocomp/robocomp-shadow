@@ -40,147 +40,147 @@
  *   2. Connect signals/slots
  *   3. Call start()
  *   4. Send data via slots (onNewRGBDData, onNewLidarData, onNewOdometry)
- *   5. Receive results via signals (tableUpdated, tableDetected, trackingLost)
+ *   5. Receive results via signals (doorUpdated, doorDetected, trackingLost)
  */
 class TableThread : public QThread
 {
     Q_OBJECT
 
-public:
-    /**
-     * @brief Construct TableThread
-     * @param camera_proxy Proxy for 360 RGBD camera (can be nullptr if using external data)
-     */
-    explicit TableThread(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr& camera_proxy = nullptr,
-                        QObject* parent = nullptr);
-    ~TableThread() override;
+    public:
+        /**
+         * @brief Construct TableThread
+         * @param camera_proxy Proxy for 360 RGBD camera (can be nullptr if using external data)
+         */
+        explicit TableThread(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr& camera_proxy = nullptr,
+                            QObject* parent = nullptr);
+        ~TableThread() override;
 
-    /**
-     * @brief Check if table is being tracked
-     */
-    bool isTracking() const { return tracking_.load(); }
+        /**
+         * @brief Check if table is being tracked
+         */
+        bool isTracking() const { return tracking_.load(); }
 
-    /**
-     * @brief Check if table has been detected
-     */
-    bool hasDetection() const { return has_detection_.load(); }
+        /**
+         * @brief Check if table has been detected
+         */
+        bool hasDetection() const { return has_detection_.load(); }
 
-    /**
-     * @brief Get current table model (thread-safe copy)
-     */
-    std::shared_ptr<TableModel> getModel();
+        /**
+         * @brief Get current table model (thread-safe copy)
+         */
+        std::shared_ptr<TableModel> getModel();
 
-    /**
-     * @brief Get last result (thread-safe copy)
-     */
-    std::optional<rc::TableConcept::Result> getLastResult();
+        /**
+         * @brief Get last result (thread-safe copy)
+         */
+        std::optional<rc::TableConcept::Result> getLastResult();
 
-    /**
-     * @brief Get table concept configuration (for tuning)
-     */
-    rc::TableConcept::OptimizationConfig& getConfig();
+        /**
+         * @brief Get table concept configuration (for tuning)
+         */
+        rc::TableConcept::OptimizationConfig& getConfig();
 
-    /**
-     * @brief Request thread to stop
-     */
-    void requestStop();
+        /**
+         * @brief Request thread to stop
+         */
+        void requestStop();
 
-Q_SIGNALS:
-    /**
-     * @brief Emitted when a new table is detected
-     */
-    void tableDetected(std::shared_ptr<TableModel> model);
+        Q_SIGNALS:
+            /**
+             * @brief Emitted when a new table is detected
+             */
+            void doorDetected(std::shared_ptr<TableModel> model);
 
-    /**
-     * @brief Emitted after each successful tracking update
-     */
-    void tableUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result);
+            /**
+             * @brief Emitted after each successful tracking update
+             */
+            void doorUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result);
 
-    /**
-     * @brief Emitted when tracking is lost
-     */
-    void trackingLost();
+            /**
+             * @brief Emitted when tracking is lost
+             */
+            void trackingLost();
 
-    /**
-     * @brief Emitted on errors
-     */
-    void errorOccurred(const QString& error);
+            /**
+             * @brief Emitted on errors
+             */
+            void errorOccurred(const QString& error);
 
-public Q_SLOTS:
+        public Q_SLOTS:
 
-    /**
-     * @brief Receive new RGBD data from main thread
-     */
-    void onNewRGBDData(const RoboCompCamera360RGBD::TRGBD& rgbd);
+        /**
+         * @brief Receive new RGBD data from main thread
+         */
+        void onNewRGBDData(const RoboCompCamera360RGBD::TRGBD& rgbd);
 
-    /**
-     * @brief Receive new LiDAR data from main thread (for full 3D filtering)
-     */
-    void onNewLidarData(const RoboCompLidar3D::TPoints& points);
+        /**
+         * @brief Receive new LiDAR data from main thread (for full 3D filtering)
+         */
+        void onNewLidarData(const RoboCompLidar3D::TPoints& points);
 
-    /**
-     * @brief Receive odometry update from main thread
-     */
-    void onNewOdometry(const Eigen::Vector3f& motion);
+        /**
+         * @brief Receive odometry update from main thread
+         */
+        void onNewOdometry(const Eigen::Vector3f& motion);
 
-    /**
-     * @brief Set consensus prior from factor graph
-     */
-    void onConsensusPrior(const Eigen::Vector4f& pose, const Eigen::Matrix4f& covariance);
+        /**
+         * @brief Set consensus prior from factor graph
+         */
+        void onConsensusPrior(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance);
 
-    /**
-     * @brief Clear consensus prior
-     */
-    void onClearConsensusPrior();
+        /**
+         * @brief Clear consensus prior
+         */
+        void onClearConsensusPrior();
 
-    /**
-     * @brief Force redetection
-     */
-    void onForceRedetection();
+        /**
+         * @brief Force redetection
+         */
+        void onForceRedetection();
 
-    /**
-     * @brief Reset table tracking
-     */
-    void onReset();
+        /**
+         * @brief Reset table tracking
+         */
+        void onReset();
 
-protected:
-    void run() override;
+    protected:
+        void run() override;
 
-private:
-    // Table concept instance (owned by this thread)
-    std::unique_ptr<rc::TableConcept> table_concept_;
-    RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera_proxy_;
+    private:
+        // Table concept instance (owned by this thread)
+        std::unique_ptr<rc::TableConcept> table_concept_;
+        RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera_proxy_;
 
-    // Thread-safe data exchange
-    mutable QMutex data_mutex_;
-    QWaitCondition data_condition_;
+        // Thread-safe data exchange
+        mutable QMutex data_mutex_;
+        QWaitCondition data_condition_;
 
-    // Input data (protected by data_mutex_)
-    RoboCompCamera360RGBD::TRGBD pending_rgbd_;
-    RoboCompLidar3D::TPoints pending_lidar_points_;
-    Eigen::Vector3f pending_motion_ = Eigen::Vector3f::Zero();
-    bool has_new_rgbd_ = false;
-    bool has_new_lidar_ = false;
-    bool has_new_motion_ = false;
+        // Input data (protected by data_mutex_)
+        RoboCompCamera360RGBD::TRGBD pending_rgbd_;
+        RoboCompLidar3D::TPoints pending_lidar_points_;
+        Eigen::Vector3f pending_motion_ = Eigen::Vector3f::Zero();
+        bool has_new_rgbd_ = false;
+        bool has_new_lidar_ = false;
+        bool has_new_motion_ = false;
 
-    // Consensus prior (protected by data_mutex_)
-    Eigen::Vector4f pending_prior_pose_;
-    Eigen::Matrix4f pending_prior_covariance_;
-    bool has_new_prior_ = false;
-    bool clear_prior_requested_ = false;
+        // Consensus prior (protected by data_mutex_)
+        Eigen::Vector3f pending_prior_pose_;
+        Eigen::Matrix3f pending_prior_covariance_;
+        bool has_new_prior_ = false;
+        bool clear_prior_requested_ = false;
 
-    // Control flags (protected by data_mutex_)
-    bool force_redetection_ = false;
-    bool reset_requested_ = false;
+        // Control flags (protected by data_mutex_)
+        bool force_redetection_ = false;
+        bool reset_requested_ = false;
 
-    // State
-    std::atomic<bool> tracking_{false};
-    std::atomic<bool> has_detection_{false};
-    std::atomic<bool> stop_requested_{false};
+        // State
+        std::atomic<bool> tracking_{false};
+        std::atomic<bool> has_detection_{false};
+        std::atomic<bool> stop_requested_{false};
 
-    // Last result (protected by data_mutex_)
-    std::optional<rc::TableConcept::Result> last_result_;
-    std::shared_ptr<TableModel> current_model_;
+        // Last result (protected by data_mutex_)
+        std::optional<rc::TableConcept::Result> last_result_;
+        std::shared_ptr<TableModel> current_model_;
 };
 
 #endif // TABLE_THREAD_H

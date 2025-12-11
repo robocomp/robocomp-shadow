@@ -250,6 +250,17 @@ public:
                              double convergence_threshold = 1e-5);
 
     /**
+     * @brief Add an observation factor to an EXISTING object
+     * * @param robot_idx Index of the robot pose node
+     * @param object_idx Index of the existing object node
+     * @param measurement Relative pose (Robot -> Object)
+     * @param sigmas Measurement uncertainty [x, y, theta]
+     */
+    void addObservation(size_t robot_idx,
+                        size_t object_idx,
+                        const gtsam::Pose2& measurement,
+                        const Eigen::Vector3d& sigmas);
+    /**
      * @brief Get the current factor graph (for debugging/visualization)
      */
     const gtsam::NonlinearFactorGraph& getGraph() const { return graph_; }

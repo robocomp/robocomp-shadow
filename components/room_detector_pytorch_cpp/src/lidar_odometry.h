@@ -44,10 +44,11 @@ private:
     // KISS-ICP Pipeline
     kiss_icp::pipeline::KISSConfig config_;
     kiss_icp::pipeline::KissICP pipeline_;
-
+    std::chrono::time_point<std::chrono::high_resolution_clock> last_timestamp = std::chrono::time_point<std::chrono::system_clock>{};
     // State tracking
     bool initialized_ = false;
     Eigen::Matrix4d last_pose_ = Eigen::Matrix4d::Identity();
+
     
     // Helper to convert RoboComp points to Eigen
     std::vector<Eigen::Vector3d> convert_points(const RoboCompLidar3D::TPoints &points);

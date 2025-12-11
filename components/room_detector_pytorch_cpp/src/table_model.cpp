@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <cmath>
 #include <QDebug>
+#include <algorithm>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -33,45 +34,178 @@ void TableModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
                       float initial_depth,
                       float initial_height)
 {
-    // Store metadata
     roi_points = roi_points_;
     roi = roi_;
     id = id_;
     label = label_;
-    score = 1.0f;
 
-    // Compute initial pose from point cloud centroid
     if (roi_points.empty())
     {
-        qWarning() << "TableModel::init() - No points in ROI, using default pose";
-        table_position_ = torch::tensor({0.0f, 1.0f, initial_height/2.0f}, torch::requires_grad(true));
-        table_theta_ = torch::tensor({0.0f}, torch::requires_grad(true));
+        qWarning() << "TableModel::init() - No ROI points provided";
+        return;
     }
-    else
+
+    // =================================================================
+    // IMPROVED INITIALIZATION with Median Depth Filtering
+    // =================================================================
+
+    // Compute median of depth (Y+ is forward)
+    std::vector<float> y_depths;
+    y_depths.reserve(roi_points.size());
+    for (const auto& p : roi_points)
+        y_depths.push_back(p.y());
+
+    std::ranges::sort(y_depths);
+    const float median_depth = y_depths[y_depths.size() / 2];
+
+    // Filter points inside a reasonable range (table is compact object)
+    const float depth_tolerance = 0.5f;  // 50cm tolerance for table depth
+    std::vector<Eigen::Vector3f> filtered_points;
+    filtered_points.reserve(roi_points.size());
+
+    for (const auto& p : roi_points)
     {
-        // Compute centroid
-        Eigen::Vector3f centroid = Eigen::Vector3f::Zero();
-        for (const auto& p : roi_points)
-            centroid += p;
-        centroid /= static_cast<float>(roi_points.size());
-
-        // Initialize position at centroid (z at tabletop level)
-        // For height estimation, use max z from points
-        float max_z = roi_points[0].z();
-        for (const auto& p : roi_points)
-            max_z = std::max(max_z, p.z());
-
-        table_position_ = torch::tensor({centroid.x(), centroid.y(), max_z},
-                                       torch::requires_grad(true));
-
-        // Initial orientation: align with robot's Y-axis (forward)
-        table_theta_ = torch::tensor({0.0f}, torch::requires_grad(true));
+        const float y = p.y();
+        if (std::abs(y - median_depth) <= depth_tolerance)
+            filtered_points.push_back(p);
     }
+
+    if (filtered_points.empty())
+    {
+        std::cout << "Warning: All points filtered out, using original set\n";
+        filtered_points = roi_points;
+    }
+
+    std::cout << "Filtered points: " << filtered_points.size()
+              << " of " << roi_points.size()
+              << " (median depth: " << median_depth << " m)\n";
+
+    // Estimate table center from ROI point cloud
+    float x_sum = 0.0f, y_sum = 0.0f, z_sum = 0.0f;
+    float x_min = std::numeric_limits<float>::max();
+    float x_max = std::numeric_limits<float>::lowest();
+    float y_min = std::numeric_limits<float>::max();
+    float y_max = std::numeric_limits<float>::lowest();
+    float z_min = std::numeric_limits<float>::max();
+    float z_max = std::numeric_limits<float>::lowest();
+
+    for (const auto& p : filtered_points)
+    {
+        float x = p.x();
+        float y = p.y();
+        float z = p.z();
+
+        x_sum += x;
+        y_sum += y;
+        z_sum += z;
+
+        x_min = std::min(x_min, x);
+        x_max = std::max(x_max, x);
+        y_min = std::min(y_min, y);
+        y_max = std::max(y_max, y);
+        z_min = std::min(z_min, z);
+        z_max = std::max(z_max, z);
+    }
+
+    const float n = static_cast<float>(filtered_points.size());
+    const float center_x = x_sum / n;
+    const float center_y = y_sum / n;
+    // z position at tabletop (use z_max which should be near table surface)
+    const float center_z = z_max;
+
+    // =================================================================
+    // PCA-BASED ORIENTATION ESTIMATION
+    // =================================================================
+
+    float initial_theta = 0.0f;
+
+    if (filtered_points.size() >= 3)
+    {
+        // Compute covariance matrix in XY plane
+        float cov_xx = 0.0f, cov_xy = 0.0f, cov_yy = 0.0f;
+        for (const auto& p : filtered_points)
+        {
+            float dx = p.x() - center_x;
+            float dy = p.y() - center_y;
+            cov_xx += dx * dx;
+            cov_xy += dx * dy;
+            cov_yy += dy * dy;
+        }
+        cov_xx /= n;
+        cov_xy /= n;
+        cov_yy /= n;
+
+        // Find principal eigenvector (direction of maximum variance)
+        float trace = cov_xx + cov_yy;
+        float det = cov_xx * cov_yy - cov_xy * cov_xy;
+        float discriminant = std::sqrt(std::max(0.0f, trace * trace / 4.0f - det));
+
+        // Larger eigenvalue corresponds to the table's primary axis
+        float lambda1 = trace / 2.0f + discriminant;
+
+        // Eigenvector for lambda1
+        float ev_x, ev_y;
+        if (std::abs(cov_xy) > 1e-6f)
+        {
+            ev_x = cov_xy;
+            ev_y = lambda1 - cov_xx;
+        }
+        else
+        {
+            // Diagonal matrix - pick axis with larger variance
+            ev_x = (cov_xx > cov_yy) ? 1.0f : 0.0f;
+            ev_y = (cov_xx > cov_yy) ? 0.0f : 1.0f;
+        }
+
+        // Normalize eigenvector
+        float ev_norm = std::sqrt(ev_x*ev_x + ev_y*ev_y);
+        if (ev_norm > 1e-6f)
+        {
+            ev_x /= ev_norm;
+            ev_y /= ev_norm;
+        }
+
+        // Table orientation: perpendicular to principal axis
+        // (principal axis = along table length, we want normal = table facing)
+        float normal_x = -ev_y;
+        float normal_y = ev_x;
+
+        // Ensure table faces toward robot (at origin)
+        float dot = normal_x * center_x + normal_y * center_y;
+        if (dot < 0)  // Normal points away, flip it
+        {
+            normal_x = -normal_x;
+            normal_y = -normal_y;
+        }
+
+        // Convert normal to angle
+        initial_theta = std::atan2(normal_x, normal_y);
+
+        std::cout << "PCA orientation estimate: theta = "
+                  << initial_theta << " rad ("
+                  << (initial_theta * 180.0f / M_PI) << " deg)\n";
+    }
+
+    // =================================================================
+    // INITIALIZE TENSORS
+    // =================================================================
+
+    // Initialize position at centroid
+    table_position_ = torch::tensor({center_x, center_y, center_z},
+                                   torch::requires_grad(true));
+
+    // Initialize orientation from PCA
+    table_theta_ = torch::tensor({initial_theta}, torch::requires_grad(true));
 
     // Initialize geometry
-    table_width_ = torch::tensor({initial_width}, torch::requires_grad(true));
-    table_depth_ = torch::tensor({initial_depth}, torch::requires_grad(true));
-    table_height_ = torch::tensor({initial_height}, torch::requires_grad(true));
+    // Refine estimates from point cloud bounds if reasonable
+    float estimated_width = std::max(0.5f, std::min(2.0f, (x_max - x_min)));
+    float estimated_depth = std::max(0.4f, std::min(1.5f, (y_max - y_min)));
+    float estimated_height = std::max(0.5f, std::min(1.2f, z_max));
+
+    table_width_ = torch::tensor({estimated_width}, torch::requires_grad(true));
+    table_depth_ = torch::tensor({estimated_depth}, torch::requires_grad(true));
+    table_height_ = torch::tensor({estimated_height}, torch::requires_grad(true));
     top_thickness_ = torch::tensor({0.05f}, torch::requires_grad(true));  // 5cm tabletop
 
     // Register parameters
@@ -83,10 +217,9 @@ void TableModel::init(const std::vector<Eigen::Vector3f>& roi_points_,
     register_parameter("top_thickness", top_thickness_);
 
     qInfo() << "TableModel" << id << "initialized at position:"
-            << table_position_[0].item<float>()
-            << table_position_[1].item<float>()
-            << table_position_[2].item<float>()
-            << "theta:" << table_theta_[0].item<float>();
+            << center_x << center_y << center_z
+            << "theta:" << initial_theta
+            << "size:" << estimated_width << "x" << estimated_depth << "x" << estimated_height;
 }
 
 torch::Tensor TableModel::transform_to_table_frame(const torch::Tensor& points_robot) const
@@ -95,25 +228,20 @@ torch::Tensor TableModel::transform_to_table_frame(const torch::Tensor& points_r
     // 1. Translate by -table_position
     // 2. Rotate by -table_theta around Z-axis
 
-    // Get table position [3]
     const torch::Tensor pos = table_position_;
-
-    // Get rotation angle
     const torch::Tensor theta = table_theta_.squeeze();
     const torch::Tensor cos_theta = torch::cos(theta);
     const torch::Tensor sin_theta = torch::sin(theta);
 
-    // Create 3D rotation matrix around Z-axis [3x3]
+    // 3D rotation matrix around Z-axis [3x3]
     const torch::Tensor rotation = torch::stack({
         torch::stack({cos_theta, -sin_theta, torch::zeros_like(theta)}),
         torch::stack({sin_theta, cos_theta, torch::zeros_like(theta)}),
         torch::stack({torch::zeros_like(theta), torch::zeros_like(theta), torch::ones_like(theta)})
     });
 
-    // Translate points to table center: [N, 3] - [3]
+    // Translate and rotate
     const torch::Tensor translated = points_robot - pos;
-
-    // Rotate points: [N, 3] @ [3, 3]^T = [N, 3]
     const torch::Tensor points_table = torch::matmul(translated, rotation.transpose(0, 1));
 
     return points_table;
@@ -122,9 +250,6 @@ torch::Tensor TableModel::transform_to_table_frame(const torch::Tensor& points_r
 torch::Tensor TableModel::sdBox(const torch::Tensor& p, const torch::Tensor& b) const
 {
     // SDF for axis-aligned box centered at origin
-    // p: [N, 3] query points
-    // b: [3] half-extents
-
     const torch::Tensor q = torch::abs(p) - b;
     const torch::Tensor outside = torch::norm(torch::clamp_min(q, 0.0), 2, /*dim=*/1);
     const torch::Tensor inside = torch::clamp_max(
@@ -138,15 +263,8 @@ torch::Tensor TableModel::sdBox(const torch::Tensor& p, const torch::Tensor& b) 
 torch::Tensor TableModel::sdCylinder(const torch::Tensor& p, float h, float r) const
 {
     // SDF for vertical cylinder (Z-axis aligned) centered at origin
-    // p: [N, 3] query points
-    // h: cylinder height
-    // r: cylinder radius
-
-    // Distance in XY plane
     const torch::Tensor xy = torch::stack({p.select(1, 0), p.select(1, 1)}, 1);
     const torch::Tensor d_xy = torch::norm(xy, 2, /*dim=*/1) - r;
-
-    // Distance along Z axis
     const torch::Tensor d_z = torch::abs(p.select(1, 2)) - h / 2.0f;
 
     // Combine distances
@@ -185,11 +303,6 @@ torch::Tensor TableModel::sdf_tabletop(const torch::Tensor& points_table) const
 torch::Tensor TableModel::sdf_legs(const torch::Tensor& points_table) const
 {
     // Four cylindrical legs at corners
-    // In table local frame:
-    // - Tabletop is at z = 0 (top surface)
-    // - Legs extend downward from z = -top_thickness to z = -(table_height)
-    // - Leg positions: (±width/2, ±depth/2)
-
     const float half_width = table_width_.item<float>() / 2.0f;
     const float half_depth = table_depth_.item<float>() / 2.0f;
     const float top_thickness = top_thickness_.item<float>();
@@ -210,14 +323,9 @@ torch::Tensor TableModel::sdf_legs(const torch::Tensor& points_table) const
 
     for (const auto& [leg_x, leg_y] : leg_positions)
     {
-        // Offset points to leg center
         torch::Tensor offset = torch::tensor({leg_x, leg_y, leg_center_z}, points_table.options());
         torch::Tensor points_leg = points_table - offset;
-
-        // Compute cylinder SDF
         torch::Tensor leg_sdf = sdCylinder(points_leg, leg_height, leg_radius_);
-
-        // Update minimum distance
         min_dist = torch::min(min_dist, leg_sdf);
     }
 

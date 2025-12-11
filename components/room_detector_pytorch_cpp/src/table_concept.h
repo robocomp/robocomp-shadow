@@ -16,6 +16,7 @@
 #include <Eigen/Dense>
 #include <Lidar3D.h>
 #include "table_model.h"
+#include "table_projection.h"
 #include "common_types.h"
 #include "yolo_detector_onnx.h"
 #include <Camera360RGBD.h>
@@ -65,9 +66,8 @@ namespace rc
                             << "	z:"  << params[2]
                             << "	theta:"   << params[3]
                             << "	width:"   << params[4]
-                            << "	depth:"  << params[5]
-                            << "	height:"  << params[6]
-                            << "	thickness:"  << params[7];
+                            << "	height:"  << params[5]
+                            << "	angle:"  << params[6];
                 }
             };
 
@@ -78,18 +78,17 @@ namespace rc
                 float min_loss_threshold = 0.001f;
 
                 // Convergence criteria
-                float convergence_patience = 5;      // Iterations without improvement
-                float convergence_delta = 1e-4f;     // Minimum loss change
+                float convergence_patience = 5;      // Iterations without improvement (reduced)
+                float convergence_delta = 1e-4f;     // Minimum loss change (increased for faster exit)
 
                 // Regularization
                 bool use_geometry_regularization = true;
-                float geometry_reg_weight = 0.5f;    // Prior on table dimensions
+                float geometry_reg_weight = 0.5f;    // Strong prior on table dimensions
 
                 // Standard table dimensions for regularization (meters)
-                float typical_width = 1.0f;          // 1m standard table width
-                float typical_depth = 0.6f;          // 60cm standard table depth
-                float typical_height = 0.75f;        // 75cm standard table height
-                float size_std = 0.2f;               // 20cm tolerance
+                float typical_width = 1.0f;          // 100cm standard table width
+                float typical_height = 0.75f;         // 75cm standard table height
+                float size_std = 0.2f;              // 20cm tolerance (tighter)
 
                 // Tracking quality thresholds
                 float tracking_lost_threshold = 0.5f;   // Mean residual above this triggers redetection
@@ -99,7 +98,7 @@ namespace rc
                 // Consensus prior (from factor graph)
                 bool use_consensus_prior = true;        // Enable consensus prior in loss
                 float consensus_prior_weight = 1.0f;    // Weight for position prior term
-                float consensus_orientation_weight = 5.0f;  // Weight for orientation alignment
+                float consensus_orientation_weight = 5.0f;  // Weight for orientation alignment (stronger)
             };
 
             /**
@@ -156,7 +155,7 @@ namespace rc
             /**
              * @brief Compute 2D bounding box from 3D table model projection
              *
-             * Projects table corners (including legs) to image space and computes enclosing rectangle
+             * Projects table corners to image space and computes enclosing rectangle
              */
             cv::Rect compute_projected_roi(const TableModel& table,
                                            int image_width, int image_height);
@@ -166,8 +165,8 @@ namespace rc
              */
             void initialize(const RoboCompLidar3D::TPoints& roi_points,
                            float initial_width = 1.0f,
-                           float initial_depth = 0.6f,
-                           float initial_height = 0.75f);
+                           float initial_height = 2.0f,
+                           float initial_angle = 0.0f);
 
             /**
              * @brief Get current table model
@@ -208,13 +207,13 @@ namespace rc
              * @brief Set consensus prior from factor graph optimization
              *
              * The prior is a (pose, covariance) pair that constrains the table
-             * to lie on the floor. This is computed by ConsensusManager after
+             * to lie on a wall. This is computed by ConsensusManager after
              * running the factor graph optimization.
              *
-             * @param pose Prior pose [x, y, z, theta] from consensus
-             * @param covariance Prior covariance (4x4) from consensus marginals
+             * @param pose Prior pose [x, y, theta] from consensus
+             * @param covariance Prior covariance (3x3) from consensus marginals
              */
-            void setConsensusPrior(const Eigen::Vector4f& pose, const Eigen::Matrix4f& covariance);
+            void setConsensusPrior(const Eigen::Vector3f& pose, const Eigen::Matrix3f& covariance);
 
             /**
              * @brief Clear consensus prior (disable prior term)
@@ -236,9 +235,9 @@ namespace rc
 
             // Consensus prior from factor graph
             bool consensus_prior_set_ = false;
-            Eigen::Vector4f consensus_prior_pose_;
-            Eigen::Matrix4f consensus_prior_covariance_;
-            Eigen::Matrix4f consensus_prior_info_;  // Inverse of covariance (precision)
+            Eigen::Vector3f consensus_prior_pose_;
+            Eigen::Matrix3f consensus_prior_covariance_;
+            Eigen::Matrix3f consensus_prior_info_;  // Inverse of covariance (precision)
 
             std::unique_ptr<YOLODetectorONNX> yolo_detector;
             RoboCompCamera360RGBD::Camera360RGBDPrxPtr camera360rgbd_proxy;

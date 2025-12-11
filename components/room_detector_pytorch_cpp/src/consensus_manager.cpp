@@ -61,13 +61,16 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
     }
 
     // If the room estimate has grown/shrunk by > 20cm, we need to rebuild the graph so the walls move to the correct place.
-    if (std::abs(room_params[0] - room_half_width_) > 100.0f || std::abs(room_params[1] - room_half_depth_) > 100.0f)
+    if (std::abs(room_params[0] - room_half_width_) > 0.5f || std::abs(room_params[1] - room_half_depth_) > 0.5f)
     {
         qInfo() << "ConsensusManager: Room dimensions changed significantly. Resetting graph.";
-        reset();
+        reset_internal();
         // Re-initialize immediately with new params
         initializeFromRoom(room_model, robot_pose, robot_covariance, room_params);
         has_room_ = true;
+        // Reset tracking so we treat this as a fresh start
+        last_robot_pose_ = robot_pose;
+        has_last_pose_ = true;
         return;
     }
 
@@ -87,6 +90,16 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
 
         if (translation > MIN_TRANSLATION_FOR_NEW_NODE || rotation > MIN_ROTATION_FOR_NEW_NODE)
         {
+
+            // If the robot "moved" > 1 meter or rotated > 1.5 rad (~90 deg) in a single frame,
+            // it is a tracking glitch. IGNORE IT.
+            if (translation > 1.0f || rotation > 1.5f)
+            {
+                qWarning() << "ConsensusManager: REJECTING TELEPORT (Dist:" << translation
+                           << "m, Rot:" << rotation << "rad)";
+                return; // Do NOT add node, do NOT update last_pose_
+            }
+
             // Compute odometry (relative motion from last pose to current)
             // odom = last_pose^(-1) * current_pose
             float cos_last = std::cos(last_robot_pose_.z());
@@ -128,6 +141,9 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
                 odometry,
                 odom_uncertainty
             );
+
+            // New Keyframe -> Reset Observation Tracker ===
+            doors_observed_at_current_pose_.clear();
 
             graph_dirty_ = true;
             last_robot_pose_ = robot_pose;
@@ -190,19 +206,61 @@ void ConsensusManager::onDoorDetected(const std::shared_ptr<DoorModel>& door_mod
 }
 
 void ConsensusManager::onDoorUpdated(const Eigen::Vector3f& door_pose,
-                                      const Eigen::Matrix3f& door_covariance)
+                                     const Eigen::Matrix3f& door_covariance)
 {
     QMutexLocker lock(&mutex_);
 
-    if (!initialized_ || door_models_.empty())
-    {
-        return;
-    }
+    if (!initialized_ || door_models_.empty()) return;
 
-    // For now, just trigger optimization
-    // In a more sophisticated version, we'd add an observation factor
-    lock.unlock();
-    runOptimization();
+    // Assumes single door (index 0)
+    // const size_t door_index = 0;
+    // gtsam::Symbol door_sym = ConsensusGraph::ObjectSymbol(door_index);
+    //
+    // // Check if door exists in graph
+    // if (!graph_.getValues().exists(door_sym)) return;
+    //
+    // // If we have already constrained this door to the current robot node,
+    // // DON'T add another factor. It just inflates the error and slows down optimization.
+    // if (doors_observed_at_current_pose_.count(door_index) > 0)
+    //     return;
+    //
+    // // 1. Prepare Measurement (Room Frame)
+    // gtsam::Pose2 measurement(door_pose.x(), door_pose.y(), door_pose.z());
+    //
+    // // 2. Get Robot Pose
+    // gtsam::Pose2 robot_pose = graph_.getValues().at<gtsam::Pose2>(
+    //     ConsensusGraph::RobotSymbol(current_robot_pose_index_));
+    //
+    // // 3. Calculate Relative Measurement: Robot -> Door
+    // // This creates the constraint "I see the door at X meters relative to me"
+    // gtsam::Pose2 relative_measurement = robot_pose.between(measurement);
+    //
+    // // 4. Extract Uncertainty
+    // // Use the inflated covariance logic we discussed (minimum 5cm/3deg)
+    // double min_pos_var = 0.05 * 0.05;
+    // double min_ang_var = 0.05 * 0.05;
+    //
+    // // Extract sigmas (taking max of calculated vs minimum)
+    // Eigen::Vector3d obs_sigmas(
+    //     std::sqrt(std::max((double)door_covariance(0,0), min_pos_var)),
+    //     std::sqrt(std::max((double)door_covariance(1,1), min_pos_var)),
+    //     std::sqrt(std::max((double)door_covariance(2,2), min_ang_var))
+    // );
+    //
+    // // 5. === FIX: ADD OBSERVATION TO EXISTING NODE ===
+    // // Do NOT call addObjectWithObservation here
+    // graph_.addObservation(
+    //     current_robot_pose_index_,
+    //     door_index,
+    //     relative_measurement,
+    //     obs_sigmas
+    // );
+    // doors_observed_at_current_pose_.insert(door_index);
+    // graph_dirty_ = true;
+    //
+    // // Unlock and Optimize
+    // lock.unlock();
+    // runOptimization();
 }
 
 void ConsensusManager::onDoorTrackingLost()
@@ -293,8 +351,12 @@ void ConsensusManager::runOptimization()
 void ConsensusManager::reset()
 {
     QMutexLocker lock(&mutex_);
+    reset_internal();
+}
 
-    graph_ = ConsensusGraph();  // Reset graph
+void ConsensusManager::reset_internal()
+{
+    graph_ = ConsensusGraph();
     initialized_ = false;
     has_room_ = false;
     current_robot_pose_index_ = 0;
@@ -303,7 +365,14 @@ void ConsensusManager::reset()
     room_half_width_ = 0.0;
     room_half_depth_ = 0.0;
 
-    qInfo() << "ConsensusManager: Reset";
+    // IMPORTANT: Also clear the observation tracker
+    doors_observed_at_current_pose_.clear();
+
+    // Reset state trackers
+    last_robot_pose_ = Eigen::Vector3f::Zero();
+    has_last_pose_ = false;
+
+    qInfo() << "ConsensusManager: Reset (Internal)";
 }
 
 // =============================================================================
@@ -569,6 +638,56 @@ ConsensusManager::getDoorConsensusPrior(size_t door_index) const
         qWarning() << "ConsensusManager::getDoorConsensusPrior - Error:" << e.what();
         return std::nullopt;
     }
+}
+
+// consensus_manager.cpp
+
+bool ConsensusManager::is_statistically_consistent(const gtsam::Pose2& belief,
+                                                   const gtsam::Matrix3& belief_cov,
+                                                   const gtsam::Pose2& measurement,
+                                                   const gtsam::Matrix3& meas_cov,
+                                                   double sigma_threshold)
+{
+    // 1. Calculate Error Vector (Innovation)
+    // Use GTSAM's localCoordinates to handle angle wrapping correctly
+    gtsam::Vector3 error = belief.localCoordinates(measurement);
+
+    // 2. Compute Combined Covariance (Innovation Covariance S)
+    // S = Sigma_belief + Sigma_measurement
+    gtsam::Matrix3 S = belief_cov + meas_cov;
+
+    // 3. Compute Mahalanobis Distance Squared (D^2)
+    // D^2 = e^T * S^-1 * e
+    // LLT decomposition is faster/stable for positive definite matrices
+    double mahalanobis_sq;
+    try {
+        mahalanobis_sq = error.transpose() * S.llt().solve(error);
+    } catch (...) {
+        // Fallback for ill-conditioned matrices (rare if noise is properly set)
+        mahalanobis_sq = error.transpose() * S.inverse() * error;
+    }
+
+    // 4. Chi-Square Test
+    // Degrees of Freedom (DOF) = 3 (x, y, theta)
+    // Threshold depends on sigma_threshold (standard deviations)
+    // 3.0 sigma ~= 99.7% confidence -> Threshold approx 9.0 - 11.0 for 3DOF
+    // Let's compute threshold squared.
+    // Actually, usually we check against specific Chi2 values.
+    // For 3 DOF: 95% = 7.81, 99% = 11.34, 99.9% = 16.27
+
+    // Using simple sigma squared for scaling:
+    double threshold = sigma_threshold * sigma_threshold;
+
+    // Better: Hardcoded Chi-Square value for p=0.01 (99% confidence)
+    double chi_square_99 = 11.345;
+
+    if (mahalanobis_sq > chi_square_99) {
+        qWarning() << "REJECTED OUTLIER: Mahalanobis =" << mahalanobis_sq
+                   << ">" << chi_square_99;
+        return false;
+    }
+
+    return true;
 }
 
 void ConsensusManager::print() const

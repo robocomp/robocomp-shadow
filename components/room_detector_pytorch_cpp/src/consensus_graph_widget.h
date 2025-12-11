@@ -23,6 +23,7 @@
 #include <Eigen/Dense>
 
 // Forward declarations
+class NodeInfoDialog;
 class ConsensusGraph;
 enum class WallID;
 
@@ -162,7 +163,7 @@ class ConsensusGraphWidget : public QWidget
 
 public:
     explicit ConsensusGraphWidget(QWidget* parent = nullptr);
-    ~ConsensusGraphWidget() override = default;
+    ~ConsensusGraphWidget() override;
 
     /**
      * @brief Set visualization configuration
@@ -336,13 +337,17 @@ private:
     QPoint last_mouse_pos_;
     int hovered_node_index_;
 
+    // Node info popup
+    std::unique_ptr<NodeInfoDialog> node_info_dialog_;
+    std::string active_info_label_;
+
     // Optimization info
     bool has_optimization_info_;
     double initial_error_;
     double final_error_;
-    double loop_error_;         // Free energy
     int iterations_;
     bool is_optimizing_;
+    double loop_error_;
 
     // Layout bounds (in graph coordinates)
     QRectF graph_bounds_;
@@ -352,7 +357,6 @@ private:
 
     // Node hit testing
     int findNodeAtPosition(const QPointF& widget_pos) const;
-
     void updateTooltipForNode(int node_idx);
 
 };

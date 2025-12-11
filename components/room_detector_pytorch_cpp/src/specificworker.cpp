@@ -184,7 +184,10 @@ void SpecificWorker::initialize()
     // Create door thread (with camera proxy if needed)
     door_thread_ = std::make_unique<DoorThread>(camera360rgbd_proxy);
 
-    // === Connect signals FROM main thread TO room thread ===
+	// Create table thread (with camera proxy if needed)
+	table_thread_ = std::make_unique<TableThread>();
+
+	// === Connect signals FROM main thread TO room thread ===
     connect(this, &SpecificWorker::newLidarData,
             room_thread_.get(), &RoomThread::onNewLidarData,
             Qt::QueuedConnection);
@@ -244,7 +247,8 @@ void SpecificWorker::initialize()
     // === Connect consensus manager output TO door thread ===
     // Transform consensus prior from room frame to robot frame before sending
     connect(&consensus_manager_, &ConsensusManager::doorPriorReady,
-            this, [this](size_t door_index, const Eigen::Vector3f& pose_room, const Eigen::Matrix3f& cov) {
+            this, [this](size_t door_index, const Eigen::Vector3f& pose_room, const Eigen::Matrix3f& cov)
+            {
                 // Forward to door thread (index 0 for now, single door)
                 if (door_index == 0 && door_thread_)
                 {
@@ -318,6 +322,7 @@ void SpecificWorker::initialize()
     // Start threads
     room_thread_->start();
     door_thread_->start();
+	//table_thread_->start();
     qInfo() << "Detector threads started";
 
 	setPeriod("Compute", 50); // 50ms
@@ -334,8 +339,6 @@ void SpecificWorker::compute()
 	const auto time_points = read_data();
 	if (std::get<0>(time_points).empty()) {	std::cout << "No LiDAR points available\n";	return;	}
 	const auto& [points, lidar_timestamp] = time_points;
-
-	// === Emit LiDAR data to room thread (non-blocking) ===
 	Q_EMIT newLidarData(time_points, velocity_history_);
 
 	// 40ms
