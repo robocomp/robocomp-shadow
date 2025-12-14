@@ -112,7 +112,7 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor &poin
          } catch (const std::exception &)
          {
             // Last-resort fallback: conservative diagonal covariance
-            qWarning() << "Pinverse failed, using diagonal fallback";
+            //qWarning() << "Pinverse failed, using diagonal fallback";
             const torch::Tensor diag = torch::abs(torch::diag(hessian)).clone();
 
             // Replace zeros/small values with conservative estimate
@@ -129,7 +129,7 @@ torch::Tensor UncertaintyEstimator::compute_covariance(const torch::Tensor &poin
     if (torch::any(torch::isnan(covariance)).item<bool>() ||
         torch::any(torch::isinf(covariance)).item<bool>())
     {
-        qWarning() << "Covariance computation produced NaN/Inf, using identity fallback";
+        //qWarning() << "Covariance computation produced NaN/Inf, using identity fallback";
         covariance = torch::eye(total_params, torch::kFloat32) * 0.01f; // 10cm variance
     }
 

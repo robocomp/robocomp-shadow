@@ -404,16 +404,26 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
     const int leftPad = (m_inputSize - static_cast<int>(originalSize.width * scale)) / 2;
     const int topPad = (m_inputSize - static_cast<int>(originalSize.height * scale)) / 2;
 
-    // Parse detections using active class channel
+    // Parse detections - buscar la mejor clase para cada detección
     for (int64_t i = 0; i < numBoxes; i++) {
         const float cx = output[0 * numBoxes + i];
         const float cy = output[1 * numBoxes + i];
         const float w = output[2 * numBoxes + i];
         const float h = output[3 * numBoxes + i];
 
-        const float score = output[(4 + m_activeClassChannel) * numBoxes + i];
+        // Buscar la clase con mayor confianza
+        float maxScore = 0.0f;
+        int bestClassId = -1;
 
-        if (score < m_confThreshold) continue;
+        for (int64_t c = 0; c < numClasses; c++) {
+            float classScore = output[(4 + c) * numBoxes + i];
+            if (classScore > maxScore) {
+                maxScore = classScore;
+                bestClassId = static_cast<int>(c);
+            }
+        }
+
+        if (maxScore < m_confThreshold || bestClassId < 0) continue;
 
         int x1 = static_cast<int>((cx - w / 2 - leftPad) / scale);
         int y1 = static_cast<int>((cy - h / 2 - topPad) / scale);
@@ -428,17 +438,82 @@ std::vector<Detection> YOLODetectorONNX::postprocessOutput(
         if (x2 <= x1 || y2 <= y1) continue;
 
         boxes.emplace_back(x1, y1, x2 - x1, y2 - y1);
-        scores.push_back(score);
-        classIds.push_back(0);
+        scores.push_back(maxScore);
+        classIds.push_back(bestClassId);
     }
 
     const std::vector<int> indices = nms(boxes, scores, m_iouThreshold);
-    const std::string singleClassName = m_classNames.empty() ? "object" : m_classNames[0];
-    for (int idx : indices)
-        detections.emplace_back(boxes[idx], 0, singleClassName, scores[idx]);
+
+    for (int idx : indices) {
+        std::string className = (classIds[idx] < m_classNames.size())
+            ? m_classNames[classIds[idx]]
+            : "unknown";
+        detections.emplace_back(boxes[idx], classIds[idx], className, scores[idx]);
+    }
 
     return detections;
 }
+
+// std::vector<Detection> YOLODetectorONNX::postprocessOutput(
+//     const std::vector<float>& output,
+//     const std::vector<int64_t>& outputShape,
+//     const cv::Size& originalSize)
+// {
+//     std::vector<Detection> detections;
+//
+//     // Output format: [batch, features, boxes]
+//     // features = 4 (bbox) + num_classes
+//     const int64_t numFeatures = outputShape[1];
+//     const int64_t numBoxes = outputShape[2];
+//     const int64_t numClasses = numFeatures - 4;
+//
+//     std::vector<cv::Rect> boxes;
+//     std::vector<float> scores;
+//     std::vector<int> classIds;
+//
+//     const float scale = std::min(
+//         static_cast<float>(m_inputSize) / originalSize.width,
+//         static_cast<float>(m_inputSize) / originalSize.height
+//     );
+//
+//     const int leftPad = (m_inputSize - static_cast<int>(originalSize.width * scale)) / 2;
+//     const int topPad = (m_inputSize - static_cast<int>(originalSize.height * scale)) / 2;
+//
+//     // Parse detections using active class channel
+//     for (int64_t i = 0; i < numBoxes; i++) {
+//         const float cx = output[0 * numBoxes + i];
+//         const float cy = output[1 * numBoxes + i];
+//         const float w = output[2 * numBoxes + i];
+//         const float h = output[3 * numBoxes + i];
+//
+//         const float score = output[(4 + m_activeClassChannel) * numBoxes + i];
+//
+//         if (score < m_confThreshold) continue;
+//
+//         int x1 = static_cast<int>((cx - w / 2 - leftPad) / scale);
+//         int y1 = static_cast<int>((cy - h / 2 - topPad) / scale);
+//         int x2 = static_cast<int>((cx + w / 2 - leftPad) / scale);
+//         int y2 = static_cast<int>((cy + h / 2 - topPad) / scale);
+//
+//         x1 = std::max(0, std::min(x1, originalSize.width - 1));
+//         y1 = std::max(0, std::min(y1, originalSize.height - 1));
+//         x2 = std::max(0, std::min(x2, originalSize.width - 1));
+//         y2 = std::max(0, std::min(y2, originalSize.height - 1));
+//
+//         if (x2 <= x1 || y2 <= y1) continue;
+//
+//         boxes.emplace_back(x1, y1, x2 - x1, y2 - y1);
+//         scores.push_back(score);
+//         classIds.push_back(0);
+//     }
+//
+//     const std::vector<int> indices = nms(boxes, scores, m_iouThreshold);
+//     const std::string singleClassName = m_classNames.empty() ? "object" : m_classNames[0];
+//     for (int idx : indices)
+//         detections.emplace_back(boxes[idx], 0, singleClassName, scores[idx]);
+//
+//     return detections;
+// }
 
 std::vector<int> YOLODetectorONNX::nms(const std::vector<cv::Rect>& boxes,
                                        const std::vector<float>& scores,

@@ -116,7 +116,7 @@ namespace rc
             explicit TableConcept(const RoboCompCamera360RGBD::Camera360RGBDPrxPtr &camera_360rgbd_proxy_)
             {
                 camera360rgbd_proxy = camera_360rgbd_proxy_;
-                std::string model_path = "best.onnx";
+                std::string model_path = "yolo11l.onnx";
                 yolo_detector = std::make_unique<YOLODetectorONNX>(model_path, std::vector<std::string>{},
                                      0.25f, 0.45f, 640, true);
             }

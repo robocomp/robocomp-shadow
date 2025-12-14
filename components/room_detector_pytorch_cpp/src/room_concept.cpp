@@ -816,23 +816,23 @@ RoomConcept::OdometryPrior RoomConcept::compute_odometry_prior(
 
         // 1. Try Lidar Odometry
         // (Move the physics check logic here as discussed previously)
-        const auto res = lidar_odometry.update(points, lidar_timestamp);
-
-        bool accept_lidar = false;
-        if (res.success) {
-            float speed_lin = std::sqrt(res.delta_pose[0]*res.delta_pose[0] +
-                                      res.delta_pose[1]*res.delta_pose[1]) / dt;
-            float speed_rot = std::abs(res.delta_pose[2]) / dt;
-            if (speed_lin < 2.0f && speed_rot < 2.0f) accept_lidar = true;
-            else qWarning() << "RoomConcept: REJECTED LidarOdom jump!";
-        }
-
-        if (accept_lidar)
-        {
-            prior.delta_pose = res.delta_pose;
-            prior.valid = true;
-        }
-        else
+        // const auto res = lidar_odometry.update(points, lidar_timestamp);
+        //
+        // bool accept_lidar = false;
+        // if (res.success) {
+        //     float speed_lin = std::sqrt(res.delta_pose[0]*res.delta_pose[0] +
+        //                               res.delta_pose[1]*res.delta_pose[1]) / dt;
+        //     float speed_rot = std::abs(res.delta_pose[2]) / dt;
+        //     if (speed_lin < 2.0f && speed_rot < 2.0f) accept_lidar = true;
+        //     else qWarning() << "RoomConcept: REJECTED LidarOdom jump!";
+        // }
+        //
+        // if (accept_lidar)
+        // {
+        //     prior.delta_pose = res.delta_pose;
+        //     prior.valid = true;
+        // }
+        // else
         {
             // 2. Fallback to Velocity or Zero
             if (!velocity_history.empty()) {

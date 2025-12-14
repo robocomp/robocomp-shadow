@@ -210,6 +210,16 @@ void SpecificWorker::initialize()
             door_thread_.get(), &DoorThread::onNewRGBDData,
             Qt::QueuedConnection);
 
+	// === Connect signals FROM main thread TO table thread ===
+	connect(this, &SpecificWorker::newRGBDData,
+			table_thread_.get(), &TableThread::onNewRGBDData,
+			Qt::QueuedConnection);
+
+	// === Connect signals FROM table thread TO main thread ===
+	connect(table_thread_.get(), &TableThread::tableDetected,
+			this, &SpecificWorker::onTableDetected,
+			Qt::QueuedConnection);
+
     // === Connect signals FROM door thread TO main thread ===
     connect(door_thread_.get(), &DoorThread::doorDetected,
             this, &SpecificWorker::onDoorDetected,
@@ -321,8 +331,8 @@ void SpecificWorker::initialize()
 
     // Start threads
     room_thread_->start();
-    door_thread_->start();
-	//table_thread_->start();
+    //door_thread_->start();
+	table_thread_->start();
     qInfo() << "Detector threads started";
 
 	setPeriod("Compute", 50); // 50ms
@@ -1291,6 +1301,31 @@ void SpecificWorker::onDoorTrackingLost()
         latest_door_result_.reset();
         cached_consensus_door_.valid = false;
     }
+}
+void SpecificWorker::onTableDetected(std::shared_ptr<TableModel> model)
+{
+    qInfo() << "Door detected - ID:" << model->id;
+
+    {
+        QMutexLocker lock(&results_mutex_);
+        //latest_table_model_ = model;
+    }
+
+}
+
+void SpecificWorker::onTableUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result)
+{
+    // Cache results for visualization
+    {
+        QMutexLocker lock(&results_mutex_);
+        //latest_table_model_ = model;
+        //latest_table_result_ = result;
+    }
+}
+
+void SpecificWorker::onTableTrackingLost()
+{
+    qInfo() << "Door tracking lost";
 }
 
 void SpecificWorker::onConsensusDoorPose(size_t door_index, float x, float y, float z, float theta,

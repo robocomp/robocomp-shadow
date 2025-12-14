@@ -65,7 +65,7 @@ namespace rc
             // -----------------------------------------------------------------
             // TRACKING MODE: Use model prediction to extract ROI (bypass YOLO)
             // -----------------------------------------------------------------
-            //qDebug() << "TableConcept::update() - Using model-based ROI extraction";
+            qDebug() << "TableConcept::update() - Using model-based ROI extraction";
 
             // PREDICT: Adjust table pose for robot motion FIRST
             predict_step(robot_motion);
@@ -374,7 +374,10 @@ namespace rc
                           const_cast<uint8_t*>(rgbd.rgb.data()));
 
         // Run YOLO detection
-        auto detections = yolo_detector->detect(rgb_image);
+        const auto detections = yolo_detector->detect(rgb_image);
+        // for (const auto &d: detections)
+        //     qInfo() << QString::fromStdString(d.label);
+        // qInfo() << "------------------------------";
 
         if (detections.empty())
         {

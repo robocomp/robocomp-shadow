@@ -82,7 +82,6 @@ ConsensusGraphWidget::ConsensusGraphWidget(QWidget* parent)
     , is_dragging_(false)
     , hovered_node_index_(-1)
     , node_info_dialog_(nullptr)
-    , active_info_label_("")
     , has_optimization_info_(false)
     , initial_error_(0.0)
     , final_error_(0.0)
@@ -131,6 +130,7 @@ void ConsensusGraphWidget::onOptimizationCompleted(double initial_error,
     final_error_ = final_error;
     iterations_ = iterations;
     is_optimizing_ = false;
+    last_covariances_ = covariances;
 
     if (graph && values)
     {
@@ -161,6 +161,7 @@ void ConsensusGraphWidget::updateFromGraph(const ConsensusGraph* graph)
 
 void ConsensusGraphWidget::onGraphUpdated(const GraphUpdateEvent& event)
 {
+    qInfo() << "==============CHANGE";
     switch (event.type)
     {
         case GraphEventType::ROOM_INITIALIZED:
@@ -275,6 +276,11 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     key_to_node_index_.clear();
     loop_error_ = 0.0;   // << reset de energía de loops
 
+    // Use fresh covariances if provided, otherwise reuse cached ones
+    const auto &covs = covariances.empty() ? last_covariances_ : covariances;
+    if (!covariances.empty())
+        last_covariances_ = covariances;
+
     if (values.empty())
     {
         update();
@@ -283,7 +289,7 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     }
 
     // Extract nodes from values
-    extractNodes(values, covariances);
+    extractNodes(values, covs);
 
     // Extract edges from factors
     extractEdges(graph, values);
@@ -301,16 +307,20 @@ void ConsensusGraphWidget::updateFromGTSAM(const gtsam::NonlinearFactorGraph& gr
     }
 
     // Keep node info dialog in sync while it is open
-    if (node_info_dialog_ && !active_info_label_.empty())
+    if (node_info_dialog_ && active_info_kind_.has_value())
     {
-        auto it = std::find_if(nodes_.begin(), nodes_.end(),
-                               [&](const GraphNode& n) { return n.label == active_info_label_; });
-        if (it != nodes_.end())
-        {
-            node_info_dialog_->setNode(*it);
-        }
-    }
+        size_t wanted_key = active_info_key_.value_or(0);
 
+        // If the user clicked a robot pose, keep the popup following the latest robot key
+        if (*active_info_kind_ == 'r' && last_robot_key_ != 0)
+            wanted_key = static_cast<size_t>(last_robot_key_);
+
+        auto it = std::find_if(nodes_.begin(), nodes_.end(),
+                               [&](const GraphNode& n){ return n.key == wanted_key; });
+
+        if (it != nodes_.end())
+            node_info_dialog_->setNode(*it);
+    }
     update();
     emit visualizationUpdated();
 }
@@ -323,10 +333,15 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values,
     uint64_t last_robot_key = 0;
     bool has_robot = false;
 
+    const auto &covs = covariances.empty() ? last_covariances_ : covariances;
+    if (!covariances.empty())
+        last_covariances_ = covariances;   // keep cache fresh
+
     for (const auto& key_value : values)
     {
         uint64_t key = key_value.key;
         gtsam::Symbol sym(key);
+
         char chr = sym.chr();
 
         if (chr == 'r')
@@ -359,13 +374,16 @@ void ConsensusGraphWidget::extractNodes(const gtsam::Values& values,
             }
 
             GraphNode node;
+            node.key  = static_cast<size_t>(key);
+            node.kind = sym.chr();
             node.label = symbolToString(key);
             node.pose = pose;
             node.is_fixed = false;
             node.covariance = Eigen::Matrix3d::Identity();
 
             // If we have a covariance matrix for this variable, use it
-            auto cov_it = covariances.find(static_cast<size_t>(key));
+            //auto cov_it = covariances.find(static_cast<size_t>(key));
+            auto cov_it = covs.find(static_cast<size_t>(key));
             if (cov_it != covariances.end())
             {
                 node.covariance = cov_it->second;
@@ -717,6 +735,10 @@ void ConsensusGraphWidget::drawEdges(QPainter& painter)
         QPointF from_pos = graphToWidget(from_node.position);
         QPointF to_pos = graphToWidget(to_node.position);
 
+        if (!std::isfinite(from_pos.x()) || !std::isfinite(from_pos.y()) ||
+                    !std::isfinite(to_pos.x())   || !std::isfinite(to_pos.y()))
+            continue; // Skip invalid edges
+
         // Don't draw self-loops (prior factors)
         if (from_pos == to_pos) continue;
 
@@ -750,6 +772,9 @@ void ConsensusGraphWidget::drawNodes(QPainter& painter)
     {
         const auto& node = nodes_[i];
         QPointF pos = graphToWidget(node.position);
+        if (!std::isfinite(pos.x()) || !std::isfinite(pos.y()))
+            continue;
+
         float radius = graphToWidgetScale(node.radius);
 
         // Highlight hovered node
@@ -855,6 +880,31 @@ void ConsensusGraphWidget::drawInfoPanel(QPainter& painter)
     painter.drawText(panel_rect.adjusted(10, 10, -10, -10), Qt::AlignLeft | Qt::TextWordWrap, info_text);
 }
 
+QString ConsensusGraphWidget::formatNodeInfo(size_t node_index) const
+{
+    const auto &node = nodes_.at(node_index);
+
+    QString txt;
+    txt += QString("<b>%1</b><br>").arg(QString::fromStdString(node.label));
+
+    txt += QString("Pose (x, y, theta): [%1, %2, %3]<br>")
+               .arg(node.pose.x(), 0, 'f', 3)
+               .arg(node.pose.y(), 0, 'f', 3)
+               .arg(node.pose.theta(), 0, 'f', 3);
+
+    txt += "Covariance Σ:<br><pre>";
+
+    for (int r = 0; r < 3; ++r)
+    {
+        for (int c = 0; c < 3; ++c)
+            txt += QString("%1 ").arg(node.covariance(r, c), 0, 'f', 3);
+        txt += "\n";
+    }
+
+    txt += "</pre>";
+    return txt;
+}
+
 QPointF ConsensusGraphWidget::graphToWidget(const QPointF& graph_pos) const
 {
     return QPointF(graph_pos.x() * view_scale_ + view_offset_.x(),
@@ -875,17 +925,29 @@ float ConsensusGraphWidget::graphToWidgetScale(float graph_size) const
 void ConsensusGraphWidget::drawEllipse(QPainter& painter, const QPointF& center,
                                        const Eigen::Matrix2d& covariance, float scale)
 {
+    if (!covariance.allFinite()) return;
+
     // Compute eigenvalues and eigenvectors
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(covariance);
     Eigen::Vector2d eigenvalues = solver.eigenvalues();
     Eigen::Matrix2d eigenvectors = solver.eigenvectors();
 
-    // Semi-axes lengths (scale by sigma multiplier)
-    float a = std::sqrt(eigenvalues(0)) * scale;
-    float b = std::sqrt(eigenvalues(1)) * scale;
+    // If optimization is unstable, eigenvalues can be negative (impossible for covariance) or NaN.
+    double e0 = std::max(0.0, eigenvalues(0));
+    double e1 = std::max(0.0, eigenvalues(1));
+
+    // If both are near zero or invalid, skip
+    if (e0 < 1e-9 && e1 < 1e-9) return;
+
+    // Semi-axes lengths (safe sqrt)
+    float a = std::sqrt(e0) * scale;
+    float b = std::sqrt(e1) * scale;
+
+    if (!std::isfinite(a) || !std::isfinite(b)) return;
 
     // Rotation angle
     float angle = std::atan2(eigenvectors(1, 0), eigenvectors(0, 0)) * 180.0 / M_PI;
+    if (!std::isfinite(angle)) angle = 0.0f;
 
     // Scale to widget coordinates
     a = graphToWidgetScale(a);
@@ -906,6 +968,9 @@ void ConsensusGraphWidget::drawEllipse(QPainter& painter, const QPointF& center,
 void ConsensusGraphWidget::drawArrow(QPainter& painter, const QPointF& from, const QPointF& to,
                                     const QColor& color, float thickness)
 {
+    if (!std::isfinite(from.x()) || !std::isfinite(from.y()) ||
+        !std::isfinite(to.x())   || !std::isfinite(to.y())) return;
+
     QPen pen(color, thickness);
     painter.setPen(pen);
 
@@ -915,6 +980,7 @@ void ConsensusGraphWidget::drawArrow(QPainter& painter, const QPointF& from, con
     // Draw arrowhead
     QLineF line(from, to);
     double angle = std::atan2(-line.dy(), line.dx());
+    if (line.length() < 1e-3) return; // Prevent atan2 on zero length
 
     float arrow_size = 10.0f;
     QPointF arrow_p1 = to - QPointF(std::sin(angle + M_PI / 3) * arrow_size,
@@ -955,7 +1021,8 @@ void ConsensusGraphWidget::mousePressEvent(QMouseEvent* event)
             std::cout << "Node clicked: " << node.label << "\n";
 
             // Open or update node info dialog
-            active_info_label_ = node.label;
+            active_info_key_  = node.key;
+            active_info_kind_ = node.kind;
             if (!node_info_dialog_)
             {
                 node_info_dialog_ = std::make_unique<NodeInfoDialog>(this);

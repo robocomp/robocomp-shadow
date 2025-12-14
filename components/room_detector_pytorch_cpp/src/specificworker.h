@@ -231,6 +231,10 @@ class SpecificWorker final : public GenericWorker
 		void onDoorUpdated(std::shared_ptr<DoorModel> model, rc::DoorConcept::Result result);
 		void onDoorTrackingLost();
 
+		void onTableDetected(std::shared_ptr<TableModel> model);
+		void onTableUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result);
+		void onTableTrackingLost();
+
 		// Slot for consensus door pose (in room coordinates)
 		void onConsensusDoorPose(size_t door_index, float x, float y, float z, float theta,
 		                         float width, float height, float opening_angle);

@@ -44,6 +44,8 @@ public:
                                           ConsensusGraphWidget* widget,
                                           QObject* parent = nullptr);
 
+    void onGraphChanged();
+
 private Q_SLOTS:
     /**
      * @brief Handle initialization signal from ConsensusManager

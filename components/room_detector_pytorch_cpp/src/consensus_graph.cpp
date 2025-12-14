@@ -459,6 +459,22 @@ void ConsensusGraph::addObservation(size_t robot_idx,
     // because the Object node already exists.
 }
 
+void ConsensusGraph::addRobotPrior(size_t robot_idx, const gtsam::Pose2& pose, const Eigen::Vector3d& sigmas)
+{
+    // Create noise model from RoomConcept covariance
+    auto noise = gtsam::noiseModel::Diagonal::Sigmas(
+        (gtsam::Vector(3) << sigmas.x(), sigmas.y(), sigmas.z()).finished()
+    );
+
+    // Add PriorFactor
+    // This says: "I am 95% sure the robot is at 'pose' based on the walls"
+    graph_.emplace_shared<gtsam::PriorFactor<gtsam::Pose2>>(
+        RobotSymbol(robot_idx),
+        pose,
+        noise
+    );
+}
+
 void ConsensusGraph::print(const std::string& prefix) const
 {
     std::cout << prefix << "=== ConsensusGraph ===" << std::endl;

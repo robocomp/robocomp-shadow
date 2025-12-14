@@ -256,7 +256,7 @@ void TableThread::run()
                     {
                         has_detection_.store(true);
                         tracking_.store(true);
-                        Q_EMIT doorDetected(result.table);
+                        Q_EMIT tableDetected(result.table);
                         qInfo() << "TableThread: Table detected";
                     }
 
@@ -270,7 +270,7 @@ void TableThread::run()
                         if (result.covariance.defined())
                             result_copy.covariance = result.covariance.clone().contiguous();
 
-                        Q_EMIT doorUpdated(result.table, result_copy);
+                        Q_EMIT tableUpdated(result.table, result_copy);
                     }
                 }
                 else

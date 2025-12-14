@@ -89,12 +89,12 @@ class TableThread : public QThread
             /**
              * @brief Emitted when a new table is detected
              */
-            void doorDetected(std::shared_ptr<TableModel> model);
+            void tableDetected(std::shared_ptr<TableModel> model);
 
             /**
              * @brief Emitted after each successful tracking update
              */
-            void doorUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result);
+            void tableUpdated(std::shared_ptr<TableModel> model, rc::TableConcept::Result result);
 
             /**
              * @brief Emitted when tracking is lost

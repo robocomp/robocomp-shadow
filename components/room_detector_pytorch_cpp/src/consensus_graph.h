@@ -98,6 +98,54 @@ struct ConsensusResult
     double final_error;
     int iterations;
     bool converged;
+
+    void print() const
+    {
+        auto printPose = [](const gtsam::Pose2& pose) {
+            std::cout << "(" << pose.x() << ", " << pose.y() << ", " << pose.theta() << ")";
+        };
+
+        auto printCov = [](const Eigen::Matrix3d& cov) {
+            std::cout << "[[" << cov(0,0) << ", " << cov(0,1) << ", " << cov(0,2) << "], "
+                      << cov(1,0) << ", " << cov(1,1) << ", " << cov(1,2) << "], "
+                      << cov(2,0) << ", " << cov(2,1) << ", " << cov(2,2) << "]]";
+        };
+
+        std::cout << "ConsensusResult\n";
+        std::cout << "  Room pose: ";
+        printPose(room_pose);
+        std::cout << "\n  Room covariance: ";
+        printCov(room_covariance);
+
+        for (const auto& [wall, pose] : wall_poses) {
+            std::cout << "\n  Wall " << static_cast<int>(wall) << " pose: ";
+            printPose(pose);
+            std::cout << "\n    Covariance: ";
+            printCov(wall_covariances.at(wall));
+        }
+
+        for (size_t i = 0; i < robot_poses.size(); ++i) {
+            std::cout << "\n  Robot pose[" << i << "]: ";
+            printPose(robot_poses[i]);
+            if (i < robot_covariances.size()) {
+                std::cout << "\n    Covariance: ";
+                printCov(robot_covariances[i]);
+            }
+        }
+
+        for (const auto& [idx, pose] : object_poses) {
+            std::cout << "\n  Object[" << idx << "] pose: ";
+            printPose(pose);
+            std::cout << "\n    Covariance: ";
+            printCov(object_covariances.at(idx));
+        }
+
+        std::cout << "\n  Initial error: " << initial_error
+                  << "\n  Final error: " << final_error
+                  << "\n  Iterations: " << iterations
+                  << "\n  Converged: " << std::boolalpha << converged << "\n";
+    }
+
 };
 
 /**
@@ -260,6 +308,12 @@ public:
                         size_t object_idx,
                         const gtsam::Pose2& measurement,
                         const Eigen::Vector3d& sigmas);
+
+    /**
+         * @brief Add a global prior to a specific robot node (anchors it to the room)
+         */
+    void addRobotPrior(size_t robot_idx, const gtsam::Pose2& pose, const Eigen::Vector3d& sigmas);
+
     /**
      * @brief Get the current factor graph (for debugging/visualization)
      */

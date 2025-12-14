@@ -32,6 +32,8 @@ enum class WallID;
  */
 struct GraphNode
 {
+    size_t key = 0;              // (gtsam key cast)
+    char kind = 0;               // ('r','w','d', etc.)
     std::string label;           // Node label (e.g., "R", "r0", "L0")
     QPointF position;            // Position in graph layout space
     gtsam::Pose2 pose;          // Actual pose value (for pose nodes)
@@ -276,6 +278,8 @@ Q_SIGNALS:
      */
     void viewChanged(const QRectF& visible_area);
 
+    void nodeInfoUpdated(size_t node_index, const QString &text);
+
 protected:
     // Qt event handlers
     void paintEvent(QPaintEvent* event) override;
@@ -339,7 +343,9 @@ private:
 
     // Node info popup
     std::unique_ptr<NodeInfoDialog> node_info_dialog_;
-    std::string active_info_label_;
+    std::optional<size_t> active_info_key_;
+    std::optional<char>   active_info_kind_;
+    uint64_t last_robot_key_ = 0;   // cache latest robot key each extractNodes()
 
     // Optimization info
     bool has_optimization_info_;
@@ -358,6 +364,11 @@ private:
     // Node hit testing
     int findNodeAtPosition(const QPointF& widget_pos) const;
     void updateTooltipForNode(int node_idx);
+
+    std::optional<size_t> selected_node_index_;
+    QString formatNodeInfo(size_t node_index) const;
+    std::map<size_t, Eigen::Matrix3d> last_covariances_;
+
 
 };
 

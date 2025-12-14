@@ -28,6 +28,9 @@ ConsensusVisualizationAdapter::ConsensusVisualizationAdapter(ConsensusManager* m
     connect(manager_, &ConsensusManager::consensusReady,
             this, &ConsensusVisualizationAdapter::onConsensusReady);
 
+    connect(manager_, &ConsensusManager::graphChanged,
+        this, &ConsensusVisualizationAdapter::onGraphChanged);
+
     qDebug() << "ConsensusVisualizationAdapter: Connected manager to widget";
 
     // If manager is already initialized, trigger initial update
@@ -35,6 +38,23 @@ ConsensusVisualizationAdapter::ConsensusVisualizationAdapter(ConsensusManager* m
     {
         onManagerInitialized();
     }
+}
+
+void ConsensusVisualizationAdapter::onGraphChanged()
+{
+    const auto& graph = manager_->getGraph();
+    const auto& gtsam_graph = graph.getGraph();
+    const auto& values     = graph.getValues();
+
+    GraphUpdateEvent event;
+    event.type   = GraphEventType::CONSTRAINT_ADDED;   // routes to updateFromGTSAM in your widget
+    event.graph  = &gtsam_graph;
+    event.values = &values;
+
+    QMetaObject::invokeMethod(widget_, [w = widget_, event]()
+    {
+        w->onGraphUpdated(event);
+    }, Qt::QueuedConnection);
 }
 
 void ConsensusVisualizationAdapter::onManagerInitialized()
@@ -52,8 +72,11 @@ void ConsensusVisualizationAdapter::onManagerInitialized()
     event.graph = &gtsam_graph;
     event.values = &values;
 
-    // Send to widget
-    widget_->onGraphUpdated(event);
+    QMetaObject::invokeMethod(widget_, [w = widget_, event]()
+    {
+        w->onGraphUpdated(event);
+    }, Qt::QueuedConnection);
+
 }
 
 void ConsensusVisualizationAdapter::onConsensusReady(const ConsensusResult& result)
@@ -99,13 +122,18 @@ void ConsensusVisualizationAdapter::onConsensusReady(const ConsensusResult& resu
         covariances[static_cast<size_t>(obj_sym.key())] = cov;
     }
 
-    // Send optimization completed event
-    widget_->onOptimizationCompleted(
-        result.initial_error,
-        result.final_error,
-        result.iterations,
-        &gtsam_graph,
-        &values,
-        covariances
-    );
+    auto cov_copy = covariances;  // copy for queued delivery
+
+    QMetaObject::invokeMethod(widget_,
+        [w = widget_,
+         init = result.initial_error,
+         fin  = result.final_error,
+         iters = result.iterations,
+         g = &gtsam_graph,
+         v = &values,
+         cov = std::move(cov_copy)]() mutable
+    {
+        w->onOptimizationCompleted(init, fin, iters, g, v, cov);
+    }, Qt::QueuedConnection);
+
 }

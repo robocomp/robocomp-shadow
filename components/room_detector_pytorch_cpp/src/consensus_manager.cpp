@@ -74,6 +74,13 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
         return;
     }
 
+    // Ensure we have a valid anchor if we just initialized or reset
+    if (!has_last_pose_) {
+        last_robot_pose_ = robot_pose;
+        has_last_pose_ = true;
+        return;
+    }
+
     // Add new robot pose if moved enough
     if (last_room_state_ == RoomState::LOCALIZED and has_last_pose_ and initialized_)
     {
@@ -90,7 +97,32 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
 
         if (translation > MIN_TRANSLATION_FOR_NEW_NODE || rotation > MIN_ROTATION_FOR_NEW_NODE)
         {
+            // If the robot "moved" > 1 meter or rotated > 1.5 rad in a single frame
+            if (translation > 1.0f || rotation > 1.5f)
+            {
+                teleport_persistence_++;
 
+                if (teleport_persistence_ > MAX_TELEPORT_PERSISTENCE)
+                {
+                    qWarning() << "ConsensusManager: Teleport persisted (" << teleport_persistence_
+                               << " frames). Snapping tracking anchor to new pose.";
+
+                    // Force sync the anchor
+                    last_robot_pose_ = robot_pose;
+                    doors_observed_at_current_pose_.clear();
+                    teleport_persistence_ = 0;
+
+                    // Return now. We will start adding nodes from this new position next frame.
+                    return;
+                }
+
+                qWarning() << "ConsensusManager: REJECTING TELEPORT (Dist:" << translation
+                           << "m, Rot:" << rotation << "rad) - Persistence:" << teleport_persistence_;
+                return; // Ignore this specific glitch
+            }
+
+            // Valid move -> Reset persistence
+            teleport_persistence_ = 0;
             // If the robot "moved" > 1 meter or rotated > 1.5 rad (~90 deg) in a single frame,
             // it is a tracking glitch. IGNORE IT.
             if (translation > 1.0f || rotation > 1.5f)
@@ -129,9 +161,9 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
             // In LOCALIZED mode, we want the DOORS to correct the pose.
             // If we trust the RoomModel perfectly, the doors can't move the robot.
             // Multiply the uncertainty by a factor (e.g., 2.0 or 5.0) to loosen the grip.
-            if (last_room_state_ == RoomState::LOCALIZED) {
-                pose_sigmas *= 5.0;
-            }
+            // if (last_room_state_ == RoomState::LOCALIZED) {
+            //     pose_sigmas *= 5.0;
+            // }
 
             // Add new robot pose with odometry factor
             const gtsam::Pose2 new_pose(robot_pose.x(), robot_pose.y(), robot_pose.z());
@@ -142,21 +174,26 @@ void ConsensusManager::onRoomUpdated(const std::shared_ptr<RoomModel>& room_mode
                 odom_uncertainty
             );
 
+            // Add Global Room Prior ===
+            // This anchors THIS specific node to the RoomConcept result.
+            // It prevents the graph from drifting away from the walls even if odometry drifts.
+            // graph_.addRobotPrior(
+            //     current_robot_pose_index_,
+            //     new_pose,
+            //     pose_sigmas // Use the uncertainty provided by RoomConcept (Wall Fit)
+            // );
+
             // New Keyframe -> Reset Observation Tracker ===
             doors_observed_at_current_pose_.clear();
-
             graph_dirty_ = true;
             last_robot_pose_ = robot_pose;
+            Q_EMIT graphChanged();
 
             qInfo() << "ConsensusManager: Added robot pose" << current_robot_pose_index_
                     << "with odometry (" << odom_x << "," << odom_y << "," << odom_theta << ")";
 
-            // Run optimization if we have doors
-            if (!door_models_.empty())
-            {
-                lock.unlock();
-                runOptimization();
-            }
+            lock.unlock();
+            runOptimization();
         }
     }
 
@@ -280,16 +317,17 @@ void ConsensusManager::runOptimization()
         return;
     }
 
-    if (door_models_.empty())
-    {
-        qDebug() << "ConsensusManager::runOptimization - No doors to optimize";
-        return;
-    }
+    // if (door_models_.empty())
+    // {
+    //     qDebug() << "ConsensusManager::runOptimization - No doors to optimize";
+    //     return;
+    // }
 
     try
     {
         // Run optimization
         ConsensusResult result = optimize();
+        result.print();
 
         // Emit full result
         Q_EMIT consensusReady(result);
@@ -415,6 +453,11 @@ void ConsensusManager::initializeFromRoom(const std::shared_ptr<RoomModel>& room
         std::sqrt(std::max(1e-6f, robot_pose_covariance(1, 1))),
         std::sqrt(std::max(1e-6f, robot_pose_covariance(2, 2)))
     );
+
+    // If we make the first pose "perfectly rigid" (e.g. 1e-6), the graph cannot
+    // correct the starting position when the RoomConcept refines the map.
+    // Increase uncertainty to 10cm / 5deg.
+    if (pose_sigmas.x() < 0.1) pose_sigmas = Eigen::Vector3d(0.1, 0.1, 0.1);
 
     current_robot_pose_index_ = graph_.addRobotPose(robot_pose, pose_sigmas);
 

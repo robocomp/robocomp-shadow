@@ -94,6 +94,9 @@ Q_SIGNALS:
      */
     void initialized();
 
+    void graphChanged();   // “something in graph/values changed”
+
+
 public Q_SLOTS:
     /**
      * @brief Initialize from room detection
@@ -246,6 +249,10 @@ private:
 
     // Helper to reset without locking (for internal use)
     void reset_internal();
+
+    // Counter for persistent teleport attempts
+    int teleport_persistence_ = 0;
+    const int MAX_TELEPORT_PERSISTENCE = 5; // Snap after 5 consistent frames
 };
 
 #endif // CONSENSUS_MANAGER_H
