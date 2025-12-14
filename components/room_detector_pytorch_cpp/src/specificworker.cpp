@@ -220,6 +220,10 @@ void SpecificWorker::initialize()
 			this, &SpecificWorker::onTableDetected,
 			Qt::QueuedConnection);
 
+	connect(table_thread_.get(), &TableThread::tableUpdated,
+			this, &SpecificWorker::onTableUpdated,
+			Qt::QueuedConnection);
+
     // === Connect signals FROM door thread TO main thread ===
     connect(door_thread_.get(), &DoorThread::doorDetected,
             this, &SpecificWorker::onDoorDetected,
@@ -513,6 +517,7 @@ void SpecificWorker::update_visualization(const RoboCompCamera360RGBD::TRGBD &rg
 	robot_pose_display.linear() = Eigen::Rotation2Df(theta_now).toRotationMatrix();
 	update_robot_view(robot_pose_display, room_result, &viewer->scene);
 	draw_lidar(points, &viewer->scene);
+
 	//////////////////////////////////////////////////////////////////////////////
     /// 3D Viewer - Room
     //////////////////////////////////////////////////////////////////////////////
@@ -572,6 +577,24 @@ void SpecificWorker::update_visualization(const RoboCompCamera360RGBD::TRGBD &rg
                                door_params[3], door_params[4], door_params[5], door_params[6]);
             viewer3d->updatePointCloud(latest_door_model_->roi_points);
         }
+    }
+
+	//////////////////////////////////////////////////////////////////////////////
+    /// 3D Viewer - Table
+    //////////////////////////////////////////////////////////////////////////////
+    // Fallback to detector pose if no consensus yet (points in robot frame)
+	if (viewer3d && cached_table_room_.valid)
+	{
+		viewer3d->draw_table(
+			cached_table_room_.x,
+			cached_table_room_.y,
+			cached_table_room_.z,
+			cached_table_room_.theta,
+			cached_table_room_.width,
+			cached_table_room_.depth,
+			cached_table_room_.height
+		);
+		viewer3d->updatePointCloud(cached_table_room_.roi_points);
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -637,90 +660,101 @@ void SpecificWorker::update_visualization(const RoboCompCamera360RGBD::TRGBD &rg
 	door_loss_plotter->update();
 	epoch_plotter->update();
 }
-void SpecificWorker::update_viewers(const TimePoints &points_,
-									const RoboCompCamera360RGBD::TRGBD &rgbd,
-                                    const rc::RoomConcept::Result &room_result,
-                                    const std::optional<rc::DoorConcept::Result> &door_result,
-                                    QGraphicsScene *robot_scene,
-                                    double elapsed)
-{
-	const auto &[points, lidar_timestamp] = points_;
-	const auto robot_pose = room_concept->get_room_model()->get_robot_pose();
-
-	//////////////////////////////////////////////////////////////////////////////
-	/// Robot frame
-	//////////////////////////////////////////////////////////////////////////////
-	Eigen::Affine2f robot_pose_display;
-	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
-	robot_pose_display.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
-	draw_lidar(points, robot_scene);
-	update_robot_view(robot_pose_display, room_result, robot_scene);
-
-	// Detect and draw doors
-	door_detector.draw_doors(false, robot_scene, nullptr, robot_pose_display);
-
-	//////////////////////////////////////////////////////////////////////////////
-	/// Viewer 3D ROOM
-	//////////////////////////////////////////////////////////////////////////////
-	//viewer3d->updatePointCloud(points);
-	const auto room_params = room_concept->get_room_model()->get_room_parameters();
-	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
-	viewer3d->updateRobotPose(Eigen::Vector3f(robot_pose[0], robot_pose[1], robot_pose[2]));
-
-	//////////////////////////////////////////////////////////////////////////////
-	/// Viewer 3D DOORS
-	//////////////////////////////////////////////////////////////////////////////
-	if (door_result.has_value() and door_result->door)
-	{
-		const auto params = door_result->optimized_params;
-		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
-		viewer3d->updatePointCloud(door_result->door->roi_points);
-	}
-
-	//////////////////////////////////////////////////////////////////////////////
-	/// RGB panoramic
-	//////////////////////////////////////////////////////////////////////////////
-	cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
-	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
-	if (door_result.has_value() and door_result->door)
-	{
-		cv::rectangle(img, door_result.value().door->roi, cv::Scalar(0, 255, 0), 2);
-		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
-	}
-	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
-	label_img->clear();
-	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-
-	//////////////////////////////////////////////////////////////////////////////
-	/// Time series plot
-	//////////////////////////////////////////////////////////////////////////////
-	room_loss_plotter->addDataPoint(0, room_result.final_loss);
-	room_loss_plotter->addDataPoint(2, room_result.prior_loss);
-	room_loss_plotter->addDataPoint(1, room_result.measurement_loss);
-
-	// Plot updated uncertainty (after measurement update)
-	const float upd_std_x = std::sqrt(room_result.covariance[0][0].item<float>()) ;
-	const float upd_std_y = std::sqrt(room_result.covariance[1][1].item<float>()) ;
-	const float upd_std_theta = std::sqrt(room_result.covariance[2][2].item<float>()) ;
-	stddev_plotter->addDataPoint(0, upd_std_x);    // Green line
-	stddev_plotter->addDataPoint(1, upd_std_y);    // Green line
-	stddev_plotter->addDataPoint(2, upd_std_theta); // Green line
-
-	if (door_result.has_value())
-	{
-		float loss_rounded = std::round(door_result->measurement_loss * 1000.0f) / 1000.0f; // 3 decimales
-		if (std::fabs(loss_rounded) < 1e-6f) loss_rounded = 0.0f;   // opcional: evitar -0.000
-		door_loss_plotter->addDataPoint(0, loss_rounded);
-	}
-
-	epoch_plotter->addDataPoint(0, elapsed);
-
-	room_loss_plotter->update();
-	stddev_plotter->update();
-	epoch_plotter->update();
-	door_loss_plotter->update();
-	last_time = std::chrono::high_resolution_clock::now();
-}
+// void SpecificWorker::update_viewers(const TimePoints &points_,
+// 									const RoboCompCamera360RGBD::TRGBD &rgbd,
+//                                     const rc::RoomConcept::Result &room_result,
+//                                     const std::optional<rc::TableConcept::Result> &table_result,
+//                                     const std::optional<rc::DoorConcept::Result> &door_result,
+//                                     QGraphicsScene *robot_scene,
+//                                     double elapsed)
+// {
+// 	const auto &[points, lidar_timestamp] = points_;
+// 	const auto robot_pose = room_concept->get_room_model()->get_robot_pose();
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// Robot frame
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	Eigen::Affine2f robot_pose_display;
+// 	robot_pose_display.translation() = Eigen::Vector2f(robot_pose[0], robot_pose[1]);
+// 	robot_pose_display.linear() = Eigen::Rotation2Df(robot_pose[2]).toRotationMatrix();
+// 	draw_lidar(points, robot_scene);
+// 	update_robot_view(robot_pose_display, room_result, robot_scene);
+//
+// 	// Detect and draw doors
+// 	door_detector.draw_doors(false, robot_scene, nullptr, robot_pose_display);
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// Viewer 3D ROOM
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	//viewer3d->updatePointCloud(points);
+// 	const auto room_params = room_concept->get_room_model()->get_room_parameters();
+// 	viewer3d->updateRoom(room_params[0], room_params[1]); // half-width, half-height
+// 	viewer3d->updateRobotPose(Eigen::Vector3f(robot_pose[0], robot_pose[1], robot_pose[2]));
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// Viewer 3D DOORS
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	if (door_result.has_value() and door_result->door)
+// 	{
+// 		const auto params = door_result->optimized_params;
+// 		viewer3d->draw_door(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
+// 		viewer3d->updatePointCloud(door_result->door->roi_points);
+// 	}
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// Viewer 3D TABLES
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	if (table_result.has_value() and table_result->table)
+// 	{
+// 		const auto params = table_result->optimized_params;
+// 		viewer3d->draw_table(params[0], params[1], params[2],params[3], params[4], params[5], params[6]);
+// 		viewer3d->updatePointCloud(table_result->table->roi_points);
+// 	}
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// RGB panoramic
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	cv::Mat img(rgbd.height, rgbd.width, CV_8UC3, const_cast<unsigned char*>(rgbd.rgb.data()));
+// 	cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+// 	if (door_result.has_value() and door_result->door)
+// 	{
+// 		cv::rectangle(img, door_result.value().door->roi, cv::Scalar(0, 255, 0), 2);
+// 		DoorProjection::projectDoorOnImage(door_result->door, img, Eigen::Vector3f{0.0f, 0.0f, 1.2f});
+// 	}
+// 	const QImage qimg(img.data, img.cols, img.rows, static_cast<int>(img.step), QImage::Format_RGB888);
+// 	label_img->clear();
+// 	label_img->setPixmap(QPixmap::fromImage(qimg).scaled(label_img->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+//
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	/// Time series plot
+// 	//////////////////////////////////////////////////////////////////////////////
+// 	room_loss_plotter->addDataPoint(0, room_result.final_loss);
+// 	room_loss_plotter->addDataPoint(2, room_result.prior_loss);
+// 	room_loss_plotter->addDataPoint(1, room_result.measurement_loss);
+//
+// 	// Plot updated uncertainty (after measurement update)
+// 	const float upd_std_x = std::sqrt(room_result.covariance[0][0].item<float>()) ;
+// 	const float upd_std_y = std::sqrt(room_result.covariance[1][1].item<float>()) ;
+// 	const float upd_std_theta = std::sqrt(room_result.covariance[2][2].item<float>()) ;
+// 	stddev_plotter->addDataPoint(0, upd_std_x);    // Green line
+// 	stddev_plotter->addDataPoint(1, upd_std_y);    // Green line
+// 	stddev_plotter->addDataPoint(2, upd_std_theta); // Green line
+//
+// 	if (door_result.has_value())
+// 	{
+// 		float loss_rounded = std::round(door_result->measurement_loss * 1000.0f) / 1000.0f; // 3 decimales
+// 		if (std::fabs(loss_rounded) < 1e-6f) loss_rounded = 0.0f;   // opcional: evitar -0.000
+// 		door_loss_plotter->addDataPoint(0, loss_rounded);
+// 	}
+//
+// 	epoch_plotter->addDataPoint(0, elapsed);
+//
+// 	room_loss_plotter->update();
+// 	stddev_plotter->update();
+// 	epoch_plotter->update();
+// 	door_loss_plotter->update();
+// 	last_time = std::chrono::high_resolution_clock::now();
+// }
 
 void SpecificWorker::update_robot_view(const Eigen::Affine2f &robot_pose,
                                        const rc::RoomConcept::Result &result,
@@ -1308,7 +1342,7 @@ void SpecificWorker::onTableDetected(std::shared_ptr<TableModel> model)
 
     {
         QMutexLocker lock(&results_mutex_);
-        //latest_table_model_ = model;
+        latest_table_model_ = model;
     }
 
 }
@@ -1318,8 +1352,60 @@ void SpecificWorker::onTableUpdated(std::shared_ptr<TableModel> model, rc::Table
     // Cache results for visualization
     {
         QMutexLocker lock(&results_mutex_);
-        //latest_table_model_ = model;
-        //latest_table_result_ = result;
+        latest_table_model_ = model;
+        latest_table_result_ = result;
+    }
+
+    // Transform table pose AND points from robot frame to room frame
+    if (!result.optimized_params.empty() && latest_room_result_.has_value() &&
+        !latest_room_result_->optimized_pose.empty())
+    {
+        const auto& table_params = result.optimized_params;
+        const auto& robot_pose = latest_room_result_->optimized_pose;
+
+        // Robot pose in room frame
+        float rx = robot_pose[0];
+        float ry = robot_pose[1];
+        float rtheta = robot_pose[2];
+        float cos_t = std::cos(rtheta);
+        float sin_t = std::sin(rtheta);
+
+        // Table pose in robot frame
+        float tx_robot = table_params[0];
+        float ty_robot = table_params[1];
+        float tz_robot = table_params[2];  // Keep Z as-is (height above floor)
+        float theta_robot = table_params[3];
+
+        // Transform to room frame: p_room = R * p_robot + t
+        float tx_room = cos_t * tx_robot - sin_t * ty_robot + rx;
+        float ty_room = sin_t * tx_robot + cos_t * ty_robot + ry;
+        float theta_room = theta_robot + rtheta;
+
+        // Normalize angle
+        while (theta_room > M_PI) theta_room -= 2 * M_PI;
+        while (theta_room < -M_PI) theta_room += 2 * M_PI;
+
+        // Transform ROI points to room frame
+        std::vector<Eigen::Vector3f> roi_points_room;
+        roi_points_room.reserve(model->roi_points.size());
+        for (const auto& p_robot : model->roi_points)
+        {
+            float px_room = cos_t * p_robot.x() - sin_t * p_robot.y() + rx;
+            float py_room = sin_t * p_robot.x() + cos_t * p_robot.y() + ry;
+            float pz_room = p_robot.z();  // Z doesn't change with yaw rotation
+            roi_points_room.emplace_back(px_room, py_room, pz_room);
+        }
+
+        // Store transformed data
+        cached_table_room_.valid = true;
+        cached_table_room_.x = tx_room;
+        cached_table_room_.y = ty_room;
+        cached_table_room_.z = 0.f;  // Height is relative to floor
+        cached_table_room_.theta = theta_room;
+        cached_table_room_.width = table_params[4];
+        cached_table_room_.depth = table_params[5];
+        cached_table_room_.height = table_params[6];
+        cached_table_room_.roi_points = std::move(roi_points_room);
     }
 }
 

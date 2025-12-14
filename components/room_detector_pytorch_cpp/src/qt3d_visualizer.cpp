@@ -641,6 +641,79 @@ void RoomVisualizer3D::draw_door(float x, float y, float z, float theta, float w
     leafEntity->addComponent(material_leaf);
 }
 
+void RoomVisualizer3D::draw_table(float x, float y, float z, float theta, float width, float depth, float height)
+{
+    const float theta_deg = theta * 180.0f / static_cast<float>(M_PI);
+    const float leg_thickness = 0.05f;
+    const float top_thickness = 0.03f;
+    height /= 2;
+
+    // If table already exists, just update transforms
+    if (tableEntity && tableTransform_)
+    {
+        tableTransform_->setTranslation(QVector3D(x, y, z));
+        tableTransform_->setRotationZ(theta_deg);
+        // Note: Si cambian dimensiones, necesitarías recrear geometría
+        return;
+    }
+
+    // First time: create the full hierarchy
+    tableEntity = new Qt3DCore::QEntity(sceneEntity);
+
+    // Global transform
+    tableTransform_ = new Qt3DCore::QTransform();
+    tableTransform_->setTranslation(QVector3D(x, y, 0.0f));
+    tableTransform_->setRotationZ(theta_deg);
+    tableEntity->addComponent(tableTransform_);
+
+    // Materials
+    auto *material_top = new Qt3DExtras::QPhongMaterial();
+    material_top->setDiffuse(QColor(139, 90, 43));
+    material_top->setAmbient(QColor(80, 50, 25));
+
+    auto *material_legs = new Qt3DExtras::QPhongMaterial();
+    material_legs->setDiffuse(QColor(100, 70, 40));
+    material_legs->setAmbient(QColor(60, 40, 20));
+
+    // ==================== TABLE TOP ====================
+    auto *topMesh = new Qt3DExtras::QCuboidMesh();
+    topMesh->setXExtent(width);
+    topMesh->setYExtent(depth);
+    topMesh->setZExtent(top_thickness);
+
+    auto *topEntity = new Qt3DCore::QEntity(tableEntity);
+    auto *topTransform = new Qt3DCore::QTransform();
+    topTransform->setTranslation(QVector3D(0.0f, 0.0f, height));  // Tablero a 'height' del suelo
+    topEntity->addComponent(topMesh);
+    topEntity->addComponent(topTransform);
+    topEntity->addComponent(material_top);
+
+    // ==================== TABLE LEGS ====================
+    const float leg_offset_x = width/2.0f - leg_thickness;
+    const float leg_offset_y = depth/2.0f - leg_thickness;
+    const float leg_height = height;  // Patas desde suelo (z=0) hasta tablero
+
+    auto createLeg = [&](float offset_x, float offset_y) {
+        auto *legMesh = new Qt3DExtras::QCuboidMesh();
+        legMesh->setXExtent(leg_thickness);
+        legMesh->setYExtent(leg_thickness);
+        legMesh->setZExtent(leg_height);
+
+        auto *legEntity = new Qt3DCore::QEntity(tableEntity);
+        auto *legTransform = new Qt3DCore::QTransform();
+        legTransform->setTranslation(QVector3D(offset_x, offset_y, leg_height/2.0f));
+        legEntity->addComponent(legMesh);
+        legEntity->addComponent(legTransform);
+        legEntity->addComponent(material_legs);
+    };
+
+    // Create 4 legs at corners
+    createLeg(-leg_offset_x, -leg_offset_y);
+    createLeg(leg_offset_x, -leg_offset_y);
+    createLeg(-leg_offset_x, leg_offset_y);
+    createLeg(leg_offset_x, leg_offset_y);
+}
+
 //////////////////////////////////////////////////////////////////////////////////
 Qt3DCore::QEntity *RoomVisualizer3D::createUncertaintyEllipse(float std_x, float std_y, const QColor &color)
 {

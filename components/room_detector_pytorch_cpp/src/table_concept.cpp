@@ -282,6 +282,7 @@ namespace rc
         return roi_points;
     }
 
+
     // =========================================================================
     // LEGACY: compute_projected_roi - Kept for backward compatibility
     // Now internally uses TableProjection::predictROI

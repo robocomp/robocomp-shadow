@@ -40,6 +40,29 @@ namespace rc
     class TableConcept
     {
         public:
+
+            // Priors gaussianos para parámetros de mesa
+            struct TablePriors {
+                // Prior para anchura (mean ± std)
+                float width_mean = 1.0f;
+                float width_std = 0.3f;
+
+                // Prior para profundidad
+                float depth_mean = 0.6f;
+                float depth_std = 0.2f;
+
+                // Prior para altura
+                float height_mean = 0.75f;  // Mesa estándar
+                float height_std = 0.15f;
+
+                // Prior para grosor del tablero
+                float thickness_mean = 0.03f;
+                float thickness_std = 0.01f;
+
+                // Peso del término de regularización
+                float prior_weight = 0.1f;
+            };
+
             struct Result
             {
                 torch::Tensor covariance;           // Full parameter covariance

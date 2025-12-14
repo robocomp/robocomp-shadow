@@ -72,6 +72,29 @@ class DoorModel final : public torch::nn::Module
         std::string label;  // debug
         float score;
 
+        // Priors gaussianos para parámetros de mesa
+        struct TablePriors {
+            // Prior para anchura (mean ± std)
+            float width_mean = 1.0f;
+            float width_std = 0.3f;
+
+            // Prior para profundidad
+            float depth_mean = 0.6f;
+            float depth_std = 0.2f;
+
+            // Prior para altura
+            float height_mean = 0.75f;  // Mesa estándar
+            float height_std = 0.15f;
+
+            // Prior para grosor del tablero
+            float thickness_mean = 0.03f;
+            float thickness_std = 0.01f;
+
+            // Peso del término de regularización
+            float prior_weight = 0.1f;
+        };
+
+
         /**
          * @brief Initialize door model from YOLO detection ROI
          *
@@ -179,6 +202,15 @@ class DoorModel final : public torch::nn::Module
 
         // Door articulation state (trainable)
         torch::Tensor opening_angle_;  // [angle] - rotation of leaf around Z at hinge (0 = closed)
+
+        TablePriors priors_;
+
+        /**
+         * @brief Compute Gaussian prior loss for table parameters
+         * @param params Current table parameters
+         * @return Prior loss term
+         */
+        torch::Tensor compute_prior_loss(const std::vector<float>& params) const;
 
     private:
 

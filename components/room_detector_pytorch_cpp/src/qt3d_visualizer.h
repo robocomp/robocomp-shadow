@@ -40,6 +40,8 @@ public:
 
     void draw_door(float x, float y, float z, float theta, float width, float height, float open_angle);
 
+    void draw_table(float x, float y, float z, float theta, float width, float depth, float height);
+
     // Optional: uncertainty visualization
     void updateUncertainty(float pos_std_x, float pos_std_y, float theta_std);
 
@@ -128,6 +130,10 @@ private:
     // door transforms
     Qt3DCore::QTransform *doorTransform_ = nullptr;
     Qt3DCore::QTransform *hingeTransform_ = nullptr;
+
+    // table transforms
+    Qt3DCore::QEntity* tableEntity = nullptr;
+    Qt3DCore::QTransform* tableTransform_ = nullptr;
 };
 
 #endif // ROOM_VISUALIZER_3D_H

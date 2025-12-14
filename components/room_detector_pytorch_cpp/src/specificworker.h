@@ -130,10 +130,10 @@ class SpecificWorker final : public GenericWorker
 		void update_robot_view(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result, QGraphicsScene *scene);
 		// Helper to update GUI widgets (extracted from update_robot_view)
 		void update_gui(const Eigen::Affine2f &robot_pose, const rc::RoomConcept::Result &result);
-		void update_viewers(const TimePoints &points_,
-		                    const RoboCompCamera360RGBD::TRGBD &rgbd,
-		                    const rc::RoomConcept::Result &room_result, const std::optional<rc::DoorConcept::Result> &door_result, QGraphicsScene *
-		                    robot_scene, double elapsed);
+		// void update_viewers(const TimePoints &points_,
+		//                     const RoboCompCamera360RGBD::TRGBD &rgbd,
+		//                     const rc::RoomConcept::Result &room_result, const std::optional<rc::TableConcept::Result> &table_result, const std::
+		//                     optional<rc::DoorConcept::Result> &door_result, QGraphicsScene *robot_scene, double elapsed);
 
 		QGraphicsEllipseItem* draw_uncertainty_ellipse(
 				QGraphicsScene *scene,
@@ -189,6 +189,8 @@ class SpecificWorker final : public GenericWorker
 		std::optional<rc::RoomConcept::Result> latest_room_result_;
 		std::shared_ptr<DoorModel> latest_door_model_;
 		std::optional<rc::DoorConcept::Result> latest_door_result_;
+		std::shared_ptr<TableModel> latest_table_model_;
+		std::optional<rc::TableConcept::Result> latest_table_result_;
 
 		// Cached room parameters (thread-safe, extracted in RoomThread)
 		std::vector<float> cached_room_params_{0.0f, 0.0f};  // [half_width, half_depth]
@@ -203,6 +205,13 @@ class SpecificWorker final : public GenericWorker
 			float width = 0, height = 0, opening_angle = 0;
 		};
 		ConsensusDoorPose cached_consensus_door_;
+
+	struct CachedTablePose
+	{
+		bool valid = false;
+		float x, y, z, theta, width, depth, height;
+		std::vector<Eigen::Vector3f> roi_points;
+	} cached_table_room_;
 
 	Q_SIGNALS:
 		// Signals to send data to threads

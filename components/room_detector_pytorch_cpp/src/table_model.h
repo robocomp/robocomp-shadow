@@ -89,7 +89,7 @@ public:
               const std::string &label_,
               float initial_width = 1.0f,
               float initial_depth = 0.6f,
-              float initial_height = 0.75f);
+              float initial_height = 0.70f);
 
     /**
      * @brief Compute signed distance from points to table surface

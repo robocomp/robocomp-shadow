@@ -370,6 +370,7 @@ torch::Tensor DoorModel::sdf(const torch::Tensor& points_robot) const
     return torch::minimum(sdf_frame_vals, sdf_leaf_vals);
 }
 
+
 std::vector<float> DoorModel::get_door_parameters() const
 {
     const auto pos = door_position_.accessor<float, 1>();
