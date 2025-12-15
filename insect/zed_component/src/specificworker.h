@@ -33,6 +33,8 @@
 #include <atomic>
 #include <Eigen/Dense>
 #include <omp.h>
+#include "CloudCompressor.h"
+#include <shared_mutex>
 //#include <doublebuffer/DoubleBuffer.h>
 
 
@@ -160,7 +162,7 @@ private:
      * \brief Flag indicating whether startup checks are enabled.
      */
 	bool startup_check_flag;
-    std::mutex color_point_cloud_mutex;
+    mutable std::shared_mutex color_point_cloud_mutex;
     std::shared_ptr<RoboCompLidar3D::TColorCloudData> buffer_color_point_cloud;
 
 signals:
