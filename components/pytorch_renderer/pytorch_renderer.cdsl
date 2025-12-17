@@ -1,0 +1,10 @@
+
+Component pytorch_renderer
+{
+    Communications
+    {
+    };
+    language python;
+    gui Qt(QWidget);
+};
+
