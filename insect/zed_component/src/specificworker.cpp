@@ -20,6 +20,7 @@
 #include <thread>
 #include "Eigen/Dense"
 
+
 SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, bool startup_check) : GenericWorker(configLoader, tprx)
 {
 	this->startup_check_flag = startup_check;
@@ -113,7 +114,6 @@ void SpecificWorker::initialize()
         #endif
         init_parameters.coordinate_units = sl::UNIT::MILLIMETER; // Use millimeter units (for depth measurements)
         init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP; // Use a right-handed Y-up coordinate system
-        init_parameters.depth_minimum_distance = 650 ;
         init_parameters.enable_image_enhancement = true; // Mejora visual en condiciones complejas
         //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
         //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
@@ -209,12 +209,21 @@ void SpecificWorker::process_RGBD_data()
 
 
     if (!simulated){
-        const static int step = 2;
+        const static int step = 1;
 
         // Retrieve left image
         zed.retrieveImage(image, sl::VIEW::LEFT);
         // Retrieve colored point cloud. Point cloud is aligned on the left image.
+
+        // TODO RESEARCH
+        // sl::Resolution res(-1, -1); 
+        // zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA, sl::MEM::GPU, res);
+
         zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
+        colorCloudPoints.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        auto init = std::chrono::high_resolution_clock::now();
+
+
 
         cv::Mat cv_image = cv::Mat(image.getHeight(), image.getWidth(), CV_8UC4, image.getPtr<sl::uchar1>(sl::MEM::CPU));
 
@@ -266,8 +275,7 @@ void SpecificWorker::process_RGBD_data()
             {
                 cv::Vec4f pt = pointcloud_mat.at<cv::Vec4f>(y, x);
 
-                if (!std::isfinite(pt[0]) || !std::isfinite(pt[1]) || !std::isfinite(pt[2]) ||
-                    pt[2] <= 0.0f || pt[2] == INFINITY) 
+                if (!std::isfinite(pt[0]) || !std::isfinite(pt[1]) || !std::isfinite(pt[2])) 
                     continue;
                 Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(pt[0], pt[1], pt[2]) + extrinsic.translation();
                 colorCloudPoints.X[index] = lidar_point[0];
@@ -284,11 +292,15 @@ void SpecificWorker::process_RGBD_data()
         
         auto fin = std::chrono::high_resolution_clock::now();
         duration = fin - inicio;
+        std::cout<< "aaaaa"<< std::chrono::duration<double, std::milli> (fin- init).count()<< std::endl;
+
     }
     else{
         RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
         RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
         RoboCompCameraRGBDSimple::TPoints points;
+        colorCloudPoints.timestamp = depth_image.alivetime;
+
 
         const static int step = 4;
 
@@ -378,6 +390,10 @@ void SpecificWorker::process_RGBD_data()
         rgbd.depth = std::move(depth_image);
         rgbd.points = std::move(points);
     }
+    auto i = std::chrono::high_resolution_clock::now();
+
+    colorCloudPoints.numberPoints = index;
+    colorCloudPoints.compressed = false;
 
     colorCloudPoints.X.resize(index);
     colorCloudPoints.Y.resize(index);
@@ -386,15 +402,47 @@ void SpecificWorker::process_RGBD_data()
     colorCloudPoints.G.resize(index);
     colorCloudPoints.B.resize(index);
 
+    size_t total_bytes = sizeof(colorCloudPoints);
+    total_bytes += colorCloudPoints.X.size() * sizeof(short);
+    total_bytes += colorCloudPoints.Y.size() * sizeof(short);
+    total_bytes += colorCloudPoints.Z.size() * sizeof(short);
+    total_bytes += colorCloudPoints.R.size() * sizeof(uint8_t);
+    total_bytes += colorCloudPoints.G.size() * sizeof(uint8_t);
+    total_bytes += colorCloudPoints.B.size() * sizeof(uint8_t);
+
+    std::cout << "Approx. total memory used: " << total_bytes << " bytes" << std::endl;
     std::cout << "Tiempo de ejecución: " << duration.count() << "ms to " <<colorCloudPoints.X.size()<< "Points\n";
-    // std::cout << "Punto: X" << colorCloudPoints.X[5000] << "Y " <<colorCloudPoints.Y[5000]<< "Z " <<colorCloudPoints.Z[5000]<< 
-    //             " | R " <<static_cast<int>(colorCloudPoints.R[5000])<< "G " <<static_cast<int>(colorCloudPoints.G[5000])<< "B " <<static_cast<int>(colorCloudPoints.B[5000])<<"\n";
+
+    if (false)
+    {    
+        auto init = std::chrono::high_resolution_clock::now();
+        CloudCompressor::compress(colorCloudPoints, 1);
+        std::chrono::duration<double, std::milli> compress = std::chrono::high_resolution_clock::now() - init;
+
+        size_t total_bytes_compress = sizeof(colorCloudPoints);
+        total_bytes_compress += colorCloudPoints.cX.size() * sizeof(uint8_t);
+        total_bytes_compress += colorCloudPoints.cY.size() * sizeof(uint8_t);
+        total_bytes_compress += colorCloudPoints.cZ.size() * sizeof(uint8_t);
+        total_bytes_compress += colorCloudPoints.R.size() * sizeof(uint8_t);
+        total_bytes_compress += colorCloudPoints.G.size() * sizeof(uint8_t);
+        total_bytes_compress += colorCloudPoints.B.size() * sizeof(uint8_t);
+
+        // init = std::chrono::high_resolution_clock::now();
+        // RoboCompLidar3D::TColorCloudData compressedCopy = colorCloudPoints;
+        // CloudCompressor::decompress(compressedCopy);
+        // std::chrono::duration<double, std::milli> decompress = std::chrono::high_resolution_clock::now() - init;
+
+        std::cout << "X: "<< colorCloudPoints.cX.size()<< " Y: "  <<colorCloudPoints.cY.size()<< " Z: "<< colorCloudPoints.cZ.size()<<std::endl;
+        std::cout << "Memory: "<< total_bytes_compress<< " ratio: " << float(total_bytes_compress) / float(total_bytes) << " compress time: "<< compress.count()<<std::endl;
+    }
 
     auto cloud_ptr = std::make_shared<RoboCompLidar3D::TColorCloudData>(std::move(colorCloudPoints));
     { 
-        std::lock_guard<std::mutex> lock(color_point_cloud_mutex);
+        std::lock_guard<std::shared_mutex> lock(color_point_cloud_mutex);
         buffer_color_point_cloud = std::move(cloud_ptr);
     }
+    std::cout<< "bbbbbb"<< std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now()- i).count()<< std::endl;
+
     camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
 
 
@@ -629,7 +677,7 @@ void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform)
 
 RoboCompLidar3D::TColorCloudData SpecificWorker::Lidar3D_getColorCloudData()
 {
-    std::lock_guard<std::mutex> lock(color_point_cloud_mutex);
+    std::shared_lock<std::shared_mutex> lock(color_point_cloud_mutex);
     if (buffer_color_point_cloud)
         return *buffer_color_point_cloud; 
     else

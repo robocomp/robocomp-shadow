@@ -103,7 +103,6 @@ void SpecificWorker::initialize()
             catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; }
             sleep(1);
         }
-	    setPeriod("Compute", 1);
 		
 	}
 }
@@ -151,7 +150,7 @@ void SpecificWorker::compute()
             // qInfo() << "Camera data with timestamp" << cam_data.timestamp << "already exists in buffer";
         }
     }
-    catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
+    catch (const Ice::Exception &e){std::cout << " In getting camera data " << e.what() << std::endl; return;}
 
     // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
     // int timestamp_diff = 999999999;
@@ -231,6 +230,10 @@ void SpecificWorker::compute()
         cv::Vec3f* depth_ptr = depth_image.ptr<cv::Vec3f>();
         cv::Vec3b* rgb_ptr = rgb_image.ptr<cv::Vec3b>();
 
+        
+        cloud.timestamp = chosen_lidar_data.timestamp;
+        cloud.compressed = false;
+
         const size_t N = chosen_lidar_data.XArray.size();
         cloud.X.resize(N);
         cloud.Y.resize(N); 
@@ -268,6 +271,7 @@ void SpecificWorker::compute()
             cloud.G[i] = rgb_pixel[1];  // uint8_t  
             cloud.B[i] = rgb_pixel[0];  // uint8_t
         }
+        cloud.numberPoints = N;
 
         if(params.DISPLAY)
         {
