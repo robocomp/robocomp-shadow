@@ -1,0 +1,26 @@
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+# Proxies for required interfaces
+Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
+Proxies.OmniRobot = "omnirobot:tcp -h localhost -p 10004"
+
+
+# Endpoints for subscriptions interfaces
+Endpoints.FullPoseEstimationPubTopic = "tcp -p 13223"
+Endpoints.FullPoseEstimationPubPrefix = ""
+
+
+# Change id
+Agent.id = 0
+Agent.name = "ainf_test"
+Agent.configFile = "insight_dsr.json"
+
+
+Period.Compute = 100
+Period.Emergency = 500
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"

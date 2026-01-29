@@ -1,0 +1,16 @@
+import "OmniRobot.idsl";
+import "Lidar3D.idsl";
+import "FullPoseEstimationPub.idsl";
+
+Component ainf_test
+{
+    Communications
+    {
+        requires Lidar3D, OmniRobot;
+        subscribesTo FullPoseEstimationPub;
+    };
+    language python;
+    options dsr;
+
+};
+
