@@ -832,11 +832,11 @@ class RoomPoseEstimatorV2:
             position_jump = np.sqrt(dx**2 + dy**2)
             angle_jump = np.abs(dtheta)
 
-            # Physical limits (assuming 10Hz update rate):
-            # Position: 15cm = 1.5 m/s max speed
-            # Angle: 30° = 5.2 rad/s max rotation
-            MAX_POSITION_JUMP = 0.15  # 15cm
-            MAX_ANGLE_JUMP = 0.524    # 30 degrees (π/6)
+            # Physical limits (from C++ reference):
+            # Position: 20cm max jump (prevents falling into wrong minima)
+            # Angle: 45° max jump (prevents 180° flips near corners)
+            MAX_POSITION_JUMP = 0.2   # 20cm (0.2m)
+            MAX_ANGLE_JUMP = 0.78     # ~45 degrees (π/4 ≈ 0.785)
 
             if position_jump > MAX_POSITION_JUMP or angle_jump > MAX_ANGLE_JUMP:
                 # Reject optimization, use prediction instead

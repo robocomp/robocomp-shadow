@@ -126,8 +126,9 @@ class SpecificWorker(GenericWorker):
         if len(lidar_points) > 0:
             # Convert last command to velocity in m/s for the estimator
             # last_cmd = (advx, advz, rot) where advx=lateral, advz=forward in mm/s
+            # IMPORTANT: Negate angular velocity to match negated theta from ground truth
             velocity = np.array([last_cmd[0] / 1000.0, last_cmd[1] / 1000.0])  # [vx, vy] in m/s
-            angular_velocity = last_cmd[2]  # rad/s
+            angular_velocity = -last_cmd[2]  # rad/s (negated to match coordinate transform)
 
             # Debug: print command conversion occasionally
             if self.total_steps % 100 == 0:
