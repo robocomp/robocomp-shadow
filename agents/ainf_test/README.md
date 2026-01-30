@@ -2,6 +2,8 @@
 Intro to component here
 
 Test component to validate Active Inference in the room-robot concept problem
+Ejecutar el script python subcognitive.py sub.toml
+Cargar el mundo de webots: SimpleWorld.wbt
 
 ## Configuration parameters
 As any other component, *ainf_test* needs a configuration file to start. In

@@ -27,6 +27,7 @@ import interfaces as ifaces
 import traceback
 import numpy as np
 from src.concept_room import RoomPoseEstimatorV2
+from src.room_viewer import RoomViewerDPG, RoomSubject, ViewerData, create_viewer_data
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -73,11 +74,25 @@ class SpecificWorker(GenericWorker):
             self.sdf_errors = []
             self.stats_printed = False
 
+            # Create viewer with observer pattern
+            self.viewer_subject = RoomSubject()
+            self.room_viewer = RoomViewerDPG(
+                window_width=1000,
+                window_height=700,
+                margin=0.5,
+                show_lidar=True
+            )
+            self.viewer_subject.attach(self.room_viewer)
+            self.room_viewer.start()
+            print("[SpecificWorker] Room viewer started")
+
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 
     def __del__(self):
         """Destructor"""
+        if hasattr(self, 'room_viewer'):
+            self.room_viewer.stop()
 
 
     @QtCore.Slot()
@@ -114,6 +129,11 @@ class SpecificWorker(GenericWorker):
             velocity = np.array([last_cmd[0] / 1000.0, last_cmd[1] / 1000.0])  # [vx, vy] in m/s
             angular_velocity = last_cmd[2]  # rad/s
 
+            # Debug: print command conversion occasionally
+            if self.total_steps % 100 == 0:
+                print(f"[Command] last_cmd=({last_cmd[0]:.0f}, {last_cmd[1]:.0f}, {last_cmd[2]:.3f}) "
+                      f"-> velocity=({velocity[0]:.3f}, {velocity[1]:.3f}), omega={angular_velocity:.3f}")
+
             # Time step in seconds
             dt = self.Period / 1000.0
 
@@ -124,7 +144,7 @@ class SpecificWorker(GenericWorker):
                 robot_velocity=velocity,
                 angular_velocity=angular_velocity,
                 dt=dt,
-                lidar_points_real=lidar_points
+                lidar_points=lidar_points
             )
 
             # Print status every 20 steps
@@ -142,18 +162,22 @@ class SpecificWorker(GenericWorker):
                 gt_x, gt_y, gt_theta = self.robot_pose_gt
                 pose_error = np.sqrt((est_x - gt_x)**2 + (est_y - gt_y)**2)
 
+                # Compute angle error (handling wrapping)
+                angle_diff = est_theta - gt_theta
+                angle_error = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
+
                 # Track errors for statistics
                 self.pose_errors.append(pose_error)
                 self.sdf_errors.append(sdf_err)
 
                 print(f"[Step {self.total_steps}] Phase: {phase}, SDF: {sdf_err:.3f}, "
-                      f"Pose_err: {pose_error:.3f}m, Uncertainty: {uncertainty:.3f}")
+                      f"Pose_err: {pose_error:.3f}m, Angle_err: {np.degrees(abs(angle_error)):.1f}°, Uncertainty: {uncertainty:.3f}")
 
                 # Ground truth (from simulator)
-                print(f"  Ground truth: x={gt_x:.3f}m, y={gt_y:.3f}m, theta={gt_theta:.3f}rad")
+                print(f"  Ground truth: x={gt_x:.3f}m, y={gt_y:.3f}m, theta={gt_theta:.3f}rad ({np.degrees(gt_theta):.1f}°)")
 
                 # Estimated pose (from Active Inference)
-                print(f"  Estimated:    x={est_x:.3f}m, y={est_y:.3f}m, theta={est_theta:.3f}rad")
+                print(f"  Estimated:    x={est_x:.3f}m, y={est_y:.3f}m, theta={est_theta:.3f}rad ({np.degrees(est_theta):.1f}°)")
 
                 # Command being issued
                 print(f"  Command: vx={velocity[0]:.3f}m/s, vy={velocity[1]:.3f}m/s, rot={angular_velocity:.3f}rad/s")
@@ -164,6 +188,15 @@ class SpecificWorker(GenericWorker):
                           f"{self.room_estimator.belief.length:.2f} m (true: {self.room_estimator.true_width:.1f} x {self.room_estimator.true_height:.1f} m)")
 
                 print(f"  LIDAR points: {len(lidar_points)}")
+
+            # Update viewer with current data
+            viewer_data = create_viewer_data(
+                room_estimator=self.room_estimator,
+                robot_pose_gt=self.robot_pose_gt,
+                lidar_points=lidar_points,
+                step=self.total_steps
+            )
+            self.viewer_subject.notify(viewer_data)
 
     def print_statistics_summary(self):
         """Print a summary of statistics at the end of the run"""
@@ -297,7 +330,7 @@ class SpecificWorker(GenericWorker):
         return self._execute_trajectory()
 
     def _init_trajectory(self):
-        """Initialize the trajectory system with a test pattern"""
+        """Initialize the trajectory system with a square pattern in the center"""
         self._trajectory_initialized = True
 
         # Movement parameters
@@ -305,28 +338,49 @@ class SpecificWorker(GenericWorker):
         self.rotation_speed = 0.3     # rad/s
         self.period_sec = self.Period / 1000.0
 
-        # Define a longer trajectory for better statistics
-        # This creates a pattern that explores more of the room
+        # Square trajectory in the center of the room
+        # Room is 6m x 4m centered at origin
+        # Square side length: 1.0m (keeps robot well-centered)
+        # Robot starts at center (0, 0) facing forward (+y)
+        square_side = 1.0  # meters
+
         self._trajectory = [
-            # Start: explore forward
-            ('forward', 1.5),
-            ('turn', -90),      # Turn right
-            ('forward', 1.0),
-            ('turn', -90),      # Turn right
-            ('forward', 1.5),
-            ('turn', 180),      # Turn around
-            ('forward', 1.5),
-            ('turn', 90),       # Turn left
-            ('forward', 1.0),
-            ('turn', 90),       # Turn left
-            ('forward', 1.5),
-            ('turn', -90),      # Turn right
+            # Initial positioning: move to start of square
             ('forward', 0.5),
-            ('turn', -90),      # Turn right
-            ('forward', 1.0),
-            ('turn', 180),      # Turn around
-            ('forward', 1.0),
-            ('wait', 1.0),      # Pause to collect data
+            ('wait', 0.5),
+
+            # First square loop
+            ('forward', square_side),
+            ('turn', 90),        # Turn left
+            ('forward', square_side),
+            ('turn', 90),        # Turn left
+            ('forward', square_side),
+            ('turn', 90),        # Turn left
+            ('forward', square_side),
+            ('turn', 90),        # Turn left (back to start orientation)
+            ('wait', 1.0),
+
+            # Second square loop (for more statistics)
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('wait', 1.0),
+
+            # Third square loop
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('forward', square_side),
+            ('turn', 90),
+            ('wait', 2.0),      # Final pause
         ]
 
         self._current_action_idx = 0
@@ -334,7 +388,8 @@ class SpecificWorker(GenericWorker):
         self._action_total_steps = 0
         self._trajectory_complete = False
 
-        print(f"[Explorer] Trajectory initialized with {len(self._trajectory)} actions")
+        print(f"[Explorer] Square trajectory initialized: {square_side}m sides, 3 loops")
+        print(f"           Total {len(self._trajectory)} actions")
         self._print_trajectory()
 
     def _print_trajectory(self):
@@ -476,13 +531,21 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to newFullPose method from FullPoseEstimationPub interface
     #
     def FullPoseEstimationPub_newFullPose(self, pose):
+        # CRITICAL: Transform from simulator's coordinate system to ours
+        # The simulator uses a completely different coordinate convention
+        # We need to negate ALL coordinates to match our system
+        normalized_theta = np.arctan2(np.sin(-pose.rz), np.cos(-pose.rz))
+
+        # Negate both X and Y coordinates
+        x_transformed = -pose.x
+        y_transformed = -pose.y
+
         # Debug: print raw values occasionally to understand coordinate convention
         if hasattr(self, 'total_steps') and self.total_steps % 100 == 0:
             print(f"[GT RAW] pose.x={pose.x:.3f}, pose.y={pose.y:.3f}, pose.rz={pose.rz:.3f}")
+            print(f"       → x={x_transformed:.3f}, y={y_transformed:.3f}, theta={normalized_theta:.3f}")
 
-        # Coordinate convention: x+ = left, y+ = forward
-        # Simulator uses same convention - no transformation needed
-        self.robot_pose_gt = [pose.x, pose.y, pose.rz]
+        self.robot_pose_gt = [x_transformed, y_transformed, normalized_theta]
 
 
     # =============== DSR SLOTS  ================

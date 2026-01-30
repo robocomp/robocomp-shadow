@@ -106,33 +106,20 @@ class RoomPoseEstimatorV2:
     def __init__(self,
                  room_width: float = 6.0,
                  room_height: float = 4.0,
-                 num_upper_rays: int = 64,  # Reduced from 360 for faster tracking
-                 upper_sensor_range: float = 10.0,
                  distance_noise_std: float = 0.005,
                  use_known_room_dimensions: bool = False):
         """
         Args:
-            room_width: True room width (in METERS, for simulation)
-            room_height: True room height (in METERS, for simulation)
-            num_upper_rays: Number of upper LIDAR rays
-            upper_sensor_range: Maximum range of upper LIDAR (in METERS)
-            distance_noise_std: Gaussian noise std dev on distance measurements (in METERS)
+            room_width: True room width in METERS (for reporting/comparison only)
+            room_height: True room height in METERS (for reporting/comparison only)
+            distance_noise_std: Gaussian noise std dev on distance measurements in METERS
             use_known_room_dimensions: If True, fix room dimensions (only estimate pose)
         """
-        # Ground truth (for simulation only) - in METERS
+        # Ground truth (for reporting only) - in METERS
         self.true_width = room_width
         self.true_height = room_height
         self.use_known_room_dimensions = use_known_room_dimensions
-
-
-        # Upper LIDAR parameters - all in METERS
-        self.num_rays = num_upper_rays
-        self.sensor_range = upper_sensor_range
         self.distance_noise_std = distance_noise_std
-
-        # Pre-compute ray angles
-        self.ray_angles = torch.linspace(0, 2 * np.pi, num_upper_rays + 1,
-                                         dtype=DTYPE, device=DEVICE)[:-1]
 
         # Belief state
         self.belief: Optional[RoomBelief] = None
@@ -148,15 +135,16 @@ class RoomPoseEstimatorV2:
         self.init_iterations = 0
 
         # Tracking parameters - adjusted for meters
-        self.sigma_sdf = 0.05  # 5cm - realistic LIDAR noise
+        # sigma_sdf represents the effective uncertainty in wall distance measurements
+        # This includes sensor noise + dynamic effects (motion, rotation, timing)
+        # Needs to be large enough that prior (motion model) remains influential
+        self.sigma_sdf = 0.15  # 15cm - accounts for dynamic uncertainty during motion
         self.Q_pose = np.diag([0.01, 0.01, 0.05])  # Process noise in meters
 
         # Optimization parameters
         self.lr_init = 0.5  # Higher learning rate for faster convergence
-        self.lr_tracking = 0.1  # Higher for tracking
+        self.lr_tracking = 0.1  # Balanced for convergence with theta constraint
 
-        # State for tracking
-        self._last_velocity = np.zeros(2)
 
         # Statistics
         self.stats = {
@@ -165,80 +153,6 @@ class RoomPoseEstimatorV2:
             'pose_error_history': []
         }
 
-    def simulate_upper_lidar(self,
-                             robot_pos: np.ndarray,
-                             robot_theta: float) -> torch.Tensor:
-        """
-        Simulate upper LIDAR detecting room walls (VECTORIZED).
-
-        Coordinate convention: x=lateral (width), y=forward (length)
-        Room bounds: x ∈ [0, width], y ∈ [0, length]
-
-        The upper LIDAR is mounted above obstacle height, so it only sees walls.
-
-        Args:
-            robot_pos: [x, y] position in meters (x=lateral, y=forward)
-            robot_theta: heading angle in radians
-
-        Returns:
-            Tensor of shape [K, 2] with hit points in robot frame [dx, dy]
-        """
-        # Ensure robot_pos is 1D array of shape (2,)
-        robot_pos = np.asarray(robot_pos).flatten()[:2]
-
-        # Vectorized ray directions in robot frame
-        # theta=0 points in +y direction (forward)
-        angles = robot_theta + self.ray_angles.cpu().numpy()  # [num_rays]
-        directions = np.stack([np.cos(angles), np.sin(angles)], axis=1)  # [num_rays, 2]
-
-        # Initialize distances to sensor range
-        t_min = np.full(self.num_rays, self.sensor_range)
-
-        # Suppress divide warnings - we handle inf/nan explicitly
-        with np.errstate(divide='ignore', invalid='ignore'):
-            # Left wall (x = 0, lateral boundary)
-            mask = directions[:, 0] < -1e-6
-            t_left = -robot_pos[0] / directions[:, 0]
-            y_left = robot_pos[1] + t_left * directions[:, 1]
-            valid_left = mask & np.isfinite(t_left) & (t_left > 0) & (t_left < t_min) & (y_left >= 0) & (y_left <= self.true_height)
-            t_min = np.where(valid_left, t_left, t_min)
-
-            # Right wall (x = width, lateral boundary)
-            mask = directions[:, 0] > 1e-6
-            t_right = (self.true_width - robot_pos[0]) / directions[:, 0]
-            y_right = robot_pos[1] + t_right * directions[:, 1]
-            valid_right = mask & np.isfinite(t_right) & (t_right > 0) & (t_right < t_min) & (y_right >= 0) & (y_right <= self.true_height)
-            t_min = np.where(valid_right, t_right, t_min)
-
-            # Back wall (y = 0, forward boundary)
-            mask = directions[:, 1] < -1e-6
-            t_bottom = -robot_pos[1] / directions[:, 1]
-            x_bottom = robot_pos[0] + t_bottom * directions[:, 0]
-            valid_bottom = mask & np.isfinite(t_bottom) & (t_bottom > 0) & (t_bottom < t_min) & (x_bottom >= 0) & (x_bottom <= self.true_width)
-            t_min = np.where(valid_bottom, t_bottom, t_min)
-
-            # Front wall (y = height, forward boundary)
-            mask = directions[:, 1] > 1e-6
-            t_top = (self.true_height - robot_pos[1]) / directions[:, 1]
-            x_top = robot_pos[0] + t_top * directions[:, 0]
-            valid_top = mask & np.isfinite(t_top) & (t_top > 0) & (t_top < t_min) & (x_top >= 0) & (x_top <= self.true_width)
-            t_min = np.where(valid_top, t_top, t_min)
-
-        # Filter valid hits
-        valid_hits = t_min < self.sensor_range
-
-        if not np.any(valid_hits):
-            return torch.zeros((0, 2), dtype=DTYPE, device=DEVICE)
-
-        # Add Gaussian noise to distances
-        noisy_distances = t_min[valid_hits] + np.random.randn(np.sum(valid_hits)) * self.distance_noise_std
-        noisy_distances = np.maximum(0.001, noisy_distances)  # Minimum 1mm distance
-
-        # Compute hit points in robot frame (local coordinates)
-        valid_directions = directions[valid_hits]
-        hit_points = noisy_distances[:, np.newaxis] * valid_directions
-
-        return torch.tensor(hit_points, dtype=DTYPE, device=DEVICE)
 
     def sdf_rect(self,
                  points: torch.Tensor,
@@ -302,7 +216,7 @@ class RoomPoseEstimatorV2:
                robot_velocity: np.ndarray = None,
                angular_velocity: float = 0.0,
                dt: float = 0.1,
-               lidar_points_real: np.ndarray = None) -> Dict:
+               lidar_points: np.ndarray = None) -> Dict:
         """
         Update room and pose estimates using Active Inference.
 
@@ -311,7 +225,7 @@ class RoomPoseEstimatorV2:
             robot_velocity: Velocity command [vx, vy] in m/s (vx=lateral, vy=forward)
             angular_velocity: Angular velocity command in rad/s
             dt: Time step in seconds
-            lidar_points_real: Real LIDAR points [N, 2] from sensor in meters, robot frame.
+            lidar_points: Real LIDAR points [N, 2] from sensor in meters, robot frame.
 
         Returns:
             Dict with estimation results including phase, errors, belief state, etc.
@@ -322,8 +236,8 @@ class RoomPoseEstimatorV2:
             robot_pose_gt = np.zeros(3)
 
         # Get LIDAR points
-        if lidar_points_real is not None and len(lidar_points_real) > 0:
-            lidar_points = torch.tensor(lidar_points_real, dtype=DTYPE, device=DEVICE)
+        if lidar_points is not None and len(lidar_points) > 0:
+            lidar_points_t = torch.tensor(lidar_points, dtype=DTYPE, device=DEVICE)
         else:
             return {
                 'phase': self.phase,
@@ -333,9 +247,174 @@ class RoomPoseEstimatorV2:
             }
 
         if self.phase == 'init':
-            return self._initialization_phase(lidar_points, robot_pose_gt)
+            return self._initialization_phase(lidar_points_t, robot_pose_gt)
         else:
-            return self._tracking_phase(lidar_points, robot_velocity, angular_velocity, dt)
+            return self._tracking_phase(lidar_points_t, robot_velocity, angular_velocity, dt)
+
+    def _estimate_initial_state_from_lidar(self,
+                                           all_points: torch.Tensor,
+                                           robot_pose_gt: np.ndarray) -> Tuple[float, float, float, float, float, float, float, float]:
+        """
+        Estimate room dimensions and robot orientation from LIDAR points with Gaussian priors.
+
+        Uses Bayesian fusion:
+        - Prior for room: N(μ_width=6m, σ²=1) and N(μ_length=4m, σ²=1)
+        - Prior for orientation: N(μ_theta=0, σ²=1)
+        - Likelihood: estimated from LIDAR point geometry
+
+        The orientation is estimated by finding the principal axes of the LIDAR points
+        using PCA and aligning them with the room axes.
+
+        Convention: width is the larger dimension (x-axis), length is smaller (y-axis)
+
+        Args:
+            all_points: [N, 2] LIDAR points in robot frame
+            robot_pose_gt: [x, y, theta] approximate robot pose (used for position only)
+
+        Returns:
+            (est_width, est_length, width_var, length_var, est_theta, theta_var, est_pos_x, est_pos_y)
+        """
+        points_np = all_points.cpu().numpy()
+
+        # =====================================================================
+        # STEP 1: Compute raw spreads in robot frame first
+        # This gives us the apparent dimensions without rotation correction
+        # =====================================================================
+        raw_x_spread = np.max(points_np[:, 0]) - np.min(points_np[:, 0])
+        raw_y_spread = np.max(points_np[:, 1]) - np.min(points_np[:, 1])
+
+        print(f"[INIT] Raw LIDAR spread: x={raw_x_spread:.2f}m, y={raw_y_spread:.2f}m")
+
+        # =====================================================================
+        # STEP 2: Use PCA to find principal axes
+        # =====================================================================
+        centroid = np.mean(points_np, axis=0)
+        centered = points_np - centroid
+        cov_matrix = np.cov(centered.T)
+        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+
+        # Sort by eigenvalue (largest first)
+        idx = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
+
+        # Major axis (direction of largest variance)
+        major_axis = eigenvectors[:, 0]
+
+        # Angle of major axis: arctan2(x_component, y_component)
+        # This is angle from y-axis (forward) to the major axis
+        pca_angle = np.arctan2(major_axis[0], major_axis[1])
+
+        print(f"[INIT] PCA major axis angle: {np.degrees(pca_angle):.1f}° from y-axis")
+
+        # =====================================================================
+        # STEP 3: Estimate theta using prior from GT
+        # =====================================================================
+        prior_theta = robot_pose_gt[2] if robot_pose_gt is not None else 0.0
+        prior_theta_std = 0.3  # Trust GT more
+        prior_theta_var = prior_theta_std ** 2
+        lidar_theta_std = 0.5
+        lidar_theta_var = lidar_theta_std ** 2
+
+        theta_var = (prior_theta_var * lidar_theta_var) / (prior_theta_var + lidar_theta_var)
+
+        # Weighted circular mean
+        w_prior = lidar_theta_var / (prior_theta_var + lidar_theta_var)
+        w_lidar = prior_theta_var / (prior_theta_var + lidar_theta_var)
+
+        sin_theta = w_prior * np.sin(prior_theta) + w_lidar * np.sin(pca_angle)
+        cos_theta = w_prior * np.cos(prior_theta) + w_lidar * np.cos(pca_angle)
+        est_theta = np.arctan2(sin_theta, cos_theta)
+
+        # =====================================================================
+        # STEP 4: Compute dimensions in room-aligned frame
+        # =====================================================================
+        cos_t = np.cos(-est_theta)
+        sin_t = np.sin(-est_theta)
+        aligned_x = cos_t * points_np[:, 0] - sin_t * points_np[:, 1]
+        aligned_y = sin_t * points_np[:, 0] + cos_t * points_np[:, 1]
+
+        max_x, min_x = np.max(aligned_x), np.min(aligned_x)
+        max_y, min_y = np.max(aligned_y), np.min(aligned_y)
+
+        lidar_dim_x = max_x - min_x + 0.2  # margin for noise
+        lidar_dim_y = max_y - min_y + 0.2
+
+        # =====================================================================
+        # STEP 5: Assign dimensions ensuring width >= length
+        # Prior: width=6m (larger), length=4m (smaller)
+        # =====================================================================
+        prior_width = 6.0
+        prior_length = 4.0
+        prior_dim_std = 1.0
+        prior_dim_var = prior_dim_std ** 2
+        lidar_dim_std = 1.0
+        lidar_dim_var = lidar_dim_std ** 2
+
+        # Determine which LIDAR dimension is likely width (larger) vs length (smaller)
+        if lidar_dim_x >= lidar_dim_y:
+            # x is the larger dimension -> x = width, y = length
+            lidar_width = lidar_dim_x
+            lidar_length = lidar_dim_y
+            # No rotation adjustment needed
+            theta_adjustment = 0.0
+        else:
+            # y is the larger dimension -> need to swap
+            # This means the room is rotated 90° from our initial estimate
+            lidar_width = lidar_dim_y
+            lidar_length = lidar_dim_x
+            # Adjust theta by 90° to align width with x-axis
+            theta_adjustment = np.pi / 2
+
+        print(f"[INIT] Aligned dims: x={lidar_dim_x:.2f}m, y={lidar_dim_y:.2f}m")
+        print(f"[INIT] Assigned: width={lidar_width:.2f}m, length={lidar_length:.2f}m")
+        if abs(theta_adjustment) > 0.1:
+            print(f"[INIT] Theta adjustment: {np.degrees(theta_adjustment):.1f}°")
+            est_theta += theta_adjustment
+            # Normalize theta to [-pi, pi]
+            while est_theta > np.pi:
+                est_theta -= 2 * np.pi
+            while est_theta < -np.pi:
+                est_theta += 2 * np.pi
+
+        # Bayesian fusion with priors
+        width_var = (prior_dim_var * lidar_dim_var) / (prior_dim_var + lidar_dim_var)
+        length_var = (prior_dim_var * lidar_dim_var) / (prior_dim_var + lidar_dim_var)
+
+        est_width = (lidar_dim_var * prior_width + prior_dim_var * lidar_width) / (prior_dim_var + lidar_dim_var)
+        est_length = (lidar_dim_var * prior_length + prior_dim_var * lidar_length) / (prior_dim_var + lidar_dim_var)
+
+        # Clamp to reasonable bounds
+        est_width = np.clip(est_width, 3.0, 12.0)
+        est_length = np.clip(est_length, 2.0, 8.0)
+
+        # =====================================================================
+        # STEP 6: Estimate robot position
+        # =====================================================================
+        center_x = (max_x + min_x) / 2.0
+        center_y = (max_y + min_y) / 2.0
+
+        # Transform back to world frame using final theta
+        cos_t_inv = np.cos(est_theta)
+        sin_t_inv = np.sin(est_theta)
+        est_pos_x = cos_t_inv * center_x - sin_t_inv * center_y
+        est_pos_y = sin_t_inv * center_x + cos_t_inv * center_y
+
+        # Fuse with GT prior for position
+        if robot_pose_gt is not None:
+            pos_prior_var = 0.5  # Trust GT more
+            pos_lidar_var = 2.0
+            est_pos_x = (pos_lidar_var * robot_pose_gt[0] + pos_prior_var * est_pos_x) / (pos_prior_var + pos_lidar_var)
+            est_pos_y = (pos_lidar_var * robot_pose_gt[1] + pos_prior_var * est_pos_y) / (pos_prior_var + pos_lidar_var)
+
+        # Debug output
+        print(f"[INIT] Prior theta: {np.degrees(prior_theta):.1f}°")
+        print(f"[INIT] Final theta: {np.degrees(est_theta):.1f}° (σ={np.degrees(np.sqrt(theta_var)):.1f}°)")
+        print(f"[INIT] Prior dims: {prior_width:.2f}m x {prior_length:.2f}m")
+        print(f"[INIT] Final dims: {est_width:.2f}m x {est_length:.2f}m (σ={np.sqrt(width_var):.2f}m)")
+        print(f"[INIT] Estimated position: ({est_pos_x:.2f}, {est_pos_y:.2f})m")
+
+        return est_width, est_length, width_var, length_var, est_theta, theta_var, est_pos_x, est_pos_y
 
     def _initialization_phase(self,
                               lidar_points: torch.Tensor,
@@ -343,14 +422,11 @@ class RoomPoseEstimatorV2:
         """
         Phase 1: Estimate initial pose AND room dimensions from LIDAR.
 
-        Uses robot_pose_gt as initial approximation for the pose.
-
         Strategy:
         1. Collect LIDAR points from multiple frames
-        2. Estimate room dimensions from point spread
-        3. Use robot_pose_gt as initial pose approximation
-        4. Optimize full state (x, y, theta, W, L) to minimize SDF error
-        5. Once converged, freeze room dimensions and switch to tracking
+        2. Estimate room dimensions and orientation using Bayesian fusion with Gaussian priors
+        3. Optimize full state (x, y, theta, W, L) to minimize SDF error
+        4. Once converged, freeze room dimensions and switch to tracking
 
         Uses PyTorch autograd for gradient computation.
         """
@@ -370,53 +446,26 @@ class RoomPoseEstimatorV2:
 
         # Initialize belief if needed
         if self.belief is None:
-            # Initial guess using LIDAR point geometry
             all_points = torch.cat(self.init_buffer, dim=0)
 
-            # Points are in robot frame. The robot sees walls in all directions.
-            # Use the spread of points to estimate room size
-            max_x = torch.max(all_points[:, 0]).item()
-            min_x = torch.min(all_points[:, 0]).item()
-            max_y = torch.max(all_points[:, 1]).item()
-            min_y = torch.min(all_points[:, 1]).item()
-
-            # Use robot_pose_gt as initial pose approximation
-            init_x = robot_pose_gt[0]
-            init_y = robot_pose_gt[1]
-            init_theta = robot_pose_gt[2]
-
             if self.use_known_room_dimensions:
+                # Use known dimensions, only estimate pose
                 est_width = self.true_width
                 est_height = self.true_height
                 width_var = 0.01
                 height_var = 0.01
+                theta_var = 0.5  # Default theta variance when using known dimensions
+                init_x = robot_pose_gt[0]
+                init_y = robot_pose_gt[1]
+                init_theta = robot_pose_gt[2]
             else:
-                # Estimate room dimensions from LIDAR spread
-                lidar_width = max_x - min_x + 0.3
-                lidar_height = max_y - min_y + 0.3
+                # Estimate everything from LIDAR with Gaussian priors
+                (est_width, est_height, width_var, height_var,
+                 init_theta, theta_var, init_x, init_y) = self._estimate_initial_state_from_lidar(
+                    all_points, robot_pose_gt
+                )
 
-                # Bayesian fusion with prior
-                prior_width = self.true_width
-                prior_height = self.true_height
-                prior_std = 1.0
-                prior_var = prior_std ** 2
-                lidar_std = 1.5
-                lidar_var = lidar_std ** 2
-
-                print(f"[INIT DEBUG] LIDAR spread: x=[{min_x:.2f}, {max_x:.2f}], y=[{min_y:.2f}, {max_y:.2f}]")
-                print(f"[INIT DEBUG] LIDAR estimate: {lidar_width:.2f}m x {lidar_height:.2f}m")
-                print(f"[INIT DEBUG] Prior: {prior_width:.2f}m x {prior_height:.2f}m")
-                print(f"[INIT DEBUG] Initial pose from GT: x={init_x:.2f}, y={init_y:.2f}, theta={init_theta:.2f}")
-
-                # Posterior mean
-                width_var = (prior_var * lidar_var) / (prior_var + lidar_var)
-                height_var = (prior_var * lidar_var) / (prior_var + lidar_var)
-                est_width = (lidar_var * prior_width + prior_var * lidar_width) / (prior_var + lidar_var)
-                est_height = (lidar_var * prior_height + prior_var * lidar_height) / (prior_var + lidar_var)
-                est_width = np.clip(est_width, 2.0, 20.0)
-                est_height = np.clip(est_height, 2.0, 20.0)
-
-            # Create initial belief with GT pose approximation
+            # Create initial belief
             self.belief = RoomBelief(
                 x=init_x,
                 y=init_y,
@@ -429,13 +478,13 @@ class RoomPoseEstimatorV2:
             self.belief.cov = np.diag([
                 1.0,        # x position uncertainty (1m std)
                 1.0,        # y position uncertainty (1m std)
-                0.5,        # theta uncertainty (0.5 rad)
+                theta_var,  # theta uncertainty
                 width_var,
                 height_var
             ])
 
-            print(f"[INIT] Initial guess: room {self.belief.width:.2f}x{self.belief.length:.2f}m, "
-                  f"pose [{self.belief.x:.2f}, {self.belief.y:.2f}, {self.belief.theta:.2f}]")
+            print(f"[INIT] Initial belief: room {self.belief.width:.2f}x{self.belief.length:.2f}m, "
+                  f"pose [{self.belief.x:.2f}, {self.belief.y:.2f}, θ={np.degrees(self.belief.theta):.1f}°]")
 
         # Concatenate all points
         all_points = torch.cat(self.init_buffer, dim=0)
@@ -547,14 +596,34 @@ class RoomPoseEstimatorV2:
                 self.belief.x = params[0].item()
                 self.belief.y = params[1].item()
                 self.belief.theta = params[2].item()
-                self.belief.width = params[3].item()
-                self.belief.length = params[4].item()
+                opt_width = params[3].item()
+                opt_length = params[4].item()
 
-                # Compute final SDF error
+                # ENFORCE width >= length constraint
+                # Due to room symmetry, optimizer might swap them
+                if opt_width >= opt_length:
+                    self.belief.width = opt_width
+                    self.belief.length = opt_length
+                else:
+                    # Swap dimensions and rotate theta by 90°
+                    print(f"[INIT] Swapping dimensions: {opt_width:.2f}x{opt_length:.2f} -> {opt_length:.2f}x{opt_width:.2f}")
+                    self.belief.width = opt_length
+                    self.belief.length = opt_width
+                    self.belief.theta += np.pi / 2
+                    # Normalize theta to [-pi, pi]
+                    while self.belief.theta > np.pi:
+                        self.belief.theta -= 2 * np.pi
+                    while self.belief.theta < -np.pi:
+                        self.belief.theta += 2 * np.pi
+
+                # Compute final SDF error using corrected values
                 sdf_values = self.sdf_rect(
                     all_points,
-                    params[0], params[1], params[2],
-                    params[3], params[4]
+                    torch.tensor(self.belief.x, dtype=DTYPE, device=DEVICE),
+                    torch.tensor(self.belief.y, dtype=DTYPE, device=DEVICE),
+                    torch.tensor(self.belief.theta, dtype=DTYPE, device=DEVICE),
+                    torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE),
+                    torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
                 )
 
             mean_sdf_error = torch.mean(torch.abs(sdf_values)).item()
@@ -660,6 +729,15 @@ class RoomPoseEstimatorV2:
         # Normalize predicted theta to [-π, π]
         s_pred[2] = np.arctan2(np.sin(s_pred[2]), np.cos(s_pred[2]))
 
+        # Debug: print prediction occasionally
+        if hasattr(self, '_debug_counter'):
+            self._debug_counter += 1
+        else:
+            self._debug_counter = 0
+        if self._debug_counter % 20 == 0:
+            print(f"  [Tracking] Prediction: theta_prev={s_prev[2]:.3f}, omega={angular_velocity:.3f}, "
+                  f"dt={dt:.3f}, theta_pred={s_pred[2]:.3f}")
+
         # Process noise proportional to velocity (more movement = more uncertainty)
         speed = np.linalg.norm(robot_velocity)
         velocity_noise_factor = max(0.1, speed / 0.5)
@@ -686,9 +764,6 @@ class RoomPoseEstimatorV2:
         s_pred_t = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE)
         Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred), dtype=DTYPE, device=DEVICE)
 
-        # Number of observations for normalization
-        N_obs = len(lidar_points)
-
         # Optimization
         optimizer = torch.optim.Adam([pose_params], lr=self.lr_tracking)
 
@@ -696,18 +771,26 @@ class RoomPoseEstimatorV2:
             optimizer.zero_grad()
 
             # =================================================================
-            # F_likelihood: -ln p(o|s) ∝ (1/2) Σ SDF² / σ_sdf²
-            # Normalized by number of observations
+            # F_likelihood: -ln p(o|s) = (1/(2*sigma_w^2)) * ||d||^2
+            # As per paper equation in Section 4.25 (Resulting Free Energy Objective)
+            #
+            # PRACTICAL CONSIDERATION: With M~4000 observations, the sum scales
+            # linearly with M, giving observation precision ~ M/σ². For the prior
+            # to remain influential, we use MEAN squared error which effectively
+            # treats the observations as providing aggregate information rather than
+            # M independent pieces of evidence. This is standard in batch optimization.
             # =================================================================
             sdf_values = self.sdf_rect(
                 lidar_points,
                 pose_params[0], pose_params[1], pose_params[2],
                 width, length
             )
-            F_likelihood = torch.sum(sdf_values ** 2) / (2 * self.sigma_sdf ** 2 * N_obs)
+            N_obs = len(lidar_points)
+            F_likelihood = torch.mean(sdf_values ** 2) / (2 * self.sigma_sdf ** 2)
 
             # =================================================================
             # F_prior: (1/2)(s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
+            # As per paper equation in Section 4.25
             # This term keeps the estimate close to the motion-model prediction
             # =================================================================
             pose_diff = pose_params - s_pred_t
@@ -731,6 +814,12 @@ class RoomPoseEstimatorV2:
             self.belief.x = pose_params[0].item()
             self.belief.y = pose_params[1].item()
             self.belief.theta = pose_params[2].item()
+
+            # Debug: print correction
+            if self._debug_counter % 20 == 0:
+                theta_change = self.belief.theta - s_pred[2]
+                print(f"  [Tracking] Correction: theta_pred={s_pred[2]:.3f}, "
+                      f"theta_corrected={self.belief.theta:.3f}, change={theta_change:.3f} ({np.degrees(theta_change):.1f}°)")
 
             # Compute final SDF error for diagnostics
             sdf_values = self.sdf_rect(
@@ -812,10 +901,6 @@ class RoomPoseEstimatorV2:
         self.phase = 'init'
         self.init_buffer = []
         self.init_iterations = 0
-
-        # Reset rotation state
-        self.init_rotation_index = 0
-        self.init_rotation_step_count = 0
         self.stats = {
             'init_steps': 0,
             'sdf_error_history': [],
