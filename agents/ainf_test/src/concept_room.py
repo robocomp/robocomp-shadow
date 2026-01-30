@@ -808,12 +808,53 @@ class RoomPoseEstimatorV2:
                                               torch.cos(pose_params[2]))
 
         # =====================================================================
-        # UPDATE BELIEF with optimized posterior
+        # JUMP REJECTION FILTER: Reject physically impossible pose changes
         # =====================================================================
         with torch.no_grad():
-            self.belief.x = pose_params[0].item()
-            self.belief.y = pose_params[1].item()
-            self.belief.theta = pose_params[2].item()
+            # Extract optimized pose
+            optimized_pose = np.array([
+                pose_params[0].item(),
+                pose_params[1].item(),
+                pose_params[2].item()
+            ])
+
+            # Compute jump from prediction
+            dx = optimized_pose[0] - s_pred[0]
+            dy = optimized_pose[1] - s_pred[1]
+            dtheta = optimized_pose[2] - s_pred[2]
+
+            # Normalize angle difference to [-π, π]
+            while dtheta > np.pi:
+                dtheta -= 2 * np.pi
+            while dtheta < -np.pi:
+                dtheta += 2 * np.pi
+
+            position_jump = np.sqrt(dx**2 + dy**2)
+            angle_jump = np.abs(dtheta)
+
+            # Physical limits (assuming 10Hz update rate):
+            # Position: 15cm = 1.5 m/s max speed
+            # Angle: 30° = 5.2 rad/s max rotation
+            MAX_POSITION_JUMP = 0.15  # 15cm
+            MAX_ANGLE_JUMP = 0.524    # 30 degrees (π/6)
+
+            if position_jump > MAX_POSITION_JUMP or angle_jump > MAX_ANGLE_JUMP:
+                # Reject optimization, use prediction instead
+                print(f"[JUMP FILTER] Rejected physically impossible jump!")
+                print(f"  Position: {position_jump*100:.1f}cm (max: {MAX_POSITION_JUMP*100:.0f}cm)")
+                print(f"  Angle: {np.degrees(angle_jump):.1f}° (max: {np.degrees(MAX_ANGLE_JUMP):.1f}°)")
+                print(f"  Using prediction instead of optimization")
+                accepted_pose = s_pred
+            else:
+                accepted_pose = optimized_pose
+
+        # =====================================================================
+        # UPDATE BELIEF with accepted pose (either optimized or predicted)
+        # =====================================================================
+        with torch.no_grad():
+            self.belief.x = accepted_pose[0]
+            self.belief.y = accepted_pose[1]
+            self.belief.theta = accepted_pose[2]
 
             # Debug: print correction
             if self._debug_counter % 20 == 0:
