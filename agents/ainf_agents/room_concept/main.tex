@@ -1,0 +1,2667 @@
+%%%%%%% This template was created by Brayden Lewis-Lord - s5182689 %%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 8/11/2023 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[a4paper, twoside]{article}
+\usepackage[backend=biber,style=ieee,sorting=none]{biblatex}
+\usepackage{amsmath}
+\usepackage{geometry}
+\usepackage{amssymb}
+\usepackage{subcaption}
+\usepackage{physics}
+\geometry{a4paper,total={170mm,250mm},left=20mm, top=20mm,}
+\usepackage{enumerate}
+\usepackage[shortlabels]{enumitem}
+\usepackage{optidef}
+\usepackage[normalem]{ulem}
+\useunder{\uline}{\ul}{}
+\addbibresource{mybibliography.bib}
+\usepackage{datetime}
+\usepackage{svg}
+
+\usepackage{xcolor}
+\newdateformat{monthyeardate}{
+  \monthname[\THEMONTH], \THEYEAR}
+\date{\monthyeardate\today}
+\usepackage{parskip}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\usepackage{commath}
+\usepackage{tikz}
+\newcommand{\atantwo}{\operatorname{atan2}}
+\usetikzlibrary{arrows.meta}
+\usepackage{graphicx,caption}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{tikz} 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%   Enter Your info here    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\author{Pablo Bustos}
+\def\coursecode{RL0023}
+\def\assignname{RoboLab Technical Report Series}
+
+\title{Using Active Inference for Perception, Planning and Control}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+\input{title/title.tex}
+
+\begin{abstract}
+This report presents a unified navigation architecture for mobile robotics based on the Active Inference framework. Unlike traditional approaches that treat perception, local obstacle avoidance, and global planning as distinct modules with separate objective functions, we formulate all three as processes minimising Variational Free Energy. We derive a world-model building stage that learns online the positions and sizes of the obstacles and maintains a prediction-update loop over them. We also derive a free-energy minimisation local controller and an expected free-energy minimisation global, sample-based controller. This results in a system that naturally combines mapping, planning and control, balancing goal-seeking behaviour (pragmatic value) with information-gathering (epistemic value), demonstrating adaptive behaviour and curiosity without heuristic tuning.
+\end{abstract}
+
+\section{Introduction}
+Traditional robotics architectures treat perception, planning, and control as independent modules, each optimising its own objective function. This separation creates integration challenges: the planner may request trajectories that the controller cannot execute safely, or the perception system may discard information that would be valuable for decision-making. 
+For instance, global planners may generate paths that are dynamically infeasible, while local controllers may become trapped in local minima or oscillations. These failures are not bugs of individual modules, but consequences of optimising incompatible objectives.
+Active Inference dissolves these boundaries by formulating all three processes as approximate solutions to a single variational problem.
+Active Inference is a unified framework for perception, learning, and action selection derived from the Free Energy Principle \cite{friston2010}. It treats these as facets of a single variational inference problem: minimising the divergence between an agent's beliefs about the world and the true posterior distribution over hidden states \cite{lanillos2021active}\cite{dacosta2022active}.
+This report develops Active Inference from foundational principles and shows how the mathematical framework translates into a working navigation system capable of:
+
+\begin{itemize}
+    \item Incremental world modelling through LIDAR perception
+    \item Uncertainty-aware obstacle representation
+    \item Adaptive planning that escalates search depth when encountering difficult scenarios
+    \item Goal-directed navigation with automatic stall detection and escape
+\end{itemize}
+
+% Figure~\ref{fig:aif_architecture} shows the main blocks and relationships among the components of the Active Inference system built to illustrate this technical report.
+
+% \begin{figure}[htbp]
+%   \centering
+%    \includegraphics[width=1\linewidth]
+%   {images/active inference arch.png }
+%   \caption{Active Inference navigation architecture}
+%   \label{fig:aif_architecture}
+% \end{figure}
+
+This report assumes familiarity with Bayesian inference, state estimation, and robot navigation. Appendix 1 provides a table of symbols used throughout the paper. Appendix 2 provides a brief reminder of some mathematical concepts used in the text.
+
+
+\section{Fundamental Equations of Active Inference}
+\subsection{The Bayesian Inference Problem}
+
+Consider an agent operating in an environment.
+Let $s$ denote hidden states of the world (e.g., room shape, robot position in it,  obstacle positions) and $o$ denote observations (e.g., LIDAR measurements).
+Here, $s$ and $o$ denote two different random variables defined on distinct
+spaces: $s \in \mathcal{S}$ represents latent (hidden) states of the world,
+while $o \in \mathcal{O}$ represents observable sensory outcomes. The agent
+assumes a joint probability distribution over states and observations,
+\[
+p(s,o) = p(o \mid s)\,p(s),
+\]
+which defines how observations are generated from hidden states. Bayesian
+inference corresponds to conditioning \footnote{See section \ref{app:contidioning_and_factorisation} in Appendix for a brief introduction to probability theory.} this joint distribution on a realised
+observation $o$.
+
+
+
+Importantly, states and observations are not alternative outcomes of the same
+random variable, but different components of a joint generative process.
+The agent seeks to infer the true posterior distribution (e.g. where are the obstacles, where is the robot in the room):
+%
+\begin{equation}
+p(s|o) = \frac{p(o|s)p(s)}{p(o)}
+\label{eq:bayes}
+\end{equation}
+%
+where $p(o|s)$ is the likelihood (generative model, e.g. what lidar points would be generated by the robot in a given position in the room), $p(s)$ is the prior (e.g., how do the shapes of all known rooms distribute, how is a typical obstacle), and $p(o)$ is the evidence (e.g. how do the lidar measurements for all possible world configurations distribute).
+Computing $p(s|o)$ exactly is generally intractable because the evidence requires marginalising over all possible states (e.g. summing the probability of the lidar scans generated by all possible obstacle configurations, weighted by the probability of each configuration):
+%
+\begin{equation}
+p(o) = \int p(o|s)p(s)\,ds
+\end{equation}
+
+\begin{quote}
+\textbf{Remark.}
+Throughout this report, the term \emph{state} refers to a latent variable of the
+generative model. It does not denote the true physical state of the robot or the
+environment, which is never directly accessible. All inference and control are
+performed with respect to beliefs over these latent variables.
+\end{quote}
+
+
+\subsection{Variational Approximation}
+
+Active Inference addresses this intractability through variational inference.
+We approximate the true posterior $p(s|o)$ with a tractable recognition density $q(s)$ and minimise their divergence.
+The Kullback-Leibler (KL) divergence from $q(s)$ to $p(s|o)$ is:
+%
+\begin{equation}
+D_{KL}[q(s)\,\|\,p(s|o)] = \int q(s) \ln \frac{q(s)}{p(s|o)}\,ds
+\label{eq:kl_divergence}
+\end{equation}
+
+Since $D_{KL} \geq 0$ and equal to $0$ if and only if $q(s) = p(s|o)$, minimising this divergence makes $q(s)$ a good approximation to the true posterior. We can expand $D_{KL}$ in two terms as, 
+
+\begin{align}
+        p(s\mid o) &= \frac{p(o,s)}{p(o)} && \text{Bayes rule} \\  
+        \ln\frac{q(s)}{p(s\mid o)} &= \ln\frac{q(s)p(o)}{p(o,s)} && \text{Rearranging terms}
+\end{align}
+       
+Substituting into Eq.~\ref{eq:kl_divergence},
+\begin{align}
+D_{\mathrm{KL}}\!\left(q(s)\,\|\,p(s\mid o)\right)
+&= \int q(s)\,\ln\frac{q(s)}{p(s\mid o)}\,ds
+&& \text{(Definition of KL divergence)}
+\tag{1}
+\\
+&= \int q(s)\,\ln\frac{q(s)p(o)}{p(o,s)}\,ds
+&& \text{(Bayes' rule: $p(s\mid o)=\frac{p(o,s)}{p(o)}$)}
+\tag{2}
+\\
+&= \int q(s)\,\ln\frac{q(s)}{p(o,s)}\,ds
++ \int q(s)\,\ln p(o)\,ds
+&& \text{(Logarithm product rule)}
+\tag{3}
+\\
+&= \int q(s)\,\ln\frac{q(s)}{p(o,s)}\,ds
++ \ln p(o)
+&& \text{($\ln p(o)$ is constant, $\int q(s)ds=1$)}
+\label{eq:4}
+\end{align}
+
+\noindent
+The divergence is now expressed as the sum of two terms, a first one that is defined as the 
+variational free energy (VFE) and a second one, the logarithm of the evidence.
+
+We can write the VFE as a function of $q$ and $o$,
+
+\begin{align}
+F[q,o]
+\;\equiv\;
+\int q(s)\,\ln\frac{q(s)}{p(o,s)}ds 
+\label{eq:5}
+\end{align}
+
+\noindent
+Substituting Eq.~\ref{eq:5} into Eq.~\ref{eq:4} and rearranging terms yields the fundamental identity
+\begin{align}
+\boxed{
+F[q,o]
+= D_{\mathrm{KL}}\!\left(q(s)\,\|\,p(s\mid o)\right)
+- \ln p(o)
+}
+\label{eq:vfe_identity}
+\end{align}
+
+\noindent
+Since $\ln p(o)$ does not depend on the variational distribution $q(s)$, minimising the variational free energy $F[q,o]$ with respect to $q(s)$ is equivalent to minimising the Kullback-Leibler divergence $D_{\mathrm{KL}}(q(s)\|p(s\mid o))$. 
+Equivalently, the evidence lower bound (ELBO) \cite{bishop2006prml} satisfies $\mathrm{ELBO}(q)= -F[q,o]$, so maximising the ELBO is equivalent to minimising $F[q,o]$.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{images/active_inference_general_nb.png}
+   \caption{
+        Variational approximation and free energy minimisation.
+        Variational inference approximates the true posterior distribution
+        $p(s \mid o)$ over latent variables $s$ with a tractable distribution $q(s)$.
+        Minimising the variational free energy
+        $F = D_{\mathrm{KL}}\!\left(q(s)\,\|\,p(s \mid o)\right) - \ln p(o)$
+        reduces the divergence between $q(s)$ and the target posterior while
+        implicitly maximising model evidence.
+        At the minimum of $F$, the variational approximation satisfies
+        $q(s) \approx p(s \mid o)$, yielding beliefs that best explain the
+        observations under the assumed generative model.
+        }
+    \label{fig:placeholder}
+\end{figure}
+
+Intuitively, the natural logarithm of a probability, $0 \leq p \leq 1$, is always negative. For $D_{KL}$ to be $\geq 0$, $F[q,o]$ has to be greater than or equal to the absolute value of $\ln p(o)$. This implies that $D_{KL}$ can grow only up to the difference between $F[q,o]$ and $\abs{\ln p(o)}$. Thus, minimising $F[q,o]$ reduces $D_{KL}.$
+
+
+\subsubsection{Decomposition into Complexity and Accuracy}
+
+The variational free energy can be decomposed into two interpretable components.
+
+\noindent
+Expanding the integral in Eq.~\ref{eq:5} and using the expectation notation $\mathbb{E}_q[f(s)] \equiv \int q(s)f(s)\,ds$, this can be written equivalently as
+\begin{align}
+    F[q,o] &= \int q(s)\bigl(\ln q(s) - \ln p(o,s)\bigr)\,ds && \text{(Logarithm quotient rule)}\\ 
+    &= \mathbb{E}_q\!\left[\ln q(s) - \ln p(o,s)\right] && \text{(Expectation)}\\ 
+    &= \mathbb{E}_q\left[\ln q(s)\right] - \mathbb{E}_q\left[\ln p(o,s)\right] .
+\label{eq:vfe_expectation}
+\end{align}
+%
+\begin{align}
+F[q,o] &= \mathbb{E}_q[\ln q(s) - \ln p(o,s)]  \nonumber \\
+&= \mathbb{E}_q[\ln q(s) - \ln p(o|s) - \ln p(s)] && \text{(Bayes and log quotient rule)}\nonumber \\
+&= \int{q(s)\ln{\frac{q(s)}{p(s)}}} - - \int q(s)\ln p(o|s)\,ds
+&& \text{(expanding the expectation under q(s))} \\
+&= \underbrace{D_{KL}[q(s)\,\|\,p(s)]}_{\text{Complexity}} - \underbrace{\mathbb{E}_q[\ln p(o|s)]}_{\text{Accuracy}}
+\label{eq:fe_decomposition}
+\end{align}
+
+This decomposition highlights two complementary objectives:
+\begin{itemize}
+    \item \textbf{Prediction error minimisation (negative accuracy):} minimise the negative expected log-likelihood
+    $-\mathbb{E}_q[\ln p(o|s)]$.
+    \item \textbf{Complexity minimisation:} keep beliefs $q(s)$ close to the prior $p(s)$ (Occam's razor),
+    as measured by $D_{KL}[q(s)\|p(s)]$.
+\end{itemize}
+
+Note that maximising accuracy corresponds to minimising the negative log-likelihood term $-\mathbb{E}_q[\ln p(o|s)]$.
+
+% \subsection{Optimisation of Free Energy}\label{section:decomposition_into_percep_and_action}
+% Active Inference posits that the agent minimises $F$ through two distinct pathways:
+
+% \paragraph{1. Perception (Changing Beliefs):}
+% The agent updates its internal beliefs $q(s)$ to minimise $F$ given the current observations $o$.
+% \begin{equation}
+% q^*(s) = \argmin_{q} F[q, o] \approx \argmin_{q} \left( D_{KL}[q(s)\|p(s)] - \mathbb{E}_q[\ln p(o|s)] \right)
+% \end{equation}
+% Perception tries to find the best explanation for the sensory data (high accuracy) that is also parsimonious (low complexity).
+
+% \paragraph{2. Action (Changing Observations):}
+% The agent selects actions $\mathbf{a}$ that affect the environment state, thereby changing future observations $o(\mathbf{a})$ to minimise $F$.
+% Crucially, while perception fits the belief $q(s)$ to fixed observations, action fits the observations $o(\mathbf{a})$ to the fixed priors $p(o)$.
+% Since action cannot change the internal belief $q(s)$ or the prior $p(s)$ directly, it minimises $F$ solely by maximising the accuracy of the agent's predictions:
+
+% \begin{equation}
+% \mathbf{a}^* = \argmin_{\mathbf{a}} F[q, o(\mathbf{a})] = \argmin_{\mathbf{a}} \left( -\mathbb{E}_q[\ln p(o(\mathbf{a})|s)] \right)
+% \end{equation}
+
+% By sampling observations that are consistent with its generative model (expectations), the agent fulfils its own predictions—a process known as \textit{self-evidencing}.
+
+% \begin{quote}
+% \textbf{Clarification.}
+% The expression $F[q, o(a)]$ should be interpreted as the free energy expected
+% under observations that would result from action $a$. Since the current
+% observation $o_t$ is fixed at decision time, its variational free energy cannot
+% be reduced by changing the action, and
+% \[
+% \frac{\partial F[q,o_t]}{\partial a} = 0 .
+% \]
+% Action selection therefore cannot be based on instantaneous free energy, but
+% requires evaluating the free energy of future observations in expectation,
+% leading to the concept of Expected Free Energy introduced in the following
+% sections.
+% \end{quote}
+
+\subsection{Optimisation of Free Energy: Perception and Action}
+
+The Free Energy Principle asserts that adaptive agents act so as to minimise
+variational free energy. However, this principle applies differently to
+perception and to action, and conflating the two leads to conceptual confusion.
+This section makes this distinction explicit.
+
+\paragraph{Perception as free energy minimisation.}
+Perception operates by updating the agent's internal belief $q(s)$ about latent
+states so as to minimise the variational free energy for the \emph{current}
+observation $o_t$:
+\begin{equation}
+q^\ast(s) = \arg\min_q F[q, o_t].
+\end{equation}
+
+Since the observation $o_t$ is fixed at the time of inference, minimisation of
+$F[q,o_t]$ is achieved solely by changing the belief $q(s)$. This corresponds to
+approximate Bayesian inference under the agent’s generative model.
+
+\paragraph{Action as changing observations.}
+Action differs fundamentally from perception. The agent cannot directly modify
+its beliefs $q(s)$ or its priors $p(s)$ through action. Instead, actions $a$
+affect the environment state, thereby changing the \emph{future} observations
+that the agent will receive.
+
+At decision time, the current observation $o_t$ is already realised and cannot
+be altered by action. As a result, the instantaneous variational free energy
+$F[q,o_t]$ cannot be reduced by changing the action:
+\begin{equation}
+\frac{\partial F[q,o_t]}{\partial a} = 0 .
+\end{equation}
+
+Action therefore cannot minimise instantaneous variational free energy.
+
+\paragraph{Expected free energy and action selection.}
+Although action cannot reduce the free energy of the current observation, it can
+influence the free energy of \emph{future} observations by shaping the states the
+agent is likely to encounter. Action selection must therefore be based on the
+free energy that is \emph{expected} to be incurred under future observations.
+
+Formally, the optimal action is defined as
+\begin{equation}
+a^\ast
+=
+\arg\min_a
+\;
+\mathbb{E}_{q(o_{t+1}, s_{t+1} \mid a)}
+\left[
+F[q, o_{t+1}]
+\right],
+\end{equation}
+where the expectation is taken with respect to the predictive distribution over
+future states and observations induced by action $a$.
+
+This expected quantity evaluates how well future observations generated by an
+action are expected to conform to the agent’s generative model and prior
+preferences. By selecting actions that minimise this expectation, the agent acts
+to fulfil its own predictions—a process known as \emph{self-evidencing}.
+
+The expected free energy defined above will be studied in detail in the
+following sections and will form the basis for both reactive control and
+planning.
+
+
+\section{From Free Energy to Action Selection}\label{section:from_energy_to_action_selection}
+
+\subsection{Expected Free Energy}
+The minimisation of free energy with respect to \textit{past} observations allows the robot to update its beliefs and react to self-generated hallucinations that differ from the current observational state. 
+Many problems in the robot-environment interaction require planning ahead of the current belief. 
+Active Inference achieves this by introducing policies, as sequences of possible actions, that are imagined by the robot when trying to reach a target. 
+The search for the optimal policy can be expressed as a minimisation of the free energy with respect to \textit{future} outcomes. Since future observations are unknown, we must minimise the \textit{expected} free energy.
+
+Let $\pi$ denote a policy (sequence of actions) and $\tilde{s}, \tilde{o}$ denote future states and observations under policy $\pi$.
+The \textbf{expected free energy} $G(\pi)$ is the free energy we expect to incur if we follow policy $\pi$:
+%
+\begin{equation}
+G(\pi) = \mathbb{E}_{q(\tilde{s}|\pi)}[F[q,\tilde{o}]]
+\end{equation}
+
+Expanding this using the free energy decomposition:
+%
+\begin{align}
+G(\pi) &= \mathbb{E}_{q(\tilde{s}|\pi)}\left[D_{KL}[q(\tilde{s})\,\|\,p(\tilde{s})] - \mathbb{E}_{q(\tilde{s}|\pi)}[\ln p(\tilde{o}|\tilde{s})]\right] \nonumber \\
+&= \mathbb{E}_{q(\tilde{s}|\pi)}\left[\ln q(\tilde{s}) - \ln p(\tilde{s})\right] - \mathbb{E}_{q(\tilde{s}|\pi)}[\ln p(\tilde{o}|\tilde{s})]
+\end{align}
+
+For goal-directed behaviour, we incorporate preferences by setting the prior over states to favour goal states: $p(\tilde{s}) = \sigma(-C(\tilde{s}))$ where $C(\tilde{s})$ is a cost function (low near goals).
+
+\subsection{Exploration--Exploitation Decomposition}
+
+We now show how Expected Free Energy naturally decomposes into terms that favour
+information gathering (exploration) and terms that favour preference fulfilment
+(exploitation). The purpose of this section is not only to derive the familiar
+decomposition, but to make clear \emph{why} these terms appear and \emph{what}
+assumptions are required.
+
+\paragraph{Starting point: Expected Free Energy as a divergence}
+
+Expected Free Energy evaluates a policy $\pi$ by comparing the predicted future
+joint distribution over states and observations with the agent's preferred
+distribution:
+\begin{equation}
+G(\pi)
+=
+D_{KL}\!\left[
+q(\tilde{s},\tilde{o}\mid\pi)
+\;\|\;
+p(\tilde{o},\tilde{s})
+\right]
+=
+\mathbb{E}_{q(\tilde{s},\tilde{o}\mid\pi)}
+\!\left[
+\ln q(\tilde{s},\tilde{o}\mid\pi)
+-
+\ln p(\tilde{o},\tilde{s})
+\right].
+\end{equation}
+
+Intuitively, a policy has low expected free energy if it is expected to generate
+future outcomes that are both \emph{predictable under the agent's model} and
+\emph{consistent with its preferences}.
+
+\paragraph{Predicted future beliefs}
+
+The predicted joint distribution assumed under a policy $\pi$ can be factorised
+using the chain rule:
+\begin{equation}
+q(\tilde{s},\tilde{o}\mid\pi)
+=
+q(\tilde{o}\mid\tilde{s},\pi)\,q(\tilde{s}\mid\pi).
+\end{equation}
+
+Here, $q(\tilde{s}\mid\pi)$ represents the distribution over future states induced
+by executing policy $\pi$, while $q(\tilde{o}\mid\tilde{s},\pi)$ represents the
+distribution over observations given a state and a policy.
+
+Active Inference assumes a state-space (Hidden Markov) structure: once the system
+is in state $\tilde{s}$, the observation $\tilde{o}$ depends only on that state,
+not on the policy that led there. This is a \emph{structural assumption}, not an
+approximation:
+\begin{equation}
+q(\tilde{o}\mid\tilde{s},\pi) = p(\tilde{o}\mid\tilde{s}).
+\end{equation}
+
+Under this assumption, the predicted joint distribution becomes
+\begin{equation}
+q(\tilde{s},\tilde{o}\mid\pi)
+=
+\underbrace{p(\tilde{o}\mid\tilde{s})}_{\text{likelihood}}
+\;
+\underbrace{q(\tilde{s}\mid\pi)}_{\text{policy-dependent state prediction}}.
+\label{eq:efe_factorisation}
+\end{equation}
+
+\paragraph{Expanding the objective}
+
+Substituting the factorisation in
+Eq.~\eqref{eq:efe_factorisation} into the definition of $G(\pi)$ yields
+\begin{equation}
+G(\pi)
+=
+\mathbb{E}_{q(\tilde{s},\tilde{o}\mid\pi)}
+\left[
+\ln p(\tilde{o}\mid\tilde{s})
++
+\ln q(\tilde{s}\mid\pi)
+-
+\ln p(\tilde{s}\mid\tilde{o})
+-
+\ln p(\tilde{o})
+\right].
+\end{equation}
+
+At this stage, the expression mixes terms related to perception, prediction, and
+preferences. To reveal their roles, we reorganise the expression.
+
+\paragraph{Revealing exploration and exploitation}
+
+We add and subtract the predictive marginal $\ln q(\tilde{o}\mid\pi)$ inside the
+expectation. This is an exact algebraic manipulation:
+\begin{equation}
+\begin{aligned}
+G(\pi)
+=
+\mathbb{E}_{q(\tilde{s},\tilde{o}\mid\pi)}
+\big[
+&\underbrace{\ln p(\tilde{o}\mid\tilde{s}) - \ln q(\tilde{o}\mid\pi)}_{\text{epistemic term}}
++
+\underbrace{\ln q(\tilde{o}\mid\pi) - \ln p(\tilde{o})}_{\text{pragmatic term}} \\
+&+
+\underbrace{\ln q(\tilde{s}\mid\pi) - \ln p(\tilde{s}\mid\tilde{o})}_{\text{future inference error}}
+\big].
+\end{aligned}
+\end{equation}
+
+The final term vanishes if the agent assumes that future beliefs will be updated
+by approximate Bayesian inference. This is the standard Active Inference
+assumption that the agent will continue to minimise variational free energy in
+the future.
+
+\paragraph{Interpretation}
+
+\textbf{Epistemic value (exploration).}
+The first term is the expected Kullback--Leibler divergence between the likelihood
+$p(\tilde{o}\mid\tilde{s})$ and the predictive marginal $q(\tilde{o}\mid\pi)$,
+averaged over predicted future states. This quantity is mathematically
+equivalent to the mutual information between future states and observations under
+policy $\pi$ \footnote{See subsection \ref{app:mutual_information} for an introduction to mutual information in this context.}.
+
+Intuitively, this term is large when knowing the state $\tilde{s}$ would
+substantially change the agent's prediction of what it will observe. Policies
+with high epistemic value therefore drive the agent toward situations in which
+observations are maximally informative about the state of the world.
+
+\textbf{Pragmatic value (exploitation).}
+The second term penalises divergence between predicted observations and preferred
+observations. It drives behaviour toward outcomes that the agent expects and
+desires, as encoded by the prior $p(\tilde{o})$.
+
+\paragraph{Exploration--exploitation balance}
+
+Minimising Expected Free Energy therefore balances two pressures:
+to gather information that resolves uncertainty about the world, and to achieve
+preferred outcomes. This balance emerges directly from probabilistic principles,
+without requiring an explicit trade-off parameter.
+
+While this decomposition is conceptually clear, direct evaluation of
+Eq.~\ref{eq:efe_decomposition} is generally intractable in realistic robotics
+settings. The remainder of this report shows how standard estimation, control,
+and planning methods arise as structured approximations to Expected Free Energy
+minimisation under computational constraints.
+
+    \begin{figure}
+        \centering
+        \includegraphics[width=1.0\linewidth]{images/expolit-explore-tradeoff-nb.png}
+       \caption{
+        The epistemic--pragmatic trade-off in Active Inference.
+        Action selection balances two complementary drives encoded in Expected Free Energy.
+        Epistemic actions promote exploration by reducing uncertainty about hidden states
+        and unobserved regions of the environment (information gain), while pragmatic actions
+        promote exploitation by steering behaviour toward preferred outcomes and goals.
+        The resulting behaviour emerges from the joint minimisation of epistemic and
+        pragmatic components of Expected Free Energy, resolving the classical
+        exploration--exploitation dilemma within a single variational objective.
+        }
+
+        \label{fig:placeholder}
+    \end{figure}
+
+
+% \subsection{Exploration-Exploitation Decomposition}
+
+% We now rewrite the expected free energy in a form that exposes why some policies reduce uncertainty (exploration) while others fulfil preferences (exploitation).
+% The expected free energy can be rewritten to reveal exploration and exploitation terms by expanding the joint distribution $q(\tilde{s}, \tilde{o}|\pi)$. We start with the definition of $G(\pi)$ as the divergence between the predicted joint distribution and the preferred joint distribution $p(\tilde{o}, \tilde{s}) \approx p(\tilde{o})p(\tilde{s}|\tilde{o})$:
+
+% \begin{equation}
+%     G(\pi) = D_{KL}[q(\tilde{s}, \tilde{o}|\pi) || p(\tilde{o}, \tilde{s})] = \iint q(\tilde{s}, \tilde{o}|\pi) \ln \frac{q(\tilde{s}, \tilde{o}|\pi)}{p(\tilde{o}, \tilde{s})} \, d\tilde{s} \, d\tilde{o}
+% \end{equation}
+
+% Taking expectations, 
+
+% \begin{equation}
+%     \mathbb{E}_{q(\tilde{s}, \tilde{o}|\pi)} [\ln q(\tilde{s}, \tilde{o}|\pi) - \ln p(\tilde{o}, \tilde{s})]
+% \end{equation}
+
+% We can factorise $q(\tilde{s}, \tilde{o}|\pi)$ using the chain rule of probability with conditioning, $P(A,B \mid C) = P(B \mid A,C)P(A \mid  C)$, where $A$ is $s$, the future state; B is $o$, the future observation and $C$ is the $\pi$ is the policy. Substituting these into the equation above:
+
+% \begin{equation}
+%     q(\tilde{s}, \tilde{o} \mid \pi)=q(\tilde{o} \mid \tilde{s}, \pi) \cdot q(\tilde{s} \mid \pi)
+% \end{equation}
+
+% where $q(\tilde{s}\mid \pi)$ is the probability if being in state $\tilde{s}$ given we choose policy $\pi$ (transition model), and $q(o\mid s,\pi)$ the probability of observing $\tilde{o}$ giving we are in state $\tilde{s}$ and chose policy $\pi$.
+
+% Here, the Active Inference model makes a structural assumption. In a Hidden Markov Model (which Active Inference uses), the observation $o$ is generated solely by the state $s$. Once you are in state $s$, it does not matter how you got there (i.e., which policy $\pi$ you used). The observation depends only on the state itself. Therefore, we can simplify the first term:
+
+% \begin{equation}
+%     q(\tilde{o}|\tilde{s},\pi) \approx p(\tilde{o} \mid \tilde{s})
+% \end{equation}
+
+% We switch notation to $p(o|s)$ because this relationship is defined by the agent's generative likelihood model. 
+% Substituting this simplification back into the chain rule equation gives the final factorisation we use hereafter,
+
+% \begin{equation}
+%     q(\tilde{s},\tilde{o}|\pi) = \underbrace{p(\tilde{o}|\tilde{s})}_{\text{Likelihood}} \cdot \underbrace{q(\tilde{s}|\pi)}_{\text{Transition}}
+%     \label{eq:factorization}
+% \end{equation}
+
+% Using the factorization $q(\tilde{s}, \tilde{o}|\pi) = p(\tilde{o}|\tilde{s})q(\tilde{s}|\pi)$ and expanding the logarithms:
+
+% \begin{equation}
+%     G(\pi) = \mathbb{E}_{q(\tilde{s}, \tilde{o}|\pi)} [\ln p(\tilde{o}|\tilde{s}) + \ln q(\tilde{s}|\pi) - \ln p(\tilde{s}|\tilde{o}) - \ln p(\tilde{o})]
+% \end{equation}
+
+% To isolate the epistemic value, we add and subtract the marginal predictive entropy term $\ln q(\tilde{o}|\pi)$:
+
+% \begin{equation}
+%     G(\pi) = \mathbb{E}_{q(\tilde{s},\tilde{o}|\pi)} [ 
+%     \underbrace{\ln p(\tilde{o}|\tilde{s}) - \ln q(\tilde{o}|\pi)}_{\text{Information Gain}} + 
+%     \underbrace{\ln q(\tilde{o}|\pi) - \ln p(\tilde{o})}_{\text{Expected Cost}} + 
+%     \underbrace{\ln q(\tilde{s}|\pi) - \ln p(\tilde{s}|\tilde{o})}_{\text{Inference Error} \approx 0} ]
+% \end{equation}
+
+% Assuming the agent performs approximate Bayesian inference correctly in the future (minimising the third term), we obtain the final decomposition:
+
+% \begin{equation}
+%     G(\pi) \approx \underbrace{\mathbb{E}_{q(\tilde{s}|\pi)}[D_{KL}[p(\tilde{o}|\tilde{s})\|q(\tilde{o}|\pi)]]}_{\text{Epistemic value (Exploration)}} + \underbrace{D_{KL}[q(\tilde{o}|\pi)\|p(\tilde{o})]}_{\text{Pragmatic value (Exploitation)}}
+%     \label{eq:efe_decomposition}
+% \end{equation}
+
+% \textbf{Interpretation:}
+% \begin{itemize}
+%     \item \textbf{Epistemic value} (Information Gain): The first term, $\mathbb{E}_{q(\tilde{s}|\pi)}[D_{KL}[p(\tilde{o}|\tilde{s})\|q(\tilde{o}|\pi)]]$, represents the \textit{Mutual Information} between future states and observations, denoted as $I(\tilde{S}; \tilde{O}|\pi)$:
+%     \begin{equation}
+%         I(S ; O)=D_{K L}[p(s, o) \| p(s) p(o)]=\sum_{s, o} p(s, o) \ln \frac{p(s, o)}{p(s) p(o)}
+%     \end{equation}
+%     Using the chain rule $p(s,o) = p(o|s)p(s)$, we can rewrite this as:
+
+%     \begin{equation}
+%         I(S ; O)=\sum_{s, O} p(o \mid s) p(s) \ln \frac{p(o \mid s) p(s)}{p(s) p(o)}=\sum_{s, o} p(s) p(o \mid s) \ln \frac{p(o \mid s)}{p(o)}
+%     \end{equation}
+
+%     In $\mathbb{E}_{q(\tilde{s}|\pi)}[D_{KL}(p(\tilde{o}|\tilde{s})\|q(\tilde{o}|\pi))]$, the outer expectation $\mathbb{E}_{q(\tilde{s}|\pi)}$ means "sum over all states $\tilde{s}$, weighted by $q(\tilde{s} \mid \pi)$; and the KL Divergence can be expanded as 
+%     $\sum_{\tilde{o}} p(\tilde{o} \mid \tilde{s}) \ln \frac{p(\tilde{o} \mid \tilde{s})}{q(\tilde{o} \mid \pi)}$.  Since the agent cannot know \textit{a priori} which state $\tilde{s}$ it will occupy, it must average (integrate) the divergence over all possible future states, weighted by the transition probability $q(\tilde{s}|\pi)$. 
+
+%     Combining them, 
+
+%     \begin{equation}
+%          \mathbb{E}_{q(\tilde{s}|\pi)}[D_{KL}(p(\tilde{o}|\tilde{s})\|q(\tilde{o}|\pi))]
+%          =\sum_{\tilde{\tilde{s}}} q(\tilde{s} \mid \pi)\left(\sum_{\tilde{\sigma}} p(\tilde{o} \mid \tilde{s}) \ln \frac{p(\tilde{o} \mid \tilde{s})}{q(\tilde{o} \mid \pi)}\right)
+%     \end{equation}
+
+%     This is mathematically identical to the Mutual Information derived above, where:$q(\tilde{s}|\pi)$ acts as the prior $p(s)$.$q(\tilde{o}|\pi)$ acts as the marginal $p(o)$. 
+%     The KL divergence here measures the "distance" between the \textbf{likelihood} $p(\tilde{o}|\tilde{s})$, asking "What I expect to see if I know the state is $\tilde{s}$?; and \textbf{marginal} $q(\tilde{o}|\pi)$, asking "What I expect to see if I don't know the specific state?" (averaged over all states). If these two are very different (high KL Divergence), it means knowing the state radically changes your prediction of the observation. Therefore, observing the data will tell you a lot about the state.
+
+%     \begin{figure}
+%         \centering
+%         \includegraphics[width=0.8\linewidth]{images/expolit-explore-tradeoff.png}
+%         \caption{Trade off between exploration and exploitation when minimising the expected free energy.}
+%         \label{fig:placeholder}
+%     \end{figure}
+
+%     For instance, if the robot is uncertain about the location of an obstacle, a policy that moves the sensor to a viewpoint where the expected LIDAR scan (if the obstacle is at position A) looks very different from the scan (if it is at position B) has high epistemic value. 
+%     Executing this policy will quickly resolve the uncertainty.
+%     Intuitively, this term favours policies that drive the robot to regions where the likelihood $p(\tilde{o}|\tilde{s})$ (what is seen from a specific spot) differs significantly from the marginal $q(\tilde{o}|\pi)$ (what is seen on average).
+%     Such observations are highly discriminative, allowing the agent to "resolve ambiguity" and localise itself effectively.
+    
+%     \item \textbf{Pragmatic value} (Expected Utility): This term penalises the divergence between predicted observations $q(\tilde{o}|\pi)$ and preferred observations $p(\tilde{o})$. It drives the agent toward goal states defined by the prior $p(\tilde{o})$.
+% \end{itemize}
+
+% Optimal policies minimise $G(\pi)$, naturally balancing the drive to gather information (exploration) with the drive to fulfil preferences (exploitation).
+
+% While the preceding derivations are mathematically complete, their direct implementation would require intractable computations: marginalising over high-dimensional state spaces, differentiating through complex sensor models, and evaluating exponentially many policies. Fortunately, the structure of the free energy objective admits approximations that recover familiar robotics algorithms —Gaussian (Laplace) perception updates (closely related to EKF-style estimators under additional linearisations), potential fields for reactive control, and heuristic search for planning— as special cases. The following section details these approximations, showing how standard techniques emerge naturally from the Active Inference framework under computational constraints.
+
+
+
+
+
+\subsection{Unifying Planning and Reactive Control Across Time Scales}
+
+The derivations above show that perception, planning, and control in Active Inference
+are not separate computational modules, but different temporal instantiations of the
+same variational objective: the minimisation of Expected Free Energy.
+
+Reactive control, derived in Section~5.1, corresponds to the special case in which
+Expected Free Energy is minimised over a single-step horizon ($T = 1$). In this case,
+actions are selected by differentiating the one-step Expected Free Energy $G(u_t)$
+with respect to the current control input, yielding fast, local, and uncertainty-aware
+behaviour.
+
+Planning extends the same objective over longer temporal horizons. A policy
+$\pi = \{u_t, \ldots, u_{t+T-1}\}$ is evaluated by its cumulative Expected Free Energy,
+\begin{equation}
+G_T(\pi) =
+\sum_{\tau=t+1}^{t+T}
+\mathbb{E}_{q(o_\tau, s_\tau \mid \pi)} \big[ F[q, o_\tau] \big],
+\end{equation}
+and optimal behaviour is obtained by minimising $G_T(\pi)$ with respect to the entire
+action sequence.
+
+Importantly, these two processes are not independent. The gradient of the multi-step
+Expected Free Energy with respect to the first action decomposes as
+\begin{equation}
+\nabla_{u_t} G_T(\pi)
+=
+\nabla_{u_t} G_{t+1}(u_t)
++
+\sum_{\tau=t+2}^{t+T} \nabla_{u_t} G_\tau(\pi),
+\end{equation}
+showing that reactive control corresponds to the leading-order term in the full
+planning gradient.
+
+From this perspective, reactive control is a local descent direction in the
+long-horizon Expected Free Energy landscape, while planning introduces additional
+terms that account for delayed consequences and long-term trade-offs. Both minimise
+the same objective and operate on a shared generative model, differing only in
+temporal depth and computational budget.
+
+In the implementation presented in this report, this unification is realised by a
+single controller that directly minimises Expected Free Energy over variable-horizon
+action sequences. Short-horizon optimisation yields reactive behaviour, while longer
+horizons are activated dynamically when local minimisation fails to reduce free
+energy.
+
+
+
+
+\section{Practical use case: a robot navigating its environment}
+
+The following sections describe the concrete instantiation of the Active Inference framework introduced above in a mobile robot navigation system. Rather than treating perception, planning, and control as independent modules, the implementation mirrors the theoretical decomposition of variational free energy minimisation across different temporal scales. First, we define the robot and environment state spaces and the generative models underlying perception. We then derive an online variational inference procedure for room estimation with the robot position and obstacle estimation, followed by reactive control laws that minimise instantaneous free energy, and a global planner that minimises expected free energy over future trajectories. Throughout this section, standard robotics algorithms are presented explicitly as approximate solutions to the same underlying inference problem, differing only in their computational scope and time horizon.
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{images/room_and_obstacles_sceneario_nb.png}
+  \caption{
+        Active Inference navigation scenario and state representation.
+        The robot operates within a rectangular room of width $w$ and depth $d$, whose
+        coordinate frame is placed at the room centre.
+        The latent state $s_{\text{room}} = (w,d,x_r,y_r,\theta_r)$ includes both global
+        room parameters and the robot pose in the room frame.
+        Circular obstacles are represented as additional latent states in the same frame.
+        The belief $q(s)$ encodes uncertainty over robot pose and obstacle locations,
+        which are updated through variational free energy minimisation.
+        Dashed trajectories illustrate candidate future paths toward a target location,
+        whose evaluation is governed by Expected Free Energy during planning and reactive
+        control.
+        }
+
+    \label{fig:placeholder}
+\end{figure}
+
+
+
+\subsection{Perception (I): Variational Inference for Room and Pose Estimation}
+\label{sec:perception-room}
+
+Perception in Active Inference is cast as variational inference: the agent
+updates its beliefs about hidden states by minimising variational free energy
+given sensory observations. In this section, we derive a concrete and tractable
+room--pose estimation procedure from first principles, making explicit the
+modelling assumptions and approximations required to operate in a continuous,
+nonlinear robotic setting.
+
+The room dimensions, width and depth, are estimated by the robot at the start. The height is known. The coordinate frame of the room is placed at its centre and the X+ and Y+ axis are taken from its initial orientation in the robot frame.
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\linewidth]{images/frames.png}
+    \caption{Reference frames used in the example. Once the room is detected and its shape acquired, a global frame is set at the centre and the robot pose is updated with respect to it. The detected obstacles are also assigned a pose in the rooms' frame, so they persist when exiting the robot's field of view.}
+    \label{fig:room_initial_frames}
+\end{figure}
+
+\subsubsection{Hidden State and Observations}
+\label{sec:room-state-observations}
+
+We consider both the robot pose and the geometry of the enclosing room as latent
+variables to be inferred. The hidden state is defined as
+\begin{equation}
+s_{\text{loc}} = (x_t, y_t, \theta_t, W, L)^\top ,
+\end{equation}
+where $(x_t, y_t, \theta_t)$ denotes the robot pose in the room frame and $(W,L)$
+represent the room width and length. Observations
+$o_{\text{room}} = \{p_j\}_{j=1}^M$ correspond to wall points detected by the upper
+LIDAR, expressed in the robot sensor frame.
+
+\subsection{Variational Free Energy Objective and Temporal Factorisation}
+
+Perception in a mobile robot is inherently a temporal process: the robot moves, acquires new observations, and updates its beliefs sequentially over time. To make this explicit, we model the hidden state as a time-indexed random variable $s_t$ and assume a first-order Markov generative process.
+
+Under this assumption, the joint distribution over a sequence of states and observations factorises as
+\[
+p(s_{0:T}, o_{1:T} \mid u_{0:T-1})
+= p(s_0)\prod_{t=0}^{T-1} p(s_{t+1}\mid s_t, u_t)\prod_{t=1}^{T} p(o_t\mid s_t),
+\]
+where $p(s_{t+1}\mid s_t, u_t)$ is the generative transition model and $p(o_t\mid s_t)$ the observation likelihood.
+
+At each time step, inference is performed by approximating the posterior $p(s_t \mid o_{1:t})$ with a recognition density $q(s_t)$ and minimising the variational free energy
+\[
+F[q, o_t] = \mathbb{E}_{q}\big[\ln q(s_t) - \ln p(o_t, s_t)\big],
+\]
+which, using Bayes’ rule, satisfies the fundamental identity
+\[
+F[q, o_t] = D_{\mathrm{KL}}\!\left(q(s_t)\,\|\,p(s_t \mid o_t)\right) - \ln p(o_t).
+\]
+
+The temporal structure enters through the prior term $p(s_t)$ in the joint density, which is given by the predictive distribution induced by the transition model:
+\[
+p(s_t) = \int p(s_t \mid s_{t-1}, u_{t-1})\,q(s_{t-1})\,ds_{t-1}.
+\]
+As a result, minimising variational free energy at time $t$ simultaneously enforces consistency with current observations (accuracy) and with the predicted state from the previous time step (temporal complexity).
+
+This formulation makes explicit that the motion model is not an external addition, but an integral component of the generative model from which the free energy objective is derived.
+
+
+
+\subsubsection{Approximation 1: Laplace Approximation of Variational Free Energy}
+\label{sec:laplace-main}
+
+To obtain a tractable inference procedure, we adopt a Laplace approximation of
+the recognition density and assume a Gaussian posterior
+
+\begin{equation}
+    q(s_{\text{loc}}) = \mathcal{N}(s_{\text{loc}} \mid \mu, \Sigma),
+\end{equation}
+
+centred at its mode $\mu$. The notation $\mathcal{N}(s \mid \mu, \Sigma)$ makes explicit that the variable $s_{loc}$ is evaluated under the Gaussian distribution $\mathcal{N}$. Intuitively, it is asking, how compatible is $s_{loc}$ with a Gaussian centered at $\mu$ with spread $\Sigma$?.
+
+Under this assumption, variational free energy admits
+a second-order approximation around the posterior mode. In particular, it can be
+shown (Appendix~\ref{app:laplace-vfe}) that
+\begin{equation}
+F[q,o]
+\;\approx\;
+-\ln p(o,\mu)
+-\frac{1}{2}\left(\ln|\Sigma| + n\ln 2\pi\right),
+\label{eq:vfe-laplace}
+\end{equation}
+where $n$ is the dimensionality of the latent state and $\Sigma^{-1}$ corresponds
+to the local curvature of the negative log joint density at $\mu$.
+
+In practice, we optimise the posterior mode by minimising the negative log joint term $-\ln p(o,s_{\text{loc}})$, treating the curvature correction as constant during this inner optimisation. The covariance is then recovered in a separate step from the Hessian at the optimum.
+Consequently, optimisation of variational free energy reduces to minimisation of
+the negative log joint density,
+
+\begin{equation}
+\tilde{F}(s_{\text{loc}}) \equiv -\ln p(o_{\text{room}}, s_{\text{loc}}),
+\end{equation}
+up to an additive constant.
+
+To minimise $ -\ln p(o_{\text{room}}, s_{\text{loc}})$, we factorise it using Bayes,
+
+\begin{equation}
+    -\ln p(o_{\text{room}}, s_{\text{loc}}) = - \ln{ (p(o_{\text{room}} \mid s_{\text{loc}})\,p(s_{\text{loc}}))}
+\end{equation}
+
+
+\subsubsection{Approximation 2: Conditional Independence of Observations}
+\label{sec:room-independence}
+
+We assume that LIDAR points are conditionally independent given the latent state,
+yielding the factorisation
+\begin{equation}
+p(o_{\text{room}} \mid s_{\text{loc}})
+=
+\prod_{j=1}^M p(p_j \mid s_{\text{loc}}).
+\end{equation}
+This assumption allows the log-likelihood to be expressed as a sum of
+point-wise residuals.
+
+\subsubsection{Approximation 3: Generative Observation Model}
+\label{sec:room-generative}
+
+The generative observation model specifies how sensory measurements are produced
+from latent states. LIDAR points expressed in the robot frame are first
+transformed into the room frame using the current pose hypothesis:
+\begin{equation}
+    \hat{p}_j(s_{\text{loc}})
+    =
+    R(\theta_t)\,p_j
+    +
+    \begin{bmatrix}
+    x_t \\ y_t
+    \end{bmatrix},
+\end{equation}
+
+where $x_t(s_{\text{loc}}), y_t(s_{\text{loc}}), \theta_t(s_{\text{loc}})$ denote the pose components of $s_{\text{loc}}$ and $R(\theta_t)$ is the planar rotation matrix.
+
+
+The room is modelled as an axis-aligned rectangle of width $W$ and length $L$.
+For each transformed point $\hat{p}_j$, we define a signed distance function
+$d_j(s_{\text{loc}})$ measuring the distance to the nearest wall. Assuming
+additive Gaussian noise with variance $\sigma_w^2$, the likelihood becomes
+\begin{equation}
+p(o_{\text{room}} \mid s_{\text{loc}})
+=
+\prod_{j=1}^M
+\mathcal{N}\!\left(d_j(s_{\text{loc}})\mid 0, \sigma_w^2\right),
+\end{equation}
+leading to the negative log-likelihood
+\begin{equation}
+-\ln p(o_{\text{room}} \mid s_{\text{loc}})
+=
+\frac{1}{2\sigma_w^2}\sum_{j=1}^M d_j(s_{\text{loc}})^2 + \text{const}.
+\end{equation}
+
+\subsubsection{Approximation 4: Temporal Dynamics and Prior Generation}
+\label{sec:room-dynamics}
+
+Temporal consistency is enforced through a generative transition model defining
+the prior distribution for the next inference step. We assume nonlinear dynamics
+of the form
+\begin{equation}
+s_{t+1} = f(s_t, u_t) + \omega_t,
+\end{equation}
+where $u_t$ denotes the control input and $\omega_t$ is zero-mean Gaussian process
+noise.
+
+Under the Laplace assumption, the predicted mean and covariance are
+\begin{align}
+\mu_{\text{pred}} &= f(\mu_t, u_t), \\
+\Sigma_{\text{pred}} &=
+\left.
+\frac{\partial f}{\partial s}
+\right|_{\mu_t,u_t}
+\Sigma_t
+\left.
+\frac{\partial f}{\partial s}
+\right|_{\mu_t,u_t}^{\!\top}
++
+\Sigma_{\text{process}},
+\end{align}
+defining the Gaussian prior $p(s_{\text{loc}})$ that enters the complexity term
+of variational free energy.
+
+\paragraph{Differential-Drive Motion Model.}
+To make the transition model explicit, we assume the robot follows standard
+differential-drive kinematics. Let the control input be
+\begin{equation}
+u_t = (v_t, \omega_t),
+\end{equation}
+where $v_t$ is the linear velocity and $\omega_t$ the angular velocity. Over a
+discrete time step $\Delta t$, the deterministic motion model is
+\begin{equation}
+f(x_t, u_t) =
+\begin{bmatrix}
+x_t + v_t \Delta t \cos \theta_t \\
+y_t + v_t \Delta t \sin \theta_t \\
+\theta_t + \omega_t \Delta t
+\end{bmatrix}.
+\label{eq:diffdrive}
+\end{equation}
+
+We assume additive zero-mean Gaussian process noise,
+\begin{equation}
+\omega_t \sim \mathcal{N}(0, \Sigma_{\text{process}}),
+\end{equation}
+capturing unmodelled dynamics and odometric uncertainty.
+
+\paragraph{Linearisation and Covariance Propagation.}
+Under the Laplace (Gaussian) assumption introduced in Section~4.1.3, the prior
+distribution at time $t+1$ is obtained by propagating the previous posterior
+through the motion model. Linearising Eq.~\eqref{eq:diffdrive} around the current
+mean $\mu_t$ yields
+\begin{equation}
+\Sigma_{\text{pred}}
+=
+F_t \Sigma_t F_t^\top + \Sigma_{\text{process}},
+\label{eq:ekf-prediction}
+\end{equation}
+where $F_t = \partial f / \partial x \rvert_{\mu_t,u_t}$ is the Jacobian of the
+motion model with respect to the state.
+
+For the differential-drive model, this Jacobian is
+\begin{equation}
+F_t =
+\begin{bmatrix}
+1 & 0 & -v_t \Delta t \sin \theta_t \\
+0 & 1 & \phantom{-}v_t \Delta t \cos \theta_t \\
+0 & 0 & 1
+\end{bmatrix}.
+\end{equation}
+
+This predicted mean and covariance define the Gaussian prior
+$p(s_{\text{loc}})$ used in the variational free energy objective of the next
+time step.
+
+
+\subsubsection{Resulting Free Energy Objective}
+\label{sec:room-objective}
+
+Combining the above assumptions yields the deterministic objective
+\begin{equation}
+    F(s_{\text{loc}})
+    =
+    \frac{1}{2\sigma_w^2}\|d(s_{\text{loc}})\|^2
+    +
+    \frac{1}{2}
+    (s_{\text{loc}}-\mu_{\text{pred}})^\top
+    \Sigma_{\text{pred}}^{-1}
+    (s_{\text{loc}}-\mu_{\text{pred}}),
+\end{equation}
+
+The first term represents prediction error (negative accuracy), while the second
+term corresponds to the complexity penalty induced by the temporal prior.
+
+In the implementation, the data-fit term appears as a positive cost because we minimise
+\emph{negative} accuracy, i.e., the negative log-likelihood (prediction error), rather than
+maximising the log-likelihood itself.
+
+
+\subsubsection{Free Energy Minimisation via Gradient-Based Optimisation}
+\label{sec:room-optimisation}
+
+The posterior mean is obtained by directly minimising the nonlinear objective
+$F(s_{\text{loc}})$ using gradient-based optimisation. In this work, we employ
+the ADAM optimiser, updating the state according to
+\begin{equation}
+s_{\text{loc}}^{(k+1)}
+=
+\mathrm{ADAM}\!\left(
+s_{\text{loc}}^{(k)},
+\nabla_{s_{\text{loc}}}F(s_{\text{loc}}^{(k)})
+\right),
+\end{equation}
+where gradients are computed via automatic differentiation through the full
+generative model. This choice affects only the numerical optimisation strategy,
+not the underlying variational objective.
+
+We denote the final optimiser output by $\mu_{\text{new}}$.
+
+
+\subsubsection{Posterior Covariance via Exact Laplace Approximation}
+\label{sec:room-covariance}
+
+Uncertainty around the posterior mean is recovered using a Laplace approximation.
+The posterior covariance is given by the inverse Hessian of the variational free
+energy evaluated at the optimum:
+\begin{equation}
+\Sigma_{\text{new}}^{-1}
+=
+\nabla^2_{s_{\text{loc}}} F(s_{\text{loc}})
+\big|_{s_{\text{loc}}=\mu_{\text{new}}}.
+\end{equation}
+The Hessian is computed exactly using automatic differentiation, yielding a
+second-order characterisation of local posterior uncertainty without explicit
+linearisation of the observation model.
+
+\subsection{Room initialization}
+\label{sec:room_initialization}
+
+At system start-up, the robot has no explicit internal representation of the surrounding room. The generative model initially includes only the robot pose variables, while room shape parameters are left undefined. As sensory data become available, a transient inference phase is triggered in which the robot simultaneously infers its own pose and the global room structure.
+
+The activation of this initialization process is conditioned on a room detection step based on model compatibility. Specifically, the current point cloud is analyzed to determine whether it is consistent with a generic room hypothesis encoded as a prior over room shape parameters. This check evaluates whether the principal dimensions of the observed point cloud are compatible with the expected scale and proportions of a room, as defined by the shape priors. Only when this compatibility condition is satisfied is the room introduced as an explicit latent cause in the generative model.
+
+
+During the initialization phase, the robot jointly infers its pose and the global room geometry using range measurements from an upper LIDAR sensor positioned above obstacles. The room is parameterised as a rectangular enclosure with latent variables $(W, L)$, and inference proceeds by minimising the signed distance function (SDF) residuals between observed points and the room boundary with respect to the full latent state $(x, y, \theta, W, L)$.
+
+Although the robot is translationally static during this phase, it may execute small rotational motions to diversify wall observations and reduce geometric degeneracy.
+Optimisation is performed using a gradient-based optimiser with momentum. In practice, the demo implementation employs stochastic gradient descent with momentum and aggressive early stopping: when the predicted SDF residuals are already consistent with the prior belief, the update is skipped entirely. This significantly reduces computational overhead without altering the fixed point of the inference procedure.
+
+Once convergence is detected and the posterior uncertainty over $(W, L)$ falls below a threshold, the room parameters are fixed and removed from the active latent state. Subsequent inference operates in a tracking regime, where only the robot pose is updated using a motion prior and the fixed room model.
+
+
+Once the free energy converges to a stable minimum and the inferred room parameters exhibit low posterior uncertainty, the room shape is considered sufficiently explained by the available evidence. At this point, the room parameters are removed from the set of active latent variables and are fixed for the remainder of the operation. Subsequent inference proceeds solely over the robot pose, conditioned on the now-static room model.
+
+This room initialization process is designed as a one-time transitional mechanism that occurs only at the beginning of operation. Although the same procedure could, in principle, be reactivated upon detecting a room change, such extensions are beyond the scope of the present work and are not considered here.
+
+
+\subsubsection{Summary}
+\label{sec:room-summary}
+
+Together, the above steps define a complete perception cycle grounded in Active
+Inference. Beliefs are propagated forward in time through a generative transition
+model, updated by minimising variational free energy using gradient-based
+optimisation, and endowed with uncertainty via a Laplace approximation at the
+posterior mode. This formulation yields a unified and principled approach to room
+and pose estimation suitable for real-time robotic navigation.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+% \subsection{Perception (II): Variational inference over obstacles}
+% \textit{Note on Scheduling:} The perception loop operates sequentially to decouple localisation errors from mapping. First, the \textbf{Room Perception} module (Sec. 5.2) updates the robot's pose belief $q(s_{loc})$. The optimised pose mean $\mu_{loc}$ is then used as a fixed reference frame to transform the Lower LIDAR scans $o_{obs}$ for the \textbf{Obstacle Perception} module described below.
+
+% \subsubsection{Obstacle Representation}
+
+% The environment contains $N$ static circular obstacles. Each obstacle $i$ is characterised by:
+% \begin{equation}
+% \mathbf{s}_i = (c_{x,i}, c_{y,i}, r_i)
+% \end{equation}
+% where $(c_{x,i}, c_{y,i})$ is the center position and $r_i$ is the radius.
+% The complete hidden state is:
+% \begin{equation}
+% \mathbf{s} = \{\mathbf{s}_1, \ldots, \mathbf{s}_N\}
+% \end{equation}
+
+% The robot maintains a belief over these parameters using a recognition density $q(\mathbf{s})$ factorised as:
+% \begin{equation}
+% q(\mathbf{s}) = \prod_{i=1}^{N} q(\mathbf{s}_i) = \prod_{i=1}^{N} \mathcal{N}(\mathbf{s}_i \,|\, \boldsymbol{\mu}_i, \boldsymbol{\Sigma}_i)
+% \end{equation}
+% where each belief is Gaussian with mean $\boldsymbol{\mu}_i = (\mu_{x,i}, \mu_{y,i}, \mu_{r,i})$ and diagonal covariance:
+% \begin{equation}
+% \boldsymbol{\Sigma}_i = \text{diag}(\sigma^2_{xy,i}, \sigma^2_{xy,i}, \sigma^2_{r,i})
+% \end{equation}
+
+% \subsubsection{LIDAR Observation Model}\label{section:5.1.3}
+
+% The robot is equipped with a 360° LIDAR sensor that casts $N_{\text{rays}} = 100$ rays uniformly distributed in angle:
+% \begin{equation}
+% \alpha_j = \frac{2\pi j}{N_{\text{rays}}}, \quad j = 0, \ldots, N_{\text{rays}}-1
+% \end{equation}
+
+% For each ray, the sensor computes the intersection distance with all obstacles.
+% For a ray originating at $\mathbf{x}_t$ in direction $\mathbf{d}_j = (\cos\alpha_j, \sin\alpha_j)$, the intersection with obstacle $i$ is found by solving:
+% \begin{equation}
+% \|\mathbf{x}_t + t\mathbf{d}_j - \mathbf{c}_i\|_2 = r_i
+% \end{equation}
+% which yields:
+% \begin{equation}
+% t_{ij} = -\mathbf{d}_j^T(\mathbf{x}_t - \mathbf{c}_i) - \sqrt{[\mathbf{d}_j^T(\mathbf{x}_t - \mathbf{c}_i)]^2 - \|\mathbf{x}_t - \mathbf{c}_i\|_2^2 + r_i^2}
+% \end{equation}
+
+% The measured distance for ray $j$ is:
+% \begin{equation}
+% d_j = \min_i \{t_{ij} : t_{ij} > 0\}
+% \end{equation}
+% truncated at maximum range $d_{\max} = 300$ pixels.
+% The observation includes additive Gaussian noise:
+% \begin{equation}
+% o_j = d_j + \epsilon_j, \quad \epsilon_j \sim \mathcal{N}(0, \sigma_{\text{noise}}^2)
+% \end{equation}
+% with $\sigma_{\text{noise}} = 2$ pixels.
+% The complete observation is the set of hit points:
+% \begin{equation}
+% \mathbf{o}_t = \{\mathbf{p}_j : \mathbf{p}_j = \mathbf{x}_t + o_j \mathbf{d}_j, \, d_j < d_{\max}\}
+% \end{equation}
+
+
+% \begin{figure}
+%     \centering
+%     \includegraphics[width=0.9\linewidth]{images/perception_cycle.pdf}
+%     \caption{ Perception update cycle. LIDAR observations are clustered and associated with existing beliefs via the Hungarian algorithm. Matched pairs trigger free energy minimisation (yielding EKF-like updates), unmatched clusters initialise new beliefs, and unmatched beliefs decay over time.}
+%     \label{fig:placeholder}
+% \end{figure}
+
+
+% \subsubsection{Point Cloud Clustering via DBSCAN}
+
+% The LIDAR points are clustered using DBSCAN with parameters $\epsilon = 20$ pixels (neighbourhood radius) and $\text{minPts} = 3$ (minimum cluster size).
+% This yields $M$ clusters:
+% \begin{equation}
+% \mathcal{C}_1, \ldots, \mathcal{C}_M
+% \end{equation}
+% where each cluster $\mathcal{C}_k = \{\mathbf{p}_{k,1}, \ldots, \mathbf{p}_{k,n_k}\}$ contains $n_k$ points hypothesized to belong to the same obstacle.
+
+% \subsubsection{PCA-based Obstacle Classification}
+
+% For each cluster $\mathcal{C}_k$, we perform PCA to determine linearity.
+% The covariance matrix is:
+% \begin{equation}
+% \mathbf{C}_k = \frac{1}{n_k}\sum_{i=1}^{n_k}(\mathbf{p}_{k,i} - \bar{\mathbf{p}}_k)(\mathbf{p}_{k,i} - \bar{\mathbf{p}}_k)^T
+% \end{equation}
+% where $\bar{\mathbf{p}}_k = \frac{1}{n_k}\sum_{i=1}^{n_k}\mathbf{p}_{k,i}$ is the cluster centroid.
+% The eigenvalues $\lambda_1 \geq \lambda_2$ characterise the cluster shape.
+% Define the linearity measure:
+% \begin{equation}
+% \mathcal{L}_k = \frac{|\lambda_1 - \lambda_2|}{\lambda_1 + \lambda_2}
+% \end{equation}
+
+% If $\mathcal{L}_k > \tau_{\text{linear}} = 0.85$ and $\sqrt{\lambda_1} > \ell_{\min} = 50$ pixels, the cluster is classified as a wall segment.
+% Otherwise, it is treated as a circular obstacle, and we proceed with the Active Inference perception update.
+
+
+% \subsubsection{Data Association via Hungarian Algorithm}
+
+% The perception system maintains a set of $N$ belief distributions $\{q_1(\mathbf{s}), \ldots, q_N(\mathbf{s})\}$ over obstacle states.
+% At each time step, LIDAR sensing and DBSCAN clustering produce $M$ clusters $\{\mathcal{C}_1, \ldots, \mathcal{C}_M\}$.
+% The data association problem is to match clusters (observations) to beliefs (hypotheses) optimally.
+% We formulate this as minimising the total free energy across all assignments.
+
+% \paragraph{Cost Matrix Construction:}
+
+% For each cluster $k$ and belief $j$, define the association cost as the observation prediction error:
+% \begin{equation}
+% C_{kj} = \frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k} [\text{SDF}_j(\mathbf{p}_{k,i})]^2
+% \end{equation}
+% where $\text{SDF}_j(\mathbf{p}) = \|\mathbf{p} - \boldsymbol{\mu}_{c,j}\| - \mu_{r,j}$ is the signed distance function of belief $j$ evaluated at point $\mathbf{p}$\footnote{
+% A Signed Distance Function (SDF) assigns to each point in space the Euclidean distance to the nearest surface of an object, with the sign indicating whether the point lies inside or outside the object. In this work, SDF values provide a continuous, differentiable measure of how well observed LIDAR points conform to the hypothesised obstacle geometry, making them well-suited as residuals in a probabilistic observation model.
+% }
+% .
+% This measures how well belief $j$ explains cluster $k$ under the generative model.
+% The SDF acts as a proxy for the negative log-likelihood of the obstacles matched to the beliefs by the Hungarian algorithm.
+
+% \paragraph{Optimal Assignment:}
+
+% Find the assignment $\mathcal{A}^* \subseteq \{1,\ldots,M\} \times \{1,\ldots,N\}$ that minimizes total cost:
+% \begin{equation}
+% \mathcal{A}^* = \argmin_{\mathcal{A}} \sum_{(k,j) \in \mathcal{A}} C_{kj}
+% \end{equation}
+% subject to:
+% \begin{itemize}
+%     \item Each cluster matched to at most one belief
+%     \item Each belief matched to at most one cluster
+%     \item Only accept matches with $C_{kj} < \tau_{\text{reject}}$
+% \end{itemize}
+
+% This is the classical \textit{assignment problem}, solved optimally by the Hungarian algorithm in $\mathcal{O}(\max(M,N)^3)$ time.
+% The Hungarian algorithm provides global optimality: it finds the matching that minimises total free energy across all cluster-belief pairs, avoiding the myopic decisions of greedy nearest-neighbour matching.
+
+% \paragraph{Unmatched Clusters and Beliefs:}
+
+% After assignment:
+% \begin{itemize}
+%     \item Unmatched clusters → Create new beliefs (Section Eq.~\ref{sec:circle_fit})
+%     \item Unmatched beliefs → Decay confidence and increase uncertainty (Section Eq.~\ref{sec:belief_decay})
+% \end{itemize}
+
+% \subsubsection{Generative Model for Obstacle Observations}
+
+% For a matched pair (cluster $\mathcal{C}_k$, belief $j$), we now update belief $j$ using Active Inference.
+
+% \paragraph{State Representation:}
+
+% The obstacle state is:
+% \begin{equation}
+% \mathbf{s} = (c_x, c_y, r)^T \in \mathbb{R}^3
+% \end{equation}
+% representing the circle centre $(c_x, c_y)$ and radius $r$.
+
+% \paragraph{Observation:}
+
+% Cluster $\mathcal{C}_k$ contains $n_k$ LIDAR points:
+% \begin{equation}
+% \mathbf{o} = \{\mathbf{p}_1, \ldots, \mathbf{p}_{n_k}\}, \quad \mathbf{p}_i = (p_{x,i}, p_{y,i})^T
+% \end{equation}
+
+% \paragraph{Likelihood Model:}
+
+% The generative model assumes each LIDAR point lies on the circle boundary with Gaussian noise:
+% \begin{equation}
+% \|\mathbf{p}_i - \mathbf{c}\| = r + \epsilon_i, \quad \epsilon_i \sim \mathcal{N}(0, \sigma_o^2)
+% \end{equation}
+
+% Define the signed distance function (SDF) for each point:
+% \begin{equation}
+% d_i(\mathbf{s}) = \|\mathbf{p}_i - \mathbf{c}\| - r = \sqrt{(p_{x,i} - c_x)^2 + (p_{y,i} - c_y)^2} - r
+% \end{equation}
+
+% The observation vector is:
+% \begin{equation}
+% \mathbf{d}(\mathbf{s}) = [d_1(\mathbf{s}), \ldots, d_{n_k}(\mathbf{s})]^T \in \mathbb{R}^{n_k}
+% \end{equation}
+
+% Under the generative model, $\mathbf{d}$ should be zero (points on a circle).
+% The likelihood is:
+% \begin{equation}
+% p(\mathbf{o}|\mathbf{s}) = \mathcal{N}(\mathbf{d}(\mathbf{s}) \,|\, \mathbf{0}, \sigma_o^2 I_{n_k})
+% \end{equation}
+
+% Equivalently:
+% \begin{equation}
+% p(\mathbf{o}|\mathbf{s}) = \frac{1}{(2\pi\sigma_o^2)^{n_k/2}} \exp\left(-\frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k} d_i^2(\mathbf{s})\right)
+% \label{eq:likelihood}
+% \end{equation}
+
+% This is a nonlinear observation model requiring linearization.
+
+% \subsubsection{Prior and Posterior Distributions}
+
+% \paragraph{Prior (Process Model):}
+
+% The prior over obstacle states comes from the previous time step's posterior, propagated with process noise:
+% \begin{equation}
+% p(\mathbf{s}) = \mathcal{N}(\mathbf{s} \,|\, \boldsymbol{\mu}_p, \Sigma_p)
+% \end{equation}
+% where:
+% \begin{align}
+% \boldsymbol{\mu}_p &= \boldsymbol{\mu}_q^{(t-1)} = (\mu_{p,x}, \mu_{p,y}, \mu_{p,r})^T \\
+% \Sigma_p &= \Sigma_q^{(t-1)} + \Sigma_{\text{process}}
+% \end{align}
+
+% The process noise accounts for uncertainty growth between observations:
+% \begin{equation}
+% \Sigma_{\text{process}} = \text{diag}(\sigma_{\text{proc}}^2, \sigma_{\text{proc}}^2, \sigma_{\text{proc},r}^2)
+% \end{equation}
+% with $\sigma_{\text{proc}}^2 = 100$ (static obstacles, so process noise is small).
+% For newly initialised beliefs:
+% \begin{equation}
+% \boldsymbol{\mu}_p = \hat{\mathbf{s}}_{\text{init}}, \quad \Sigma_p = \text{diag}(400, 400, 100)
+% \end{equation}
+% where $\hat{\mathbf{s}}_{\text{init}}$ is obtained from circle fitting (Section Eq.~\ref{sec:circle_fit}).
+
+% \paragraph{Posterior (Recognition Density):}
+
+% The approximate posterior is:
+% \begin{equation}
+% q(\mathbf{s}) = \mathcal{N}(\mathbf{s} \,|\, \boldsymbol{\mu}_q, \Sigma_q)
+% \end{equation}
+
+% We seek to minimize the KL divergence $D_{KL}[q(\mathbf{s})\,\|\,p(\mathbf{s}|\mathbf{o})]$, which is equivalent to minimizing the variational free energy.
+
+% \subsubsection{Variational Free Energy for Gaussian Beliefs}
+
+% For a Gaussian prior and posterior with a nonlinear observation model, the free energy is:
+% \begin{equation}
+% \begin{split}
+% F[q,\mathbf{o}] &= \mathbb{E}_{q(\mathbf{s})}[-\ln p(\mathbf{o}|\mathbf{s})] + D_{KL}[q(\mathbf{s})\,\|\,p(\mathbf{s})] \\
+% &= \underbrace{\mathbb{E}_{q(\mathbf{s})}[-\ln p(\mathbf{o}|\mathbf{s})]}_{\text{Prediction error}} + \underbrace{D_{KL}[q(\mathbf{s})\,\|\,p(\mathbf{s})]}_{\text{Complexity cost}}
+% \end{split}
+% \label{eq:free_energy_decomp}
+% \end{equation}
+
+% \paragraph{Linearization:}
+
+% To make the expectation tractable, linearize $\mathbf{d}(\mathbf{s})$ around $\boldsymbol{\mu}_q$:
+% \begin{equation}
+% \mathbf{d}(\mathbf{s}) \approx \mathbf{d}(\boldsymbol{\mu}_q) + J(\mathbf{s} - \boldsymbol{\mu}_q)
+% \end{equation}
+% where the Jacobian for the obstacles observation model is:
+% \begin{equation}
+% J_{obs} = \frac{\partial \mathbf{d}}{\partial \mathbf{s}}\bigg|_{\mathbf{s}=\boldsymbol{\mu}_q} \in \mathbb{R}^{n_k \times 3}
+% \end{equation}
+
+% For each row $i$ and dropping the $J_{obs}$ subindex:
+% \begin{align}
+% J_{i1} &= \frac{\partial d_i}{\partial c_x} = -\frac{p_{x,i} - \mu_{q,x}}{\rho_i} \\
+% J_{i2} &= \frac{\partial d_i}{\partial c_y} = -\frac{p_{y,i} - \mu_{q,y}}{\rho_i} \\
+% J_{i3} &= \frac{\partial d_i}{\partial r} = -1
+% \end{align}
+% where $\rho_i = \|\mathbf{p}_i - \boldsymbol{\mu}_c\| = \sqrt{(p_{x,i} - \mu_{q,x})^2 + (p_{y,i} - \mu_{q,y})^2}$.
+
+% Thus:
+% \begin{equation}
+% J_{obs} = \begin{bmatrix}
+% -\frac{p_{x,1} - \mu_{q,x}}{\rho_1} & -\frac{p_{y,1} - \mu_{q,y}}{\rho_1} & -1 \\
+% \vdots & \vdots & \vdots \\
+% -\frac{p_{x,n_k} - \mu_{q,x}}{\rho_{n_k}} & -\frac{p_{y,n_k} - \mu_{q,y}}{\rho_{n_k}} & -1
+% \end{bmatrix}
+% \label{eq:jacobian}
+% \end{equation}
+
+% This linearization is valid for updates where the posterior mean 
+% $\mu_q$ is close to the prior mean $\mu_p$, which is ensured by frequent updates and small control steps.
+
+% \paragraph{Prediction Error Term:}
+
+% Under the linearization, the expected negative log-likelihood is:
+% \begin{align}
+% \mathbb{E}_{q(\mathbf{s})}[-\ln p(\mathbf{o}|\mathbf{s})] &\approx \frac{1}{2\sigma_o^2}\mathbb{E}_{q(\mathbf{s})}\left[\|\mathbf{d}(\mathbf{s})\|^2\right] + \frac{n_k}{2}\ln(2\pi\sigma_o^2) \nonumber \\
+% &= \frac{1}{2\sigma_o^2}\left[\|\mathbf{d}(\boldsymbol{\mu}_q)\|^2 + \text{tr}(J_{obs}\Sigma_q J_{obs}^T)\right] + \frac{n_k}{2}\ln(2\pi\sigma_o^2)
+% \end{align}
+
+% Define the observation prediction error:
+% \begin{equation}
+% \boldsymbol{\epsilon}_o = \mathbf{d}(\boldsymbol{\mu}_q) = [d_1(\boldsymbol{\mu}_q), \ldots, d_{n_k}(\boldsymbol{\mu}_q)]^T
+% \end{equation}
+
+% Then:
+% \begin{equation}
+% \mathbb{E}_{q(\mathbf{s})}[-\ln p(\mathbf{o}|\mathbf{s})] = \frac{1}{2}\boldsymbol{\epsilon}_o^T\Sigma_o^{-1}\boldsymbol{\epsilon}_o + \frac{1}{2}\text{tr}(\Sigma_o^{-1}J_{obs}\Sigma_q J_{obs}^T) + \frac{n_k}{2}\ln(2\pi\sigma_o^2)
+% \label{eq:prediction_error}
+% \end{equation}
+% where $\Sigma_o = \sigma_o^2 I_{n_k}$ is the isotropic observation noise covariance introduced in Section Eq.~\ref{section:5.1.3}
+
+% \paragraph{Complexity Cost (KL Divergence):}
+
+% For two Gaussians, the KL divergence is:
+% \begin{align}
+% D_{KL}[q(\mathbf{s})\,\|\,p(\mathbf{s})] &= \frac{1}{2}\left[(\boldsymbol{\mu}_q - \boldsymbol{\mu}_p)^T\Sigma_p^{-1}(\boldsymbol{\mu}_q - \boldsymbol{\mu}_p) \right. \nonumber \\
+% &\quad \left. + \text{tr}(\Sigma_p^{-1}\Sigma_q) - 3 + \ln\frac{|\Sigma_p|}{|\Sigma_q|}\right]
+% \label{eq:kl_gaussian}
+% \end{align}
+
+% Define the prior deviation:
+% \begin{equation}
+% \boldsymbol{\epsilon}_s = \boldsymbol{\mu}_q - \boldsymbol{\mu}_p
+% \end{equation}
+
+% \paragraph{Complete Free Energy:}
+
+% Combining Equations~\eqref{eq:prediction_error} and~\eqref{eq:kl_gaussian}:
+% \begin{equation}
+% \boxed{
+% \begin{split}
+% F &= \frac{1}{2}\boldsymbol{\epsilon}_o^T\Sigma_o^{-1}\boldsymbol{\epsilon}_o + \frac{1}{2}\boldsymbol{\epsilon}_s^T\Sigma_p^{-1}\boldsymbol{\epsilon}_s \\
+% &\quad + \frac{1}{2}\text{tr}(\Sigma_p^{-1}\Sigma_q) + \frac{1}{2}\text{tr}(\Sigma_o^{-1}J_{obs}\Sigma_q J_{obs}^T) \\
+% &\quad - \frac{3}{2} + \frac{1}{2}\ln\frac{|\Sigma_q|}{|\Sigma_p|} + \frac{n_k}{2}\ln(2\pi\sigma_o^2)
+% \end{split}
+% }
+% \label{eq:free_energy_full}
+% \end{equation}
+
+% \paragraph{Interpretation of Terms:}
+
+% \begin{itemize}
+%     \item $\frac{1}{2}\boldsymbol{\epsilon}_o^T\Sigma_o^{-1}\boldsymbol{\epsilon}_o = \frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k}d_i^2$: SDF fitting error (observation accuracy)
+    
+%     \item $\frac{1}{2}\text{tr}(\Sigma_o^{-1}J_{obs}\Sigma_q J_{obs}^T)$: Uncertainty penalty (more uncertain beliefs pay higher cost)
+    
+%     \item $\frac{1}{2}\boldsymbol{\epsilon}_s^T\Sigma_p^{-1}\boldsymbol{\epsilon}_s$: Prior deviation penalty (prefer beliefs close to prior)
+    
+%     \item $\frac{1}{2}\text{tr}(\Sigma_p^{-1}\Sigma_q)$: Covariance alignment (prefer similar uncertainty)
+    
+%     \item $\frac{1}{2}\ln\frac{|\Sigma_q|}{|\Sigma_p|}$: Entropy difference
+% \end{itemize}
+
+% The first two terms constitute $F_{\text{perception}}$ (observation fit), the remaining terms constitute $F_{\text{complexity}}$ (prior regularization).
+
+% \subsubsection{Posterior Optimisation via Free Energy Minimisation}
+
+% To find the optimal posterior $q^*(\mathbf{s}) = \mathcal{N}(\boldsymbol{\mu}_q^*, \Sigma_q^*)$, we minimize $F$ with respect to both parameters.
+
+% \paragraph{Optimizing the Mean $\boldsymbol{\mu}_q$:}
+
+% Taking the gradient of $F$ with respect to $\boldsymbol{\mu}_q$ and setting to zero:
+% \begin{equation}
+% \frac{\partial F}{\partial \boldsymbol{\mu}_q} = J_{obs}^T\Sigma_o^{-1}\boldsymbol{\epsilon}_o + \Sigma_p^{-1}\boldsymbol{\epsilon}_s = 0
+% \end{equation}
+
+% This yields:
+% \begin{equation}
+% J_{obs}^T\Sigma_o^{-1}\mathbf{d}(\boldsymbol{\mu}_q) + \Sigma_p^{-1}(\boldsymbol{\mu}_q - \boldsymbol{\mu}_p) = 0
+% \end{equation}
+
+% Rearranging:
+% \begin{equation}
+% (\Sigma_p^{-1} + J_{obs}^T\Sigma_o^{-1}J_{obs})\boldsymbol{\mu}_q = \Sigma_p^{-1}\boldsymbol{\mu}_p - J_{obs}^T\Sigma_o^{-1}\mathbf{d}(\boldsymbol{\mu}_p)
+% \end{equation}
+
+% Setting the gradient to zero leads to a system of nonlinear equations due to $J_{obs}(\mu_q)$. We solve this iteratively. For a single iteration (or under the linearization assumption), the solution is given by the Extended Kalman Filter update equations. 
+% Using the Woodbury identity\footnote{The \textbf{Woodbury matrix identity} (also called the matrix inversion lemma) provides an efficient way to compute the inverse of a matrix after a low-rank update \cite{golub2013matrix}. For matrices $A \in \mathbb{R}^{n \times n}$, $U \in \mathbb{R}^{n \times k}$, $C \in \mathbb{R}^{k \times k}$, and $V \in \mathbb{R}^{k \times n}$, with $A$ and $C$ invertible:
+% \[
+% (A + UCV)^{-1} = A^{-1} - A^{-1}U(C^{-1} + VA^{-1}U)^{-1}VA^{-1}
+% \]
+% This is particularly useful when $k \ll n$, as it replaces inversion of an $n \times n$ matrix with inversion of a $k \times k$ matrix. In the Kalman filter context, this identity allows efficient computation when the observation dimension (size of $\Sigma_o$) is much smaller than the state dimension (size of $\Sigma_p$).}, the previous equation can be written as the Extended Kalman Filter (EKF) update:
+
+% \begin{equation}
+%     \boxed{\boldsymbol{\mu}_q = \boldsymbol{\mu}_p + K[\mathbf{y} - \mathbf{d}(\boldsymbol{\mu}_p)]}
+%     \label{eq:mean_update}
+% \end{equation}
+
+% where the Kalman gain is:
+
+% \begin{equation}
+%     K = \Sigma_p J_{obs}^T(J_{obs}\Sigma_p J_{obs}^T + \Sigma_o)^{-1} \in \mathbb{R}^{3 \times n_k}
+%     \label{eq:kalman_gain}
+% \end{equation}
+
+% and $\mathbf{y} = \mathbf{0}$ (expected observation under generative model).
+% In practice, since $\mathbf{d}(\boldsymbol{\mu}_p)$ is the prediction error:
+% \begin{equation}
+% \boldsymbol{\mu}_q = \boldsymbol{\mu}_p - K\mathbf{d}(\boldsymbol{\mu}_p)
+% \end{equation}
+
+% \paragraph{Optimizing the Covariance $\Sigma_q$:}
+
+% Taking the derivative of $F$ with respect to $\Sigma_q$:
+% \begin{equation}
+% \frac{\partial F}{\partial \Sigma_q} = \frac{1}{2}\Sigma_p^{-1} + \frac{1}{2}J_{obs}^T\Sigma_o^{-1}J_{obs} - \frac{1}{2}\Sigma_q^{-1} = 0
+% \end{equation}
+
+% This yields the information form:
+% \begin{equation}
+% \boxed{\Sigma_q^{-1} = \Sigma_p^{-1} + J_{obs}^T\Sigma_o^{-1}J_{obs}}
+% \label{eq:cov_update_info}
+% \end{equation}
+
+% Equivalently, using the Woodbury identity:
+% \begin{equation}
+% \boxed{\Sigma_q = (I - KJ_{obs})\Sigma_p}
+% \label{eq:cov_update}
+% \end{equation}
+
+% Equation~\eqref{eq:cov_update_info} shows that the posterior precision is the sum of:
+% \begin{itemize}
+%     \item Prior precision $\Sigma_p^{-1}$
+%     \item Observation information $J_{obs}^T\Sigma_o^{-1}J_{obs}$ (Fisher Information Matrix)
+% \end{itemize}
+
+% This is the fundamental result: \textbf{more observations increase precision}.
+
+% \paragraph{Information Matrix Structure:}
+
+% With $\Sigma_o = \sigma_o^2 I_{n_k}$, the observation information is:
+% \begin{equation}
+% J_{obs}^T\Sigma_o^{-1}J_{obs} = \frac{1}{\sigma_o^2}\sum_{i=1}^{n_k} \begin{bmatrix}
+% \frac{\Delta x_i^2}{\rho_i^2} & \frac{\Delta x_i\Delta y_i}{\rho_i^2} & \frac{\Delta x_i}{\rho_i} \\
+% \frac{\Delta x_i\Delta y_i}{\rho_i^2} & \frac{\Delta y_i^2}{\rho_i^2} & \frac{\Delta y_i}{\rho_i} \\
+% \frac{\Delta x_i}{\rho_i} & \frac{\Delta y_i}{\rho_i} & 1
+% \end{bmatrix}
+% \label{eq:fisher_info}
+% \end{equation}
+% where $\Delta x_i = p_{x,i} - \mu_{q,x}$, $\Delta y_i = p_{y,i} - \mu_{q,y}$, $\rho_i = \sqrt{\Delta x_i^2 + \Delta y_i^2}$.
+% This matrix quantifies how much information each LIDAR point provides about $(c_x, c_y, r)$.
+
+% \subsubsection{Circle Fitting for Belief Initialisation}
+% \label{sec:circle_fit}
+
+% For unmatched clusters, we initialise new beliefs using the algebraic circle fit with the Kåsa method \cite{kasa1976}.
+
+% Define the quadratic form:
+% \begin{equation}
+% \|\mathbf{p}_i - \mathbf{c}\|^2 = p_{x,i}^2 + p_{y,i}^2 - 2c_x p_{x,i} - 2c_y p_{y,i} + c_x^2 + c_y^2
+% \end{equation}
+
+% Setting $A = -2c_x$, $B = -2c_y$, $C = c_x^2 + c_y^2 - r^2$, we minimize:
+% \begin{equation}
+% \sum_{i=1}^{n_k}\left[A p_{x,i} + B p_{y,i} + C + (p_{x,i}^2 + p_{y,i}^2)\right]^2
+% \end{equation}
+
+% This is a linear least squares problem in $(A, B, C)$, yielding:
+% \begin{align}
+% \hat{c}_x &= -A/2 \\
+% \hat{c}_y &= -B/2 \\
+% \hat{r} &= \sqrt{\hat{c}_x^2 + \hat{c}_y^2 - C}
+% \end{align}
+
+% The fitting residual provides the observation uncertainty:
+% \begin{equation}
+% \sigma_{\text{fit}}^2 = \frac{1}{n_k}\sum_{i=1}^{n_k}\left(\|\mathbf{p}_i - \hat{\mathbf{c}}\| - \hat{r}\right)^2
+% \end{equation}
+
+% Initialise the new belief as:
+% \begin{align}
+% \boldsymbol{\mu}_{\text{init}} &= (\hat{c}_x, \hat{c}_y, \hat{r})^T \\
+% \Sigma_{\text{init}} &= \text{diag}(\sigma_{\text{fit}}^2 + 100, \sigma_{\text{fit}}^2 + 100, 50)
+% \end{align}
+
+% \subsubsection{Belief Decay and Removal}
+% \label{sec:belief_decay}
+
+% Unmatched beliefs (not associated with any cluster) decay over time.
+
+% \paragraph{Confidence Decay:}
+
+% Each belief $j$ has a confidence $\kappa_j \in [0,1]$.
+% For unmatched beliefs:
+% \begin{equation}
+% \kappa_j^{(t)} = \gamma \kappa_j^{(t-1)}
+% \end{equation}
+% with decay factor $\gamma = 0.95$.
+% For matched beliefs:
+% \begin{equation}
+% \kappa_j^{(t)} = \min(1, \kappa_j^{(t-1)} + \Delta\kappa)
+% \end{equation}
+% with $\Delta\kappa = 0.1$.
+
+% \paragraph{Variance Growth:}
+
+% Unmatched beliefs accumulate process noise:
+% \begin{equation}
+% \Sigma_j^{(t)} = \Sigma_j^{(t-1)} + \Sigma_{\text{process}}
+% \end{equation}
+
+% \paragraph{Removal:}
+
+% Beliefs with $\kappa_j < 0.2$ are removed from the set.
+% This implements the principle of Occam's razor: beliefs not supported by recent evidence are discarded.
+
+\subsection{Perception (II): Variational Inference over Obstacles}
+\label{sec:perception-obstacles}
+
+\textit{Scheduling and frame decoupling.}
+The perception loop operates sequentially to decouple localisation uncertainty from
+mapping uncertainty. First, the \textbf{Room Perception} module (Sec.~\ref{sec:perception-room})
+updates the robot pose belief $q(s_{\text{loc}})$ and produces an optimised pose mean
+$\mu_{\text{loc}}$. This pose estimate is then used as a fixed reference frame to
+transform Lower LIDAR measurements into the room frame, after which the
+\textbf{Obstacle Perception} module updates the obstacle map.
+
+\subsubsection{Obstacle Representation}
+\label{sec:obstacle-representation}
+
+We model the environment as containing $N$ static circular obstacles. Each obstacle $i$
+is parameterised by a 3D latent state
+\begin{equation}
+\mathbf{s}_i = (c_{x,i},\, c_{y,i},\, r_i)^\top,
+\end{equation}
+where $(c_{x,i},c_{y,i})$ denotes the obstacle centre in the room frame and $r_i$ its radius.
+The full obstacle state is $\mathbf{s}=\{\mathbf{s}_1,\ldots,\mathbf{s}_N\}$.
+
+To enable scalable inference, we adopt a mean-field approximation:
+\begin{equation}
+q(\mathbf{s}) = \prod_{i=1}^{N} q(\mathbf{s}_i),
+\end{equation}
+and represent each factor as a Gaussian belief
+\begin{equation}
+q(\mathbf{s}_i) = \mathcal{N}(\mathbf{s}_i\mid \boldsymbol{\mu}_i, \boldsymbol{\Sigma}_i),
+\end{equation}
+with mean $\boldsymbol{\mu}_i=(\mu_{x,i},\mu_{y,i},\mu_{r,i})^\top$ and (for simplicity)
+diagonal covariance
+\begin{equation}
+\boldsymbol{\Sigma}_i = \mathrm{diag}(\sigma^2_{x,i},\,\sigma^2_{y,i},\,\sigma^2_{r,i}).
+\end{equation}
+
+For clarity of exposition, the obstacle covariance is presented as diagonal. In the implementation, however, the full covariance matrix is retained, as it naturally emerges from the Gauss--Newton Laplace update and incurs no additional conceptual complexity.
+
+
+\subsubsection{LIDAR Observations in the Room Frame}
+\label{sec:obstacle-observations}
+
+The robot is equipped with a second, low-positoned, 360$^\circ$ LIDAR returning a set of range hits at time $t$.
+
+Each LIDAR return is first expressed in the robot frame and then transformed
+into the room frame using the current pose estimate $\mu_{\text{loc}}$.
+Let $\mathbf{p}_j^{\text{rob}} = o_j \mathbf{d}_j$ denote a hit point in the
+robot frame. The corresponding point in the room frame is
+
+\begin{equation}
+    T(\mu_{\text{loc}})\,\mathbf{p} =
+    R(\theta)\mathbf{p}
+    +
+    \begin{bmatrix}x\\y\end{bmatrix}
+\label{eq:lidar_room_transform}
+\end{equation}
+
+where $T(\mu_{\text{loc}})\in SE(2)$ is the rigid-body transformation defined by
+the estimated robot pose.
+
+
+\subsubsection{Point Cloud Clustering via DBSCAN}
+\label{sec:obstacle-dbscan}
+
+Raw LIDAR hits are clustered using DBSCAN with neighbourhood radius $\epsilon$ and minimum
+cluster size $\mathrm{minPts}$. This yields $M$ clusters
+\begin{equation}
+\mathcal{C}_1,\ldots,\mathcal{C}_M,
+\end{equation}
+where each cluster $\mathcal{C}_k=\{\mathbf{p}_{k,1},\ldots,\mathbf{p}_{k,n_k}\}$ contains
+$n_k$ points hypothesised to originate from a single object boundary.
+
+\subsubsection{Wall Rejection via PCA-based Linearity}
+\label{sec:obstacle-pca}
+
+To separate obstacle clusters from wall-like structures, we compute PCA over each cluster.
+Let $\bar{\mathbf{p}}_k$ be the cluster centroid and
+\begin{equation}
+\mathbf{C}_k=\frac{1}{n_k}\sum_{i=1}^{n_k}(\mathbf{p}_{k,i}-\bar{\mathbf{p}}_k)(\mathbf{p}_{k,i}-\bar{\mathbf{p}}_k)^\top
+\end{equation}
+its covariance matrix. With eigenvalues $\lambda_1\ge \lambda_2$, define the linearity score
+\begin{equation}
+\mathcal{L}_k=\frac{|\lambda_1-\lambda_2|}{\lambda_1+\lambda_2}.
+\end{equation}
+If $\mathcal{L}_k>\tau_{\text{linear}}$ and $\sqrt{\lambda_1}>\ell_{\min}$, the cluster is treated
+as a wall segment and discarded; otherwise it is treated as an obstacle observation.
+
+\subsubsection{Data Association via Hungarian Matching}
+\label{sec:obstacle-association}
+
+At time $t$, the map consists of $N$ obstacle beliefs $\{q(\mathbf{s}_1),\ldots,q(\mathbf{s}_N)\}$.
+Given $M$ detected clusters, we solve a global data association problem that matches clusters to
+beliefs while minimising total prediction error.
+
+\paragraph{Cost matrix.}
+For each cluster $k$ and belief $j$, we define an association cost using the signed-distance
+residual of belief $j$ evaluated at cluster points:
+\begin{equation}
+C_{kj} =
+\frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k} d\!\left(\mathbf{p}_{k,i};\,\boldsymbol{\mu}_j\right)^2,
+\label{eq:assoc_cost}
+\end{equation}
+where $d(\mathbf{p};\mathbf{s})$ is the signed distance from point $\mathbf{p}$ to the circle
+specified by parameters $\mathbf{s}=(c_x,c_y,r)^\top$:
+\begin{equation}
+d(\mathbf{p};\mathbf{s})=\|\mathbf{p}-\mathbf{c}\| - r,\qquad \mathbf{c}=(c_x,c_y)^\top.
+\label{eq:circle_sdf}
+\end{equation}
+Up to additive constants, Eq.~\eqref{eq:assoc_cost} corresponds to the negative log-likelihood under
+a Gaussian SDF residual model, and therefore provides a principled proxy for prediction error.
+
+\paragraph{Optimal assignment.}
+We compute the assignment $\mathcal{A}^*$ that minimises total cost:
+\begin{equation}
+\mathcal{A}^*=\arg\min_{\mathcal{A}}\sum_{(k,j)\in\mathcal{A}} C_{kj},
+\end{equation}
+subject to one-to-one matching constraints (each cluster matched to at most one belief and vice versa),
+and an acceptance threshold $C_{kj}<\tau_{\text{reject}}$.
+This is the classical assignment problem, solved optimally using the Hungarian algorithm.
+
+\paragraph{Lifecycle events.}
+After matching:
+\begin{itemize}
+\item Unmatched clusters initialise new obstacle beliefs (Sec.~\ref{sec:circle_fit}).
+\item Unmatched beliefs undergo confidence decay and uncertainty growth (Sec.~\ref{sec:belief_decay}).
+\end{itemize}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/perception_cycle.pdf}
+    \caption{Obstacle perception cycle. LIDAR points are clustered (DBSCAN), wall-like clusters are rejected (PCA),
+    clusters are associated to existing obstacle beliefs (Hungarian), matched beliefs are updated by free-energy
+    minimisation, unmatched clusters spawn new beliefs, and unmatched beliefs decay over time.}
+    \label{fig:obstacle_perception_cycle}
+\end{figure}
+
+\subsubsection{Generative Model and Variational Objective for a Matched Cluster}
+\label{sec:obstacle-generative}
+
+Consider a matched pair $(\mathcal{C}_k, j)\in\mathcal{A}^*$, where cluster $\mathcal{C}_k$
+is associated with obstacle belief $j$.
+
+\paragraph{Nonlinear observation chain.}
+The signed-distance residuals $d_i(\mathbf{s})$ depend on the obstacle parameters
+$\mathbf{s}$ and implicitly on the robot pose through the transformation
+in Eq.~\eqref{eq:lidar_room_transform}. This introduces an additional nonlinear
+dependency in the observation model. In the implementation, gradients and Hessians
+of the full free energy objective—including this coordinate transformation—are
+computed automatically using automatic differentiation, avoiding manual
+linearisation.
+
+
+\paragraph{Likelihood (SDF residual model).}
+We treat the cluster points as noisy samples from the obstacle boundary and define residuals
+\begin{equation}
+d_i(\mathbf{s}) = d(\mathbf{p}_{k,i};\mathbf{s})=\|\mathbf{p}_{k,i}-\mathbf{c}\|-r,
+\qquad i=1,\ldots,n_k.
+\end{equation}
+Assuming independent Gaussian noise with variance $\sigma_o^2$ in residual space, the likelihood is
+\begin{equation}
+p(\mathcal{C}_k\mid \mathbf{s})
+\propto
+\exp\!\left(-\frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k} d_i(\mathbf{s})^2\right).
+\label{eq:cluster_likelihood}
+\end{equation}
+
+\paragraph{Prior (temporal belief propagation).}
+Obstacle beliefs are propagated between time steps as a Gaussian prior in the room frame,
+using the updated robot pose $\mu_{\text{loc}}$ to ensure a consistent reference:
+\begin{equation}
+p(\mathbf{s})=\mathcal{N}(\mathbf{s}\mid \boldsymbol{\mu}_p,\Sigma_p),
+\qquad
+\boldsymbol{\mu}_p=\boldsymbol{\mu}_j^{(t-1)},\quad
+\Sigma_p=\boldsymbol{\Sigma}_j^{(t-1)}+\Sigma_{\text{process}}.
+\label{eq:obstacle_prior}
+\end{equation}
+Since obstacles are static, $\Sigma_{\text{process}}$ is chosen small and acts mainly as uncertainty inflation.
+
+\paragraph{Free energy objective (negative log joint).}
+Under a Laplace approximation (Sec.~\ref{sec:laplace-main}), updating the obstacle parameters reduces to minimising
+the negative log joint density (up to constants):
+\begin{equation}
+F(\mathbf{s})
+=
+\underbrace{\frac{1}{2\sigma_o^2}\sum_{i=1}^{n_k} d_i(\mathbf{s})^2}_{\text{prediction error (negative accuracy)}}
++
+\underbrace{\frac{1}{2}(\mathbf{s}-\boldsymbol{\mu}_p)^\top\Sigma_p^{-1}(\mathbf{s}-\boldsymbol{\mu}_p)}_{\text{complexity (prior regulariser)}}.
+\label{eq:obstacle_objective}
+\end{equation}
+
+\subsubsection{Posterior Update via Gradient-based Minimisation and Laplace Covariance}
+\label{sec:obstacle-update}
+
+\paragraph{Posterior mean.}
+We compute the updated obstacle parameters by direct minimisation of Eq.~\eqref{eq:obstacle_objective}:
+\begin{equation}
+\boldsymbol{\mu}_{\text{new}} =
+\arg\min_{\mathbf{s}} F(\mathbf{s}),
+\end{equation}
+implemented using ADAM with gradients computed by automatic differentiation through $d_i(\mathbf{s})$.
+
+Gradients are taken with respect to the obstacle parameters $\mathbf{s}$, while
+the pose estimate $\mu_{\text{loc}}$ is treated as fixed during this update.
+
+\paragraph{Posterior covariance.}
+After convergence, we recover local posterior uncertainty using a Laplace approximation:
+\begin{equation}
+\boldsymbol{\Sigma}_{\text{new}}^{-1}
+=
+\nabla^2_{\mathbf{s}}F(\mathbf{s})\big|_{\mathbf{s}=\boldsymbol{\mu}_{\text{new}}},
+\end{equation}
+where the Hessian is computed via automatic differentiation.
+This yields a second-order Gaussian approximation of the posterior without requiring explicit linearisation
+of the observation model.
+
+
+\paragraph{Remark (EKF special case).}
+If one further linearises $d_i(\mathbf{s})$ around the prior mean $\boldsymbol{\mu}_p$, the update above reduces
+to EKF-style Gaussian updates. We do not use this approximation in the implementation.
+
+\subsubsection{Circle Fitting for Belief Initialisation}
+\label{sec:circle_fit}
+
+Unmatched clusters are initialised as new obstacle beliefs by fitting a circle to the cluster points.
+We use the algebraic K{\aa}sa method \cite{kasa1976} to obtain an initial estimate
+$\hat{\mathbf{s}}_{\text{init}}=(\hat{c}_x,\hat{c}_y,\hat{r})^\top$ and initialise the covariance using the fit residual:
+\begin{align}
+\boldsymbol{\mu}_{\text{init}} &= (\hat{c}_x,\hat{c}_y,\hat{r})^\top,\\
+\boldsymbol{\Sigma}_{\text{init}} &= \mathrm{diag}(\sigma^2_{\text{fit}}+\sigma^2_{\text{init}},\,
+\sigma^2_{\text{fit}}+\sigma^2_{\text{init}},\,\sigma^2_{r,\text{init}}),
+\end{align}
+where $\sigma^2_{\text{fit}}$ is the average squared SDF residual of the fitted circle and
+$\sigma^2_{\text{init}},\sigma^2_{r,\text{init}}$ are conservative inflation terms.
+
+\subsubsection{Belief Decay and Removal}
+\label{sec:belief_decay}
+
+Obstacle beliefs follow a lifecycle that distinguishes provisional from confirmed hypotheses. Newly instantiated obstacles begin as provisional and are subject to confidence decay if not repeatedly supported by observations. Once a belief exceeds a confidence threshold, it is treated as a confirmed static obstacle.
+
+Confirmed obstacle beliefs do not decay simply due to temporary lack of observation. Instead, decay is applied only when an obstacle is expected to be observable—i.e., within sensor range and not occluded—yet consistently fails to generate supporting evidence. This prevents spurious deletion of static obstacles due to viewpoint changes or occlusion while allowing incorrect hypotheses to be pruned over time.
+
+
+\paragraph{Confidence decay.}
+Each belief $j$ maintains a confidence score $\kappa_j\in[0,1]$. If belief $j$ is unmatched at time $t$,
+\begin{equation}
+\kappa_j^{(t)}=\gamma\,\kappa_j^{(t-1)},
+\end{equation}
+where $\gamma\in(0,1)$ is a decay factor. If it is matched, confidence increases up to a maximum.
+
+\paragraph{Uncertainty growth.}
+Unmatched beliefs accumulate process noise:
+\begin{equation}
+\boldsymbol{\Sigma}_j^{(t)}=\boldsymbol{\Sigma}_j^{(t-1)}+\Sigma_{\text{process}}.
+\end{equation}
+
+\paragraph{Removal.}
+Beliefs with confidence below a threshold are removed, implementing an Occam-style model selection:
+hypotheses not supported by evidence are pruned from the map.
+
+
+\begin{quote}
+\textbf{Perception–action coupling.}
+The uncertainty inferred during perception is not discarded after state
+estimation. Instead, it directly influences action selection through the
+Expected Free Energy objective, coupling perception and control without the
+need for explicit information-sharing heuristics.
+\end{quote}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Model Identity as a Latent Variable and Commitment Criteria}
+\label{sec:model_selection_efe}
+
+In realistic environments, obstacles may admit multiple competing geometric explanations
+(e.g.\ circular or rectangular shapes) given partial or distant observations.
+Rather than performing model selection as a separate perceptual module, we treat
+\emph{obstacle model identity} as a discrete latent variable within the generative model.
+This allows uncertainty over obstacle structure to be inferred, propagated, and—when
+necessary—resolved in a principled manner within the Expected Free Energy (EFE) framework.
+
+\subsubsection{Generative model with discrete model identity}
+
+Let $m \in \mathcal{M}$ denote a discrete latent variable encoding obstacle model identity,
+with $\mathcal{M}=\{\text{circle},\text{rectangle}\}$.
+Each model $m$ is associated with a model-specific continuous parameter vector $\theta_m$.
+The generative model is extended as
+\begin{equation}
+p(o_t, s_t, \theta, m)
+=
+p(o_t \mid s_t, \theta_m, m)\,
+p(\theta_m \mid m)\,
+p(m)\,
+p(s_t),
+\end{equation}
+where $p(m)$ represents a prior preference over obstacle types.
+
+\subsubsection{Variational posterior}
+
+We approximate the posterior with a structured variational distribution
+\begin{equation}
+q(s_t, \theta, m)
+=
+q(s_t)\,q(m)\,q(\theta_m \mid m),
+\end{equation}
+where $q(m)$ is a categorical distribution over models and $q(\theta_m \mid m)$
+are model-conditional continuous posteriors.
+This factorisation allows the system to maintain uncertainty over both
+\emph{which model is correct} and \emph{what its parameters are}.
+
+\subsubsection{Perceptual inference and model evidence}
+
+For each model $m$, a variational free energy
+\begin{equation}
+F_m
+=
+\mathbb{E}_{q(s_t)q(\theta_m \mid m)}
+\big[
+\ln q(\theta_m \mid m)
+-
+\ln p(o_t, s_t, \theta_m \mid m)
+\big]
+\end{equation}
+is computed.
+The posterior over model identity follows directly as
+\begin{equation}
+q(m) \propto p(m)\,\exp(-F_m),
+\end{equation}
+corresponding to Bayesian model comparison expressed in variational form.
+At this stage, model identity is treated purely as a belief; no hard decision is made.
+
+\subsubsection{Model-averaged prediction for planning}
+
+Predictions required for planning are obtained by marginalising over model identity:
+\begin{equation}
+p(o_{t+1} \mid \pi)
+=
+\sum_{m \in \mathcal{M}} q(m)\,
+p(o_{t+1} \mid \pi, m).
+\end{equation}
+In practice, this corresponds to combining model-specific predictions
+(e.g.\ signed distances or predicted LIDAR ranges) using a mixture or
+risk-sensitive aggregation.
+This ensures that planning remains aware of structural uncertainty when it is relevant.
+
+\subsubsection{Expected Free Energy with structural epistemic value}
+
+Expected Free Energy is evaluated under the joint predictive distribution
+$q(o_{t+1}, s_{t+1}, m \mid \pi)$.
+In addition to pragmatic risk and perceptual ambiguity, the epistemic component
+of EFE includes expected information gain about model identity:
+\begin{equation}
+G(\pi)
+=
+G_{\text{risk}}(\pi)
++
+G_{\text{ambiguity}}(\pi)
+-
+I(m; o_{t+1} \mid \pi).
+\end{equation}
+The mutual information term
+\begin{equation}
+I(m; o_{t+1} \mid \pi)
+=
+H[q(m)]
+-
+\mathbb{E}_{q(o_{t+1} \mid \pi)}
+\big[
+H[q(m \mid o_{t+1})]
+\big]
+\end{equation}
+quantifies how informative future observations are expected to be about obstacle
+model identity.
+This term drives \emph{active disambiguation} when structural uncertainty
+has behavioural consequences.
+
+\subsubsection{Commitment to a specific model}
+
+Although model identity is inferred continuously, maintaining a mixture of models
+is not always desirable.
+Commitment to a single obstacle model occurs only when uncertainty ceases to
+contribute to further reductions in Expected Free Energy.
+We identify three principled commitment criteria:
+
+\paragraph{Posterior concentration.}
+When the posterior over model identity becomes sufficiently peaked,
+\begin{equation}
+\max_m q(m) > 1 - \epsilon
+\quad \text{or equivalently} \quad
+H[q(m)] < H_{\min},
+\end{equation}
+structural uncertainty is effectively resolved by perception alone.
+In this case, the system commits to the maximum a posteriori model.
+
+\paragraph{Behavioural irrelevance.}
+Even if posterior uncertainty remains, model identity may be irrelevant for
+decision-making.
+If Expected Free Energy is insensitive to model choice over all candidate policies,
+\begin{equation}
+\forall \pi:\;
+\big| G(\pi \mid m_1) - G(\pi \mid m_2) \big| < \delta,
+\end{equation}
+then maintaining multiple models provides no epistemic or pragmatic benefit.
+The system may collapse to a single surrogate model, favouring simplicity.
+
+\paragraph{Control necessity and risk sensitivity.}
+In near-field or safety-critical situations, different models may imply materially
+different collision boundaries.
+If model uncertainty induces large variance in predicted observations or costs,
+mixture-based planning becomes unsafe.
+In such cases, commitment is driven by risk minimisation rather than posterior
+probability:
+\begin{equation}
+m^\* = \arg\min_m G_{\text{risk}}(\pi \mid m).
+\end{equation}
+This corresponds to assuming the most conservative plausible model when acting
+under uncertainty.
+
+\subsubsection{Implementation considerations}
+
+In practice, the criteria above can be evaluated efficiently:
+posterior concentration via entropy thresholds,
+behavioural relevance via sensitivity of EFE to model identity,
+and control necessity via variance or worst-case analysis of predicted ranges.
+Hysteresis mechanisms may be employed to prevent rapid oscillations between models.
+
+\subsubsection{Summary}
+
+By treating obstacle model identity as a latent variable, model selection,
+perception, and planning are unified within the same variational framework.
+Hard commitment to a specific model is deferred until uncertainty is either resolved,
+irrelevant, or unsafe to maintain, yielding a principled and extensible approach
+to structural inference in active navigation.
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
+
+\section{Action Selection by Expected Free Energy Minimisation}
+\label{sec:efe_control}
+
+This section describes how action selection and planning arise from the same variational principle: the minimisation of \emph{Expected Free Energy} (EFE). We proceed in increasing levels of concreteness. First we define the predictive objective in terms of a controlled generative model (Sec.~\ref{sec:51_predictive_gm}). We then derive the one-step (reactive) EFE objective (Sec.~\ref{sec:52_one_step}) and show how its gradient with respect to actions factors through the robot dynamics and the observation model (Sec.~\ref{sec:54_gradient}). Finally, we generalise to multi-step horizons and policies (Sec.~\ref{sec:55_multistep}), which yields planning as the direct extension of the same gradient computation across time.
+
+Throughout, we emphasise an implementation-relevant setting where the observation vector includes \emph{predicted LIDAR range measurements}. In this case, EFE gradients backpropagate range prediction errors through (i) a differentiable ray-casting model and (ii) the differential-drive transition model.
+
+% -------------------------------------------------------------------------
+\subsection{Controlled generative model and predicted observations}
+\label{sec:51_predictive_gm}
+
+We consider a controlled, partially observed dynamical system with latent state $s_t$ and observation $o_t$. The agent (robot) acts by selecting an action $u_t$ (or a sequence of actions, a policy) which influences the evolution of latent states. In Active Inference, control is treated as inference under a \emph{controlled generative model}. A standard Markov factorisation is:
+\begin{align}
+p(s_{t+1:T}, o_{t+1:T} \mid s_t, \pi)
+&=
+\prod_{\tau=t}^{t+T-1}
+p(s_{\tau+1} \mid s_{\tau}, u_\tau)\;
+p(o_{\tau+1} \mid s_{\tau+1}),
+\label{eq:controlled_generative_model}
+\end{align}
+where $\pi \equiv u_{t:t+T-1}$ denotes a finite-horizon policy.
+
+\paragraph{Preferences over observations.}
+Goal-directed behaviour is encoded as a prior preference over future observations. We write this as $p(o_\tau)$ (or equivalently a negative log-preference $\ell(o) \equiv -\ln p(o)$). This replaces the classical notion of an externally specified reward function: preferred outcomes are those that are probable under $p(o)$.
+
+\paragraph{Belief predictions under a policy.}
+To evaluate the consequences of a policy, the agent forms a predictive distribution
+\begin{align}
+q(s_{\tau+1}, o_{\tau+1} \mid \pi)
+\;\approx\;
+q(s_{\tau+1}\mid \pi)\;p(o_{\tau+1}\mid s_{\tau+1}),
+\label{eq:predictive_belief_factor}
+\end{align}
+where $q(s_{\tau+1}\mid \pi)$ is obtained by propagating the current posterior through the controlled transition model. In the implementations considered in this report, $q$ is typically approximated as Gaussian (Laplace), so prediction may be represented by a mean trajectory $\mu_{\tau}$ and (optionally) covariance $\Sigma_{\tau}$.
+
+\paragraph{Observations include predicted LIDAR ranges.}
+In our navigation setting, the observation vector includes predicted range measurements from a scanning sensor:
+\begin{align}
+o_{\tau+1} \equiv r_{\tau+1} \in \mathbb{R}^M,
+\qquad
+r_{\tau+1} =
+\begin{bmatrix}
+r_{\tau+1,1}\\ \vdots \\ r_{\tau+1,M}
+\end{bmatrix},
+\end{align}
+where $M$ is the number of beams. Under the observation model,
+\begin{align}
+p(r_{\tau+1}\mid s_{\tau+1})
+=
+\mathcal{N}\!\big(r_{\tau+1}\,;\,\hat r(s_{\tau+1}),\,\Sigma_r\big),
+\label{eq:range_likelihood}
+\end{align}
+and $\hat r(s)$ is the predicted scan produced by a ray-casting / SDF-based generative model (room boundaries and obstacles).
+
+% -------------------------------------------------------------------------
+\subsection{One-step Expected Free Energy objective (reactive control)}
+\label{sec:52_one_step}
+
+Active Inference selects actions by minimising the \emph{Expected Free Energy} of future outcomes. For a single step ($T=1$), the EFE of action $u_t$ is:
+\begin{align}
+G_1(u_t)
+&\equiv
+\mathbb{E}_{q(s_{t+1},o_{t+1}\mid u_t)}
+\Big[
+-\ln p(o_{t+1})
+\;+\;
+\underbrace{\ln q(s_{t+1}\mid u_t) - \ln p(s_{t+1}\mid o_{t+1})}_{\text{information terms}}
+\Big].
+\label{eq:efe_one_step_general}
+\end{align}
+This expression can be written in several equivalent decompositions (risk/ambiguity, extrinsic/intrinsic, etc.). For implementation and intuition, a common form is:
+\begin{align}
+G_1(u_t)
+=
+\mathbb{E}_{q}
+\Big[
+\ell(o_{t+1})
+\Big]
++
+\mathbb{E}_{q}
+\Big[
+\mathcal{A}(s_{t+1})
+\Big],
+\label{eq:efe_one_step_decomp}
+\end{align}
+where $\ell(o)=-\ln p(o)$ is the pragmatic cost (preferences), and $\mathcal{A}(s)$ collects ambiguity/epistemic contributions (e.g.\ expected negative log-likelihood, predictive entropy, or expected information gain, depending on the chosen decomposition).
+
+\paragraph{Deterministic-mean (Laplace) approximation.}
+To obtain a tractable gradient-based controller in continuous action space, we evaluate the expectation at the predicted mean state and predicted mean observation:
+\begin{align}
+\mu_{t+1} &= f(\mu_t, u_t),
+&
+\hat o_{t+1} &= \hat o(\mu_{t+1}),
+\label{eq:mean_prediction}
+\end{align}
+and approximate
+\begin{align}
+G_1(u_t)
+\approx
+g(\mu_{t+1}, \hat o_{t+1}, \Sigma_{t+1}),
+\label{eq:efe_one_step_mean_approx}
+\end{align}
+where $g(\cdot)$ is the per-step EFE integrand (pragmatic + ambiguity/epistemic). The key point is that $u_t$ influences $G_1$ through the predicted next state $\mu_{t+1}$, and through the predicted observation $\hat o_{t+1}$ generated from that state.
+
+% -------------------------------------------------------------------------
+\subsection{EFE with predicted LIDAR: prediction errors and the role of the sensor model}
+\label{sec:53_lidar_in_efe}
+
+When the observation contains predicted ranges, the likelihood \eqref{eq:range_likelihood} implies a natural prediction-error structure. Define the (future) range prediction error:
+\begin{align}
+\varepsilon_{r}
+\;\equiv\;
+r_{t+1} - \hat r(\mu_{t+1}).
+\label{eq:range_prediction_error}
+\end{align}
+Under Gaussian assumptions, the negative log-likelihood contribution is (up to constants):
+\begin{align}
+-\ln p(r_{t+1}\mid \mu_{t+1})
+=
+\frac{1}{2}\varepsilon_r^\top \Sigma_r^{-1}\varepsilon_r + \text{const}.
+\label{eq:range_nll}
+\end{align}
+
+In EFE-based control, we generally do not condition on a realised $r_{t+1}$ yet; instead we evaluate expected outcomes under $q(\cdot\mid u_t)$. Under the deterministic-mean approximation, this reduces to evaluating how predicted actions shape predicted observations. Crucially, when $o_{t+1}$ includes range measurements, the action gradient of EFE necessarily depends on the Jacobian of the ray-casting model:
+\begin{align}
+J_r(\mu_{t+1}) \;\equiv\; \frac{\partial \hat r(\mu_{t+1})}{\partial \mu_{t+1}}
+\in \mathbb{R}^{M\times 3}.
+\label{eq:lidar_jacobian_def}
+\end{align}
+This Jacobian captures how small changes in pose $(x,y,\theta)$ change the predicted range returns. It is the mathematical object that ties geometry (ray--obstacle intersections) to variational control.
+
+% -------------------------------------------------------------------------
+\subsection{Gradient of one-step EFE with respect to action (differential drive + LIDAR)}
+\label{sec:54_gradient}
+
+We now derive the reactive control update as gradient descent on the one-step EFE objective \eqref{eq:efe_one_step_mean_approx}. The result makes the dependence on (i) robot kinematics and (ii) the LIDAR generative model explicit.
+
+\subsubsection{Differential-drive (unicycle) transition model}
+We use the standard planar unicycle kinematics with discrete time step $\Delta t$:
+\begin{align}
+\mu_{t+1} = f(\mu_t,u_t)
+=
+\begin{bmatrix}
+x_t + \Delta t\, v_t\cos\theta_t\\
+y_t + \Delta t\, v_t\sin\theta_t\\
+\theta_t + \Delta t\, \omega_t
+\end{bmatrix},
+\qquad
+u_t=(v_t,\omega_t)^\top.
+\label{eq:unicycle_dynamics}
+\end{align}
+The Jacobian of the predicted state with respect to action is:
+\begin{align}
+J_u(\mu_t)
+\;\equiv\;
+\frac{\partial \mu_{t+1}}{\partial u_t}
+=
+\begin{bmatrix}
+\Delta t\cos\theta_t & 0\\
+\Delta t\sin\theta_t & 0\\
+0 & \Delta t
+\end{bmatrix}.
+\label{eq:Ju}
+\end{align}
+
+\subsubsection{Chain rule factorisation through predicted observations}
+Under the mean approximation \eqref{eq:mean_prediction}, $G_1$ is a function of $\mu_{t+1}$ and $\hat o_{t+1}=\hat o(\mu_{t+1})$. Therefore:
+\begin{align}
+\nabla_{u_t} G_1
+&=
+\left(\frac{\partial \mu_{t+1}}{\partial u_t}\right)^\top
+\nabla_{\mu_{t+1}} G_1
+\label{eq:dG_du_first}\\
+\nabla_{\mu_{t+1}} G_1
+&=
+\left(\frac{\partial \hat o_{t+1}}{\partial \mu_{t+1}}\right)^\top
+\nabla_{\hat o_{t+1}} G_1
++
+\nabla_{\mu_{t+1}} G_1\Big|_{\text{state terms}}.
+\label{eq:dG_dmu_decomp}
+\end{align}
+Combining:
+\begin{align}
+\boxed{
+\nabla_{u_t} G_1
+=
+J_u(\mu_t)^\top
+\left[
+\left(\frac{\partial \hat o_{t+1}}{\partial \mu_{t+1}}\right)^\top
+\nabla_{\hat o_{t+1}} G_1
++
+\nabla_{\mu_{t+1}} G_1\Big|_{\text{state terms}}
+\right].
+}
+\label{eq:efe_chain_rule_master}
+\end{align}
+Equation \eqref{eq:efe_chain_rule_master} is the key ``unified'' gradient: the same expression applies whether $G_1$ is used for reactive control (one step) or as the per-step component inside a longer-horizon $G_T$ (planning). The only difference in planning is that $\mu_{t+1}$ becomes one element of a trajectory and additional chain products appear across time (Sec.~\ref{sec:55_multistep}).
+
+\subsubsection{Specialisation to LIDAR range observations}
+When $\hat o_{t+1}$ includes predicted LIDAR ranges $\hat r(\mu_{t+1})$, the observation Jacobian is precisely $J_r(\mu_{t+1})$ from \eqref{eq:lidar_jacobian_def}. If the relevant contribution to $G_1$ is written in prediction-error form (common in Active Inference implementations), then for a Gaussian range likelihood the derivative of the negative log-likelihood with respect to predicted ranges is:
+\begin{align}
+\nabla_{\hat r} \left( \tfrac12 \varepsilon_r^\top \Sigma_r^{-1}\varepsilon_r \right)
+=
+-\Sigma_r^{-1}\varepsilon_r,
+\quad
+\varepsilon_r = r_{t+1} - \hat r(\mu_{t+1}).
+\label{eq:grad_range_nll}
+\end{align}
+Hence, the contribution of range prediction errors to the action gradient is:
+\begin{align}
+\boxed{
+\nabla_{u_t} G_1^{(\text{range})}
+=
+-\,J_u(\mu_t)^\top
+J_r(\mu_{t+1})^\top
+\Sigma_r^{-1}\varepsilon_r
+}
+\label{eq:efe_range_action_gradient}
+\end{align}
+plus any additional terms coming from goal preferences or state priors included in $G_1$.
+
+\paragraph{Interpretation.}
+Equation \eqref{eq:efe_range_action_gradient} makes the computational pipeline explicit:
+(i) compute range prediction errors at the observation level,
+(ii) backpropagate them through the ray-casting model via $J_r^\top$ to obtain a pose gradient,
+(iii) project that pose gradient through the differential-drive Jacobian $J_u^\top$ to obtain the action gradient.
+
+\subsubsection{Reactive control update rule}
+Reactive action selection is then implemented as a small number of gradient descent steps:
+\begin{align}
+u_t^{(k+1)} = u_t^{(k)} - \alpha_u \nabla_{u_t}G_1(u_t^{(k)}),
+\qquad
+k=0,\dots,K-1,
+\label{eq:reactive_update}
+\end{align}
+followed by saturation/clipping to actuator limits. This yields fast local behaviour while remaining fully grounded in the same EFE objective used for planning.
+
+% -------------------------------------------------------------------------
+\subsection{Multi-step Expected Free Energy and policies (planning)}
+\label{sec:55_multistep}
+
+Reactive control corresponds to $T=1$. Planning is obtained by extending the same EFE objective across a horizon $T>1$:
+\begin{align}
+G_T(\pi)
+&\equiv
+\sum_{\tau=t}^{t+T-1}
+\mathbb{E}_{q(s_{\tau+1},o_{\tau+1}\mid \pi)}
+\big[
+g_{\tau+1}(s_{\tau+1},o_{\tau+1})
+\big],
+\qquad
+\pi = u_{t:t+T-1}.
+\label{eq:efe_multistep_def}
+\end{align}
+Under the deterministic-mean approximation, we represent a policy by a sequence of continuous actions and forward-simulate a predicted trajectory:
+\begin{align}
+\mu_{\tau+1} &= f(\mu_{\tau},u_\tau),
+&
+\hat o_{\tau+1} &= \hat o(\mu_{\tau+1}),
+\qquad \tau=t,\dots,t+T-1,
+\label{eq:rollout}
+\end{align}
+then approximate
+\begin{align}
+G_T(\pi)\approx \sum_{\tau=t}^{t+T-1} g(\mu_{\tau+1},\hat o_{\tau+1},\Sigma_{\tau+1}).
+\label{eq:efe_multistep_mean}
+\end{align}
+
+\paragraph{Gradient across time: backpropagation through the controlled generative model.}
+The gradient of $G_T$ with respect to any action $u_k$ in the sequence is obtained by the same chain rule as \eqref{eq:efe_chain_rule_master}, but with additional dependence through downstream states. Concretely,
+\begin{align}
+\nabla_{u_k}G_T
+&=
+\sum_{\tau=k}^{t+T-1}
+\left(\frac{\partial \mu_{\tau+1}}{\partial u_k}\right)^\top
+\left[
+\left(\frac{\partial \hat o_{\tau+1}}{\partial \mu_{\tau+1}}\right)^\top
+\nabla_{\hat o_{\tau+1}} g
++
+\nabla_{\mu_{\tau+1}} g\Big|_{\text{state terms}}
+\right],
+\label{eq:bptt_gradient}
+\end{align}
+where the sensitivity of future states to an earlier action is a product of Jacobians:
+\begin{align}
+\frac{\partial \mu_{\tau+1}}{\partial u_k}
+=
+\left(
+\prod_{j=k+1}^{\tau}
+\frac{\partial f(\mu_j,u_j)}{\partial \mu_j}
+\right)
+\frac{\partial f(\mu_k,u_k)}{\partial u_k}.
+\label{eq:state_sensitivity_product}
+\end{align}
+Thus, planning is not a separate algorithmic module: it is the same EFE gradient computation applied to a longer rollout.
+
+\paragraph{Reactive control as the $T=1$ limit.}
+Setting $T=1$ removes the Jacobian products in \eqref{eq:state_sensitivity_product} and reduces \eqref{eq:bptt_gradient} exactly to the reactive gradient \eqref{eq:efe_chain_rule_master}. This makes precise the sense in which reactive control is the leading-order term of planning, while longer horizons add corrective terms capturing delayed consequences.
+
+
+\subsection{Reactive Control as the $T=1$ Limit of Planning}
+
+The relationship between reactive control and planning becomes explicit by
+considering the gradient of the multi-step Expected Free Energy with respect to
+the first action:
+\begin{equation}
+\nabla_{u_t} G_T(\pi)
+=
+\nabla_{u_t} G_{t+1}(u_t)
++
+\sum_{\tau=t+2}^{t+T} \nabla_{u_t} G_\tau(\pi).
+\end{equation}
+
+The first term corresponds exactly to the gradient used by the reactive
+controller. The remaining terms capture the delayed consequences of the action
+through future states and observations.
+
+Reactive control can therefore be interpreted as the leading-order descent
+direction of the full planning objective. Extending the horizon adds corrective
+terms that allow the agent to escape local minima and resolve long-term
+trade-offs, without introducing a separate planning objective.
+
+\subsection{Variable-Horizon Policy Optimisation and Trajectory Commitment}
+
+The theoretically ideal formulation of Expected Free Energy minimisation requires
+optimising over all possible policies and horizon lengths. In continuous control
+problems, this is computationally intractable. The implementation therefore
+adopts a tractable approximation that preserves the variational semantics while
+operating directly in continuous action space.
+
+\paragraph{Trajectory parameterisation.}
+Rather than reasoning over abstract policies, we represent a policy $\pi$ as a
+finite sequence of control actions
+\[
+\pi = \{u_t, u_{t+1}, \ldots, u_{t+T-1}\},
+\]
+which induces a corresponding trajectory of predicted states and observations
+through the generative model. Expected Free Energy is evaluated by forward
+simulating this trajectory and accumulating the pragmatic and epistemic terms
+defined in the previous sections.
+
+\paragraph{Multi-seed trajectory initialisation.}
+The Expected Free Energy landscape over action sequences is highly non-convex,
+particularly in environments with obstacles. To mitigate local minima, the
+controller initialises multiple candidate trajectories from distinct seeds.
+Each seed corresponds to a different initial direction or curvature of the
+trajectory, generating alternative homotopy classes around obstacles.
+
+Each candidate trajectory is independently optimised by gradient descent on the
+multi-step Expected Free Energy objective,
+\[
+\pi^{(k+1)} = \pi^{(k)} - \alpha \nabla_\pi G_T(\pi^{(k)}),
+\]
+for a small, fixed number of iterations. The trajectory with the lowest final
+Expected Free Energy is selected.
+
+\begin{quote}
+\textbf{Important clarification.}
+The multi-seed strategy used in this work does not constitute sampling-based
+policy evaluation. Seeds define initial conditions for deterministic
+optimisation, rather than stochastic rollouts used to estimate expectations.
+\end{quote}
+
+\paragraph{Adaptive horizon selection.}
+The planning horizon $T$ is not fixed a priori. Instead, the controller begins
+with a short horizon, corresponding to near-reactive behaviour, and monitors the
+evolution of Expected Free Energy and the resulting motion.
+
+When short-horizon optimisation fails to reduce Expected Free Energy—manifesting
+as oscillatory motion, repeated revisiting of similar states, or stagnation in
+goal progress—the horizon is extended. Increasing $T$ allows the optimiser to
+account for delayed consequences of actions, such as temporarily moving away
+from the goal to navigate around an obstacle.
+
+This mechanism replaces explicit mode switches between reactive control and
+planning: horizon extension is triggered by the same free energy criterion that
+drives action selection.
+
+\paragraph{Warm starts and trajectory reuse.}
+To ensure temporal consistency and computational efficiency, the optimiser is
+warm-started using the previously selected trajectory, shifted by one time step.
+This biases optimisation toward smooth continuations of past behaviour while
+still allowing deviation when free energy reduction demands it.
+
+\paragraph{Receding-horizon execution and commitment.}
+In standard receding-horizon control, only the first action of the optimised
+policy is executed before replanning. While this is sufficient in many cases,
+purely receding execution can fail in narrow passages or local minima, where
+short-horizon gradients repeatedly pull the system back into the same region.
+
+To address this, the controller includes a commitment mechanism. When persistent
+free energy plateaus or oscillations are detected, the system temporarily commits
+to executing a longer prefix of the optimised trajectory. During commitment,
+actions are executed open-loop for a limited number of steps, allowing the agent
+to traverse regions where short-horizon optimisation would otherwise reverse
+progress.
+
+Commitment is not a separate control mode but an emergent consequence of the
+Expected Free Energy objective: it is activated precisely when local gradient
+descent is insufficient to reduce free energy.
+
+\paragraph{Epistemic effects of horizon extension.}
+Extending the horizon naturally increases the weight of epistemic value in the
+objective. Longer trajectories allow the optimiser to favour actions that lead
+to informative viewpoints, disambiguate obstacle geometry, or reduce localisation
+uncertainty, even when such actions momentarily increase pragmatic cost.
+
+As a result, exploratory behaviour emerges without explicit exploration bonuses
+or heuristics.
+
+Implementation details. In the implemented controller, horizon adaptation is driven by a smoothed statistic of the minimum Expected Free Energy across candidate trajectories, using an exponential moving average of $\log(1 + G)$. When sustained plateaus or oscillations are detected, the planning horizon is extended and the system may temporarily commit to executing a longer prefix of the optimised trajectory.
+
+Commitment is enforced for a minimum duration to ensure spatial progress, but is periodically revalidated to preserve resolution under horizon scaling. If newly inferred obstacles invalidate the committed trajectory, commitment is immediately released and replanning is triggered. These mechanisms improve robustness in cluttered environments without introducing additional control modes.
+
+
+
+\subsection{Connection to Planning as Inference, MPC, and Path-Integral Control}
+
+The formulation of action selection as Expected Free Energy minimisation places
+Active Inference within the broader family of \emph{planning-as-inference}
+methods. In this view, control is not posed as the optimisation of an explicit
+cost function, but as inference over action sequences that make preferred
+observations likely under a generative model.
+
+Minimizing Expected Free Energy can be equivalently interpreted as maximising the geometric mean of model probabilities via a logarithmic (Boltzmann) transformation, establishing a formal equivalence between probabilistic inference and cost-based optimal control (see Appendix~A.12).
+
+
+\paragraph{Planning as inference.}
+In planning-as-inference frameworks, a policy $\pi$ is treated as a latent
+variable, and optimal behaviour is obtained by inferring the posterior over
+policies given prior preferences over outcomes. In Active Inference, these
+preferences are encoded as priors over future observations, $p(o_\tau)$, and the
+optimal policy minimises Expected Free Energy:
+\[
+\pi^\ast = \arg\min_\pi G_T(\pi).
+\]
+
+This objective combines expected utility (pragmatic value) and information gain
+(epistemic value) in a single variational quantity. Unlike classical optimal
+control, no explicit reward function is required; goal-directed behaviour
+emerges from probabilistic preferences in the generative model.
+
+\paragraph{Receding-horizon control and MPC.}
+When policies are parameterised as finite sequences of control inputs and only
+the first action is executed before replanning, Expected Free Energy minimisation
+reduces to a receding-horizon control scheme. This is directly analogous to Model
+Predictive Control (MPC).
+
+From the MPC perspective, the Expected Free Energy $G_T(\pi)$ plays the role of a
+trajectory cost functional, while the generative model provides the system
+dynamics and observation model. The key distinction is conceptual rather than
+algorithmic: MPC typically minimises a hand-designed cost function, whereas
+Active Inference minimises a variational quantity derived from probabilistic
+principles.
+
+Under common approximations (Gaussian beliefs, local linearisation, unimodal
+trajectories), the two formulations become operationally equivalent.
+
+\paragraph{Sampling-based control and MPPI.}
+Exact optimisation of $G_T(\pi)$ is generally intractable in continuous,
+high-dimensional systems. A common approximation is to estimate Expected Free
+Energy by Monte Carlo sampling:
+\[
+G_T(\pi) \approx \frac{1}{K} \sum_{k=1}^{K}
+F\!\left[q, \tilde{o}^{(k)}\right],
+\]
+where $\tilde{o}^{(k)}$ are simulated observation trajectories generated by
+sampling future states and observations from the generative model under policy
+$\pi$.
+
+This perspective reveals a close connection between Active Inference and
+path-integral control methods such as Model Predictive Path Integral (MPPI).
+In MPPI, trajectories are sampled from a stochastic dynamics model and weighted
+according to an exponential transformation of their cost. In Active Inference,
+the same weighting arises naturally from the variational objective, with free
+energy replacing hand-crafted costs.
+
+\paragraph{Gradient-based and sampling-based approximations.}
+The implementation presented in this report adopts a gradient-based optimisation
+of Expected Free Energy over continuous action sequences. Rather than performing
+Monte Carlo sampling of stochastic rollouts, the controller employs a
+multi-start deterministic optimisation strategy: a small number of candidate
+trajectories are initialised from distinct seeds and each is independently
+optimised by gradient descent on the Expected Free Energy objective.
+
+Sampling-based methods such as Model Predictive Path Integral (MPPI) control can
+be interpreted as alternative approximations to the same underlying objective,
+in which expectations are estimated by Monte Carlo sampling over noisy action
+sequences. In contrast, the approach used here relies on analytic or automatic
+differentiation and does not require stochastic rollouts or importance
+weighting.
+
+Both approaches operate on the same underlying objective. The choice between
+gradient-based and sampling-based optimisation reflects computational trade-offs
+rather than conceptual differences. 
+Under deterministic dynamics and Gaussian noise, Expected Free Energy minimisation reduces to a stochastic optimal control problem with a specific cost structure.
+
+\paragraph{Summary.}
+Expected Free Energy minimisation provides a unifying perspective on planning,
+control, and inference. Reactive control, receding-horizon MPC, and sampling-based
+methods such as MPPI can all be understood as approximations to the same
+inference problem, differing only in how the policy space is explored and how
+the variational objective is evaluated.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Architecture of the Active Inference Navigation System}
+\label{sec:architecture}
+
+The theoretical developments in the previous sections define a unified variational objective for perception,
+planning, and control. This section describes how these principles are realised in a concrete software
+architecture, designed to preserve the conceptual structure of Active Inference while remaining executable
+in real time.
+
+Rather than decomposing the system into traditional robotics modules (mapping, localisation, planning,
+control), the implementation mirrors the factorisation of the underlying generative model. Perception and
+action correspond to distinct variational objectives—variational free energy and expected free energy—
+coordinated by a lightweight orchestration layer.
+
+\subsection{High-level structure}
+
+At the highest level, the system consists of three interacting layers:
+
+\begin{enumerate}
+    \item \textbf{Perception layer (VFE minimisation):} updates beliefs over latent states given current
+    observations by minimising variational free energy.
+    
+    \item \textbf{Action layer (EFE minimisation):} selects actions or policies by minimising expected free
+    energy over predicted future outcomes.
+    
+    \item \textbf{Orchestration layer:} coordinates perception and action, manages belief lifecycles, and
+    enforces the temporal structure of inference.
+\end{enumerate}
+
+The main executable acts only as an entry point for simulation, visualisation, and user interaction. All
+inference and control logic is encapsulated within the perception and action layers.
+
+\subsection{Orchestration and data flow}
+
+The central coordination component maintains the current belief state and executes the perception--action
+loop. At each time step, the following sequence is performed:
+
+\begin{enumerate}
+    \item \textbf{Sensor acquisition.} LIDAR observations are obtained and partitioned by modality
+    (upper LIDAR for room geometry, lower LIDAR for obstacles).
+    
+    \item \textbf{Perceptual inference.}
+    \begin{itemize}
+        \item Room geometry and robot pose are updated via variational free energy minimisation.
+        \item Obstacle beliefs are updated independently using variational inference with global data
+        association and belief lifecycle management.
+    \end{itemize}
+    
+    \item \textbf{Action selection.} Updated beliefs, together with their associated uncertainty, are passed
+    to the controller, which minimises expected free energy over candidate future trajectories.
+    
+    \item \textbf{Execution and propagation.} The selected control action is executed, and the resulting
+    motion defines the prior for the next inference step.
+\end{enumerate}
+
+This ordering enforces a strict temporal semantics: beliefs are updated before actions are selected, and
+uncertainty inferred during perception directly influences planning and control.
+
+\subsection{Perception layer: belief-centric design}
+
+Perception is implemented as variational inference over explicit latent variables, rather than as filtering
+over sensor features.
+
+Two conceptually distinct inference processes operate sequentially:
+
+\paragraph{Room and pose inference.}
+The robot jointly infers its pose and the enclosing room geometry by minimising a signed-distance-based
+variational free energy objective. A Laplace approximation yields both posterior means and covariances,
+providing an explicit estimate of uncertainty.
+
+\paragraph{Obstacle inference.}
+Obstacles are represented as independent latent causes, each maintaining its own belief state. LIDAR points
+are clustered, associated to existing beliefs via a global assignment procedure, and used to update obstacle
+parameters by free energy minimisation. Unmatched beliefs decay over time, implementing Occam-style model
+selection.
+
+Obstacle representations are polymorphic: different obstacle types share a common abstract interface
+(e.g.\ signed distance evaluation and ray intersection), allowing the controller to reason about heterogeneous
+environments without special cases.
+
+\subsection{Action layer: unified controller}
+
+Action selection is implemented by a single controller that directly minimises expected free energy over
+finite-horizon action sequences.
+
+Reactive control and planning are not treated as separate modes. Instead, they emerge as limiting cases of
+the same optimisation problem:
+
+\begin{itemize}
+    \item Short horizons yield fast, reactive behaviour.
+    \item Longer horizons are activated automatically when local minimisation fails to reduce expected
+    free energy.
+\end{itemize}
+
+To address non-convexity, multiple candidate trajectories are initialised from distinct seeds and optimised
+independently. The controller may temporarily commit to executing a longer prefix of a trajectory when
+short-horizon replanning leads to oscillations, releasing commitment if new perceptual evidence invalidates
+the plan.
+
+All gradients are computed through a differentiable generative model, including robot dynamics and analytic
+LIDAR prediction, ensuring that control remains grounded in the same probabilistic model as perception.
+
+\subsection{Architectural rationale}
+
+The architecture was designed to satisfy three constraints:
+
+\begin{enumerate}
+    \item \textbf{Conceptual alignment:} each software component corresponds to a well-defined variational
+    quantity in the theory.
+    
+    \item \textbf{Extensibility:} new obstacle types, sensor models, or control objectives can be introduced
+    without modifying the core perception--action loop.
+    
+    \item \textbf{Transparency:} beliefs, uncertainties, and expected free energy components remain explicit
+    and inspectable, facilitating debugging and analysis.
+\end{enumerate}
+
+As a result, the implementation should be read not as an ad-hoc control system, but as a direct executable
+interpretation of the variational principles developed in the preceding sections.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Future Research Roadmap}
+
+The theoretically ideal formulation of Active Inference outlined in Section~Eq.~\ref{sec:efe-relationship} 
+suggests a clear research trajectory toward increasingly faithful implementations of expected free 
+energy (EFE) minimisation. This roadmap sketches several progressive directions that reduce the gap 
+between the current tractable system and full belief-space policy inference, while explicitly 
+managing computational constraints.
+
+The adaptive planning strategy developed in Section~Eq.~\ref{section:7} provides empirical evidence of 
+where the current approximations break down. When the robot stalls and escalation reaches Level~3, 
+the system is effectively signalling that the heuristic decomposition of EFE into $G_{\text{prior}}$, 
+$G_{\text{risk}}$, and $G_{\text{ambiguity}}$ fails to capture the true free energy landscape---the 
+greedy exploitation of local gradients leads to dead ends that only deeper, more exploratory search 
+can escape. Each escalation level can be interpreted as relaxing the approximations: increasing the 
+planning horizon (longer policy sequences), expanding the node budget (denser sampling of policy 
+space), and reducing the heuristic weight (shifting from exploitation toward epistemic exploration). 
+The fact that Level~3 parameters---70-step depth, 50k nodes, $w=0.1$---are sometimes necessary 
+reveals the gap between tractable heuristics and the full EFE computation that would, in principle, 
+identify optimal policies without such iterative escalation.
+
+\subsection{Belief-Space Planning and Policy Trees}
+
+A natural extension of the current framework is to move from state-space planning to belief-space planning, where actions are evaluated based on their effect on uncertainty as well as expected outcomes. In this setting, policies propagate probability distributions over states rather than single point estimates, enabling epistemic value to be computed directly as expected belief entropy reduction. Related belief-space planning approaches have been explored in robotics under motion and sensing uncertainty \cite{platt2010belief, vandenberg2012lqgmp}. Incorporating such methods within an Active Inference framework would enable principled long-horizon reasoning about uncertainty while preserving the free energy objective.
+
+\subsection{Sampling-Based Expected Free Energy Estimation}
+
+Exact computation of expected free energy requires marginalising over all possible future state and observation trajectories induced by a policy, which is intractable for continuous, high-dimensional systems. A theoretically principled alternative is to approximate EFE via Monte Carlo sampling, drawing future trajectories from the generative model and estimating expectations empirically:
+\[
+G(\pi) \approx \frac{1}{K} \sum_{k=1}^{K} F(\tilde{s}^{(k)}, \tilde{o}^{(k)}).
+\]
+Sampling-based approximations to EFE and related formulations based on generalised free energy have been proposed within the Active Inference literature \cite{friston2015planning, parr2019generalised}. While computationally demanding, such approaches allow nonlinear dynamics, complex sensor models, and multimodal beliefs to be treated without heuristic simplifications, and could be selectively activated in difficult navigation scenarios.
+
+\subsection{Particle-Based and Multimodal Belief Representations}
+
+The Laplace approximation adopted in the present system assumes unimodal Gaussian beliefs. Extending the framework to particle-based or mixture-model representations would allow the agent to maintain and act upon multimodal uncertainty, such as competing obstacle hypotheses or alternative topological routes. Particle filtering and nonparametric belief representations are well established in probabilistic robotics \cite{thrun2005probabilistic}, and their integration with Active Inference would enable policies to be selected explicitly to disambiguate competing explanations of the environment.
+
+\subsection{Differentiable Generative Models and Action Gradients}
+
+A key limitation of the current reactive controller is the lack of direct gradients of variational free energy with respect to action, due to the complexity and discontinuities of the sensor generative model. Future work could address this by adopting fully differentiable generative models of dynamics and perception, enabling backpropagation of free energy gradients through the perception–action loop. Recent advances in differentiable model predictive control and differentiable simulation provide promising tools in this direction \cite{amos2018differentiable, rempe2020differentiable}. Such models would allow reactive control to follow true free energy gradients, eliminating the need for potential-field approximations.
+
+\subsection{Amortised Inference and Policy Learning}
+
+To mitigate the computational burden of repeated inference and planning, amortised inference techniques could be employed to learn approximate mappings from sensory data or beliefs to posterior updates or policies. Variational autoencoders and learned world models provide a principled foundation for amortised Bayesian inference \cite{kingma2014vae}, and have been successfully applied to model-based control via latent imagination \cite{hafner2020dreamer}. Within Active Inference, amortisation offers a route to approximate expected free energy minimisation while retaining an explicit generative model and probabilistic semantics.
+
+\subsection{Hierarchical and Temporal Abstractions}
+
+The multi-level planning strategy introduced in this work naturally aligns with hierarchical formulations of Active Inference, where inference and control are performed across multiple temporal scales. Higher levels operate over abstract states and long-term goals, while lower levels handle fast sensorimotor dynamics. Deep temporal Active Inference models formalise this hierarchical structure and suggest principled mechanisms for temporal abstraction \cite{friston2017deep}. Extending the current system in this direction would allow expected free energy minimisation to be distributed across nested time horizons.
+
+\subsection{Dynamic and Multi-Agent Environments}
+
+Finally, extending the generative model to dynamic environments and multiple agents introduces the need for joint inference over external states, trajectories, and potentially the intentions of others. In such settings, epistemic value naturally gives rise to behaviours resembling prediction, information seeking, and coordination. Recent work on scaling Active Inference to more complex and interactive settings highlights both the challenges and opportunities of this direction \cite{tschantz2020scaling}.
+
+\subsection{Summary}
+
+Together, these directions outline a principled path from the current tractable implementation toward increasingly faithful approximations of full expected free energy minimisation. Each step preserves the unifying objective of Active Inference while progressively relaxing simplifying assumptions as computational resources and modelling techniques evolve.
+
+
+
+\section{Conclusion}
+This report demonstrated the application of Active Inference to a complete robot navigation stack. By deriving perception, local control, and global planning from first principles, we achieved a system in which "obstacle avoidance" and "exploration" are not separate heuristics but emergent properties of minimising Expected Free Energy. The resulting architecture is robust to uncertainty and capable of adaptive planning depths, confirming that Active Inference provides a practical and scalable alternative to traditional modular robotics architectures. Future work will extend this framework to dynamic environments, where the generative model's prediction horizon must account for moving obstacles.
+
+\begin{quote}
+\textbf{What this approach is not.}
+This framework is not a black-box learning method, not a classical planner with
+a hand-designed cost function, and not a purely reactive controller. It is a
+probabilistic control framework grounded in variational inference.
+\end{quote}
+
+
+\newpage
+
+\appendix
+\input{appendix_symbols}
+\input{appendix_math}
+
+
+\printbibliography
+\end{document}
