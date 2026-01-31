@@ -695,18 +695,18 @@ class RoomPoseEstimatorV2:
             }
 
         # =====================================================================
-        # PREDICTION STEP: Propagate previous posterior with motion model
+        # PREDICTION STEP: Motion model
         # =====================================================================
         s_prev = np.array([self.belief.x, self.belief.y, self.belief.theta])
         Sigma_prev = self.belief.cov[:3, :3].copy()
 
+        # Transform velocity from robot frame to world frame
         cos_theta = np.cos(s_prev[2])
         sin_theta = np.sin(s_prev[2])
-
-        # Transform velocity from robot frame to world frame
         vx_world = robot_velocity[0] * cos_theta - robot_velocity[1] * sin_theta
         vy_world = robot_velocity[0] * sin_theta + robot_velocity[1] * cos_theta
 
+        # Predicted state from motion model
         s_pred = np.array([
             s_prev[0] + vx_world * dt,
             s_prev[1] + vy_world * dt,
@@ -719,148 +719,156 @@ class RoomPoseEstimatorV2:
         F_t[0, 2] = -vy_world * dt
         F_t[1, 2] = vx_world * dt
 
-        # Process noise
+        # Process noise (increases with motion)
         speed = np.linalg.norm(robot_velocity)
-        velocity_noise_factor = max(0.1, speed / 0.5)
-        Q_dynamic = self.Q_pose * dt * velocity_noise_factor
-        Q_dynamic[2, 2] += (angular_velocity ** 2) * dt
+        Q_scale = max(0.1, speed / 0.2)  # Scale with speed
+        Q = self.Q_pose * dt * Q_scale
 
-        # Detect motion type
-        is_pure_rotation = speed < 0.01 and abs(angular_velocity) > 0.05
-        is_pure_translation = speed > 0.01 and abs(angular_velocity) < 0.05
-
-        # Σ_pred = F_t Σ_t F_t^T + Q
-        Sigma_pred = F_t @ Sigma_prev @ F_t.T + Q_dynamic
+        # Predicted covariance
+        Sigma_pred = F_t @ Sigma_prev @ F_t.T + Q
 
         # =====================================================================
-        # CORRECTION STEP
+        # CORRECTION STEP: SDF optimization with prior
+        # Free Energy F = F_likelihood + F_prior
+        # F_likelihood = sum(SDF²) / (2 * σ_sdf²)
+        # F_prior = 0.5 * (s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
         # =====================================================================
         width = torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE)
         length = torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
-        N_obs = len(lidar_points)
-        sigma_eff = self.sigma_sdf * np.sqrt(N_obs)
 
-        if is_pure_rotation:
-            # =========== PURE ROTATION: Only optimize theta ===========
-            # Position is held fixed to prevent drift
-            theta_param = torch.tensor([s_pred[2]], dtype=DTYPE, device=DEVICE, requires_grad=True)
-            fixed_x = torch.tensor(s_pred[0], dtype=DTYPE, device=DEVICE)
-            fixed_y = torch.tensor(s_pred[1], dtype=DTYPE, device=DEVICE)
-            theta_pred = torch.tensor(s_pred[2], dtype=DTYPE, device=DEVICE)
+        # Initialize at PREDICTED pose
+        pose_params = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE, requires_grad=True)
+        s_pred_t = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE)
 
-            optimizer = torch.optim.Adam([theta_param], lr=self.lr_tracking)
+        # Prior information (inverse covariance)
+        Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)),
+                                       dtype=DTYPE, device=DEVICE)
 
-            for _ in range(15):
-                optimizer.zero_grad()
-                sdf_values = self.sdf_rect(lidar_points, fixed_x, fixed_y, theta_param[0], width, length)
-                F_likelihood = torch.sum(sdf_values ** 2) / (2 * sigma_eff ** 2)
-                theta_diff = theta_param[0] - theta_pred
-                F_prior = 0.5 * (theta_diff ** 2) / Sigma_pred[2, 2]
-                F = F_likelihood + F_prior
-                F.backward()
-                optimizer.step()
-                with torch.no_grad():
-                    theta_param[0] = torch.atan2(torch.sin(theta_param[0]), torch.cos(theta_param[0]))
-
-            # Final pose and covariance
-            optimized_pose = np.array([s_pred[0], s_pred[1], theta_param[0].item()])
-            Sigma_post = Sigma_pred.copy()
-            # Update theta variance based on optimization
-            with torch.no_grad():
-                sdf_final = self.sdf_rect(lidar_points, fixed_x, fixed_y, theta_param[0], width, length)
-                sdf_error = torch.mean(torch.abs(sdf_final)).item()
-            Sigma_post[2, 2] = min(Sigma_pred[2, 2], max(0.001, (sdf_error / self.sigma_sdf) ** 2))
-
-        elif is_pure_translation:
-            # =========== PURE TRANSLATION: Only optimize position (x, y) ===========
-            # Theta is held fixed to prevent drift
-            pos_params = torch.tensor(s_pred[:2], dtype=DTYPE, device=DEVICE, requires_grad=True)
-            fixed_theta = torch.tensor(s_pred[2], dtype=DTYPE, device=DEVICE)
-            pos_pred = torch.tensor(s_pred[:2], dtype=DTYPE, device=DEVICE)
-
-            # Extract 2x2 position covariance inverse
-            Sigma_pos_inv = torch.tensor(np.linalg.inv(Sigma_pred[:2, :2]), dtype=DTYPE, device=DEVICE)
-
-            optimizer = torch.optim.Adam([pos_params], lr=self.lr_tracking)
-
-            for _ in range(15):
-                optimizer.zero_grad()
-                sdf_values = self.sdf_rect(lidar_points, pos_params[0], pos_params[1], fixed_theta, width, length)
-                F_likelihood = torch.sum(sdf_values ** 2) / (2 * sigma_eff ** 2)
-                pos_diff = pos_params - pos_pred
-                F_prior = 0.5 * pos_diff @ Sigma_pos_inv @ pos_diff
-                F = F_likelihood + F_prior
-                F.backward()
-                optimizer.step()
-
-            # Final pose and covariance
-            optimized_pose = np.array([pos_params[0].item(), pos_params[1].item(), s_pred[2]])
-            Sigma_post = Sigma_pred.copy()
-            # Update position variance based on optimization
-            with torch.no_grad():
-                sdf_final = self.sdf_rect(lidar_points, pos_params[0], pos_params[1], fixed_theta, width, length)
-                sdf_error = torch.mean(torch.abs(sdf_final)).item()
-            # Simple heuristic for position covariance
-            pos_var = max(0.001, (sdf_error / self.sigma_sdf) ** 2)
-            Sigma_post[0, 0] = min(Sigma_pred[0, 0], pos_var)
-            Sigma_post[1, 1] = min(Sigma_pred[1, 1], pos_var)
-
+        # Prior weight (balances odometry vs LIDAR)
+        # Uses adaptive weight from previous step, or default if first iteration
+        if hasattr(self, '_adaptive_prior_weight'):
+            prior_weight = self._adaptive_prior_weight
         else:
-            # =========== NORMAL: Optimize full pose (x, y, theta) ===========
-            pose_params = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE, requires_grad=True)
-            s_pred_t = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE)
-            Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred), dtype=DTYPE, device=DEVICE)
+            prior_weight = 0.1  # Initial default
 
-            optimizer = torch.optim.Adam([pose_params], lr=self.lr_tracking)
+        optimizer = torch.optim.Adam([pose_params], lr=0.05)
 
-            for _ in range(15):
-                optimizer.zero_grad()
-                sdf_values = self.sdf_rect(lidar_points, pose_params[0], pose_params[1], pose_params[2], width, length)
-                F_likelihood = torch.sum(sdf_values ** 2) / (2 * sigma_eff ** 2)
-                pose_diff = pose_params - s_pred_t
-                F_prior = 0.5 * pose_diff @ Sigma_pred_inv @ pose_diff
-                F = F_likelihood + F_prior
-                F.backward()
-                optimizer.step()
-                with torch.no_grad():
-                    pose_params[2] = torch.atan2(torch.sin(pose_params[2]), torch.cos(pose_params[2]))
+        for iteration in range(50):
+            optimizer.zero_grad()
 
-            # Laplace covariance
-            pose_opt = pose_params.detach().clone().requires_grad_(True)
-            sdf_hess = self.sdf_rect(lidar_points, pose_opt[0], pose_opt[1], pose_opt[2], width, length)
-            F_lik = torch.sum(sdf_hess ** 2) / (2 * sigma_eff ** 2)
-            diff_hess = pose_opt - s_pred_t
-            F_pri = 0.5 * diff_hess @ Sigma_pred_inv @ diff_hess
-            F_total = F_lik + F_pri
+            # Likelihood: SDF error
+            sdf_values = self.sdf_rect(lidar_points, pose_params[0], pose_params[1],
+                                       pose_params[2], width, length)
+            F_likelihood = torch.mean(sdf_values ** 2)
 
-            grad = torch.autograd.grad(F_total, pose_opt, create_graph=True)[0]
-            hessian = torch.zeros(3, 3, dtype=DTYPE, device=DEVICE)
-            for i in range(3):
-                hessian[i] = torch.autograd.grad(grad[i], pose_opt, retain_graph=True)[0]
-            hessian = 0.5 * (hessian + hessian.T)
+            # Prior: deviation from motion model prediction
+            pose_diff = pose_params - s_pred_t
+            # Handle angle wrapping
+            pose_diff_wrapped = pose_diff.clone()
+            pose_diff_wrapped[2] = torch.atan2(torch.sin(pose_diff[2]), torch.cos(pose_diff[2]))
+            F_prior = 0.5 * pose_diff_wrapped @ Sigma_pred_inv @ pose_diff_wrapped
 
-            try:
-                eigvals = torch.linalg.eigvalsh(hessian)
-                if eigvals.min().item() > 1e-6:
-                    Sigma_post = torch.linalg.inv(hessian).cpu().numpy()
-                else:
-                    Sigma_post = Sigma_pred * 0.95
-            except Exception:
-                Sigma_post = Sigma_pred * 0.95
+            # Total Free Energy
+            F = F_likelihood + prior_weight * F_prior
 
-            # Jump rejection filter
+            F.backward()
+            optimizer.step()
+
             with torch.no_grad():
-                optimized_pose = np.array([pose_params[0].item(), pose_params[1].item(), pose_params[2].item()])
-                dx = optimized_pose[0] - s_pred[0]
-                dy = optimized_pose[1] - s_pred[1]
-                dtheta = np.arctan2(np.sin(optimized_pose[2] - s_pred[2]), np.cos(optimized_pose[2] - s_pred[2]))
-                position_jump = np.sqrt(dx**2 + dy**2)
-                angle_jump = np.abs(dtheta)
+                pose_params[2] = torch.atan2(torch.sin(pose_params[2]), torch.cos(pose_params[2]))
 
-                if position_jump > 0.2 or angle_jump > 0.78:
-                    print(f"[JUMP FILTER] Rejected: pos={position_jump*100:.1f}cm, angle={np.degrees(angle_jump):.1f}°")
-                    optimized_pose = s_pred
-                    Sigma_post = Sigma_pred
+        optimized_pose = np.array([pose_params[0].item(), pose_params[1].item(), pose_params[2].item()])
+
+        # =====================================================================
+        # ADAPTIVE PRIOR WEIGHT based on prediction error (innovation)
+        # If odometry predicts well, increase trust in it (higher weight)
+        # If odometry predicts poorly, decrease trust (lower weight)
+        # =====================================================================
+        innovation = optimized_pose - s_pred
+        innovation[2] = np.arctan2(np.sin(innovation[2]), np.cos(innovation[2]))
+
+        # Mahalanobis distance of innovation
+        innovation_mahal = np.sqrt(innovation @ np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)) @ innovation)
+
+        # Adaptive weight formula:
+        # - Base weight is low (0.1) to prefer LIDAR
+        # - Only increase if innovation is very small (odometry predicts well)
+        # - max_weight caps how much we trust odometry
+        if not hasattr(self, '_adaptive_prior_weight'):
+            self._adaptive_prior_weight = 0.1  # Initial value
+
+        # Parameters for adaptive weight
+        base_weight = 0.05      # Minimum weight (LIDAR always dominates somewhat)
+        max_weight = 0.3        # Maximum weight (never trust odometry too much)
+        scale = 0.5             # Smaller = more sensitive to innovation
+
+        # Weight decreases exponentially with innovation
+        # innovation_mahal ~ 0 → weight = max_weight
+        # innovation_mahal large → weight = base_weight
+        target_weight = base_weight + (max_weight - base_weight) * np.exp(-innovation_mahal / scale)
+        target_weight = np.clip(target_weight, base_weight, max_weight)
+
+        # Exponential moving average for smooth adaptation
+        alpha = 0.2  # Smoothing factor (faster adaptation)
+        self._adaptive_prior_weight = (1 - alpha) * self._adaptive_prior_weight + alpha * target_weight
+
+        # =====================================================================
+        # POSTERIOR COVARIANCE via Hessian of the cost function
+        # Formula: Σ = σ² × H⁻¹ where σ² is the residual variance
+        # This scales the geometric uncertainty (H⁻¹) by the actual fit quality (σ²)
+        # =====================================================================
+        N_obs = len(lidar_points)
+        pose_opt = torch.tensor(optimized_pose, dtype=DTYPE, device=DEVICE, requires_grad=True)
+        sdf_opt = self.sdf_rect(lidar_points, pose_opt[0], pose_opt[1], pose_opt[2], width, length)
+
+        # Residual variance: how well the model fits the data
+        residual_var = torch.mean(sdf_opt ** 2).item()
+
+        # Use MEAN like C++ RoomLoss::compute_loss
+        loss = torch.mean(sdf_opt ** 2)
+
+        # Compute gradient
+        grad = torch.autograd.grad(loss, pose_opt, create_graph=True)[0]
+
+        # Compute Hessian
+        hessian = torch.zeros(3, 3, dtype=DTYPE, device=DEVICE)
+        for i in range(3):
+            hessian[i] = torch.autograd.grad(grad[i], pose_opt, retain_graph=True)[0]
+        hessian = 0.5 * (hessian + hessian.T)  # Ensure symmetry
+
+        try:
+            hessian_np = hessian.cpu().numpy()
+
+            # Robust inversion with regularization
+            reg = 1e-6
+            max_attempts = 6
+            success = False
+
+            for attempt in range(max_attempts):
+                h_reg = hessian_np + reg * np.eye(3)
+                try:
+                    L = np.linalg.cholesky(h_reg)
+                    H_inv = np.linalg.inv(h_reg)
+                    success = True
+                    break
+                except np.linalg.LinAlgError:
+                    reg *= 10.0
+
+            if not success:
+                H_inv = np.linalg.pinv(hessian_np + reg * np.eye(3))
+
+            # Covariance = σ² × H⁻¹
+            # This makes covariance small when residuals are small (good fit)
+            # and large when residuals are large (poor fit)
+            Sigma_post = residual_var * H_inv
+
+        except Exception as e:
+            # Fallback
+            Sigma_post = np.diag([0.01, 0.01, 0.01])
+
+        # Compute final SDF error for diagnostics
+        mean_sdf_error = torch.mean(torch.abs(sdf_opt)).detach().item()
+
 
         # =====================================================================
         # UPDATE BELIEF
@@ -868,21 +876,6 @@ class RoomPoseEstimatorV2:
         self.belief.x = optimized_pose[0]
         self.belief.y = optimized_pose[1]
         self.belief.theta = optimized_pose[2]
-
-        # Compute final SDF error
-        with torch.no_grad():
-            final_sdf = self.sdf_rect(
-                lidar_points,
-                torch.tensor(optimized_pose[0], dtype=DTYPE, device=DEVICE),
-                torch.tensor(optimized_pose[1], dtype=DTYPE, device=DEVICE),
-                torch.tensor(optimized_pose[2], dtype=DTYPE, device=DEVICE),
-                width, length
-            )
-            mean_sdf_error = torch.mean(torch.abs(final_sdf)).item()
-
-        # Bound covariance
-        for i in range(3):
-            Sigma_post[i, i] = np.clip(Sigma_post[i, i], 1e-4, 10.0)
         self.belief.cov[:3, :3] = Sigma_post
 
         self.stats['sdf_error_history'].append(mean_sdf_error)
@@ -893,7 +886,9 @@ class RoomPoseEstimatorV2:
             'pose_cov': self.belief.pose_cov,
             'sdf_error': mean_sdf_error,
             'room_params': self.belief.room_params.copy(),
-            'belief_uncertainty': self.belief.uncertainty()
+            'belief_uncertainty': self.belief.uncertainty(),
+            'innovation': innovation,  # [dx, dy, dtheta] prediction error
+            'prior_weight': self._adaptive_prior_weight
         }
 
     def is_converged(self) -> bool:

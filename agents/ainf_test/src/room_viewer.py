@@ -42,8 +42,18 @@ class ViewerData:
     phase: str = "init"
     sdf_error: float = 0.0
     pose_error: float = 0.0
-    angle_error: float = 0.0   # Prediction error: angle difference in degrees
+    angle_error: float = 0.0   # Angle error in degrees (vs GT)
+    error_x: float = 0.0       # Position error in x (meters, vs GT)
+    error_y: float = 0.0       # Position error in y (meters, vs GT)
     step: int = 0
+    # Innovation (prediction error from motion model)
+    innovation_x: float = 0.0      # Innovation in x (meters)
+    innovation_y: float = 0.0      # Innovation in y (meters)
+    innovation_theta: float = 0.0  # Innovation in theta (degrees)
+    prior_weight: float = 0.0      # Adaptive prior weight
+    # Ground truth room size
+    gt_room_width: float = 6.0     # GT room width (meters)
+    gt_room_length: float = 4.0    # GT room length (meters)
 
     def __post_init__(self):
         if self.estimated_pose is None:
@@ -211,7 +221,16 @@ class RoomViewerDPG(RoomObserver):
                     dpg.add_spacer(height=10)
                     dpg.add_separator()
                     dpg.add_text("ROOM", color=(255, 255, 0))
-                    dpg.add_text("Size: 0.0 x 0.0 m", tag="room_size_text")
+                    dpg.add_text("Est: 0.0 x 0.0 m", tag="room_size_text")
+                    dpg.add_text("GT:  0.0 x 0.0 m", tag="room_gt_size_text", color=(100, 255, 100))
+
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_text("MOTION MODEL", color=(255, 200, 100))
+                    dpg.add_text("dx: 0.0 cm", tag="innov_x_text")
+                    dpg.add_text("dy: 0.0 cm", tag="innov_y_text")
+                    dpg.add_text("dθ: 0.0°", tag="innov_theta_text")
+                    dpg.add_text("Prior W: 0.000", tag="prior_weight_text")
 
                     dpg.add_spacer(height=10)
                     dpg.add_separator()
@@ -229,10 +248,12 @@ class RoomViewerDPG(RoomObserver):
 
                     dpg.add_spacer(height=10)
                     dpg.add_separator()
-                    dpg.add_text("ERRORS", color=(255, 255, 0))
+                    dpg.add_text("ERRORS (vs GT)", color=(255, 255, 0))
+                    dpg.add_text("X err: 0.0 cm", tag="err_x_text")
+                    dpg.add_text("Y err: 0.0 cm", tag="err_y_text")
+                    dpg.add_text("θ err: 0.0°", tag="err_theta_text")
                     dpg.add_text("Pose: 0.000 m", tag="pose_error_text")
                     dpg.add_text("SDF: 0.000 m", tag="sdf_error_text")
-                    dpg.add_text("Pred: 0.0°", tag="pred_error_text")
 
                     dpg.add_spacer(height=10)
                     dpg.add_separator()
@@ -478,7 +499,17 @@ class RoomViewerDPG(RoomObserver):
 
         # Room size
         dpg.set_value("room_size_text",
-                     f"Size: {data.room.width:.2f} x {data.room.length:.2f} m")
+                     f"Est: {data.room.width:.2f} x {data.room.length:.2f} m")
+        dpg.set_value("room_gt_size_text",
+                     f"GT:  {data.gt_room_width:.2f} x {data.gt_room_length:.2f} m")
+
+        # Motion model (innovation and prior weight)
+        dpg.set_value("innov_x_text", f"dx: {data.innovation_x*100:.1f} cm")
+        dpg.set_value("innov_y_text", f"dy: {data.innovation_y*100:.1f} cm")
+        dpg.set_value("innov_theta_text", f"dθ: {data.innovation_theta:.1f}°")
+        pw_color = (100, 255, 100) if data.prior_weight > 0.5 else (255, 255, 100) if data.prior_weight > 0.1 else (255, 150, 100)
+        dpg.set_value("prior_weight_text", f"Prior W: {data.prior_weight:.3f}")
+        dpg.configure_item("prior_weight_text", color=pw_color)
 
         # Estimated pose
         dpg.set_value("est_x_text", f"X: {data.estimated_pose.x:.3f} m")
@@ -492,18 +523,27 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("gt_theta_text",
                      f"θ: {np.degrees(data.ground_truth_pose.theta):.1f}°")
 
-        # Errors
-        pose_err_color = (100, 255, 100) if data.pose_error < 0.5 else (255, 255, 100) if data.pose_error < 1.0 else (255, 100, 100)
-        dpg.set_value("pose_error_text", f"Pose: {data.pose_error:.3f} m")
+        # Errors (vs GT)
+        err_x_cm = data.error_x * 100
+        err_y_cm = data.error_y * 100
+        err_x_color = (100, 255, 100) if abs(err_x_cm) < 5 else (255, 255, 100) if abs(err_x_cm) < 10 else (255, 100, 100)
+        err_y_color = (100, 255, 100) if abs(err_y_cm) < 5 else (255, 255, 100) if abs(err_y_cm) < 10 else (255, 100, 100)
+        err_theta_color = (100, 255, 100) if abs(data.angle_error) < 5 else (255, 255, 100) if abs(data.angle_error) < 15 else (255, 100, 100)
+
+        dpg.set_value("err_x_text", f"X err: {err_x_cm:.1f} cm")
+        dpg.configure_item("err_x_text", color=err_x_color)
+        dpg.set_value("err_y_text", f"Y err: {err_y_cm:.1f} cm")
+        dpg.configure_item("err_y_text", color=err_y_color)
+        dpg.set_value("err_theta_text", f"θ err: {data.angle_error:.1f}°")
+        dpg.configure_item("err_theta_text", color=err_theta_color)
+
+        pose_err_color = (100, 255, 100) if data.pose_error < 0.05 else (255, 255, 100) if data.pose_error < 0.1 else (255, 100, 100)
+        dpg.set_value("pose_error_text", f"Pose: {data.pose_error*100:.1f} cm")
         dpg.configure_item("pose_error_text", color=pose_err_color)
 
         sdf_err_color = (100, 255, 100) if data.sdf_error < 0.05 else (255, 255, 100) if data.sdf_error < 0.1 else (255, 100, 100)
         dpg.set_value("sdf_error_text", f"SDF: {data.sdf_error:.3f} m")
         dpg.configure_item("sdf_error_text", color=sdf_err_color)
-
-        pred_err_color = (100, 255, 100) if data.angle_error < 5.0 else (255, 255, 100) if data.angle_error < 15.0 else (255, 100, 100)
-        dpg.set_value("pred_error_text", f"Pred: {data.angle_error:.1f}°")
-        dpg.configure_item("pred_error_text", color=pred_err_color)
 
 
 class RoomSubject:
@@ -540,7 +580,9 @@ class RoomSubject:
 def create_viewer_data(room_estimator,
                        robot_pose_gt: List[float],
                        lidar_points: np.ndarray = None,
-                       step: int = 0) -> ViewerData:
+                       step: int = 0,
+                       innovation: np.ndarray = None,
+                       prior_weight: float = 0.0) -> ViewerData:
     """
     Create ViewerData from room estimator and ground truth.
 
@@ -549,6 +591,8 @@ def create_viewer_data(room_estimator,
         robot_pose_gt: Ground truth pose [x, y, theta]
         lidar_points: Optional LIDAR points array
         step: Current step number
+        innovation: Optional [dx, dy, dtheta] prediction error
+        prior_weight: Adaptive prior weight
 
     Returns:
         ViewerData instance ready for the viewer
@@ -561,6 +605,10 @@ def create_viewer_data(room_estimator,
         y=robot_pose_gt[1],
         theta=robot_pose_gt[2]
     )
+
+    # Ground truth room size
+    data.gt_room_width = room_estimator.true_width
+    data.gt_room_length = room_estimator.true_height
 
     # Estimated pose from belief
     if room_estimator.belief is not None:
@@ -587,18 +635,24 @@ def create_viewer_data(room_estimator,
     data.phase = room_estimator.phase
     data.step = step
 
-    # Compute pose error
-    data.pose_error = np.sqrt(
-        (data.estimated_pose.x - data.ground_truth_pose.x)**2 +
-        (data.estimated_pose.y - data.ground_truth_pose.y)**2
-    )
+    # Compute pose error (vs GT)
+    data.error_x = data.estimated_pose.x - data.ground_truth_pose.x
+    data.error_y = data.estimated_pose.y - data.ground_truth_pose.y
+    data.pose_error = np.sqrt(data.error_x**2 + data.error_y**2)
 
-    # Compute prediction (angle) error in degrees
+    # Compute angle error in degrees (vs GT)
     angle_diff = data.estimated_pose.theta - data.ground_truth_pose.theta
-    data.angle_error = abs(np.degrees(np.arctan2(np.sin(angle_diff), np.cos(angle_diff))))
+    data.angle_error = np.degrees(np.arctan2(np.sin(angle_diff), np.cos(angle_diff)))
 
     # Get latest SDF error from stats
     if len(room_estimator.stats['sdf_error_history']) > 0:
         data.sdf_error = room_estimator.stats['sdf_error_history'][-1]
+
+    # Innovation (prediction error)
+    if innovation is not None:
+        data.innovation_x = innovation[0]
+        data.innovation_y = innovation[1]
+        data.innovation_theta = np.degrees(innovation[2])
+    data.prior_weight = prior_weight
 
     return data

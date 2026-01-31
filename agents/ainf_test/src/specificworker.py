@@ -215,6 +215,12 @@ class SpecificWorker(GenericWorker):
                 print(f"[Step {self.total_steps}] Phase: {phase}, SDF: {sdf_err:.3f}, "
                       f"Pose_err: {pose_error:.3f}m, Angle_err: {np.degrees(abs(angle_error)):.1f}°, Uncertainty: {uncertainty:.3f}")
 
+                # Show innovation (prediction error) and prior weight if available
+                if phase == 'tracking' and 'innovation' in result:
+                    innov = result['innovation']
+                    pw = result.get('prior_weight', 0.0)
+                    print(f"  Innovation: dx={innov[0]*100:.1f}cm, dy={innov[1]*100:.1f}cm, dθ={np.degrees(innov[2]):.1f}°, PriorWeight: {pw:.3f}")
+
                 #Ground truth (from simulator)
                 print(f"  Ground truth: x={gt_x:.3f}m, y={gt_y:.3f}m, theta={gt_theta:.3f}rad ({np.degrees(gt_theta):.1f}°)")
 
@@ -232,11 +238,17 @@ class SpecificWorker(GenericWorker):
                 print(f"  LIDAR points: {len(lidar_points)}")
 
             # Update viewer with current data
+            # Extract innovation and prior_weight from result if available
+            innovation = result.get('innovation', None)
+            prior_weight = result.get('prior_weight', 0.0)
+
             viewer_data = create_viewer_data(
                 room_estimator=self.room_estimator,
                 robot_pose_gt=self.robot_pose_gt,
                 lidar_points=lidar_points,
-                step=self.total_steps
+                step=self.total_steps,
+                innovation=innovation,
+                prior_weight=prior_weight
             )
             self.viewer_subject.notify(viewer_data)
 
@@ -337,12 +349,12 @@ class SpecificWorker(GenericWorker):
             lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points])
 
             # Debug: print LIDAR stats periodically
-            if self.total_steps % 100 == 0 and len(lidar_points) > 0:
-                x_range = lidar_points[:,0].max() - lidar_points[:,0].min()
-                y_range = lidar_points[:,1].max() - lidar_points[:,1].min()
-                print(f"[LIDAR] {len(lidar_points)} points")
-                print(f"  x_right range: [{lidar_points[:,0].min():.2f}, {lidar_points[:,0].max():.2f}] = {x_range:.2f}m")
-                print(f"  y_forward range: [{lidar_points[:,1].min():.2f}, {lidar_points[:,1].max():.2f}] = {y_range:.2f}m")
+            # if self.total_steps % 100 == 0 and len(lidar_points) > 0:
+            #     x_range = lidar_points[:,0].max() - lidar_points[:,0].min()
+            #     y_range = lidar_points[:,1].max() - lidar_points[:,1].min()
+            #     print(f"[LIDAR] {len(lidar_points)} points")
+            #     print(f"  x_right range: [{lidar_points[:,0].min():.2f}, {lidar_points[:,0].max():.2f}] = {x_range:.2f}m")
+            #     print(f"  y_forward range: [{lidar_points[:,1].min():.2f}, {lidar_points[:,1].max():.2f}] = {y_range:.2f}m")
 
         except Ice.Exception as e:
             print(f"Error reading lidar: {e}")
@@ -370,7 +382,7 @@ class SpecificWorker(GenericWorker):
         return self._execute_trajectory()
 
     def _init_trajectory(self):
-        """Initialize the trajectory system with a square pattern in the center"""
+        """Initialize the trajectory system - CIRCULAR ARC MOVEMENT TEST"""
         self._trajectory_initialized = True
 
         # Movement parameters
@@ -378,49 +390,19 @@ class SpecificWorker(GenericWorker):
         self.rotation_speed = 0.3     # rad/s
         self.period_sec = self.Period / 1000.0
 
-        # Square trajectory in the center of the room
-        # Room is 6m x 4m centered at origin
-        # Square side length: 1.0m (keeps robot well-centered)
-        # Robot starts at center (0, 0) facing forward (+y)
-        square_side = 1.0  # meters
-
+        # Circular arc trajectory using simultaneous forward + rotation
+        # 'arc' command: (forward_speed_factor, duration_seconds)
+        # The robot will move forward while rotating, creating a circular arc
         self._trajectory = [
-            # Initial positioning: move to start of square
-            ('forward', 0.5),
+            ('wait', 1.0),
+            ('forward', 0.75),   # Go out 0.75m from center
             ('wait', 0.5),
-
-            # First square loop
-            ('forward', square_side),
-            ('turn', 90),        # Turn left
-            ('forward', square_side),
-            ('turn', 90),        # Turn left
-            ('forward', square_side),
-            ('turn', 90),        # Turn left
-            ('forward', square_side),
-            ('turn', 90),        # Turn left (back to start orientation)
+            # Complete a full circle (360°) while moving forward
+            # At rot=0.3 rad/s, 360° takes about 21 seconds
+            ('arc', 21.0),       # Circular arc for ~360°
             ('wait', 1.0),
-
-            # Second square loop (for more statistics)
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('wait', 1.0),
-
-            # Third square loop
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('forward', square_side),
-            ('turn', 90),
-            ('wait', 2.0),      # Final pause
+            ('arc', 21.0),       # Another circle
+            ('wait', 2.0),
         ]
 
         self._current_action_idx = 0
@@ -486,6 +468,9 @@ class SpecificWorker(GenericWorker):
             # Positive angle = left (positive rotation), negative = right
             rot_dir = 1 if value > 0 else -1
             cmd = (0, 0, rot_dir * self.rotation_speed)
+        elif action_type == 'arc':
+            # Circular arc: forward + rotation simultaneously
+            cmd = (0, self.advance_speed, self.rotation_speed)
         elif action_type == 'wait':
             cmd = (0, 0, 0)
 
@@ -510,6 +495,9 @@ class SpecificWorker(GenericWorker):
             angle_rad = abs(value) * np.pi / 180.0
             time_needed = angle_rad / self.rotation_speed
             return int(time_needed / self.period_sec)
+        elif action_type == 'arc':
+            # value is duration in seconds
+            return int(value / self.period_sec)
         elif action_type == 'wait':
             # value is time in seconds
             return int(value / self.period_sec)
