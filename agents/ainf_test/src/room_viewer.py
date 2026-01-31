@@ -54,6 +54,8 @@ class ViewerData:
     # Ground truth room size
     gt_room_width: float = 6.0     # GT room width (meters)
     gt_room_length: float = 4.0    # GT room length (meters)
+    # Pose covariance for uncertainty ellipse (2x2 for x,y)
+    pose_covariance: np.ndarray = None  # 2x2 covariance matrix [x,y]
 
     def __post_init__(self):
         if self.estimated_pose is None:
@@ -62,6 +64,8 @@ class ViewerData:
             self.ground_truth_pose = RobotState()
         if self.room is None:
             self.room = RoomState()
+        if self.pose_covariance is None:
+            self.pose_covariance = np.eye(2) * 0.01  # Default small covariance
 
 
 class RoomObserver(ABC):
@@ -358,13 +362,14 @@ class RoomViewerDPG(RoomObserver):
         if self.show_lidar and data.lidar_points is not None and len(data.lidar_points) > 0:
             self._draw_lidar_points(data.lidar_points, data.estimated_pose, room_w, room_l)
 
-        # Draw ground truth robot (green)
+        # Draw ground truth robot (green) - circle
         self._draw_robot(data.ground_truth_pose, room_w, room_l,
                         color=(100, 255, 100, 255), label="GT")
 
-        # Draw estimated robot (blue)
+        # Draw estimated robot (blue) - ellipse from covariance
         self._draw_robot(data.estimated_pose, room_w, room_l,
-                        color=(100, 150, 255, 255), label="Est")
+                        color=(100, 150, 255, 255), label="Est",
+                        covariance=data.pose_covariance)
 
         # Update stats panel
         self._update_stats(data)
@@ -421,9 +426,10 @@ class RoomViewerDPG(RoomObserver):
                      color=(100, 255, 100, 200), parent="canvas")
 
     def _draw_robot(self, pose: RobotState, room_width: float, room_height: float,
-                   color: Tuple[int, int, int, int], label: str = ""):
+                   color: Tuple[int, int, int, int], label: str = "",
+                   covariance: np.ndarray = None):
         """
-        Draw a robot as a circle with a direction arrow.
+        Draw a robot as an ellipse (from covariance) or circle with a direction arrow.
 
         Args:
             pose: Robot pose (x, y, theta)
@@ -431,6 +437,7 @@ class RoomViewerDPG(RoomObserver):
             room_height: Room height for coordinate transform
             color: RGBA color tuple
             label: Optional label to draw near robot
+            covariance: Optional 2x2 covariance matrix for uncertainty ellipse
         """
         # Robot center in screen coords
         cx, cy = self._world_to_screen(pose.x, pose.y, room_width, room_height)
@@ -440,26 +447,83 @@ class RoomViewerDPG(RoomObserver):
         scale = min(self.draw_width / total_width,
                    self.draw_height / (room_height + 2 * self.margin))
 
-        radius_px = self.robot_radius * scale
         arrow_length_px = self.robot_arrow_length * scale
 
-        # Draw robot body (circle)
-        dpg.draw_circle((cx, cy), radius_px, color=color,
-                       thickness=2, parent="canvas")
+        # Base radius for GT robot (small fixed circle)
+        gt_radius_px = 8  # Small fixed radius for GT
+
+        # Draw robot body: ellipse from covariance or default circle
+        if covariance is not None and covariance.shape == (2, 2):
+            # Compute ellipse parameters from covariance matrix
+            # Use diagonal elements for axis lengths (variance in x and y)
+            # Align ellipse with robot orientation (theta)
+            try:
+                # Get variances from diagonal (ignore off-diagonal correlations for simplicity)
+                # Or use eigenvalues for proper ellipse axes
+                eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+
+                # Sort by eigenvalue (largest first)
+                order = eigenvalues.argsort()[::-1]
+                eigenvalues = eigenvalues[order]
+
+                # Semi-axes lengths (2-sigma = 95% confidence)
+                sigma_scale = 2.0  # 2-sigma ellipse
+                axis1 = np.sqrt(max(eigenvalues[0], 1e-6)) * sigma_scale * scale
+                axis2 = np.sqrt(max(eigenvalues[1], 1e-6)) * sigma_scale * scale
+
+                # Minimum radius matches GT robot size, max is larger
+                axis1 = np.clip(axis1, gt_radius_px, 150)
+                axis2 = np.clip(axis2, gt_radius_px, 150)
+
+                # Use robot orientation (theta) for ellipse alignment
+                # This aligns the ellipse axes with the robot's forward/lateral directions
+                angle = pose.theta
+
+                # Draw ellipse as polygon (DearPyGui doesn't have native ellipse)
+                num_points = 32
+                ellipse_points = []
+                for i in range(num_points):
+                    t = 2 * np.pi * i / num_points
+                    # Point on unit ellipse (axis1 = forward, axis2 = lateral)
+                    px = axis2 * np.cos(t)  # lateral axis
+                    py = axis1 * np.sin(t)  # forward axis (larger if more uncertainty forward)
+                    # Rotate by robot angle (theta)
+                    # Note: screen Y is inverted, so we use sin/cos appropriately
+                    rx = px * np.cos(angle) - py * np.sin(angle)
+                    ry = px * np.sin(angle) + py * np.cos(angle)
+                    ellipse_points.append((cx + rx, cy + ry))
+
+                # Close the ellipse
+                ellipse_points.append(ellipse_points[0])
+
+                # Draw ellipse outline
+                dpg.draw_polygon(ellipse_points, color=color, thickness=2, parent="canvas")
+
+                # Draw filled ellipse with transparency
+                fill_color = (color[0], color[1], color[2], 50)
+                dpg.draw_polygon(ellipse_points, color=fill_color, fill=fill_color, parent="canvas")
+
+            except Exception as e:
+                # Fallback to small circle
+                dpg.draw_circle((cx, cy), gt_radius_px, color=color,
+                               thickness=2, parent="canvas")
+        else:
+            # GT robot: draw small fixed circle
+            dpg.draw_circle((cx, cy), gt_radius_px, color=color,
+                           thickness=2, parent="canvas")
 
         # Draw direction arrow
-        # Flip 180° from previous convention to match motion direction
+        # Arrow points in direction of theta
         arrow_dx = np.sin(pose.theta) * arrow_length_px
         arrow_dy = np.cos(pose.theta) * arrow_length_px
 
         arrow_end = (cx + arrow_dx, cy + arrow_dy)
-        # draw_arrow draws FROM first point TO second point
         dpg.draw_arrow((cx, cy), arrow_end, color=color,
                       thickness=2, size=8, parent="canvas")
 
         # Draw label
         if label:
-            dpg.draw_text((cx + radius_px + 5, cy - 8), label,
+            dpg.draw_text((cx + 20, cy - 8), label,
                          color=color, size=12, parent="canvas")
 
     def _draw_lidar_points(self, points: np.ndarray, robot_pose: RobotState,
@@ -633,6 +697,9 @@ def create_viewer_data(room_estimator,
             width=room_estimator.belief.width,
             length=room_estimator.belief.length
         )
+        # Get pose covariance (2x2 submatrix for x,y)
+        if hasattr(room_estimator.belief, 'pose_cov'):
+            data.pose_covariance = room_estimator.belief.pose_cov[:2, :2].copy()
     else:
         data.estimated_pose = RobotState()
         data.room = RoomState(
