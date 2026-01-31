@@ -130,8 +130,8 @@ class RoomPoseEstimatorV2:
         # Initialization parameters
         self.init_buffer = []  # Collected LIDAR points
         self.min_points_for_init = 500  # Need more points for robust estimation
-        self.init_convergence_threshold = 0.05  # 5cm threshold - more realistic
-        self.max_init_iterations = 500
+        self.init_convergence_threshold = 0.15  # 15cm threshold - more permissive for static detection
+        self.max_init_iterations = 100  # Reduced for faster convergence with static robot
         self.init_iterations = 0
 
         # Tracking parameters - adjusted for meters
@@ -145,13 +145,81 @@ class RoomPoseEstimatorV2:
         self.lr_init = 0.5  # Higher learning rate for faster convergence
         self.lr_tracking = 0.1  # Balanced for convergence with theta constraint
 
+        # Dynamic CPU optimization parameters
+        self.adaptive_cpu = True  # Enable adaptive CPU optimization
+        self.min_iterations = 5   # Minimum iterations in optimization loop
+        self.max_iterations_init = 100  # Max iterations for init phase
+        self.max_iterations_tracking = 50  # Max iterations for tracking phase
+        self.early_stop_threshold = 1e-5  # Stop if loss improvement < this
+        self.skip_frames_when_stable = True  # Skip processing when stable
+        self.stability_threshold = 0.02  # SDF error below this = stable (2cm)
+        self.max_skip_frames = 3  # Maximum frames to skip when stable
+        self._skip_counter = 0   # Current skip counter
+        self._last_sdf_error = float('inf')  # Last SDF error for stability check
+        self.lidar_subsample_factor = 1  # Subsample LIDAR points (1 = no subsampling)
+        self.adaptive_subsampling = True  # Enable adaptive LIDAR subsampling
+        self.min_lidar_points = 100  # Minimum LIDAR points to keep
 
         # Statistics
         self.stats = {
             'init_steps': 0,
             'sdf_error_history': [],
-            'pose_error_history': []
+            'pose_error_history': [],
+            'iterations_used': [],  # Track actual iterations per step
+            'frames_skipped': 0     # Track skipped frames
         }
+
+    def _subsample_lidar(self, points: torch.Tensor) -> torch.Tensor:
+        """Adaptively subsample LIDAR points based on stability.
+
+        When the system is stable (low SDF error), we can use fewer points
+        to reduce CPU usage without significantly affecting accuracy.
+        """
+        if not self.adaptive_subsampling or len(points) <= self.min_lidar_points:
+            return points
+
+        # Determine subsample factor based on last SDF error
+        if self._last_sdf_error < self.stability_threshold:
+            # Very stable - use fewer points
+            factor = min(4, max(1, len(points) // self.min_lidar_points))
+        elif self._last_sdf_error < self.stability_threshold * 2:
+            # Moderately stable
+            factor = min(2, max(1, len(points) // (self.min_lidar_points * 2)))
+        else:
+            # Not stable - use all points
+            factor = 1
+
+        if factor > 1:
+            indices = torch.arange(0, len(points), factor, device=points.device)
+            return points[indices]
+        return points
+
+    def _should_skip_frame(self, robot_velocity: np.ndarray, angular_velocity: float) -> bool:
+        """Determine if we should skip processing this frame.
+
+        Skip when:
+        - Robot is not moving AND system is stable
+        - We haven't skipped too many frames in a row
+        """
+        if not self.skip_frames_when_stable or not self.adaptive_cpu:
+            return False
+
+        # Check if robot is moving
+        speed = np.linalg.norm(robot_velocity) if robot_velocity is not None else 0
+        is_moving = speed > 0.01 or abs(angular_velocity) > 0.01  # 1cm/s or 0.01 rad/s
+
+        # Check if system is stable
+        is_stable = self._last_sdf_error < self.stability_threshold
+
+        # Skip only if stable, not moving, and haven't skipped too many
+        if is_stable and not is_moving and self._skip_counter < self.max_skip_frames:
+            self._skip_counter += 1
+            self.stats['frames_skipped'] += 1
+            return True
+
+        # Reset skip counter when we process a frame
+        self._skip_counter = 0
+        return False
 
 
     def sdf_rect(self,
@@ -249,6 +317,23 @@ class RoomPoseEstimatorV2:
                 'sdf_error': 0,
                 'belief_uncertainty': self.belief.uncertainty() if self.belief else 5.0
             }
+
+        # Check if we should skip this frame (only in tracking phase)
+        if self.phase == 'tracking' and self._should_skip_frame(robot_velocity, angular_velocity):
+            # Return last known result without processing
+            return {
+                'phase': 'tracking',
+                'status': 'skipped',
+                'pose': self.belief.pose.copy() if self.belief else np.zeros(3),
+                'pose_cov': self.belief.pose_cov if self.belief else np.eye(3),
+                'sdf_error': self._last_sdf_error,
+                'belief_uncertainty': self.belief.uncertainty() if self.belief else 5.0,
+                'innovation': np.zeros(3),
+                'prior_precision': getattr(self, '_adaptive_prior_precision', 0.1)
+            }
+
+        # Apply adaptive LIDAR subsampling
+        lidar_points_t = self._subsample_lidar(lidar_points_t)
 
         if self.phase == 'init':
             return self._initialization_phase(lidar_points_t, robot_pose_gt)
@@ -465,7 +550,12 @@ class RoomPoseEstimatorV2:
         initial_pose = torch.tensor([self.belief.x, self.belief.y, self.belief.theta],
                                     dtype=DTYPE, device=DEVICE)
 
-        for iteration in range(100):  # More iterations for better convergence
+        # Early stopping variables
+        prev_loss = float('inf')
+        iterations_used = 0
+        max_iters = self.max_iterations_init if self.adaptive_cpu else 100
+
+        for iteration in range(max_iters):
             optimizer.zero_grad()
 
             if self.use_known_room_dimensions:
@@ -503,6 +593,16 @@ class RoomPoseEstimatorV2:
                 angle_reg = 0.1 * (torch.sin(angle_diff / 2) ** 2)
 
                 loss = sdf_loss + size_reg + pos_reg + angle_reg
+
+            iterations_used = iteration + 1
+
+            # Early stopping check (after minimum iterations)
+            if self.adaptive_cpu and iteration >= self.min_iterations:
+                loss_val = loss.item()
+                improvement = prev_loss - loss_val
+                if improvement < self.early_stop_threshold and improvement >= 0:
+                    break  # Converged
+                prev_loss = loss_val
 
             # Debug print occasionally
             if iteration % 50 == 0 and self.init_iterations < 5:
@@ -582,6 +682,8 @@ class RoomPoseEstimatorV2:
 
         self.init_iterations += 1
         self.stats['sdf_error_history'].append(mean_sdf_error)
+        self.stats['iterations_used'].append(iterations_used)
+        self._last_sdf_error = mean_sdf_error  # Update for adaptive CPU
 
         # Check convergence (no ground truth available!)
         # We can only check SDF error and iteration count
@@ -700,7 +802,12 @@ class RoomPoseEstimatorV2:
 
         optimizer = torch.optim.Adam([pose_params], lr=0.05)
 
-        for iteration in range(50):
+        # Early stopping variables for tracking
+        prev_loss = float('inf')
+        iterations_used = 0
+        max_iters = self.max_iterations_tracking if self.adaptive_cpu else 50
+
+        for iteration in range(max_iters):
             optimizer.zero_grad()
 
             # Likelihood: SDF error
@@ -718,11 +825,24 @@ class RoomPoseEstimatorV2:
             # Total Free Energy
             F = F_likelihood + prior_precision * F_prior
 
+            iterations_used = iteration + 1
+
+            # Early stopping check (after minimum iterations)
+            if self.adaptive_cpu and iteration >= self.min_iterations:
+                loss_val = F.item()
+                improvement = prev_loss - loss_val
+                if improvement < self.early_stop_threshold and improvement >= 0:
+                    break  # Converged
+                prev_loss = loss_val
+
             F.backward()
             optimizer.step()
 
             with torch.no_grad():
                 pose_params[2] = torch.atan2(torch.sin(pose_params[2]), torch.cos(pose_params[2]))
+
+        # Track iterations used
+        self.stats['iterations_used'].append(iterations_used)
 
         optimized_pose = np.array([pose_params[0].item(), pose_params[1].item(), pose_params[2].item()])
 
@@ -814,6 +934,7 @@ class RoomPoseEstimatorV2:
 
         # Compute final SDF error for diagnostics
         mean_sdf_error = torch.mean(torch.abs(sdf_opt)).detach().item()
+        self._last_sdf_error = mean_sdf_error  # Update for adaptive CPU
 
 
         # =====================================================================
@@ -834,7 +955,9 @@ class RoomPoseEstimatorV2:
             'room_params': self.belief.room_params.copy(),
             'belief_uncertainty': self.belief.uncertainty(),
             'innovation': innovation,  # [dx, dy, dtheta] prediction error
-            'prior_precision': self._adaptive_prior_precision
+            'prior_precision': self._adaptive_prior_precision,
+            'iterations_used': iterations_used,
+            'lidar_points_used': len(lidar_points)
         }
 
     def is_converged(self) -> bool:

@@ -122,6 +122,8 @@ class RoomViewerDPG(RoomObserver):
         # Plan running state (starts stopped)
         self.plan_running = False
         self._on_plan_toggle = None  # External callback
+        self._on_plan_selected = None  # Callback for plan selection
+        self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)"]  # Available plans
 
         # Current data
         self.data: ViewerData = ViewerData()
@@ -154,6 +156,11 @@ class RoomViewerDPG(RoomObserver):
         """Set callback invoked when the Start/Stop button is pressed.
         callback receives a single bool argument: True if plan is now running."""
         self._on_plan_toggle = callback
+
+    def set_plan_selected_callback(self, callback):
+        """Set callback for plan selection from dropdown.
+        Callback receives plan index (0-based)"""
+        self._on_plan_selected = callback
 
     def start(self):
         """Start the viewer in a separate thread"""
@@ -282,6 +289,12 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("● Ground Truth", color=(100, 255, 100))
                         dpg.add_text("· LIDAR points", color=(255, 200, 100))
                         dpg.add_spacer(height=5)
+                        dpg.add_text("Plan:", color=(200, 200, 200))
+                        dpg.add_combo(self.plan_names, tag="plan_combo",
+                                      default_value=self.plan_names[0],
+                                      callback=self._on_plan_combo_changed,
+                                      width=140)
+                        dpg.add_spacer(height=3)
                         dpg.add_button(label="Start Plan", tag="plan_button",
                                        callback=self._on_plan_button_clicked,
                                        width=100)
@@ -303,6 +316,16 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_item_label("plan_button", label)
         if self._on_plan_toggle:
             self._on_plan_toggle(self.plan_running)
+
+    def _on_plan_combo_changed(self, sender, app_data):
+        """Handle plan selection from combo"""
+        try:
+            plan_index = self.plan_names.index(app_data)
+            if self._on_plan_selected:
+                self._on_plan_selected(plan_index)
+            print(f"[Viewer] Plan selected: {app_data} (index {plan_index})")
+        except ValueError:
+            pass
 
     def _world_to_screen(self, x: float, y: float,
                          room_width: float, room_height: float) -> Tuple[float, float]:

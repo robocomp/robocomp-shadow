@@ -25,6 +25,7 @@ from genericworker import *
 import interfaces as ifaces
 import traceback
 import numpy as np
+import time
 from src.concept_room import RoomPoseEstimatorV2
 from src.room_viewer import RoomViewerDPG, RoomSubject, ViewerData, create_viewer_data
 from src.dsr_graph_viewer import DSRGraphViewerDPG
@@ -101,7 +102,30 @@ class SpecificWorker(GenericWorker):
             )
             self.viewer_subject.attach(self.room_viewer)
             self.plan_running = False
+            self.selected_plan = 0  # 0 = Basic, 1 = Circle
+
+            # Initialize trajectory state variables
+            self._trajectory_initialized = False
+            self._trajectory = []
+            self._current_action_idx = 0
+            self._action_step = 0
+            self._action_total_steps = 0
+            self._trajectory_complete = False
+            self._waiting_for_tracking = False
+
+            # Timing statistics
+            self._timing_stats = {
+                'lidar': [],
+                'estimator': [],
+                'explore': [],
+                'graph': [],
+                'total': [],
+                'iterations': [],
+                'lidar_points': []
+            }
+
             self.room_viewer.set_plan_toggle_callback(self._on_plan_toggle)
+            self.room_viewer.set_plan_selected_callback(self._on_plan_selected)
             self.room_viewer.start()
             print("[SpecificWorker] Room viewer started with integrated DSR panel (plan stopped)")
 
@@ -121,10 +145,20 @@ class SpecificWorker(GenericWorker):
         """Callback from viewer Start/Stop button"""
         self.plan_running = running
         if running:
-            print("[SpecificWorker] Plan STARTED")
+            # Reset trajectory when starting
+            self._trajectory_initialized = False
+            print(f"[SpecificWorker] Plan STARTED (using plan {self.selected_plan})")
         else:
             print("[SpecificWorker] Plan STOPPED")
             self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+
+    def _on_plan_selected(self, plan_index: int):
+        """Callback from viewer plan dropdown"""
+        self.selected_plan = plan_index
+        # Reset trajectory so it uses the new plan on next start
+        self._trajectory_initialized = False
+        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)"]
+        print(f"[SpecificWorker] Plan changed to: {plan_names[plan_index]}")
 
     @QtCore.Slot()
     def compute(self):
@@ -133,24 +167,80 @@ class SpecificWorker(GenericWorker):
         if not self.plan_running:
             return True
 
+        t_start = time.perf_counter()
+
         # Get lidar data (comes in mm, convert to meters)
         # LIDAR reflects robot position at time t
+        t0 = time.perf_counter()
         lidar_points = self.get_lidar_points()
+        t_lidar = time.perf_counter() - t0
 
         # Update room estimator using command from PREVIOUS step
         # The previous command was executed during interval [t-dt, t]
         # So LIDAR at time t reflects the result of that command
+        t0 = time.perf_counter()
         self.update_room_estimator(self.last_cmd, lidar_points)
+        t_estimator = time.perf_counter() - t0
 
         # Execute exploration movement and get the command for NEXT interval
         # This command will be executed during interval [t, t+dt]
+        t0 = time.perf_counter()
         self.last_cmd = self.explore_room()  # Returns (advx, advz, rot)
+        t_explore = time.perf_counter() - t0
 
         # Keep DSR graph in sync: insert room when converged, update RT edge each step
+        t0 = time.perf_counter()
         self.update_graph_from_estimator()
+        t_graph = time.perf_counter() - t0
+
+        t_total = time.perf_counter() - t_start
+
+        # Store timing stats
+        self._timing_stats['lidar'].append(t_lidar)
+        self._timing_stats['estimator'].append(t_estimator)
+        self._timing_stats['explore'].append(t_explore)
+        self._timing_stats['graph'].append(t_graph)
+        self._timing_stats['total'].append(t_total)
+
+        # Print timing every 50 steps
+        if self.total_steps > 0 and self.total_steps % 50 == 0:
+            self._print_timing_stats()
 
         self.total_steps += 1
         return True
+
+    def _print_timing_stats(self):
+        """Print timing statistics"""
+        n = len(self._timing_stats['total'])
+        if n == 0:
+            return
+
+        # Calculate averages in milliseconds
+        avg_lidar = np.mean(self._timing_stats['lidar']) * 1000
+        avg_estimator = np.mean(self._timing_stats['estimator']) * 1000
+        avg_explore = np.mean(self._timing_stats['explore']) * 1000
+        avg_graph = np.mean(self._timing_stats['graph']) * 1000
+        avg_total = np.mean(self._timing_stats['total']) * 1000
+
+        # Calculate percentages
+        if avg_total > 0:
+            pct_lidar = (avg_lidar / avg_total) * 100
+            pct_estimator = (avg_estimator / avg_total) * 100
+            pct_explore = (avg_explore / avg_total) * 100
+            pct_graph = (avg_graph / avg_total) * 100
+        else:
+            pct_lidar = pct_estimator = pct_explore = pct_graph = 0
+
+        print(f"\n⏱️  TIMING STATS (avg over {n} steps, Period={self.Period}ms):")
+        print(f"   LIDAR:     {avg_lidar:6.2f}ms ({pct_lidar:5.1f}%)")
+        print(f"   Estimator: {avg_estimator:6.2f}ms ({pct_estimator:5.1f}%)")
+        print(f"   Explore:   {avg_explore:6.2f}ms ({pct_explore:5.1f}%)")
+        print(f"   Graph:     {avg_graph:6.2f}ms ({pct_graph:5.1f}%)")
+        print(f"   TOTAL:     {avg_total:6.2f}ms")
+
+        # Clear stats for next batch
+        for key in self._timing_stats:
+            self._timing_stats[key] = []
 
     def update_room_estimator(self, last_cmd, lidar_points):
         """Update the room estimator with current sensor data.
@@ -311,7 +401,7 @@ class SpecificWorker(GenericWorker):
             # Get 2D LIDAR data (getLidarDataWithThreshold2d projects to horizontal plane)
             helios = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 8000, 4)
             # LIDAR points in robot frame: p.x = right, p.y = forward
-            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points])
+            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points if p.z > 1000])
 
 
         except Ice.Exception as e:
@@ -333,42 +423,63 @@ class SpecificWorker(GenericWorker):
         Returns:
             tuple: (advx, advz, rot) - the last command issued to the robot
         """
-        # Initialize trajectory on first call
-        if not hasattr(self, '_trajectory_initialized'):
+        # Initialize trajectory on first call or when reset
+        if not self._trajectory_initialized:
             self._init_trajectory()
 
         return self._execute_trajectory()
 
     def _init_trajectory(self):
-        """Initialize the trajectory system - CIRCULAR ARC MOVEMENT TEST"""
+        """Initialize the trajectory system based on selected plan
+
+        Plan 0 - Basic (Static): Wait for room detection without moving
+        Plan 1 - Circle: Advance 0.75m, then do a complete circle
+        """
         self._trajectory_initialized = True
 
         # Movement parameters
         self.advance_speed = 200.0    # mm/s
-        self.rotation_speed = 0.3     # rad/s
+        self.rotation_speed = 0.15    # rad/s - LOW SPEED for better detection
         self.period_sec = self.Period / 1000.0
 
-        # Circular arc trajectory using simultaneous forward + rotation
-        # 'arc' command: (forward_speed_factor, duration_seconds)
-        # The robot will move forward while rotating, creating a circular arc
-        self._trajectory = [
-            ('wait', 1.0),
-            ('forward', 0.75),   # Go out 0.75m from center
-            ('wait', 0.5),
-            # Complete a full circle (360°) while moving forward
-            # At rot=0.3 rad/s, 360° takes about 21 seconds
-            ('arc', 21.0),       # Circular arc for ~360°
-            ('wait', 1.0),
-            ('arc', 21.0),       # Another circle
-            ('wait', 2.0),
-        ]
+        if self.selected_plan == 0:
+            # Plan 0: Basic - Wait without moving for room detection
+            self._trajectory = [
+                ('wait', 10.0),          # Wait 10 seconds for room detection
+                ('hold_for_tracking', 0),  # Wait until tracking mode, then hold
+            ]
+            print("[Explorer] Using Plan 0: Basic (Static detection)")
+
+        elif self.selected_plan == 1:
+            # Plan 1: Circle - Advance 0.75m, then complete circle
+            # This plan moves immediately without waiting for tracking
+            # At rot=0.3 rad/s, 360° (2π rad) takes about 21 seconds
+            self.rotation_speed = 0.3  # Faster rotation for circle
+            self._trajectory = [
+                ('wait', 1.0),           # Initial stabilization
+                ('forward', 0.75),       # Advance 0.75m from center
+                ('wait', 0.5),
+                ('arc', 21.0),           # Circular arc for ~360° (full circle)
+                ('wait', 1.0),
+                # End of trajectory - robot stops
+            ]
+            print("[Explorer] Using Plan 1: Circle (0.75m + 360°)")
+
+        else:
+            # Default to basic plan
+            self._trajectory = [
+                ('wait', 10.0),
+                ('hold_for_tracking', 0),
+            ]
+            print(f"[Explorer] Unknown plan {self.selected_plan}, using Basic")
 
         self._current_action_idx = 0
         self._action_step = 0
         self._action_total_steps = 0
         self._trajectory_complete = False
+        self._waiting_for_tracking = False
 
-        #self._print_trajectory()
+        self._print_trajectory()
 
     def _print_trajectory(self):
         """Print the trajectory plan"""
@@ -378,18 +489,25 @@ class SpecificWorker(GenericWorker):
         for i, action in enumerate(self._trajectory):
             action_type, value = action
             if action_type == 'forward':
-                print(f"  {i+1}. Forward {value:.1f}m")
+                print(f"  {i+1}. Forward {value:.2f}m")
                 total_distance += value
             elif action_type == 'backward':
-                print(f"  {i+1}. Backward {value:.1f}m")
+                print(f"  {i+1}. Backward {value:.2f}m")
                 total_distance += value
             elif action_type == 'turn':
                 direction = "left" if value > 0 else "right"
                 print(f"  {i+1}. Turn {abs(value):.0f}° {direction}")
                 total_rotation += abs(value)
+            elif action_type == 'arc':
+                # Estimate rotation during arc (value is duration in seconds)
+                arc_rotation = np.degrees(self.rotation_speed * value)
+                print(f"  {i+1}. Arc {value:.1f}s (~{arc_rotation:.0f}°)")
+                total_rotation += arc_rotation
             elif action_type == 'wait':
                 print(f"  {i+1}. Wait {value:.1f}s")
-        print(f"  Total: {total_distance:.1f}m distance, {total_rotation:.0f}° rotation")
+            elif action_type == 'hold_for_tracking':
+                print(f"  {i+1}. HOLD - Wait for tracking mode")
+        print(f"  Total: {total_distance:.2f}m distance, {total_rotation:.0f}° rotation")
 
     def _execute_trajectory(self):
         """Execute the current action in the trajectory"""
@@ -410,6 +528,23 @@ class SpecificWorker(GenericWorker):
 
         # Get current action
         action_type, value = self._trajectory[self._current_action_idx]
+
+        # Handle special action: hold_for_tracking
+        if action_type == 'hold_for_tracking':
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+
+            # Check if estimator has transitioned to tracking mode
+            if self.room_estimator.phase == 'tracking':
+                if not self._waiting_for_tracking:
+                    print(f"[Explorer] Room detection complete! Entering TRACKING mode (robot holding position)")
+                    self._waiting_for_tracking = True
+                # Stay here - don't advance to next action, just hold position
+                # The robot will remain stationary in tracking mode
+            else:
+                if self._action_step == 0:
+                    print(f"[Explorer] Waiting for room detection to converge...")
+                self._action_step += 1
+            return cmd
 
         # Calculate steps needed for this action (on first step)
         if self._action_step == 0:
