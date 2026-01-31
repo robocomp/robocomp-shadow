@@ -123,13 +123,15 @@ class RoomViewerDPG(RoomObserver):
         self.data: ViewerData = ViewerData()
         self.data_lock = threading.Lock()
 
-        # Drawing area dimensions (room + optional DSR + stats)
+        # Drawing area dimensions - NEW LAYOUT:
+        # Top row: Room canvas + DSR panel (side by side)
+        # Bottom row: Stats panel (horizontal, full width)
         dsr_width = 400 if dsr_viewer else 0
-        stats_width = 200
-        self.draw_width = window_width - dsr_width - stats_width  # Room canvas
+        stats_height = 140  # Height of horizontal stats bar at bottom
+        self.draw_width = window_width - dsr_width - 20  # Room canvas width
         self.dsr_width = dsr_width  # DSR panel width
-        self.stats_width = stats_width
-        self.draw_height = window_height - 40
+        self.stats_height = stats_height
+        self.draw_height = window_height - stats_height - 50  # Room canvas height
 
         # DPG context
         self.is_running = False
@@ -190,6 +192,7 @@ class RoomViewerDPG(RoomObserver):
                        width=self.window_width, height=self.window_height,
                        no_title_bar=True, no_resize=True, no_move=True):
 
+            # TOP ROW: Room canvas + DSR panel (side by side)
             with dpg.group(horizontal=True):
                 # Drawing canvas (room)
                 with dpg.drawlist(width=self.draw_width, height=self.draw_height,
@@ -206,69 +209,78 @@ class RoomViewerDPG(RoomObserver):
                                         tag="dsr_canvas"):
                             pass
 
-                # Stats panel
-                with dpg.child_window(width=self.stats_width - 10, height=self.draw_height):
-                    dpg.add_text("STATISTICS", color=(255, 255, 0))
-                    dpg.add_separator()
+            # BOTTOM ROW: Stats panel (horizontal, full width)
+            with dpg.child_window(width=-1, height=self.stats_height):
+                with dpg.group(horizontal=True):
+                    # Column 1: Phase, Step, Room
+                    with dpg.group():
+                        dpg.add_text("STATUS", color=(255, 255, 0))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Phase:", color=(200, 200, 200))
+                            dpg.add_text("INIT", tag="phase_text", color=(0, 255, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Step:", color=(200, 200, 200))
+                            dpg.add_text("0", tag="step_text")
+                        dpg.add_spacer(height=5)
+                        dpg.add_text("ROOM", color=(255, 255, 0))
+                        dpg.add_text("Est: 0.0 x 0.0 m", tag="room_size_text")
+                        dpg.add_text("GT:  0.0 x 0.0 m", tag="room_gt_size_text", color=(100, 255, 100))
 
-                    dpg.add_text("Phase:", color=(200, 200, 200))
-                    dpg.add_text("INIT", tag="phase_text", color=(0, 255, 255))
+                    dpg.add_spacer(width=30)
 
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Step:", color=(200, 200, 200))
-                    dpg.add_text("0", tag="step_text")
+                    # Column 2: Motion Model
+                    with dpg.group():
+                        dpg.add_text("MOTION MODEL", color=(255, 200, 100))
+                        dpg.add_text("dx: 0.0 cm", tag="innov_x_text")
+                        dpg.add_text("dy: 0.0 cm", tag="innov_y_text")
+                        dpg.add_text("dθ: 0.0°", tag="innov_theta_text")
+                        dpg.add_text("Prior W: 0.000", tag="prior_weight_text")
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("ROOM", color=(255, 255, 0))
-                    dpg.add_text("Est: 0.0 x 0.0 m", tag="room_size_text")
-                    dpg.add_text("GT:  0.0 x 0.0 m", tag="room_gt_size_text", color=(100, 255, 100))
+                    dpg.add_spacer(width=30)
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("MOTION MODEL", color=(255, 200, 100))
-                    dpg.add_text("dx: 0.0 cm", tag="innov_x_text")
-                    dpg.add_text("dy: 0.0 cm", tag="innov_y_text")
-                    dpg.add_text("dθ: 0.0°", tag="innov_theta_text")
-                    dpg.add_text("Prior W: 0.000", tag="prior_weight_text")
+                    # Column 3: Estimated Pose
+                    with dpg.group():
+                        dpg.add_text("ESTIMATED", color=(100, 150, 255))
+                        dpg.add_text("X: 0.000 m", tag="est_x_text")
+                        dpg.add_text("Y: 0.000 m", tag="est_y_text")
+                        dpg.add_text("θ: 0.0°", tag="est_theta_text")
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("ESTIMATED POSE", color=(100, 150, 255))
-                    dpg.add_text("X: 0.000 m", tag="est_x_text")
-                    dpg.add_text("Y: 0.000 m", tag="est_y_text")
-                    dpg.add_text("θ: 0.0°", tag="est_theta_text")
+                    dpg.add_spacer(width=30)
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("GROUND TRUTH", color=(100, 255, 100))
-                    dpg.add_text("X: 0.000 m", tag="gt_x_text")
-                    dpg.add_text("Y: 0.000 m", tag="gt_y_text")
-                    dpg.add_text("θ: 0.0°", tag="gt_theta_text")
+                    # Column 4: Ground Truth
+                    with dpg.group():
+                        dpg.add_text("GROUND TRUTH", color=(100, 255, 100))
+                        dpg.add_text("X: 0.000 m", tag="gt_x_text")
+                        dpg.add_text("Y: 0.000 m", tag="gt_y_text")
+                        dpg.add_text("θ: 0.0°", tag="gt_theta_text")
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("ERRORS (vs GT)", color=(255, 255, 0))
-                    dpg.add_text("X err: 0.0 cm", tag="err_x_text")
-                    dpg.add_text("Y err: 0.0 cm", tag="err_y_text")
-                    dpg.add_text("θ err: 0.0°", tag="err_theta_text")
-                    dpg.add_text("Pose: 0.000 m", tag="pose_error_text")
-                    dpg.add_text("SDF: 0.000 m", tag="sdf_error_text")
+                    dpg.add_spacer(width=30)
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("LEGEND", color=(255, 255, 0))
-                    dpg.add_text("● Estimated", color=(100, 150, 255))
-                    dpg.add_text("● Ground Truth", color=(100, 255, 100))
-                    dpg.add_text("· LIDAR points", color=(255, 200, 100))
+                    # Column 5: Errors
+                    with dpg.group():
+                        dpg.add_text("ERRORS (vs GT)", color=(255, 255, 0))
+                        dpg.add_text("X err: 0.0 cm", tag="err_x_text")
+                        dpg.add_text("Y err: 0.0 cm", tag="err_y_text")
+                        dpg.add_text("θ err: 0.0°", tag="err_theta_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Pose:", color=(200, 200, 200))
+                            dpg.add_text("0.0 cm", tag="pose_error_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("SDF:", color=(200, 200, 200))
+                            dpg.add_text("0.000 m", tag="sdf_error_text")
 
-                    dpg.add_spacer(height=15)
-                    dpg.add_separator()
-                    dpg.add_text("PLAN CONTROL", color=(255, 255, 0))
-                    dpg.add_spacer(height=5)
-                    dpg.add_button(label="Start Plan", tag="plan_button",
-                                   callback=self._on_plan_button_clicked,
-                                   width=-1)
+                    dpg.add_spacer(width=30)
+
+                    # Column 6: Legend + Control
+                    with dpg.group():
+                        dpg.add_text("LEGEND", color=(255, 255, 0))
+                        dpg.add_text("● Estimated", color=(100, 150, 255))
+                        dpg.add_text("● Ground Truth", color=(100, 255, 100))
+                        dpg.add_text("· LIDAR points", color=(255, 200, 100))
+                        dpg.add_spacer(height=5)
+                        dpg.add_button(label="Start Plan", tag="plan_button",
+                                       callback=self._on_plan_button_clicked,
+                                       width=100)
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -538,11 +550,11 @@ class RoomViewerDPG(RoomObserver):
         dpg.configure_item("err_theta_text", color=err_theta_color)
 
         pose_err_color = (100, 255, 100) if data.pose_error < 0.05 else (255, 255, 100) if data.pose_error < 0.1 else (255, 100, 100)
-        dpg.set_value("pose_error_text", f"Pose: {data.pose_error*100:.1f} cm")
+        dpg.set_value("pose_error_text", f"{data.pose_error*100:.1f} cm")
         dpg.configure_item("pose_error_text", color=pose_err_color)
 
         sdf_err_color = (100, 255, 100) if data.sdf_error < 0.05 else (255, 255, 100) if data.sdf_error < 0.1 else (255, 100, 100)
-        dpg.set_value("sdf_error_text", f"SDF: {data.sdf_error:.3f} m")
+        dpg.set_value("sdf_error_text", f"{data.sdf_error:.3f} m")
         dpg.configure_item("sdf_error_text", color=sdf_err_color)
 
 
