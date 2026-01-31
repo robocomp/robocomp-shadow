@@ -1,0 +1,13 @@
+import "Lidar3D.idsl";
+
+Component box_concept
+{
+    Communications
+    {
+        requires Lidar3D;
+    };
+    language python;
+    options dsr;
+
+};
+
