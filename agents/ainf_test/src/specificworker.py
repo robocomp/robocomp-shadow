@@ -20,7 +20,6 @@
 #
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
 from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
@@ -28,6 +27,7 @@ import traceback
 import numpy as np
 from src.concept_room import RoomPoseEstimatorV2
 from src.room_viewer import RoomViewerDPG, RoomSubject, ViewerData, create_viewer_data
+from src.dsr_graph_viewer import DSRGraphViewerDPG
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -49,7 +49,7 @@ class SpecificWorker(GenericWorker):
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
             signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-            console.print("signals connected")
+            # console.print("signals connected")
         except RuntimeError as e:
             print(e)
     
@@ -74,17 +74,38 @@ class SpecificWorker(GenericWorker):
             self.sdf_errors = []
             self.stats_printed = False
 
-            # Create viewer with observer pattern
+            # DSR graph state
+            self.room_node_inserted = False  # True once room node is in the graph
+            self.room_node_id = 100          # ID for the room node
+
+            # Create room viewer with observer pattern
             self.viewer_subject = RoomSubject()
+
+            # Create DSR graph viewer (not started independently - integrated into room viewer)
+            self.dsr_viewer = DSRGraphViewerDPG(
+                g=self.g,
+                window_width=380,    # Width of DSR panel
+                window_height=560,   # Height adjusted for margins
+                update_period_ms=500,
+                canvas_tag="dsr_canvas"
+            )
+            print("[SpecificWorker] DSR graph viewer created")
+
+            # Create room viewer with integrated DSR viewer
             self.room_viewer = RoomViewerDPG(
-                window_width=1000,
-                window_height=700,
+                window_width=1400,   # Wider to accommodate DSR panel + stats
+                window_height=800,
                 margin=0.5,
-                show_lidar=True
+                show_lidar=True,
+                dsr_viewer=self.dsr_viewer
             )
             self.viewer_subject.attach(self.room_viewer)
+            self.plan_running = False
+            self.room_viewer.set_plan_toggle_callback(self._on_plan_toggle)
             self.room_viewer.start()
-            print("[SpecificWorker] Room viewer started")
+            print("[SpecificWorker] Room viewer started with integrated DSR panel (plan stopped)")
+
+            self.print_graph()
 
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
@@ -93,21 +114,40 @@ class SpecificWorker(GenericWorker):
         """Destructor"""
         if hasattr(self, 'room_viewer'):
             self.room_viewer.stop()
+        # dsr_viewer is integrated into room_viewer, no separate cleanup needed
 
+
+    def _on_plan_toggle(self, running: bool):
+        """Callback from viewer Start/Stop button"""
+        self.plan_running = running
+        if running:
+            print("[SpecificWorker] Plan STARTED")
+        else:
+            print("[SpecificWorker] Plan STOPPED")
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
 
     @QtCore.Slot()
     def compute(self):
         """Main computation loop - called periodically"""
 
+        if not self.plan_running:
+            return True
+
         # Get lidar data (comes in mm, convert to meters)
+        # LIDAR reflects robot position at time t
         lidar_points = self.get_lidar_points()
 
-        # Execute exploration movement and get the command issued
+        # Update room estimator using command from PREVIOUS step
+        # The previous command was executed during interval [t-dt, t]
+        # So LIDAR at time t reflects the result of that command
+        self.update_room_estimator(self.last_cmd, lidar_points)
+
+        # Execute exploration movement and get the command for NEXT interval
+        # This command will be executed during interval [t, t+dt]
         self.last_cmd = self.explore_room()  # Returns (advx, advz, rot)
 
-        # Update room estimator using ONLY velocity commands (dead reckoning)
-        # Ground truth is NOT passed to the estimator - only used for error reporting
-        self.update_room_estimator(self.last_cmd, lidar_points)
+        # Keep DSR graph in sync: insert room when converged, update RT edge each step
+        self.update_graph_from_estimator()
 
         self.total_steps += 1
         return True
@@ -126,14 +166,15 @@ class SpecificWorker(GenericWorker):
         if len(lidar_points) > 0:
             # Convert last command to velocity in m/s for the estimator
             # last_cmd = (advx, advz, rot) where advx=lateral, advz=forward in mm/s
-            # IMPORTANT: Negate angular velocity to match negated theta from ground truth
+            # Angular velocity must be negated to match negated theta from ground truth:
+            # If simulator theta changes by +ω*dt, our internal theta changes by -ω*dt
             velocity = np.array([last_cmd[0] / 1000.0, last_cmd[1] / 1000.0])  # [vx, vy] in m/s
             angular_velocity = -last_cmd[2]  # rad/s (negated to match coordinate transform)
 
             # Debug: print command conversion occasionally
-            if self.total_steps % 100 == 0:
-                print(f"[Command] last_cmd=({last_cmd[0]:.0f}, {last_cmd[1]:.0f}, {last_cmd[2]:.3f}) "
-                      f"-> velocity=({velocity[0]:.3f}, {velocity[1]:.3f}), omega={angular_velocity:.3f}")
+            # if self.total_steps % 100 == 0:
+            #     print(f"[Command] last_cmd=({last_cmd[0]:.0f}, {last_cmd[1]:.0f}, {last_cmd[2]:.3f}) "
+            #           f"-> velocity=({velocity[0]:.3f}, {velocity[1]:.3f}), omega={angular_velocity:.3f}")
 
             # Time step in seconds
             dt = self.Period / 1000.0
@@ -174,7 +215,7 @@ class SpecificWorker(GenericWorker):
                 print(f"[Step {self.total_steps}] Phase: {phase}, SDF: {sdf_err:.3f}, "
                       f"Pose_err: {pose_error:.3f}m, Angle_err: {np.degrees(abs(angle_error)):.1f}°, Uncertainty: {uncertainty:.3f}")
 
-                # Ground truth (from simulator)
+                #Ground truth (from simulator)
                 print(f"  Ground truth: x={gt_x:.3f}m, y={gt_y:.3f}m, theta={gt_theta:.3f}rad ({np.degrees(gt_theta):.1f}°)")
 
                 # Estimated pose (from Active Inference)
@@ -285,16 +326,14 @@ class SpecificWorker(GenericWorker):
     def get_lidar_points(self) -> np.ndarray:
         """Get LIDAR points projected to 2D horizontal plane
 
-        Coordinate convention: x+ = left, y+ = forward
+        Coordinate convention in robot frame: x+ = right, y+ = forward
         """
         try:
             # Get 2D LIDAR data (getLidarDataWithThreshold2d projects to horizontal plane)
             # Parameters: sensor_name, max_distance_mm, decimation_factor
             helios = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 8000, 4)
 
-            # LIDAR points: p.x = left, p.y = forward
-            # Estimator expects: [x, y] where x = left, y = forward
-            # So use [p.x, p.y] directly (no swap needed)
+            # LIDAR points in robot frame: p.x = right, p.y = forward
             lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points])
 
             # Debug: print LIDAR stats periodically
@@ -302,7 +341,7 @@ class SpecificWorker(GenericWorker):
                 x_range = lidar_points[:,0].max() - lidar_points[:,0].min()
                 y_range = lidar_points[:,1].max() - lidar_points[:,1].min()
                 print(f"[LIDAR] {len(lidar_points)} points")
-                print(f"  x_left range: [{lidar_points[:,0].min():.2f}, {lidar_points[:,0].max():.2f}] = {x_range:.2f}m")
+                print(f"  x_right range: [{lidar_points[:,0].min():.2f}, {lidar_points[:,0].max():.2f}] = {x_range:.2f}m")
                 print(f"  y_forward range: [{lidar_points[:,1].min():.2f}, {lidar_points[:,1].max():.2f}] = {y_range:.2f}m")
 
         except Ice.Exception as e:
@@ -389,9 +428,7 @@ class SpecificWorker(GenericWorker):
         self._action_total_steps = 0
         self._trajectory_complete = False
 
-        print(f"[Explorer] Square trajectory initialized: {square_side}m sides, 3 loops")
-        print(f"           Total {len(self._trajectory)} actions")
-        self._print_trajectory()
+        #self._print_trajectory()
 
     def _print_trajectory(self):
         """Print the trajectory plan"""
@@ -437,8 +474,8 @@ class SpecificWorker(GenericWorker):
         # Calculate steps needed for this action (on first step)
         if self._action_step == 0:
             self._action_total_steps = self._calculate_action_steps(action_type, value)
-            print(f"[Explorer] Action {self._current_action_idx + 1}/{len(self._trajectory)}: "
-                  f"{action_type} {value} ({self._action_total_steps} steps)")
+            #print(f"[Explorer] Action {self._current_action_idx + 1}/{len(self._trajectory)}: "
+            #      f"{action_type} {value} ({self._action_total_steps} steps)")
 
         # Execute action
         if action_type == 'forward':
@@ -542,31 +579,133 @@ class SpecificWorker(GenericWorker):
         y_transformed = -pose.y
 
         # Debug: print raw values occasionally to understand coordinate convention
-        if hasattr(self, 'total_steps') and self.total_steps % 100 == 0:
-            print(f"[GT RAW] pose.x={pose.x:.3f}, pose.y={pose.y:.3f}, pose.rz={pose.rz:.3f}")
-            print(f"       → x={x_transformed:.3f}, y={y_transformed:.3f}, theta={normalized_theta:.3f}")
+        # if hasattr(self, 'total_steps') and self.total_steps % 100 == 0:
+        #     print(f"[GT RAW] pose.x={pose.x:.3f}, pose.y={pose.y:.3f}, pose.rz={pose.rz:.3f}")
+        #     print(f"       → x={x_transformed:.3f}, y={y_transformed:.3f}, theta={normalized_theta:.3f}")
 
         self.robot_pose_gt = [x_transformed, y_transformed, normalized_theta]
 
+
+    # =============== DSR GRAPH MANAGEMENT  ================
+    # =====================================================
+
+    def insert_room_node(self):
+        """Create room node and RT edge room→robot when room estimation converges."""
+        belief = self.room_estimator.belief
+        if belief is None:
+            return
+
+        # Create room node
+        room_node = Node(agent_id=self.agent_id, type="room", name="room")
+        room_node.attrs["color"] = Attribute("GreenYellow", self.agent_id)
+        room_node.attrs["level"] = Attribute(0, self.agent_id)
+        room_node.attrs["pos_x"] = Attribute(float(0), self.agent_id)
+        room_node.attrs["pos_y"] = Attribute(float(0), self.agent_id)
+        room_node.attrs["room_width"] = Attribute(float(belief.width * 1000), self.agent_id)   # mm
+        room_node.attrs["room_length"] = Attribute(float(belief.length * 1000), self.agent_id)  # mm
+
+        new_id = self.g.insert_node(room_node)
+        if new_id is not None:
+            self.room_node_id = new_id
+            self.room_node_inserted = True
+            print(f"[DSR] Room node inserted with id={new_id}, "
+                  f"size={belief.width:.2f}x{belief.length:.2f}m")
+
+            # Update robot node: set parent to room
+            robot_node = self.g.get_node("robot")
+            if robot_node:
+                robot_node.attrs["parent"] = Attribute(int(new_id), self.agent_id)
+                robot_node.attrs["level"] = Attribute(1, self.agent_id)
+                self.g.update_node(robot_node)
+
+            # Create RT edge room → robot with current estimated pose
+            self._update_rt_edge(belief)
+        else:
+            print("[DSR] ERROR: Failed to insert room node")
+
+    def _update_rt_edge(self, belief):
+        """Create or update the RT edge from room to robot with the current pose.
+        Translation in mm, rotation in radians."""
+        robot_node = self.g.get_node("robot")
+        if robot_node is None:
+            return
+
+        # Translation: belief pose is in meters, DSR uses mm
+        translation = [float(belief.x * 1000),
+                       float(belief.y * 1000),
+                       0.0]
+        rotation = [0.0, 0.0, float(belief.theta)]
+
+        # SE(2) covariance [x, y, θ] as flattened 3x3 → 9 floats
+        cov = belief.pose_cov.flatten().tolist()
+
+        rt_edge = Edge(robot_node.id, self.room_node_id, "RT", self.agent_id)
+        rt_edge.attrs["rt_translation"] = Attribute(translation, self.agent_id)
+        rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(rotation, self.agent_id)
+        rt_edge.attrs["rt_se2_covariance"] = Attribute(cov, self.agent_id)
+
+        self.g.insert_or_assign_edge(rt_edge)
+
+    def update_graph_from_estimator(self):
+        """Called each compute step to keep the graph in sync with the estimator."""
+        belief = self.room_estimator.belief
+        if belief is None:
+            return
+
+        if self.room_estimator.phase == 'tracking' and not self.room_node_inserted:
+            # Room just converged — insert room node + first RT edge
+            self.insert_room_node()
+        elif self.room_node_inserted:
+            # Update RT edge with latest pose
+            self._update_rt_edge(belief)
+
+    def print_graph(self):
+        """Read and print the entire DSR graph: all nodes with their attributes,
+        and for each node all its edges with their attributes."""
+        nodes = self.g.get_nodes()
+        if not nodes:
+            console.print("[bold red]Graph is empty[/bold red]")
+            return
+
+        console.print(f"\n[bold cyan]===== DSR Graph ({len(nodes)} nodes) =====[/bold cyan]")
+
+        for node in nodes:
+            # Print node header
+            console.print(f"\n[bold yellow]Node[/bold yellow] id={node.id}  name='{node.name}'  type='{node.type}'")
+
+            # Print node attributes
+            if node.attrs:
+                for attr_name, attr in node.attrs.items():
+                    console.print(f"  [green]attr[/green] {attr_name} = {attr.value}")
+
+            # Print edges from this node
+            if node.edges:
+                for edge_key, edge in node.edges.items():
+                    console.print(f"  [magenta]edge[/magenta] ({edge.origin}) --[{edge.type}]--> ({edge.destination})")
+                    # Print edge attributes
+                    if edge.attrs:
+                        for attr_name, attr in edge.attrs.items():
+                            console.print(f"    [dim]edge attr[/dim] {attr_name} = {attr.value}")
+
+        console.print(f"\n[bold cyan]===== End of Graph =====[/bold cyan]\n")
 
     # =============== DSR SLOTS  ================
     # =============================================
 
     def update_node_att(self, id: int, attribute_names: [str]):
-        console.print(f"UPDATE NODE ATT: {id} {attribute_names}", style='green')
+        pass
 
     def update_node(self, id: int, type: str):
-        console.print(f"UPDATE NODE: {id} {type}", style='green')
+        pass
 
     def delete_node(self, id: int):
-        console.print(f"DELETE NODE:: {id} ", style='green')
+        pass
 
     def update_edge(self, fr: int, to: int, type: str):
-
-        console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        pass
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
-        console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')
+        pass
 
     def delete_edge(self, fr: int, to: int, type: str):
-        console.print(f"DELETE EDGE: {fr} to {type} {type}", style='green')
+        pass

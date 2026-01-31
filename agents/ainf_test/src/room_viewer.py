@@ -42,6 +42,7 @@ class ViewerData:
     phase: str = "init"
     sdf_error: float = 0.0
     pose_error: float = 0.0
+    angle_error: float = 0.0   # Prediction error: angle difference in degrees
     step: int = 0
 
     def __post_init__(self):
@@ -86,7 +87,8 @@ class RoomViewerDPG(RoomObserver):
                  window_width: int = 800,
                  window_height: int = 600,
                  margin: float = 1.0,
-                 show_lidar: bool = True):
+                 show_lidar: bool = True,
+                 dsr_viewer=None):
         """
         Initialize the room viewer.
 
@@ -95,18 +97,28 @@ class RoomViewerDPG(RoomObserver):
             window_height: Window height in pixels
             margin: Extra margin around room in meters
             show_lidar: Whether to display LIDAR points
+            dsr_viewer: Optional DSRGraphViewerDPG instance to integrate side-by-side
         """
         self.window_width = window_width
         self.window_height = window_height
         self.margin = margin
         self.show_lidar = show_lidar
+        self.dsr_viewer = dsr_viewer
+
+        # Plan running state (starts stopped)
+        self.plan_running = False
+        self._on_plan_toggle = None  # External callback
 
         # Current data
         self.data: ViewerData = ViewerData()
         self.data_lock = threading.Lock()
 
-        # Drawing area dimensions (leave space for stats panel)
-        self.draw_width = window_width - 200  # Stats panel on right
+        # Drawing area dimensions (room + optional DSR + stats)
+        dsr_width = 400 if dsr_viewer else 0
+        stats_width = 200
+        self.draw_width = window_width - dsr_width - stats_width  # Room canvas
+        self.dsr_width = dsr_width  # DSR panel width
+        self.stats_width = stats_width
         self.draw_height = window_height - 40
 
         # DPG context
@@ -121,6 +133,11 @@ class RoomViewerDPG(RoomObserver):
         self.pose_error_history: List[float] = []
         self.sdf_error_history: List[float] = []
         self.max_history = 500
+
+    def set_plan_toggle_callback(self, callback):
+        """Set callback invoked when the Start/Stop button is pressed.
+        callback receives a single bool argument: True if plan is now running."""
+        self._on_plan_toggle = callback
 
     def start(self):
         """Start the viewer in a separate thread"""
@@ -164,13 +181,23 @@ class RoomViewerDPG(RoomObserver):
                        no_title_bar=True, no_resize=True, no_move=True):
 
             with dpg.group(horizontal=True):
-                # Drawing canvas
+                # Drawing canvas (room)
                 with dpg.drawlist(width=self.draw_width, height=self.draw_height,
                                  tag="canvas"):
                     pass
 
+                # DSR Graph panel (if dsr_viewer provided)
+                if self.dsr_viewer:
+                    with dpg.child_window(width=self.dsr_width - 10, height=self.draw_height, tag="dsr_panel"):
+                        dpg.add_text("DSR GRAPH", color=(100, 255, 100))
+                        dpg.add_separator()
+                        # Create drawlist for DSR graph
+                        with dpg.drawlist(width=self.dsr_width - 20, height=self.draw_height - 60,
+                                        tag="dsr_canvas"):
+                            pass
+
                 # Stats panel
-                with dpg.child_window(width=190, height=self.draw_height):
+                with dpg.child_window(width=self.stats_width - 10, height=self.draw_height):
                     dpg.add_text("STATISTICS", color=(255, 255, 0))
                     dpg.add_separator()
 
@@ -205,6 +232,7 @@ class RoomViewerDPG(RoomObserver):
                     dpg.add_text("ERRORS", color=(255, 255, 0))
                     dpg.add_text("Pose: 0.000 m", tag="pose_error_text")
                     dpg.add_text("SDF: 0.000 m", tag="sdf_error_text")
+                    dpg.add_text("Pred: 0.0°", tag="pred_error_text")
 
                     dpg.add_spacer(height=10)
                     dpg.add_separator()
@@ -212,6 +240,14 @@ class RoomViewerDPG(RoomObserver):
                     dpg.add_text("● Estimated", color=(100, 150, 255))
                     dpg.add_text("● Ground Truth", color=(100, 255, 100))
                     dpg.add_text("· LIDAR points", color=(255, 200, 100))
+
+                    dpg.add_spacer(height=15)
+                    dpg.add_separator()
+                    dpg.add_text("PLAN CONTROL", color=(255, 255, 0))
+                    dpg.add_spacer(height=5)
+                    dpg.add_button(label="Start Plan", tag="plan_button",
+                                   callback=self._on_plan_button_clicked,
+                                   width=-1)
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -222,6 +258,14 @@ class RoomViewerDPG(RoomObserver):
             dpg.render_dearpygui_frame()
 
         dpg.destroy_context()
+
+    def _on_plan_button_clicked(self, sender, app_data):
+        """Handle Start/Stop plan button click"""
+        self.plan_running = not self.plan_running
+        label = "Stop Plan" if self.plan_running else "Start Plan"
+        dpg.set_item_label("plan_button", label)
+        if self._on_plan_toggle:
+            self._on_plan_toggle(self.plan_running)
 
     def _world_to_screen(self, x: float, y: float,
                          room_width: float, room_height: float) -> Tuple[float, float]:
@@ -291,6 +335,10 @@ class RoomViewerDPG(RoomObserver):
 
         # Update stats panel
         self._update_stats(data)
+
+        # Update DSR graph viewer if present
+        if self.dsr_viewer:
+            self.dsr_viewer.update()
 
     def _draw_room(self, width: float, height: float):
         """Draw room boundaries"""
@@ -453,6 +501,10 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("sdf_error_text", f"SDF: {data.sdf_error:.3f} m")
         dpg.configure_item("sdf_error_text", color=sdf_err_color)
 
+        pred_err_color = (100, 255, 100) if data.angle_error < 5.0 else (255, 255, 100) if data.angle_error < 15.0 else (255, 100, 100)
+        dpg.set_value("pred_error_text", f"Pred: {data.angle_error:.1f}°")
+        dpg.configure_item("pred_error_text", color=pred_err_color)
+
 
 class RoomSubject:
     """
@@ -540,6 +592,10 @@ def create_viewer_data(room_estimator,
         (data.estimated_pose.x - data.ground_truth_pose.x)**2 +
         (data.estimated_pose.y - data.ground_truth_pose.y)**2
     )
+
+    # Compute prediction (angle) error in degrees
+    angle_diff = data.estimated_pose.theta - data.ground_truth_pose.theta
+    data.angle_error = abs(np.degrees(np.arctan2(np.sin(angle_diff), np.cos(angle_diff))))
 
     # Get latest SDF error from stats
     if len(room_estimator.stats['sdf_error_history']) > 0:
