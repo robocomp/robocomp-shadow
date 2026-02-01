@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from typing import Optional, Tuple, Dict
 from dataclasses import dataclass
+from src.pointcloud_center_estimator import PointcloudCenterEstimator, EstimatorConfig, OBB
 
 
 # Use float32 for speed, GPU if available
@@ -376,8 +377,16 @@ class RoomPoseEstimatorV2:
         """
         Update room and pose estimates using Active Inference.
 
+        This method implements GT-free estimation: ground truth is NOT used
+        for state estimation. The robot_pose_gt parameter is kept only for
+        API compatibility and performance evaluation.
+
+        INIT phase: Uses PointcloudCenterEstimator (OBB-based) for initial state
+        TRACKING phase: Uses motion model + LIDAR SDF correction
+
         Args:
-            robot_pose_gt: Ground truth pose [x, y, theta] - used ONLY for initial approximation
+            robot_pose_gt: Ground truth pose [x, y, theta] - NOT USED for estimation,
+                           only for performance metrics and compatibility
             robot_velocity: Velocity command [vx, vy] in m/s (vx=lateral, vy=forward)
             angular_velocity: Angular velocity command in rad/s
             dt: Time step in seconds
@@ -426,116 +435,116 @@ class RoomPoseEstimatorV2:
 
     def _estimate_initial_state_from_lidar(self,
                                            all_points: torch.Tensor,
-                                           robot_pose_gt: np.ndarray) -> Tuple[float, float, float, float, float, float, float, float]:
+                                           robot_pose_gt: np.ndarray = None) -> Tuple[float, float, float, float, float, float, float, float]:
         """
-        Estimate room dimensions and robot orientation from LIDAR points with Gaussian priors.
+        Estimate room dimensions and robot pose from LIDAR points WITHOUT ground truth.
 
-        Uses Bayesian fusion:
-        - Prior for room: N(μ_width=6m, σ²=1) and N(μ_length=4m, σ²=1)
-        - Prior for orientation: N(μ_theta=0, σ²=1)
-        - Likelihood: estimated from LIDAR point geometry
+        Uses the PointcloudCenterEstimator which implements:
+        1. Boundary point extraction (farthest point per angular sector)
+        2. Statistical outlier removal
+        3. Convex hull computation
+        4. Minimum-area Oriented Bounding Box (OBB) via rotating calipers
 
-        The orientation is estimated by finding the principal axes of the LIDAR points
-        using PCA and aligning them with the room axes.
+        The OBB provides:
+        - center: Room center in robot frame → robot position = -center
+        - width, height: Room dimensions
+        - rotation: Room orientation → robot theta = -rotation
 
-        Convention: width is the larger dimension (x-axis), length is smaller (y-axis)
+        This method is GT-free: robot_pose_gt parameter is kept for API compatibility
+        but is NOT used in the estimation.
+
+        Mathematical basis (main.tex Sec. 5.2.1):
+            The room geometry defines the generative model. By finding the OBB
+            that best fits the wall points, we infer the latent room state
+            (W, L) and robot pose (x, y, θ) simultaneously.
 
         Args:
-            all_points: [N, 2] LIDAR points in robot frame
-            robot_pose_gt: [x, y, theta] approximate robot pose (used for position only)
+            all_points: [N, 2] LIDAR points in robot frame (torch tensor)
+            robot_pose_gt: UNUSED - kept for API compatibility only
 
         Returns:
             (est_width, est_length, width_var, length_var, est_theta, theta_var, est_pos_x, est_pos_y)
         """
         points_np = all_points.cpu().numpy()
 
-        # Compute raw spreads in robot frame
-        raw_x_spread = np.max(points_np[:, 0]) - np.min(points_np[:, 0])
-        raw_y_spread = np.max(points_np[:, 1]) - np.min(points_np[:, 1])
+        # Use PointcloudCenterEstimator for robust, GT-free estimation
+        estimator = PointcloudCenterEstimator(EstimatorConfig(
+            min_range=0.3,
+            max_range=10.0,
+            num_sectors=72,
+            min_valid_points=20,
+            outlier_std_threshold=2.0
+        ))
 
-        # Use PCA to find principal axes
-        centroid = np.mean(points_np, axis=0)
-        centered = points_np - centroid
-        cov_matrix = np.cov(centered.T)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+        obb = estimator.estimate(points_np)
 
-        # Sort by eigenvalue (largest first)
-        idx = np.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[idx]
-        eigenvectors = eigenvectors[:, idx]
+        if obb is not None:
+            # OBB gives room center in robot frame
+            # Robot position in room frame is the negative of this
+            est_pos_x = -obb.center[0]
+            est_pos_y = -obb.center[1]
 
-        # Major axis angle from y-axis
-        major_axis = eigenvectors[:, 0]
-        pca_angle = np.arctan2(major_axis[0], major_axis[1])
+            # Room dimensions from OBB (width >= height by convention)
+            est_width = obb.width
+            est_length = obb.height
 
-        # Estimate theta using prior from GT
-        prior_theta = robot_pose_gt[2] if robot_pose_gt is not None else 0.0
-        prior_theta_var = 0.3 ** 2
-        lidar_theta_var = 0.5 ** 2
+            # Robot orientation: negative of OBB rotation
+            # (OBB rotation aligns room axes with world, robot theta is inverse)
+            est_theta = -obb.rotation
 
-        theta_var = (prior_theta_var * lidar_theta_var) / (prior_theta_var + lidar_theta_var)
-
-        w_prior = lidar_theta_var / (prior_theta_var + lidar_theta_var)
-        w_lidar = prior_theta_var / (prior_theta_var + lidar_theta_var)
-
-        sin_theta = w_prior * np.sin(prior_theta) + w_lidar * np.sin(pca_angle)
-        cos_theta = w_prior * np.cos(prior_theta) + w_lidar * np.cos(pca_angle)
-        est_theta = np.arctan2(sin_theta, cos_theta)
-
-        # Compute dimensions in room-aligned frame
-        cos_t = np.cos(-est_theta)
-        sin_t = np.sin(-est_theta)
-        aligned_x = cos_t * points_np[:, 0] - sin_t * points_np[:, 1]
-        aligned_y = sin_t * points_np[:, 0] + cos_t * points_np[:, 1]
-
-        max_x, min_x = np.max(aligned_x), np.min(aligned_x)
-        max_y, min_y = np.max(aligned_y), np.min(aligned_y)
-
-        lidar_dim_x = max_x - min_x + 0.2
-        lidar_dim_y = max_y - min_y + 0.2
-
-        # Assign dimensions ensuring width >= length
-        prior_width = 6.0
-        prior_length = 4.0
-        prior_dim_var = 1.0 ** 2
-        lidar_dim_var = 1.0 ** 2
-
-        if lidar_dim_x >= lidar_dim_y:
-            lidar_width = lidar_dim_x
-            lidar_length = lidar_dim_y
-            theta_adjustment = 0.0
-        else:
-            lidar_width = lidar_dim_y
-            lidar_length = lidar_dim_x
-            theta_adjustment = np.pi / 2
-            est_theta += theta_adjustment
+            # Normalize theta to [-π, π]
             est_theta = np.arctan2(np.sin(est_theta), np.cos(est_theta))
 
+            # Variance estimates based on point density and spread
+            # More points = lower variance, larger spread = higher confidence
+            n_points = len(points_np)
+            base_var = 1.0 / np.sqrt(n_points) if n_points > 0 else 1.0
+
+            width_var = base_var * 0.5   # Dimension variance
+            length_var = base_var * 0.5
+            theta_var = base_var * 0.3   # Orientation variance
+
+        else:
+            # Fallback: use simple statistics if OBB estimation failed
+            print("[RoomEstimator] OBB estimation failed, using fallback")
+
+            # Simple centroid-based estimation
+            centroid = np.median(points_np, axis=0)
+            est_pos_x = -centroid[0]
+            est_pos_y = -centroid[1]
+
+            # Dimensions from point spread
+            est_width = np.max(points_np[:, 0]) - np.min(points_np[:, 0])
+            est_length = np.max(points_np[:, 1]) - np.min(points_np[:, 1])
+
+            # Ensure width >= length
+            if est_width < est_length:
+                est_width, est_length = est_length, est_width
+                est_theta = np.pi / 2
+            else:
+                est_theta = 0.0
+
+            # High variance for fallback
+            width_var = 1.0
+            length_var = 1.0
+            theta_var = 0.5
+
+        # Apply Gaussian priors for regularization (soft constraints)
+        prior_width = 6.0
+        prior_length = 4.0
+        prior_dim_var = 1.0
+
         # Bayesian fusion with priors
-        width_var = (prior_dim_var * lidar_dim_var) / (prior_dim_var + lidar_dim_var)
-        length_var = (prior_dim_var * lidar_dim_var) / (prior_dim_var + lidar_dim_var)
+        est_width = (prior_dim_var * est_width + width_var * prior_width) / (prior_dim_var + width_var)
+        est_length = (prior_dim_var * est_length + length_var * prior_length) / (prior_dim_var + length_var)
 
-        est_width = (lidar_dim_var * prior_width + prior_dim_var * lidar_width) / (prior_dim_var + lidar_dim_var)
-        est_length = (lidar_dim_var * prior_length + prior_dim_var * lidar_length) / (prior_dim_var + lidar_dim_var)
-
+        # Clamp to reasonable bounds
         est_width = np.clip(est_width, 3.0, 12.0)
         est_length = np.clip(est_length, 2.0, 8.0)
 
-        # Estimate robot position
-        center_x = (max_x + min_x) / 2.0
-        center_y = (max_y + min_y) / 2.0
-
-        cos_t_inv = np.cos(est_theta)
-        sin_t_inv = np.sin(est_theta)
-        est_pos_x = cos_t_inv * center_x - sin_t_inv * center_y
-        est_pos_y = sin_t_inv * center_x + cos_t_inv * center_y
-
-        # Fuse with GT prior for position
-        if robot_pose_gt is not None:
-            pos_prior_var = 0.5
-            pos_lidar_var = 2.0
-            est_pos_x = (pos_lidar_var * robot_pose_gt[0] + pos_prior_var * est_pos_x) / (pos_prior_var + pos_lidar_var)
-            est_pos_y = (pos_lidar_var * robot_pose_gt[1] + pos_prior_var * est_pos_y) / (pos_prior_var + pos_lidar_var)
+        # Update variances after fusion
+        width_var = (prior_dim_var * width_var) / (prior_dim_var + width_var)
+        length_var = (prior_dim_var * length_var) / (prior_dim_var + length_var)
 
         return est_width, est_length, width_var, length_var, est_theta, theta_var, est_pos_x, est_pos_y
 

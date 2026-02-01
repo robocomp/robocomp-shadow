@@ -60,12 +60,33 @@ $$\begin{pmatrix} v_x^{world} \\ v_y^{world} \end{pmatrix} = R(\theta_t) \cdot \
 
 ### Phase 1: Initialization (Static Robot)
 
-**Objective**: Estimate full state $\mathbf{s} = (x, y, \theta, W, L)$ from accumulated LIDAR points.
+**Objective**: Estimate full state $\mathbf{s} = (x, y, \theta, W, L)$ from accumulated LIDAR points **without ground truth**.
 
-#### Prior Distribution
+#### GT-Free Initial State Estimation
+
+The initial state is estimated using geometric analysis of LIDAR points via Oriented Bounding Box (OBB):
+
+1. **Boundary Point Extraction**: For each angular sector, take the farthest point (wall detection)
+2. **Statistical Outlier Removal**: Remove points with abnormal neighbor distances
+3. **Convex Hull**: Compute hull of boundary points using Graham Scan
+4. **Minimum-Area OBB**: Find optimal bounding box using Rotating Calipers algorithm
+
+The OBB provides:
+- **Room center in robot frame**: $\mathbf{c}_{OBB} = (c_x, c_y)$
+- **Room dimensions**: $(W, L) = (\text{width}, \text{height})$ with $W \geq L$
+- **Room orientation**: $\phi_{OBB}$
+
+**Robot pose from OBB**:
+$$x = -c_x, \quad y = -c_y, \quad \theta = -\phi_{OBB}$$
+
+#### Prior Distribution (Regularization)
 Gaussian priors on room dimensions:
 $$p(W) = \mathcal{N}(\mu_W = 6, \sigma_W^2 = 1)$$
 $$p(L) = \mathcal{N}(\mu_L = 4, \sigma_L^2 = 1)$$
+
+#### Bayesian Fusion
+OBB estimates are fused with priors:
+$$\hat{W} = \frac{\sigma_{OBB}^2 \mu_W + \sigma_{prior}^2 W_{OBB}}{\sigma_{prior}^2 + \sigma_{OBB}^2}$$
 
 #### Likelihood (SDF Error)
 $$p(\mathbf{z} | \mathbf{s}) \propto \exp\left( -\frac{1}{2\sigma_{sdf}^2} \sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i^{room})^2 \right)$$
@@ -74,7 +95,7 @@ $$p(\mathbf{z} | \mathbf{s}) \propto \exp\left( -\frac{1}{2\sigma_{sdf}^2} \sum_
 Minimize negative log-posterior:
 $$\mathcal{L}_{init} = \underbrace{\frac{1}{N}\sum_{i=1}^{N} \text{SDF}^2}_{\text{Likelihood}} + \underbrace{\lambda_{reg} \|\mathbf{s} - \mathbf{s}_0\|^2}_{\text{Regularization}}$$
 
-Solved via gradient descent using PyTorch autograd.
+Solved via gradient descent using PyTorch autograd, initialized with GT-free OBB estimates.
 
 ---
 
