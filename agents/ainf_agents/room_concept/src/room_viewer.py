@@ -113,8 +113,8 @@ class RoomViewerDPG(RoomObserver):
     """
 
     def __init__(self,
-                 window_width: int = 800,
-                 window_height: int = 600,
+                 window_width: int = 530,
+                 window_height: int = 500,
                  margin: float = 1.0,
                  show_lidar: bool = True,
                  dsr_viewer=None):

@@ -140,7 +140,7 @@ class RoomPoseEstimatorV2:
         # This includes sensor noise + dynamic effects (motion, rotation, timing)
         # Needs to be large enough that prior (motion model) remains influential
         self.sigma_sdf = 0.15  # 15cm - accounts for dynamic uncertainty during motion
-        self.Q_pose = np.diag([0.01, 0.01, 0.05])  # Process noise in meters
+        self.Q_pose = np.diag([0.015, 0.015, 0.01])  # Process noise in meters
 
         # Velocity-adaptive precision weighting parameters
         # These weights adjust which parameters (x, y, theta) get more optimization effort
@@ -155,14 +155,14 @@ class RoomPoseEstimatorV2:
 
         # Optimization parameters
         self.lr_init = 0.5  # Higher learning rate for faster convergence
-        self.lr_tracking = 0.1  # Balanced for convergence with theta constraint
+        self.lr_tracking = 0.01  # Reduced to avoid oscillations (was 0.1, then 0.02)
 
         # Dynamic CPU optimization parameters
         self.adaptive_cpu = True  # Enable adaptive CPU optimization
-        self.min_iterations = 5   # Minimum iterations in optimization loop
+        self.min_iterations = 25  # Increased to ensure convergence (was 5, then 15)
         self.max_iterations_init = 100  # Max iterations for init phase
         self.max_iterations_tracking = 50  # Max iterations for tracking phase
-        self.early_stop_threshold = 1e-5  # Stop if loss improvement < this
+        self.early_stop_threshold = 1e-6  # Tighter threshold (was 1e-5)
         self.skip_frames_when_stable = True  # Skip processing when stable
         self.stability_threshold = 0.05  # SDF error below this = stable (5cm)
         self.max_skip_frames = 3  # Maximum frames to skip when stable
@@ -905,13 +905,8 @@ class RoomPoseEstimatorV2:
         Sigma_inv_np = np.linalg.inv(Sigma_pred_weighted + 1e-6 * np.eye(3)).astype(np.float32)
         Sigma_pred_inv = torch.from_numpy(Sigma_inv_np).to(device=DEVICE)
 
-        # Prior precision (balances odometry vs LIDAR)
-        if hasattr(self, '_adaptive_prior_precision'):
-            prior_precision = self._adaptive_prior_precision
-        else:
-            prior_precision = 0.1
-
-        optimizer = torch.optim.Adam([pose_params], lr=0.05)
+        # Use class learning rate parameter (was hardcoded lr=0.05)
+        optimizer = torch.optim.Adam([pose_params], lr=self.lr_tracking)
 
         # Early stopping variables for tracking
         prev_loss = float('inf')
@@ -923,31 +918,44 @@ class RoomPoseEstimatorV2:
         min_iters = self.min_iterations
         early_threshold = self.early_stop_threshold
 
+        # Likelihood precision (inverse variance of SDF observations)
+        # See main.tex Eq. obstacle_objective
+        sigma_sdf_sq = self.sigma_sdf ** 2
+
         for iteration in range(max_iters):
             optimizer.zero_grad()
 
-            # Likelihood: SDF error
+            # ============================================================
+            # FREE ENERGY (main.tex Eq. obstacle_objective):
+            # F(s) = (1/2σ²) Σᵢ dᵢ(s)² + (1/2)(s-μ_p)ᵀ Σ_p⁻¹ (s-μ_p)
+            #      = F_likelihood + F_prior
+            # The balance comes from σ² (sensor noise) and Σ_p (prior cov)
+            # ============================================================
+
+            # Likelihood: SDF error normalized by sensor variance
+            # F_likelihood = (1/2σ²) × Σ dᵢ²  (summed, not averaged, for proper scaling)
             sdf_values = self.sdf_rect(lidar_points, pose_params[0], pose_params[1],
                                        pose_params[2], width, length)
-            F_likelihood = torch.mean(sdf_values ** 2)
+            # Use sum for proper likelihood, divide by N for numerical stability
+            N_pts = len(lidar_points)
+            F_likelihood = torch.sum(sdf_values ** 2) / (2.0 * sigma_sdf_sq * N_pts)
 
             # Prior: deviation from motion model prediction
-            # OPTIMIZED: avoid clone(), compute angle diff inline
+            # F_prior = (1/2)(s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
             pose_diff_x = pose_params[0] - s_pred_t[0]
             pose_diff_y = pose_params[1] - s_pred_t[1]
             pose_diff_theta = torch.atan2(torch.sin(pose_params[2] - s_pred_t[2]),
                                           torch.cos(pose_params[2] - s_pred_t[2]))
 
-            # Compute F_prior without creating intermediate tensor
-            # F_prior = 0.5 * diff^T @ Sigma_inv @ diff (manual expansion for 3x3)
+            # Compute F_prior (manual expansion for 3x3 to avoid tensor creation)
             F_prior = 0.5 * (
                 pose_diff_x * (Sigma_pred_inv[0, 0] * pose_diff_x + Sigma_pred_inv[0, 1] * pose_diff_y + Sigma_pred_inv[0, 2] * pose_diff_theta) +
                 pose_diff_y * (Sigma_pred_inv[1, 0] * pose_diff_x + Sigma_pred_inv[1, 1] * pose_diff_y + Sigma_pred_inv[1, 2] * pose_diff_theta) +
                 pose_diff_theta * (Sigma_pred_inv[2, 0] * pose_diff_x + Sigma_pred_inv[2, 1] * pose_diff_y + Sigma_pred_inv[2, 2] * pose_diff_theta)
             )
 
-            # Total Free Energy
-            F = F_likelihood + prior_precision * F_prior
+            # Total Free Energy (no additional weighting - balance from σ² and Σ)
+            F = F_likelihood + F_prior
 
             iterations_used = iteration + 1
 
@@ -978,36 +986,28 @@ class RoomPoseEstimatorV2:
         optimized_pose = np.array([pose_params[0].item(), pose_params[1].item(), pose_params[2].item()])
 
         # =====================================================================
-        # ADAPTIVE PRIOR PRECISION based on prediction error (innovation)
-        # In Active Inference, precision = inverse variance = confidence
-        # High precision → trust motion model more
-        # Low precision → trust LIDAR observations more
+        # INNOVATION AND DIAGNOSTIC PRECISION (for monitoring only)
+        # The balance between likelihood and prior comes from:
+        #   - sigma_sdf² (sensor noise variance)
+        #   - Sigma_pred (motion model prediction covariance)
+        # This diagnostic precision shows how well the motion model predicted
         # =====================================================================
         innovation = optimized_pose - s_pred
         innovation[2] = np.arctan2(np.sin(innovation[2]), np.cos(innovation[2]))
 
-        # Mahalanobis distance of innovation
+        # Mahalanobis distance of innovation (diagnostic: how many sigmas off was prediction)
         innovation_mahal = np.sqrt(innovation @ np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)) @ innovation)
 
-        # Adaptive precision formula:
-        # - Base precision is low to prefer LIDAR (exteroceptive)
-        # - Increase if innovation is small (motion model predicts well)
-        # - max_precision caps proprioceptive confidence
+        # Diagnostic precision: indicates how well motion model predicted
+        # High value = good prediction, Low value = poor prediction
+        # This is reported to the UI but does NOT affect the optimization
         if not hasattr(self, '_adaptive_prior_precision'):
-            self._adaptive_prior_precision = 0.1  # Initial value
+            self._adaptive_prior_precision = 1.0
 
-        # Parameters for adaptive precision
-        base_precision = 0.05   # Minimum (LIDAR always dominates somewhat)
-        max_precision = 0.3     # Maximum (never trust odometry too much)
-        scale = 0.5             # Sensitivity to innovation
-
-        # Precision decreases exponentially with innovation
-        target_precision = base_precision + (max_precision - base_precision) * np.exp(-innovation_mahal / scale)
-        target_precision = np.clip(target_precision, base_precision, max_precision)
-
-        # Exponential moving average for smooth adaptation
-        alpha = 0.2
-        self._adaptive_prior_precision = (1 - alpha) * self._adaptive_prior_precision + alpha * target_precision
+        # Scale Mahalanobis to a 0-1 range for display (exp decay)
+        # innovation_mahal ~ 0 → precision ~ 1.0 (good prediction)
+        # innovation_mahal ~ 3 → precision ~ 0.05 (poor prediction, 3σ outlier)
+        self._adaptive_prior_precision = np.exp(-innovation_mahal / 2.0)
 
         # =====================================================================
         # POSTERIOR COVARIANCE via Hessian of the cost function
@@ -1064,21 +1064,23 @@ class RoomPoseEstimatorV2:
 
         # =====================================================================
         # COMPUTE FINAL FREE ENERGY COMPONENTS (for visualization)
-        # F = F_likelihood + π_prior × F_prior
+        # F = F_likelihood + F_prior (main.tex Eq. obstacle_objective)
         # =====================================================================
+        sigma_sdf_sq = self.sigma_sdf ** 2
+        N_pts = len(lidar_points)
         with torch.no_grad():
-            # Final likelihood term (SDF fit)
+            # Final likelihood term (SDF fit, normalized)
             final_sdf = self.sdf_rect(lidar_points, pose_params[0], pose_params[1],
                                       pose_params[2], width, length)
-            final_f_likelihood = torch.mean(final_sdf ** 2).item()
+            final_f_likelihood = (torch.sum(final_sdf ** 2) / (2.0 * sigma_sdf_sq * N_pts)).item()
 
             # Final prior term (deviation from motion model)
             final_pose_diff = pose_params - s_pred_t
             final_pose_diff[2] = torch.atan2(torch.sin(final_pose_diff[2]), torch.cos(final_pose_diff[2]))
             final_f_prior = (0.5 * final_pose_diff @ Sigma_pred_inv @ final_pose_diff).item()
 
-            # Total VFE after optimization
-            final_vfe = final_f_likelihood + prior_precision * final_f_prior
+            # Total VFE after optimization (no additional weighting)
+            final_vfe = final_f_likelihood + final_f_prior
 
         # =====================================================================
         # UPDATE BELIEF

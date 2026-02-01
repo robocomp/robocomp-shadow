@@ -119,46 +119,59 @@ $$Q_t = Q_{base} \cdot \Delta t \cdot \max(0.1, \|\mathbf{v}\| / 0.2)$$
 
 #### Correction Step (Free Energy Minimization)
 
-The Free Energy combines likelihood and prior:
-$$\mathcal{F} = \mathcal{F}_{likelihood} + \pi_{prior} \cdot \mathcal{F}_{prior}$$
+The Free Energy objective follows the standard Active Inference formulation (see `main.tex` Eq. obstacle_objective):
+
+$$\mathcal{F}(\mathbf{s}) = \underbrace{\frac{1}{2\sigma_{sdf}^2} \sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i)^2}_{\text{Prediction Error (Accuracy)}} + \underbrace{\frac{1}{2}(\mathbf{s} - \mathbf{s}_{pred})^T \Sigma_{pred}^{-1} (\mathbf{s} - \mathbf{s}_{pred})}_{\text{Complexity (Prior)}}$$
+
+**Key insight**: The balance between likelihood and prior comes naturally from:
+- $\sigma_{sdf}^2$: Sensor noise variance (higher → less trust in LIDAR)
+- $\Sigma_{pred}^{-1}$: Prior precision matrix (inverse of motion model covariance)
+
+There is **no additional weighting factor** - this is the correct Bayesian formulation where both terms are properly scaled negative log-probabilities.
 
 **Likelihood term** (LIDAR fit) - displayed as `F_like` in UI:
-$$\mathcal{F}_{likelihood} = \frac{1}{N}\sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i)^2$$
+$$\mathcal{F}_{likelihood} = \frac{1}{2\sigma_{sdf}^2 N}\sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i)^2$$
 
-This is the **accuracy** term in Active Inference. Lower values indicate better fit between transformed LIDAR points and room walls. Typical values: 0.001-0.01 (good), 0.01-0.05 (acceptable), >0.05 (poor).
+This is the **accuracy** term (prediction error) in Active Inference. It measures how well the LIDAR points fit the room walls given the current pose estimate. The normalization by $N$ provides numerical stability. Parameters:
+- $\sigma_{sdf} = 0.15$ m (accounts for sensor noise and dynamic effects)
+
+Typical values: 0.01-0.1 (good fit), 0.1-0.5 (moderate), >0.5 (poor fit).
 
 **Prior term** (motion model) - displayed as `F_prior` in UI:
 $$\mathcal{F}_{prior} = \frac{1}{2}(\mathbf{s} - \mathbf{s}_{pred})^T \Sigma_{pred}^{-1} (\mathbf{s} - \mathbf{s}_{pred})$$
 
-This is the **complexity** term in Active Inference. It measures the Mahalanobis distance between optimized pose and motion model prediction. Lower values indicate the motion model predicted well. Typical values: 0.0-0.1 (good), 0.1-0.5 (moderate correction), >0.5 (large correction needed).
+This is the **complexity** term in Active Inference. It measures the Mahalanobis distance between optimized pose and motion model prediction. The precision $\Sigma_{pred}^{-1}$ is the inverse of the predicted covariance from the motion model.
+
+Typical values: 0.0-0.5 (good prediction), 0.5-2.0 (moderate correction), >2.0 (large innovation).
 
 **Variational Free Energy (VFE)** - displayed as `VFE` in UI:
-$$\mathcal{F} = \mathcal{F}_{likelihood} + \pi_{prior} \cdot \mathcal{F}_{prior}$$
+$$\text{VFE} = \mathcal{F}_{likelihood} + \mathcal{F}_{prior}$$
 
 The total Free Energy after optimization. This is the objective that the optimizer minimizes. Lower VFE indicates a better balance between explaining observations (accuracy) and staying close to predictions (complexity).
 
-**Adaptive Prior Precision** $\pi_{prior}$:
+---
 
-In Active Inference, **precision** represents confidence or inverse variance. The prior precision $\pi_{prior}$ controls how much the agent trusts its motion model predictions relative to sensory observations (LIDAR).
+## 4. Diagnostic Precision (Innovation Monitor)
 
-- High $\pi_{prior}$: Trust motion model more (proprioceptive precision)
-- Low $\pi_{prior}$: Trust LIDAR observations more (exteroceptive precision)
+The **diagnostic precision** $\pi_{diag}$ shown in the UI indicates how well the motion model predicted the optimized pose. It does **not** affect the optimization - it is purely for monitoring.
 
-The precision adapts based on the innovation (prediction error):
-$$d_{Mahal} = \sqrt{(\mathbf{s}^* - \mathbf{s}_{pred})^T \Sigma_{pred}^{-1} (\mathbf{s}^* - \mathbf{s}_{pred})}$$
+**Innovation** (prediction error):
+$$\boldsymbol{\epsilon} = \mathbf{s}^* - \mathbf{s}_{pred}$$
 
-$$\pi_{target} = \pi_{base} + (\pi_{max} - \pi_{base}) \cdot e^{-d_{Mahal}/\tau}$$
+**Mahalanobis distance**:
+$$d_{Mahal} = \sqrt{\boldsymbol{\epsilon}^T \Sigma_{pred}^{-1} \boldsymbol{\epsilon}}$$
 
-With exponential moving average for smooth adaptation:
-$$\pi_t = (1-\alpha)\pi_{t-1} + \alpha \cdot \pi_{target}$$
+**Diagnostic precision** (exponential decay):
+$$\pi_{diag} = \exp(-d_{Mahal} / 2)$$
 
-Parameters: $\pi_{base}=0.05$, $\pi_{max}=0.3$, $\tau=0.5$, $\alpha=0.2$
-
-This implements **precision-weighted prediction error minimization**: when predictions are accurate (low innovation), precision increases, trusting the motion model more. When predictions fail (high innovation), precision decreases, relying more on sensory correction.
+Interpretation:
+- $\pi_{diag} \approx 1.0$: Motion model predicted well (innovation ≈ 0)
+- $\pi_{diag} \approx 0.5$: Moderate innovation (~1.4σ)
+- $\pi_{diag} \approx 0.05$: Large innovation (~3σ, poor prediction)
 
 ---
 
-## 4. Posterior Covariance (Laplace Approximation)
+## 5. Posterior Covariance (Laplace Approximation)
 
 The posterior covariance is estimated using the Hessian of the cost function at the optimum:
 
@@ -179,7 +192,7 @@ Robust inversion with Cholesky decomposition and regularization ensures numerica
 
 ---
 
-## 5. Coordinate Transformations
+## 6. Coordinate Transformations
 
 ### Robot Frame → Room Frame
 For a point $\mathbf{p}^{robot} = (p_x, p_y)$:
@@ -191,37 +204,50 @@ $$\begin{pmatrix} v_x^{world} \\ v_y^{world} \end{pmatrix} = \begin{pmatrix} \co
 
 ---
 
-## 6. Algorithm Summary
+## 7. Algorithm Summary
 
 ```
 INITIALIZATION PHASE:
 1. Collect LIDAR points while robot is static
-2. Estimate initial state using PCA + Bayesian priors
+2. Estimate initial state using OBB (Oriented Bounding Box)
 3. Optimize s = (x, y, θ, W, L) minimizing SDF error
 4. When SDF error < threshold, freeze (W, L) and switch to tracking
 
 TRACKING PHASE (each timestep):
 1. PREDICT:
-   - s_pred = f(s_prev, u)
-   - Σ_pred = F @ Σ_prev @ F^T + Q
+   - s_pred = f(s_prev, u)           # Motion model prediction
+   - Σ_pred = F @ Σ_prev @ F^T + Q   # Covariance propagation
 
-2. CORRECT:
-   - Minimize: F = F_likelihood + π_prior * F_prior
-   - Update adaptive precision π based on innovation
+2. CORRECT (Free Energy Minimization):
+   - F_likelihood = Σ SDF² / (2σ²N)  # Normalized likelihood
+   - F_prior = ½(s - s_pred)ᵀ Σ⁻¹ (s - s_pred)  # Mahalanobis distance
+   - Minimize: F = F_likelihood + F_prior  # No additional weighting!
 
 3. UPDATE COVARIANCE:
    - Compute Hessian H of likelihood at optimum
-   - Σ_post = σ² * H⁻¹
+   - Σ_post = σ² × H⁻¹
 
-4. OUTPUT:
+4. DIAGNOSTICS:
+   - Innovation ε = s* - s_pred
+   - π_diag = exp(-‖ε‖_Mahal / 2)  # Monitor motion model quality
+
+5. OUTPUT:
    - Pose estimate (x, y, θ)
    - Covariance matrix Σ
-   - Innovation and prior precision for diagnostics
+   - Free energy components for UI
 ```
+
+### Key Parameters
+
+| Parameter | Symbol | Value | Description |
+|-----------|--------|-------|-------------|
+| SDF noise std | $\sigma_{sdf}$ | 0.15 m | Sensor noise + dynamic effects |
+| Process noise | $Q$ | diag(0.01, 0.01, 0.05) | Motion model uncertainty |
+| Init threshold | - | 0.15 m | SDF error to switch to tracking |
 
 ---
 
-## 7. Velocity-Adaptive Precision Weighting
+## 8. Velocity-Adaptive Precision Weighting
 
 In Active Inference, **precision** represents the confidence or inverse variance of predictions. We extend the standard precision-weighting to incorporate **velocity-dependent precision** for each state variable, enabling the system to focus optimization effort on parameters most likely to change given the current motion profile.
 
@@ -322,7 +348,7 @@ This **action-conditional precision** allows the agent to adaptively weight pred
 
 ---
 
-## 8. Uncertainty-Based Speed Modulation
+## 9. Uncertainty-Based Speed Modulation
 
 The robot's velocity is modulated based on pose uncertainty, implementing **precision-weighted action** from Active Inference.
 
@@ -372,7 +398,7 @@ This is consistent with the Free Energy Principle: the agent acts to minimize ex
 
 ---
 
-## 9. Performance Characteristics
+## 10. Performance Characteristics
 
 | Metric | Typical Value |
 |--------|---------------|
@@ -384,7 +410,7 @@ This is consistent with the Free Energy Principle: the agent acts to minimize ex
 
 ---
 
-## 10. References
+## 11. References
 
 - Friston, K. (2010). The free-energy principle: a unified brain theory?
 - Buckley, C. L., et al. (2017). The free energy principle for action and perception.
