@@ -141,6 +141,17 @@ class RoomPoseEstimatorV2:
         self.sigma_sdf = 0.15  # 15cm - accounts for dynamic uncertainty during motion
         self.Q_pose = np.diag([0.01, 0.01, 0.05])  # Process noise in meters
 
+        # Velocity-adaptive precision weighting parameters
+        # These weights adjust which parameters (x, y, theta) get more optimization effort
+        # based on the current velocity profile
+        self.velocity_adaptive_weights = True  # Enable velocity-based weighting
+        self.linear_velocity_threshold = 0.05   # m/s - below this = "not moving linearly"
+        self.angular_velocity_threshold = 0.05  # rad/s - below this = "not rotating"
+        self.weight_base = 1.0                  # Base weight for all parameters
+        self.weight_boost_factor = 2.0          # Multiplier for emphasized parameters
+        self.weight_reduction_factor = 0.5     # Multiplier for de-emphasized parameters
+        self._current_velocity_weights = np.array([1.0, 1.0, 1.0])  # [x, y, theta] weights
+
         # Optimization parameters
         self.lr_init = 0.5  # Higher learning rate for faster convergence
         self.lr_tracking = 0.1  # Balanced for convergence with theta constraint
@@ -157,7 +168,7 @@ class RoomPoseEstimatorV2:
         self._skip_counter = 0   # Current skip counter
         self._last_sdf_error = float('inf')  # Last SDF error for stability check
         self.lidar_subsample_factor = 1  # Subsample LIDAR points (1 = no subsampling)
-        self.adaptive_subsampling = True  # Enable adaptive LIDAR subsampling
+        self.adaptive_subsampling = False  # DISABLED - subsampling now done at LIDAR proxy level
         self.min_lidar_points = 100  # Minimum LIDAR points to keep
 
         # Statistics
@@ -220,6 +231,79 @@ class RoomPoseEstimatorV2:
         # Reset skip counter when we process a frame
         self._skip_counter = 0
         return False
+
+    def _compute_velocity_adaptive_weights(self,
+                                           robot_velocity: np.ndarray,
+                                           angular_velocity: float) -> np.ndarray:
+        """
+        Compute velocity-adaptive precision weights for [x, y, theta].
+
+        Based on the current velocity profile:
+        - If rotating (high angular, low linear): boost theta weight, reduce x,y
+        - If moving straight (high linear, low angular): boost x,y, reduce theta
+        - If stationary: use base weights (uniform)
+
+        The weights are used to scale the gradient/update for each parameter
+        during optimization, making the system more responsive to parameters
+        that are expected to change based on current motion.
+
+        Args:
+            robot_velocity: [vx, vy] velocity in robot frame (m/s)
+            angular_velocity: Angular velocity (rad/s)
+
+        Returns:
+            np.ndarray: [w_x, w_y, w_theta] weight factors
+        """
+        if not self.velocity_adaptive_weights:
+            return np.array([1.0, 1.0, 1.0])
+
+        linear_speed = np.linalg.norm(robot_velocity) if robot_velocity is not None else 0.0
+        angular_speed = abs(angular_velocity)
+
+        # Determine motion profile
+        is_rotating = angular_speed > self.angular_velocity_threshold
+        is_translating = linear_speed > self.linear_velocity_threshold
+
+        if is_rotating and not is_translating:
+            # Pure rotation: emphasize theta, de-emphasize x, y
+            w_x = self.weight_reduction_factor
+            w_y = self.weight_reduction_factor
+            w_theta = self.weight_boost_factor
+        elif is_translating and not is_rotating:
+            # Pure translation: emphasize x, y, de-emphasize theta
+            # Also consider direction of motion (forward vs lateral)
+            vx = robot_velocity[0] if robot_velocity is not None else 0
+            vy = robot_velocity[1] if robot_velocity is not None else 0
+
+            # Weight x and y based on which direction is dominant
+            if abs(vy) > abs(vx):
+                # Mostly forward/backward motion - emphasize y (forward axis)
+                w_x = self.weight_base
+                w_y = self.weight_boost_factor
+            else:
+                # Mostly lateral motion - emphasize x
+                w_x = self.weight_boost_factor
+                w_y = self.weight_base
+
+            w_theta = self.weight_reduction_factor
+        elif is_rotating and is_translating:
+            # Combined motion: boost all moderately
+            w_x = self.weight_base * 1.2
+            w_y = self.weight_base * 1.2
+            w_theta = self.weight_base * 1.2
+        else:
+            # Stationary: use base weights, allows gradual convergence
+            w_x = self.weight_base
+            w_y = self.weight_base
+            w_theta = self.weight_base
+
+        weights = np.array([w_x, w_y, w_theta])
+
+        # Smooth transition using exponential moving average
+        alpha = 0.3  # Smoothing factor
+        self._current_velocity_weights = (1 - alpha) * self._current_velocity_weights + alpha * weights
+
+        return self._current_velocity_weights.copy()
 
 
     def sdf_rect(self,
@@ -785,12 +869,22 @@ class RoomPoseEstimatorV2:
         width = torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE)
         length = torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
 
+        # Compute velocity-adaptive weights for [x, y, theta]
+        velocity_weights = self._compute_velocity_adaptive_weights(robot_velocity, angular_velocity)
+        velocity_weights_t = torch.tensor(velocity_weights, dtype=DTYPE, device=DEVICE)
+
+        # Apply velocity weights to prediction covariance
+        # Higher weight = lower uncertainty = more trust in that parameter's optimization
+        # We scale the covariance inversely with weights (higher weight -> lower covariance)
+        weight_scale = np.diag(1.0 / (velocity_weights + 1e-6))
+        Sigma_pred_weighted = weight_scale @ Sigma_pred @ weight_scale
+
         # Initialize at PREDICTED pose
         pose_params = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE, requires_grad=True)
         s_pred_t = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE)
 
-        # Prior information (inverse covariance)
-        Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)),
+        # Prior information (inverse covariance) - now weighted
+        Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred_weighted + 1e-6 * np.eye(3)),
                                        dtype=DTYPE, device=DEVICE)
 
         # Prior precision (balances odometry vs LIDAR)
@@ -836,6 +930,13 @@ class RoomPoseEstimatorV2:
                 prev_loss = loss_val
 
             F.backward()
+
+            # Apply velocity-adaptive gradient weighting
+            # Scale gradients by velocity weights: higher weight = stronger update
+            with torch.no_grad():
+                if pose_params.grad is not None:
+                    pose_params.grad *= velocity_weights_t
+
             optimizer.step()
 
             with torch.no_grad():
@@ -957,7 +1058,8 @@ class RoomPoseEstimatorV2:
             'innovation': innovation,  # [dx, dy, dtheta] prediction error
             'prior_precision': self._adaptive_prior_precision,
             'iterations_used': iterations_used,
-            'lidar_points_used': len(lidar_points)
+            'lidar_points_used': len(lidar_points),
+            'velocity_weights': velocity_weights  # [w_x, w_y, w_theta] velocity-adaptive weights
         }
 
     def is_converged(self) -> bool:

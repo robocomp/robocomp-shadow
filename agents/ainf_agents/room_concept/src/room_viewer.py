@@ -56,6 +56,13 @@ class ViewerData:
     gt_room_length: float = 4.0    # GT room length (meters)
     # Pose covariance for uncertainty ellipse (2x2 for x,y)
     pose_covariance: np.ndarray = None  # 2x2 covariance matrix [x,y]
+    # CPU/Performance stats
+    lidar_subsample_factor: int = 1    # Current LIDAR subsampling factor
+    optimizer_iterations: int = 0       # Iterations used in optimizer
+    compute_time_ms: float = 0.0        # Total compute time in ms
+    cpu_percent: float = 0.0            # CPU usage percentage
+    # Velocity-adaptive weights
+    velocity_weights: np.ndarray = None  # [w_x, w_y, w_theta] velocity-based optimization weights
 
     def __post_init__(self):
         if self.estimated_pose is None:
@@ -66,6 +73,8 @@ class ViewerData:
             self.room = RoomState()
         if self.pose_covariance is None:
             self.pose_covariance = np.eye(2) * 0.01  # Default small covariance
+        if self.velocity_weights is None:
+            self.velocity_weights = np.array([1.0, 1.0, 1.0])  # Default uniform weights
 
 
 class RoomObserver(ABC):
@@ -123,7 +132,7 @@ class RoomViewerDPG(RoomObserver):
         self.plan_running = False
         self._on_plan_toggle = None  # External callback
         self._on_plan_selected = None  # Callback for plan selection
-        self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)"]  # Available plans
+        self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]  # Available plans
 
         # Current data
         self.data: ViewerData = ViewerData()
@@ -298,6 +307,42 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_button(label="Start Plan", tag="plan_button",
                                        callback=self._on_plan_button_clicked,
                                        width=100)
+
+                    dpg.add_spacer(width=30)
+
+                    # Column 7: CPU/Performance Stats
+                    with dpg.group():
+                        dpg.add_text("CPU STATS", color=(255, 150, 50))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Subsample:", color=(200, 200, 200))
+                            dpg.add_text("1x", tag="subsample_text", color=(150, 255, 150))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("LIDAR pts:", color=(200, 200, 200))
+                            dpg.add_text("0", tag="lidar_pts_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Optimizer:", color=(200, 200, 200))
+                            dpg.add_text("0 iters", tag="optimizer_iters_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Compute:", color=(200, 200, 200))
+                            dpg.add_text("0.0 ms", tag="compute_time_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("CPU:", color=(200, 200, 200))
+                            dpg.add_text("0.0%", tag="cpu_percent_text")
+
+                    dpg.add_spacer(width=30)
+
+                    # Column 8: Velocity-Adaptive Weights
+                    with dpg.group():
+                        dpg.add_text("VEL WEIGHTS", color=(180, 100, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("w_x:", color=(200, 200, 200))
+                            dpg.add_text("1.00", tag="vel_weight_x_text", color=(150, 200, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("w_y:", color=(200, 200, 200))
+                            dpg.add_text("1.00", tag="vel_weight_y_text", color=(150, 200, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("w_θ:", color=(200, 200, 200))
+                            dpg.add_text("1.00", tag="vel_weight_theta_text", color=(150, 200, 255))
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -644,6 +689,49 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("sdf_error_text", f"{data.sdf_error:.3f} m")
         dpg.configure_item("sdf_error_text", color=sdf_err_color)
 
+        # CPU Stats
+        # Subsample factor with color coding (higher = more efficient)
+        subsample_color = (100, 255, 100) if data.lidar_subsample_factor >= 4 else (255, 255, 100) if data.lidar_subsample_factor >= 2 else (200, 200, 200)
+        dpg.set_value("subsample_text", f"{data.lidar_subsample_factor}x")
+        dpg.configure_item("subsample_text", color=subsample_color)
+
+        # LIDAR points count
+        lidar_pts = len(data.lidar_points) if data.lidar_points is not None else 0
+        dpg.set_value("lidar_pts_text", str(lidar_pts))
+
+        # Optimizer iterations
+        dpg.set_value("optimizer_iters_text", f"{data.optimizer_iterations} iters")
+
+        # Compute time with color coding
+        compute_color = (100, 255, 100) if data.compute_time_ms < 20 else (255, 255, 100) if data.compute_time_ms < 50 else (255, 100, 100)
+        dpg.set_value("compute_time_text", f"{data.compute_time_ms:.1f} ms")
+        dpg.configure_item("compute_time_text", color=compute_color)
+
+        # CPU percentage with color coding (green < 50%, yellow < 100%, red >= 100%)
+        cpu_color = (100, 255, 100) if data.cpu_percent < 50 else (255, 255, 100) if data.cpu_percent < 100 else (255, 100, 100)
+        dpg.set_value("cpu_percent_text", f"{data.cpu_percent:.1f}%")
+        dpg.configure_item("cpu_percent_text", color=cpu_color)
+
+        # Velocity-adaptive weights
+        if data.velocity_weights is not None and len(data.velocity_weights) >= 3:
+            w_x, w_y, w_theta = data.velocity_weights[:3]
+
+            # Color coding: green if boosted (>1.2), yellow if normal (0.8-1.2), orange if reduced (<0.8)
+            def weight_color(w):
+                if w > 1.2:
+                    return (100, 255, 100)  # Boosted - green
+                elif w < 0.8:
+                    return (255, 150, 100)  # Reduced - orange
+                else:
+                    return (150, 200, 255)  # Normal - light blue
+
+            dpg.set_value("vel_weight_x_text", f"{w_x:.2f}")
+            dpg.configure_item("vel_weight_x_text", color=weight_color(w_x))
+            dpg.set_value("vel_weight_y_text", f"{w_y:.2f}")
+            dpg.configure_item("vel_weight_y_text", color=weight_color(w_y))
+            dpg.set_value("vel_weight_theta_text", f"{w_theta:.2f}")
+            dpg.configure_item("vel_weight_theta_text", color=weight_color(w_theta))
+
 
 class RoomSubject:
     """
@@ -681,7 +769,12 @@ def create_viewer_data(room_estimator,
                        lidar_points: np.ndarray = None,
                        step: int = 0,
                        innovation: np.ndarray = None,
-                       prior_precision: float = 0.0) -> ViewerData:
+                       prior_precision: float = 0.0,
+                       lidar_subsample_factor: int = 1,
+                       optimizer_iterations: int = 0,
+                       compute_time_ms: float = 0.0,
+                       cpu_percent: float = 0.0,
+                       velocity_weights: np.ndarray = None) -> ViewerData:
     """
     Create ViewerData from room estimator and ground truth.
 
@@ -692,6 +785,11 @@ def create_viewer_data(room_estimator,
         step: Current step number
         innovation: Optional [dx, dy, dtheta] prediction error
         prior_precision: Adaptive prior precision
+        lidar_subsample_factor: Current LIDAR subsampling factor
+        optimizer_iterations: Number of iterations used in optimizer
+        compute_time_ms: Total compute time in milliseconds
+        cpu_percent: CPU usage percentage
+        velocity_weights: Optional [w_x, w_y, w_theta] velocity-adaptive weights
 
     Returns:
         ViewerData instance ready for the viewer
@@ -756,5 +854,15 @@ def create_viewer_data(room_estimator,
         data.innovation_y = innovation[1]
         data.innovation_theta = np.degrees(innovation[2])
     data.prior_precision = prior_precision
+
+    # CPU/Performance stats
+    data.lidar_subsample_factor = lidar_subsample_factor
+    data.optimizer_iterations = optimizer_iterations
+    data.compute_time_ms = compute_time_ms
+    data.cpu_percent = cpu_percent
+
+    # Velocity-adaptive weights
+    if velocity_weights is not None:
+        data.velocity_weights = velocity_weights
 
     return data

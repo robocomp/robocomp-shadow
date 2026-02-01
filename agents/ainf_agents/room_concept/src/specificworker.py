@@ -26,6 +26,8 @@ import interfaces as ifaces
 import traceback
 import numpy as np
 import time
+import psutil
+import os
 from src.concept_room import RoomPoseEstimatorV2
 from src.room_viewer import RoomViewerDPG, RoomSubject, ViewerData, create_viewer_data
 from src.dsr_graph_viewer import DSRGraphViewerDPG
@@ -113,6 +115,16 @@ class SpecificWorker(GenericWorker):
             self._trajectory_complete = False
             self._waiting_for_tracking = False
 
+            # Adaptive LIDAR subsampling (passed to proxy call)
+            # 1 = no subsampling, 2 = one of two, 4 = one of four, etc.
+            self._lidar_subsample_factor = 4  # Default value
+            self._adaptive_lidar_enabled = True  # Enable adaptive subsampling
+
+            # CPU monitoring
+            self._process = psutil.Process(os.getpid())
+            self._cpu_percent = 0.0  # Current CPU usage percentage
+            self._num_cores = psutil.cpu_count()  # Number of CPU cores
+
             # Timing statistics
             self._timing_stats = {
                 'lidar': [],
@@ -121,7 +133,9 @@ class SpecificWorker(GenericWorker):
                 'graph': [],
                 'total': [],
                 'iterations': [],
-                'lidar_points': []
+                'lidar_points': [],
+                'subsample_factor': [],
+                'cpu_percent': []
             }
 
             self.room_viewer.set_plan_toggle_callback(self._on_plan_toggle)
@@ -201,6 +215,12 @@ class SpecificWorker(GenericWorker):
         self._timing_stats['explore'].append(t_explore)
         self._timing_stats['graph'].append(t_graph)
         self._timing_stats['total'].append(t_total)
+        self._timing_stats['subsample_factor'].append(self._lidar_subsample_factor)
+        self._timing_stats['lidar_points'].append(len(lidar_points))
+
+        # Measure CPU usage (percentage across all cores)
+        self._cpu_percent = self._process.cpu_percent()
+        self._timing_stats['cpu_percent'].append(self._cpu_percent)
 
         # Print timing every 50 steps
         if self.total_steps > 0 and self.total_steps % 50 == 0:
@@ -238,6 +258,31 @@ class SpecificWorker(GenericWorker):
         print(f"   Graph:     {avg_graph:6.2f}ms ({pct_graph:5.1f}%)")
         print(f"   TOTAL:     {avg_total:6.2f}ms")
 
+        # Show adaptive CPU stats if available
+        if len(self._timing_stats['iterations']) > 0:
+            avg_iters = np.mean(self._timing_stats['iterations'])
+            max_iters = self.room_estimator.max_iterations_tracking
+            print(f"   Optimizer: {avg_iters:.1f}/{max_iters} iterations avg (early stop enabled)")
+
+        if len(self._timing_stats['lidar_points']) > 0:
+            avg_pts = np.mean(self._timing_stats['lidar_points'])
+            avg_subsample = np.mean(self._timing_stats['subsample_factor'])
+            print(f"   LIDAR pts: {avg_pts:.0f} points avg (subsample factor: {avg_subsample:.1f})")
+
+        # Show frame skip stats
+        if hasattr(self.room_estimator, 'stats') and 'frames_skipped' in self.room_estimator.stats:
+            skipped = self.room_estimator.stats['frames_skipped']
+            if skipped > 0:
+                print(f"   Frames skipped: {skipped} (when stable & static)")
+
+        # Show CPU usage
+        if len(self._timing_stats['cpu_percent']) > 0:
+            avg_cpu = np.mean(self._timing_stats['cpu_percent'])
+            max_cpu = np.max(self._timing_stats['cpu_percent'])
+            # cpu_percent() returns percentage per core, so 100% = 1 core fully used
+            cores_used = avg_cpu / 100.0
+            print(f"   CPU: {avg_cpu:.1f}% avg, {max_cpu:.1f}% max ({cores_used:.2f} cores of {self._num_cores})")
+
         # Clear stats for next batch
         for key in self._timing_stats:
             self._timing_stats[key] = []
@@ -270,6 +315,12 @@ class SpecificWorker(GenericWorker):
                 lidar_points=lidar_points
             )
 
+            # Track iterations and LIDAR points used for CPU stats
+            if 'iterations_used' in result:
+                self._timing_stats['iterations'].append(result['iterations_used'])
+            if 'lidar_points_used' in result:
+                self._timing_stats['lidar_points'].append(result['lidar_points_used'])
+
             # Print status every 20 steps
             if self.total_steps % 20 == 0:
                 phase = result.get('phase', result.get('status', 'unknown'))
@@ -296,6 +347,10 @@ class SpecificWorker(GenericWorker):
                 print(f"[Step {self.total_steps}] Phase: {phase}, SDF: {sdf_err:.3f}, "
                       f"Pose_err: {pose_error:.3f}m, Angle_err: {np.degrees(abs(angle_error)):.1f}°, Uncertainty: {uncertainty:.3f}")
 
+                # Show current action being executed
+                current_action = self._get_current_action_description()
+                print(f"  Action: {current_action}")
+
                 # Show innovation (prediction error) and prior precision if available
                 if phase == 'tracking' and 'innovation' in result:
                     innov = result['innovation']
@@ -317,6 +372,11 @@ class SpecificWorker(GenericWorker):
             # Extract innovation and prior precision from result if available
             innovation = result.get('innovation', None)
             prior_precision = result.get('prior_precision', 0.0)
+            optimizer_iterations = result.get('iterations_used', 0)
+            velocity_weights = result.get('velocity_weights', None)
+
+            # Get last compute time from timing stats
+            last_compute_time = self._timing_stats['total'][-1] * 1000 if len(self._timing_stats['total']) > 0 else 0.0
 
             viewer_data = create_viewer_data(
                 room_estimator=self.room_estimator,
@@ -324,7 +384,12 @@ class SpecificWorker(GenericWorker):
                 lidar_points=lidar_points,
                 step=self.total_steps,
                 innovation=innovation,
-                prior_precision=prior_precision
+                prior_precision=prior_precision,
+                lidar_subsample_factor=self._lidar_subsample_factor,
+                optimizer_iterations=optimizer_iterations,
+                compute_time_ms=last_compute_time,
+                cpu_percent=self._cpu_percent,
+                velocity_weights=velocity_weights
             )
             self.viewer_subject.notify(viewer_data)
 
@@ -337,6 +402,19 @@ class SpecificWorker(GenericWorker):
         print("\n" + "="*60)
         print("           ACTIVE INFERENCE ROOM ESTIMATOR - SUMMARY")
         print("="*60)
+
+        # Plan executed
+        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]
+        plan_name = plan_names[self.selected_plan] if self.selected_plan < len(plan_names) else f"Unknown ({self.selected_plan})"
+        print(f"\n🎯 PLAN EXECUTED: {plan_name}")
+        if self._trajectory_initialized and len(self._trajectory) > 0:
+            completed_actions = min(self._current_action_idx + 1, len(self._trajectory))
+            print(f"   Actions completed: {completed_actions}/{len(self._trajectory)}")
+            if self._trajectory_complete:
+                print(f"   Status: ✓ Complete")
+            else:
+                current_action = self._get_current_action_description()
+                print(f"   Status: In progress - {current_action}")
 
         # Room estimation
         if self.room_estimator.belief:
@@ -396,10 +474,35 @@ class SpecificWorker(GenericWorker):
         """Get LIDAR points projected to 2D horizontal plane.
 
         Coordinate convention in robot frame: x+ = right, y+ = forward
+
+        Uses adaptive subsampling based on system stability:
+        - Stable (low SDF error): higher subsampling (fewer points)
+        - Unstable: lower subsampling (more points)
         """
         try:
-            # Get 2D LIDAR data (getLidarDataWithThreshold2d projects to horizontal plane)
-            helios = self.lidar3d_proxy.getLidarDataWithThreshold2d("helios", 8000, 4)
+            # Determine adaptive subsampling factor
+            if self._adaptive_lidar_enabled and hasattr(self, 'room_estimator'):
+                last_sdf = getattr(self.room_estimator, '_last_sdf_error', float('inf'))
+                stability_threshold = getattr(self.room_estimator, 'stability_threshold', 0.02)
+
+                if last_sdf < stability_threshold:
+                    # Very stable - use high subsampling (fewer points)
+                    self._lidar_subsample_factor = 8
+                elif last_sdf < stability_threshold * 2:
+                    # Moderately stable
+                    self._lidar_subsample_factor = 4
+                elif last_sdf < stability_threshold * 4:
+                    # Slightly unstable
+                    self._lidar_subsample_factor = 2
+                else:
+                    # Unstable - use all points
+                    self._lidar_subsample_factor = 1
+
+            # Get 2D LIDAR data with adaptive subsampling
+            # decimationDegreeFactor: 1 = no subsampling, 2 = one of two, etc.
+            helios = self.lidar3d_proxy.getLidarDataWithThreshold2d(
+                "helios", 8000, self._lidar_subsample_factor
+            )
             # LIDAR points in robot frame: p.x = right, p.y = forward
             lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points if p.z > 1000])
 
@@ -428,6 +531,40 @@ class SpecificWorker(GenericWorker):
             self._init_trajectory()
 
         return self._execute_trajectory()
+
+    def _get_current_action_description(self) -> str:
+        """Get a human-readable description of the current action being executed"""
+        if not self._trajectory_initialized:
+            return "Not started"
+        if self._trajectory_complete:
+            return "Complete"
+        if self._current_action_idx >= len(self._trajectory):
+            return "Complete"
+
+        action_type, value = self._trajectory[self._current_action_idx]
+        progress = f"({self._action_step}/{self._action_total_steps})" if self._action_total_steps > 0 else ""
+
+        if action_type == 'forward':
+            return f"Forward {value:.2f}m {progress}"
+        elif action_type == 'backward':
+            return f"Backward {value:.2f}m {progress}"
+        elif action_type == 'turn':
+            direction = "left" if value > 0 else "right"
+            return f"Turn {abs(value):.0f}° {direction} {progress}"
+        elif action_type == 'arc':
+            return f"Arc {value:.1f}s {progress}"
+        elif action_type == 'arc_right':
+            return f"Arc RIGHT {value:.1f}s {progress}"
+        elif action_type == 'arc_left':
+            return f"Arc LEFT {value:.1f}s {progress}"
+        elif action_type == 'wait':
+            return f"Wait {value:.1f}s {progress}"
+        elif action_type == 'hold_for_tracking':
+            return "Waiting for tracking..."
+        elif action_type == 'statistics':
+            return "Statistics"
+        else:
+            return f"{action_type} {progress}"
 
     def _init_trajectory(self):
         """Initialize the trajectory system based on selected plan
@@ -461,9 +598,37 @@ class SpecificWorker(GenericWorker):
                 ('wait', 0.5),
                 ('arc', 21.0),           # Circular arc for ~360° (full circle)
                 ('wait', 1.0),
-                # End of trajectory - robot stops
+                ('statistics', 0),       # Print statistics summary
             ]
             print("[Explorer] Using Plan 1: Circle (0.75m + 360°)")
+
+        elif self.selected_plan == 2:
+            # Plan 2: Figure-8 (Ocho) - Two circles forming a figure 8
+            # Each loop spans 1 meter on each side (2m total width)
+            # Start from center, go right loop, return to center, go left loop
+            self.rotation_speed = 0.3   # rad/s for smooth curves
+            self.advance_speed = 150.0  # Slightly slower for precision
+
+            # Figure 8 geometry:
+            # - Each loop has radius ~0.5m (diameter 1m)
+            # - Right loop: turn right (negative rotation) while advancing
+            # - Left loop: turn left (positive rotation) while advancing
+            # Time for 360° at 0.3 rad/s ≈ 21 seconds per loop
+            self._trajectory = [
+                ('wait', 1.0),              # Initial stabilization
+                ('forward', 0.25),          # Move slightly forward to offset
+                ('wait', 0.5),
+                # Right loop (clockwise when viewed from above)
+                ('arc_right', 21.0),        # Full circle turning right
+                ('wait', 0.5),
+                # Left loop (counter-clockwise)
+                ('arc_left', 21.0),         # Full circle turning left
+                ('wait', 0.5),
+                ('backward', 0.25),         # Return to start
+                ('wait', 1.0),
+                ('statistics', 0),          # Print statistics summary
+            ]
+            print("[Explorer] Using Plan 2: Ocho (Figure-8, 1m per side)")
 
         else:
             # Default to basic plan
@@ -503,10 +668,20 @@ class SpecificWorker(GenericWorker):
                 arc_rotation = np.degrees(self.rotation_speed * value)
                 print(f"  {i+1}. Arc {value:.1f}s (~{arc_rotation:.0f}°)")
                 total_rotation += arc_rotation
+            elif action_type == 'arc_right':
+                arc_rotation = np.degrees(self.rotation_speed * value)
+                print(f"  {i+1}. Arc RIGHT {value:.1f}s (~{arc_rotation:.0f}° clockwise)")
+                total_rotation += arc_rotation
+            elif action_type == 'arc_left':
+                arc_rotation = np.degrees(self.rotation_speed * value)
+                print(f"  {i+1}. Arc LEFT {value:.1f}s (~{arc_rotation:.0f}° counter-clockwise)")
+                total_rotation += arc_rotation
             elif action_type == 'wait':
                 print(f"  {i+1}. Wait {value:.1f}s")
             elif action_type == 'hold_for_tracking':
                 print(f"  {i+1}. HOLD - Wait for tracking mode")
+            elif action_type == 'statistics':
+                print(f"  {i+1}. Print statistics summary")
         print(f"  Total: {total_distance:.2f}m distance, {total_rotation:.0f}° rotation")
 
     def _execute_trajectory(self):
@@ -562,10 +737,22 @@ class SpecificWorker(GenericWorker):
             rot_dir = 1 if value > 0 else -1
             cmd = (0, 0, rot_dir * self.rotation_speed)
         elif action_type == 'arc':
-            # Circular arc: forward + rotation simultaneously
+            # Circular arc: forward + rotation simultaneously (default left/CCW)
+            cmd = (0, self.advance_speed, self.rotation_speed)
+        elif action_type == 'arc_right':
+            # Circular arc turning right (clockwise): forward + negative rotation
+            cmd = (0, self.advance_speed, -self.rotation_speed)
+        elif action_type == 'arc_left':
+            # Circular arc turning left (counter-clockwise): forward + positive rotation
             cmd = (0, self.advance_speed, self.rotation_speed)
         elif action_type == 'wait':
             cmd = (0, 0, 0)
+        elif action_type == 'statistics':
+            # Print statistics and move to next action immediately
+            self.print_statistics_summary()
+            self._current_action_idx += 1
+            self._action_step = 0
+            return cmd
 
         self.omnirobot_proxy.setSpeedBase(*cmd)
         self._action_step += 1
@@ -588,12 +775,15 @@ class SpecificWorker(GenericWorker):
             angle_rad = abs(value) * np.pi / 180.0
             time_needed = angle_rad / self.rotation_speed
             return int(time_needed / self.period_sec)
-        elif action_type == 'arc':
+        elif action_type in ('arc', 'arc_right', 'arc_left'):
             # value is duration in seconds
             return int(value / self.period_sec)
         elif action_type == 'wait':
             # value is time in seconds
             return int(value / self.period_sec)
+        elif action_type == 'statistics':
+            # Instant action - no steps needed
+            return 0
         return 0
 
     ##########################################################################################

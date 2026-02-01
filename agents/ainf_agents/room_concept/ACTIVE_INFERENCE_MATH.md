@@ -191,7 +191,108 @@ TRACKING PHASE (each timestep):
 
 ---
 
-## 7. Performance Characteristics
+## 7. Velocity-Adaptive Precision Weighting
+
+In Active Inference, **precision** represents the confidence or inverse variance of predictions. We extend the standard precision-weighting to incorporate **velocity-dependent precision** for each state variable, enabling the system to focus optimization effort on parameters most likely to change given the current motion profile.
+
+### Motivation
+
+When a robot is:
+- **Rotating**: The heading angle $\theta$ changes rapidly while position $(x, y)$ remains relatively stable
+- **Translating**: Position $(x, y)$ changes while $\theta$ should remain stable
+- **Stationary**: All parameters should converge gradually with uniform precision
+
+### Velocity-Adaptive Precision Weights
+
+Define the **velocity precision weights** $\mathbf{w} = (w_x, w_y, w_\theta)$ as state-specific precision multipliers:
+
+$$\mathbf{w} = \mathcal{W}(v_{linear}, \omega)$$
+
+Where:
+- $v_{linear} = \|\mathbf{v}\| = \sqrt{v_x^2 + v_y^2}$ is linear speed
+- $\omega$ is angular velocity
+
+### Motion Profile Classification
+
+Based on velocity thresholds $\tau_v$ (linear) and $\tau_\omega$ (angular):
+
+**Case 1: Pure Rotation** ($|\omega| > \tau_\omega$ and $v_{linear} < \tau_v$)
+$$\mathbf{w} = (w_{reduce}, w_{reduce}, w_{boost})$$
+
+The agent increases precision (confidence) for $\theta$ estimates while reducing precision for $(x, y)$, reflecting that rotation primarily affects heading.
+
+**Case 2: Pure Translation** ($v_{linear} > \tau_v$ and $|\omega| < \tau_\omega$)
+$$\mathbf{w} = (w_x^*, w_y^*, w_{reduce})$$
+
+Where the position weights depend on motion direction:
+- Forward/backward motion ($|v_y| > |v_x|$): $w_y^* = w_{boost}$, $w_x^* = w_{base}$
+- Lateral motion ($|v_x| > |v_y|$): $w_x^* = w_{boost}$, $w_y^* = w_{base}$
+
+**Case 3: Combined Motion** (both $v_{linear} > \tau_v$ and $|\omega| > \tau_\omega$)
+$$\mathbf{w} = (1.2, 1.2, 1.2)$$
+
+Moderate boost to all parameters during complex maneuvers.
+
+**Case 4: Stationary** ($v_{linear} < \tau_v$ and $|\omega| < \tau_\omega$)
+$$\mathbf{w} = (w_{base}, w_{base}, w_{base}) = (1, 1, 1)$$
+
+Uniform precision allows gradual convergence of all estimates.
+
+### Parameters
+
+| Parameter | Symbol | Value | Description |
+|-----------|--------|-------|-------------|
+| Linear threshold | $\tau_v$ | 0.05 m/s | Below this, robot is "not translating" |
+| Angular threshold | $\tau_\omega$ | 0.05 rad/s | Below this, robot is "not rotating" |
+| Base weight | $w_{base}$ | 1.0 | Neutral precision multiplier |
+| Boost factor | $w_{boost}$ | 2.0 | Increased precision for relevant parameters |
+| Reduction factor | $w_{reduce}$ | 0.5 | Decreased precision for irrelevant parameters |
+
+### Application to Optimization
+
+The velocity weights modify the optimization in two ways:
+
+#### 1. Weighted Prior Covariance
+
+The prediction covariance is scaled inversely by the weights:
+$$\Sigma_{pred}^{weighted} = D_w^{-1} \Sigma_{pred} D_w^{-1}$$
+
+Where $D_w = \text{diag}(w_x, w_y, w_\theta)$
+
+This means **higher weight = lower uncertainty = stronger constraint** on that parameter.
+
+#### 2. Weighted Gradient Descent
+
+During optimization, gradients are scaled by the velocity weights:
+$$\nabla \mathcal{F}_{weighted} = \mathbf{w} \odot \nabla \mathcal{F}$$
+
+Where $\odot$ denotes element-wise multiplication.
+
+Higher weights result in larger gradient steps for those parameters, effectively **focusing optimization effort** on the most relevant state variables.
+
+### Temporal Smoothing
+
+To avoid abrupt changes, weights are smoothed with an exponential moving average:
+$$\mathbf{w}_t = (1 - \alpha)\mathbf{w}_{t-1} + \alpha \mathbf{w}_{target}$$
+
+With $\alpha = 0.3$ for responsive but smooth transitions.
+
+### Active Inference Interpretation
+
+In the Active Inference framework, this mechanism can be interpreted as **action-conditional precision**:
+
+- The agent's actions (velocity commands) induce expected changes in specific state variables
+- The precision allocated to each state variable reflects the **expected precision** of predictions given the current action
+- This is consistent with the Free Energy Principle, where precision weighting optimizes the balance between prior predictions and sensory evidence
+
+Formally, if we denote the action as $\mathbf{a} = (v_x, v_y, \omega)$, the precision matrix becomes action-dependent:
+$$\Pi(\mathbf{a}) = \text{diag}(\pi_x(\mathbf{a}), \pi_y(\mathbf{a}), \pi_\theta(\mathbf{a}))$$
+
+This **action-conditional precision** allows the agent to adaptively weight prediction errors, allocating more precision (and thus more corrective weight) to state variables expected to change given the current action.
+
+---
+
+## 8. Performance Characteristics
 
 | Metric | Typical Value |
 |--------|---------------|
@@ -203,7 +304,7 @@ TRACKING PHASE (each timestep):
 
 ---
 
-## 8. References
+## 9. References
 
 - Friston, K. (2010). The free-energy principle: a unified brain theory?
 - Buckley, C. L., et al. (2017). The free energy principle for action and perception.
