@@ -120,6 +120,7 @@ class RectangleBelief:
     last_seen: int = 0
     observation_count: int = 0
     is_confirmed: bool = False
+    last_sdf_mean: float = 0.0  # Last computed mean SDF value
     config: RectangleBeliefConfig = field(default_factory=RectangleBeliefConfig)
 
     @property
@@ -276,23 +277,40 @@ class RectangleBelief:
         return prediction_error + complexity + size_prior
 
     def optimize(self, points: torch.Tensor, prior_mu: torch.Tensor,
-                 prior_Sigma: torch.Tensor, num_iters: int = 10, lr: float = 0.05):
+                 prior_Sigma: torch.Tensor, point_covs: torch.Tensor = None,
+                 num_iters: int = 10, lr: float = 0.05):
         """
         Update belief by minimizing Variational Free Energy via gradient descent.
 
-        TESTING: Using only likelihood (SDF) without prior term.
+        From paper Eq. obstacle_objective:
+        F(s) = (1/2σ²_total) Σᵢ dᵢ(s)² + (1/2)(s-μₚ)ᵀΣₚ⁻¹(s-μₚ)
+
+        The total observation variance includes:
+        - σ²_o: intrinsic LIDAR noise
+        - σ²_robot: propagated uncertainty from robot pose (from point_covs)
 
         Args:
             points: LIDAR cluster points [N, 2]
-            prior_mu: Prior mean (not used in this test)
-            prior_Sigma: Prior covariance (not used in this test)
+            prior_mu: Prior mean from previous posterior
+            prior_Sigma: Prior covariance from previous posterior + process noise
+            point_covs: Point covariances [N, 2, 2] from robot pose uncertainty propagation
             num_iters: Optimization iterations
             lr: Learning rate
         """
         if len(points) < 3:
             return
 
-        sigma_sq = self.config.sigma_obs ** 2
+        # Base observation variance
+        sigma_sq_base = self.config.sigma_obs ** 2
+
+        # Compute effective observation variance per point
+        # σ²_total = σ²_obs + trace(Σ_point)/2 (average variance from robot pose)
+        if point_covs is not None and len(point_covs) > 0:
+            # Use trace of point covariance as isotropic approximation
+            point_var = torch.mean(torch.diagonal(point_covs, dim1=1, dim2=2).sum(dim=1)) / 2.0
+            sigma_sq_effective = sigma_sq_base + point_var.item()
+        else:
+            sigma_sq_effective = sigma_sq_base
 
         # Make parameters require gradients
         mu = self.mu.clone().detach().requires_grad_(True)
@@ -325,10 +343,10 @@ class RectangleBelief:
                 torch.max(dx, dy)
             )
 
-            # ONLY Likelihood term - SDF residuals
-            likelihood = torch.mean(sdf ** 2) / (2.0 * sigma_sq)
+            # Likelihood term with effective variance including robot uncertainty
+            likelihood = torch.mean(sdf ** 2) / (2.0 * sigma_sq_effective)
 
-            # Total loss = just likelihood for now
+            # Total loss = likelihood (prediction error)
             loss = likelihood
 
             # Compute gradients
@@ -454,6 +472,11 @@ class BoxManager:
         self.device = DEVICE
         console.print(f"[cyan]BoxManager initialized on device: {self.device}")
 
+        # Robot pose uncertainty (updated each frame)
+        self.robot_pose = np.array([0.0, 0.0, 0.0])
+        self.robot_cov = np.eye(3) * 0.01
+        self.mean_point_cov = None  # Mean point covariance tensor for SDF computation
+
         # Data for visualization (updated each frame)
         self.viz_data = {
             'lidar_points_raw': np.array([]),
@@ -476,7 +499,8 @@ class BoxManager:
                 'depth': belief.depth,
                 'angle': belief.angle,
                 'confidence': belief.confidence,
-                'is_confirmed': belief.is_confirmed
+                'is_confirmed': belief.is_confirmed,
+                'sdf_mean': belief.last_sdf_mean
             })
         return result
 
@@ -484,6 +508,10 @@ class BoxManager:
                robot_cov: np.ndarray, room_dims: Tuple[float, float]) -> List[RectangleBelief]:
         """
         Main perception cycle following Active Inference framework.
+
+        NEW APPROACH: Points stay in robot frame, boxes are transformed to robot frame
+        for SDF computation. This efficiently propagates robot pose uncertainty to
+        only 1 pose (the box) instead of N points.
 
         Args:
             lidar_points: LIDAR points in robot frame [N, 2] (meters)
@@ -499,9 +527,11 @@ class BoxManager:
 
         self.frame_count += 1
 
-        # Store for visualization
+        # Store robot pose and covariance for box-to-robot transformation
         self.viz_data['room_dims'] = room_dims
         self.viz_data['robot_pose'] = robot_pose.copy()
+        self.robot_pose = robot_pose.copy()
+        self.robot_cov = robot_cov.copy()
 
         if len(lidar_points) == 0:
             self.viz_data['lidar_points_raw'] = np.array([])
@@ -510,53 +540,66 @@ class BoxManager:
             self._decay_unmatched_beliefs(set())
             return list(self.beliefs.values())
 
-        # 1. Transform LIDAR points to room frame
+        # Store original LIDAR points in robot frame for SDF computation
+        self.lidar_points_robot = lidar_points.copy()
+
+        # Transform points to room frame for visualization and wall filtering
         world_points = self._transform_to_room_frame(lidar_points, robot_pose)
         self.viz_data['lidar_points_raw'] = world_points.copy()
         t1 = time.time()
 
-        # 2. Filter wall points
-        non_wall_points = self._filter_wall_points(world_points, room_dims)
-        self.viz_data['lidar_points_filtered'] = non_wall_points.copy()
+        # 2. Filter wall points (in room frame for correct wall distance)
+        non_wall_points_room = self._filter_wall_points(world_points, room_dims)
+        self.viz_data['lidar_points_filtered'] = non_wall_points_room.copy()
+
+        # Also get the corresponding points in robot frame (same indices)
+        wall_mask = self._get_wall_filter_mask(world_points, room_dims)
+        non_wall_points_robot = lidar_points[wall_mask]
         t2 = time.time()
 
-        if len(non_wall_points) < self.config.min_cluster_points:
+        if len(non_wall_points_robot) < self.config.min_cluster_points:
             self.viz_data['clusters'] = []
             self._decay_unmatched_beliefs(set())
             return list(self.beliefs.values())
 
-        # 3. Cluster points
-        clusters = self._cluster_points(non_wall_points)
-        self.viz_data['clusters'] = [c.copy() for c in clusters]
+        # 3. Cluster points in ROBOT frame (single clustering)
+        #    Then transform clusters to room frame for visualization and association
+        clusters_robot = self._cluster_points(non_wall_points_robot)
+
+        # Transform clusters to room frame for visualization and association with beliefs
+        clusters_room = [self._transform_to_room_frame(c, self.robot_pose) for c in clusters_robot]
+        self.viz_data['clusters'] = [c.copy() for c in clusters_room]
         t3 = time.time()
 
-        if len(clusters) == 0:
+        if len(clusters_robot) == 0:
             self._decay_unmatched_beliefs(set())
             return list(self.beliefs.values())
 
         # 4. Data association via cost matrix (Hungarian algorithm)
-        associations, unmatched_clusters, unmatched_beliefs = self._associate_clusters(clusters)
+        #    Use room frame clusters for centroid distance to beliefs (which are in room frame)
+        associations, unmatched_clusters, unmatched_beliefs = self._associate_clusters(clusters_room)
         t4 = time.time()
 
-        # Debug: print detailed info every frame
-        if len(clusters) > 0:
-            cluster_centroid = np.mean(clusters[0], axis=0)
-            console.print(f"[blue]Frame {self.frame_count}: Cluster at ({cluster_centroid[0]:.2f}, {cluster_centroid[1]:.2f}), "
-                         f"Beliefs: {len(self.beliefs)}, Associations: {len(associations)}, "
-                         f"Unmatched clusters: {len(unmatched_clusters)}")
-
-            # Show distances to all beliefs
-            if len(self.beliefs) > 0 and len(unmatched_clusters) > 0:
-                for belief_id, belief in self.beliefs.items():
-                    dist = np.sqrt((cluster_centroid[0] - belief.cx)**2 + (cluster_centroid[1] - belief.cy)**2)
-                    console.print(f"[yellow]  Belief {belief_id}: ({belief.cx:.2f}, {belief.cy:.2f}), dist={dist:.2f}m, conf={belief.confidence:.2f}")
+        # Debug: print detailed info every frame (commented for now)
+        # if len(clusters_room) > 0:
+        #     cluster_centroid = np.mean(clusters_room[0], axis=0)
+        #     console.print(f"[blue]Frame {self.frame_count}: Cluster at ({cluster_centroid[0]:.2f}, {cluster_centroid[1]:.2f}), "
+        #                  f"Beliefs: {len(self.beliefs)}, Associations: {len(associations)}, "
+        #                  f"Unmatched clusters: {len(unmatched_clusters)}")
+        #
+        #     # Show distances to all beliefs
+        #     if len(self.beliefs) > 0 and len(unmatched_clusters) > 0:
+        #         for belief_id, belief in self.beliefs.items():
+        #             dist = np.sqrt((cluster_centroid[0] - belief.cx)**2 + (cluster_centroid[1] - belief.cy)**2)
+        #             console.print(f"[yellow]  Belief {belief_id}: ({belief.cx:.2f}, {belief.cy:.2f}), dist={dist:.2f}m, conf={belief.confidence:.2f}")
 
         # 5. Update matched beliefs via VFE minimization
-        self._update_matched_beliefs(associations, clusters)
+        #    Pass both room and robot frame clusters (same indices)
+        self._update_matched_beliefs(associations, clusters_room, clusters_robot)
         t5 = time.time()
 
-        # 6. Initialize new beliefs for unmatched clusters
-        self._create_new_beliefs(unmatched_clusters, clusters)
+        # 6. Initialize new beliefs for unmatched clusters (use room frame for initialization)
+        self._create_new_beliefs(unmatched_clusters, clusters_room)
         t6 = time.time()
 
         # 7. Decay unmatched beliefs
@@ -568,11 +611,11 @@ class BoxManager:
         # 9. Update DSR graph
         #self._update_dsr()
 
-        # Print timing every 30 frames
-        if self.frame_count % 30 == 0:
-            console.print(f"[yellow]Timing: transform={1000*(t1-t0):.1f}ms, filter={1000*(t2-t1):.1f}ms, "
-                         f"cluster={1000*(t3-t2):.1f}ms, assoc={1000*(t4-t3):.1f}ms, "
-                         f"update={1000*(t5-t4):.1f}ms, create={1000*(t6-t5):.1f}ms")
+        # Print timing every 30 frames (commented for now)
+        # if self.frame_count % 30 == 0:
+        #     console.print(f"[yellow]Timing: transform={1000*(t1-t0):.1f}ms, filter={1000*(t2-t1):.1f}ms, "
+        #                  f"cluster={1000*(t3-t2):.1f}ms, assoc={1000*(t4-t3):.1f}ms, "
+        #                  f"update={1000*(t5-t4):.1f}ms, create={1000*(t6-t5):.1f}ms")
 
         return list(self.beliefs.values())
 
@@ -591,6 +634,223 @@ class BoxManager:
         world_y = points[:, 0] * sin_t + points[:, 1] * cos_t + y
 
         return np.column_stack([world_x, world_y])
+
+    def _transform_box_to_robot_frame(self, box_mu: torch.Tensor, robot_pose: np.ndarray) -> torch.Tensor:
+        """
+        Transform box parameters from room frame to robot frame.
+
+        box_mu = [cx, cy, w, h, d, theta] in room frame
+        robot_pose = [rx, ry, rtheta] robot pose in room frame
+
+        The inverse transformation is:
+        T_room_to_robot = T_robot_to_room^(-1)
+
+        For SE(2): if T = [R, t], then T^(-1) = [Rᵀ, -Rᵀt]
+
+        Box center in robot frame:
+        [cx_robot, cy_robot] = Rᵀ([cx_room, cy_room] - [rx, ry])
+
+        Box angle in robot frame:
+        theta_robot = theta_room - rtheta
+
+        Returns:
+            box_mu_robot [cx_robot, cy_robot, w, h, d, theta_robot]
+        """
+        rx, ry, rtheta = robot_pose
+        cos_t = np.cos(-rtheta)  # Rᵀ = R(-θ)
+        sin_t = np.sin(-rtheta)
+
+        # Box center in room frame
+        cx_room = box_mu[0]
+        cy_room = box_mu[1]
+
+        # Translate then rotate (inverse of rotate then translate)
+        dx = cx_room - rx
+        dy = cy_room - ry
+
+        # Rotate to robot frame
+        cx_robot = dx * cos_t - dy * sin_t
+        cy_robot = dx * sin_t + dy * cos_t
+
+        # Dimensions stay the same
+        w, h, d = box_mu[2], box_mu[3], box_mu[4]
+
+        # Angle in robot frame
+        theta_robot = box_mu[5] - rtheta
+
+        return torch.tensor([cx_robot, cy_robot, w, h, d, theta_robot],
+                           dtype=DTYPE, device=box_mu.device)
+
+    def _transform_box_to_robot_frame_with_cov(self, box_mu: torch.Tensor, box_Sigma: torch.Tensor,
+                                                 robot_pose: np.ndarray, robot_cov: np.ndarray
+                                                 ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Transform box parameters from room frame to robot frame with covariance composition.
+
+        This is the key function for propagating uncertainty efficiently.
+        Instead of transforming N points, we transform 1 box pose and compose
+        the covariances.
+
+        The transformation is:
+        s_robot = f(s_room, pose_robot)
+
+        where f is the inverse SE(2) transformation applied to the box center
+        and angle adjustment.
+
+        Jacobian J_box of s_robot w.r.t. s_room:
+        - Position: J_pos = R(-θ_robot) (2x2 rotation matrix)
+        - Dimensions: Identity (don't depend on transform)
+        - Angle: 1 (direct subtraction)
+
+        Jacobian J_robot of s_robot w.r.t. robot pose (rx, ry, rθ):
+        - Depends on the specific derivative of the transformation
+
+        Total covariance in robot frame:
+        Σ_robot = J_box @ Σ_box @ J_box.T + J_robot @ Σ_robot @ J_robot.T
+
+        Args:
+            box_mu: Box mean [cx, cy, w, h, d, theta] in room frame (6D)
+            box_Sigma: Box covariance 6x6 in room frame
+            robot_pose: Robot pose [x, y, theta] in room frame
+            robot_cov: Robot pose covariance 3x3
+
+        Returns:
+            (box_mu_robot, box_Sigma_robot) in robot frame
+        """
+        rx, ry, rtheta = robot_pose
+        cos_t = np.cos(-rtheta)
+        sin_t = np.sin(-rtheta)
+
+        # Transform box mean
+        box_mu_robot = self._transform_box_to_robot_frame(box_mu, robot_pose)
+
+        # =====================================================================
+        # Jacobian of box_robot w.r.t. box_room (6x6)
+        # s_robot = [cx_r, cy_r, w, h, d, θ_r]
+        # s_room  = [cx,   cy,   w, h, d, θ  ]
+        #
+        # cx_r = cos(-rθ)*(cx - rx) - sin(-rθ)*(cy - ry)
+        # cy_r = sin(-rθ)*(cx - rx) + cos(-rθ)*(cy - ry)
+        # w_r = w, h_r = h, d_r = d
+        # θ_r = θ - rθ
+        # =====================================================================
+        J_box = np.zeros((6, 6))
+        J_box[0, 0] = cos_t   # ∂cx_r/∂cx
+        J_box[0, 1] = -sin_t  # ∂cx_r/∂cy
+        J_box[1, 0] = sin_t   # ∂cy_r/∂cx
+        J_box[1, 1] = cos_t   # ∂cy_r/∂cy
+        J_box[2, 2] = 1.0     # ∂w_r/∂w
+        J_box[3, 3] = 1.0     # ∂h_r/∂h
+        J_box[4, 4] = 1.0     # ∂d_r/∂d
+        J_box[5, 5] = 1.0     # ∂θ_r/∂θ
+
+        # =====================================================================
+        # Jacobian of box_robot w.r.t. robot_pose (6x3)
+        # robot_pose = [rx, ry, rθ]
+        #
+        # cx_r = cos(-rθ)*(cx - rx) - sin(-rθ)*(cy - ry)
+        # cy_r = sin(-rθ)*(cx - rx) + cos(-rθ)*(cy - ry)
+        #
+        # ∂cx_r/∂rx = -cos(-rθ) = -cos_t
+        # ∂cx_r/∂ry = sin(-rθ) = sin_t
+        # ∂cx_r/∂rθ = sin(-rθ)*(cx - rx) + cos(-rθ)*(cy - ry) = cy_r
+        #
+        # ∂cy_r/∂rx = -sin(-rθ) = -sin_t
+        # ∂cy_r/∂ry = -cos(-rθ) = -cos_t
+        # ∂cy_r/∂rθ = cos(-rθ)*(cx - rx) - sin(-rθ)*(cy - ry) = -cx_r
+        #
+        # ∂θ_r/∂rθ = -1
+        # =====================================================================
+        cx_room = box_mu[0].item()
+        cy_room = box_mu[1].item()
+        dx = cx_room - rx
+        dy = cy_room - ry
+
+        # cx_r and cy_r computed for the Jacobian
+        cx_r = cos_t * dx - sin_t * dy
+        cy_r = sin_t * dx + cos_t * dy
+
+        J_robot = np.zeros((6, 3))
+        J_robot[0, 0] = -cos_t      # ∂cx_r/∂rx
+        J_robot[0, 1] = sin_t       # ∂cx_r/∂ry
+        J_robot[0, 2] = cy_r        # ∂cx_r/∂rθ (= sin(-rθ)*dx + cos(-rθ)*dy)
+        J_robot[1, 0] = -sin_t      # ∂cy_r/∂rx
+        J_robot[1, 1] = -cos_t      # ∂cy_r/∂ry
+        J_robot[1, 2] = -cx_r       # ∂cy_r/∂rθ (= cos(-rθ)*dx - sin(-rθ)*dy, but with sign)
+        J_robot[5, 2] = -1.0        # ∂θ_r/∂rθ
+
+        # Convert to tensors
+        J_box_t = torch.tensor(J_box, dtype=DTYPE, device=box_mu.device)
+        J_robot_t = torch.tensor(J_robot, dtype=DTYPE, device=box_mu.device)
+        robot_cov_t = torch.tensor(robot_cov, dtype=DTYPE, device=box_mu.device)
+
+        # Compose covariances:
+        # Σ_robot = J_box @ Σ_box @ J_box.T + J_robot @ Σ_robot_pose @ J_robot.T
+        cov_from_box = J_box_t @ box_Sigma @ J_box_t.T
+        cov_from_robot = J_robot_t @ robot_cov_t @ J_robot_t.T
+
+        box_Sigma_robot = cov_from_box + cov_from_robot
+
+        return box_mu_robot, box_Sigma_robot
+
+    def _transform_to_room_frame_with_cov(self, points: np.ndarray, robot_pose: np.ndarray,
+                                           robot_cov: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Transform points from robot frame to room frame with uncertainty propagation.
+
+        From paper Eq. lidar_room_transform:
+        T(μ_loc) p = R(θ) p + [x, y]ᵀ
+
+        The transformation is nonlinear due to θ. We propagate uncertainty using
+        first-order linearization (Jacobian-based):
+
+        For each point p_rob = (px, py) in robot frame:
+        p_world = [cos(θ)*px - sin(θ)*py + x, sin(θ)*px + cos(θ)*py + y]ᵀ
+
+        Jacobian J of p_world w.r.t. robot pose (x, y, θ):
+        J = [∂p_world/∂x, ∂p_world/∂y, ∂p_world/∂θ]
+          = [[1, 0, -sin(θ)*px - cos(θ)*py],
+             [0, 1,  cos(θ)*px - sin(θ)*py]]
+
+        Covariance propagation: Σ_world = J * Σ_robot * Jᵀ
+
+        Args:
+            points: LIDAR points in robot frame [N, 2]
+            robot_pose: Robot pose [x, y, theta] in room frame
+            robot_cov: Robot pose covariance 3x3
+
+        Returns:
+            Tuple (world_points [N, 2], point_covariances [N, 2, 2])
+        """
+        x, y, theta = robot_pose
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        n_points = len(points)
+
+        # Transform points (mean)
+        world_x = points[:, 0] * cos_t - points[:, 1] * sin_t + x
+        world_y = points[:, 0] * sin_t + points[:, 1] * cos_t + y
+        world_points = np.column_stack([world_x, world_y])
+
+        # Compute covariance for each point via Jacobian propagation
+        # J is 2x3 for each point: [∂p_world/∂(x,y,θ)]
+        # Σ_world (2x2) = J (2x3) @ Σ_robot (3x3) @ Jᵀ (3x2)
+        point_covs = np.zeros((n_points, 2, 2))
+
+        for i in range(n_points):
+            px, py = points[i]
+
+            # Jacobian of transformation w.r.t. robot pose (x, y, θ)
+            # ∂(world_x)/∂x = 1, ∂(world_x)/∂y = 0, ∂(world_x)/∂θ = -sin(θ)*px - cos(θ)*py
+            # ∂(world_y)/∂x = 0, ∂(world_y)/∂y = 1, ∂(world_y)/∂θ = cos(θ)*px - sin(θ)*py
+            J = np.array([
+                [1.0, 0.0, -sin_t * px - cos_t * py],
+                [0.0, 1.0,  cos_t * px - sin_t * py]
+            ])
+
+            # Propagate covariance: Σ_world = J @ Σ_robot @ Jᵀ
+            point_covs[i] = J @ robot_cov @ J.T
+
+        return world_points, point_covs
 
     def _filter_wall_points(self, points: np.ndarray, room_dims: Tuple[float, float]) -> np.ndarray:
         """
@@ -622,6 +882,36 @@ class BoxManager:
         mask = mask & inside_room
 
         return points[mask]
+
+    def _get_wall_filter_mask(self, points: np.ndarray, room_dims: Tuple[float, float]) -> np.ndarray:
+        """
+        Get boolean mask for wall filtering (True = keep, False = wall point).
+
+        Same logic as _filter_wall_points but returns mask instead of filtered points.
+        """
+        width, depth = room_dims
+        half_w, half_d = width / 2, depth / 2
+        margin = self.config.wall_margin
+
+        # Distance to each wall
+        dist_left = np.abs(points[:, 0] + half_w)
+        dist_right = np.abs(points[:, 0] - half_w)
+        dist_back = np.abs(points[:, 1] + half_d)
+        dist_front = np.abs(points[:, 1] - half_d)
+
+        min_wall_dist = np.minimum(
+            np.minimum(dist_left, dist_right),
+            np.minimum(dist_back, dist_front)
+        )
+
+        # Keep points far from walls
+        mask = min_wall_dist > margin
+
+        # Also filter points that are outside the room (sensor noise)
+        inside_room = (np.abs(points[:, 0]) < half_w - 0.05) & (np.abs(points[:, 1]) < half_d - 0.05)
+        mask = mask & inside_room
+
+        return mask
 
     def _cluster_points(self, points: np.ndarray) -> List[np.ndarray]:
         """
@@ -846,40 +1136,56 @@ class BoxManager:
         return associations, unmatched_clusters, unmatched_beliefs
 
     def _update_matched_beliefs(self, associations: List[Tuple[int, int]],
-                                 clusters: List[np.ndarray]):
+                                 clusters_room: List[np.ndarray],
+                                 clusters_robot: List[np.ndarray]):
         """
         Update matched beliefs by minimizing Variational Free Energy.
+
+        NEW APPROACH: The box is transformed from room frame to robot frame,
+        composing the covariances. The SDF is computed with LIDAR points
+        in robot frame. This propagates robot pose uncertainty efficiently.
 
         From paper Eq. obstacle_objective:
         F(s) = (1/2σ²_o) Σᵢ dᵢ(s)² + (1/2)(s-μₚ)ᵀΣₚ⁻¹(s-μₚ)
 
-        Prior: μₚ = posterior from previous frame
-        Likelihood: SDF residuals from current observations
-
-        The system should converge in a few iterations as prior approaches posterior.
+        The composed covariance (box + robot) is used in the prior term.
         """
         for cluster_idx, belief_id in associations:
-            cluster = clusters[cluster_idx]
+            # Get cluster in ROBOT frame for SDF computation
+            cluster_robot = clusters_robot[cluster_idx] if cluster_idx < len(clusters_robot) else clusters_room[cluster_idx]
             belief = self.beliefs[belief_id]
 
             # Store position before optimization
             old_cx, old_cy = belief.cx, belief.cy
 
-            # Convert to tensor
-            points_t = torch.tensor(cluster, dtype=DTYPE, device=self.device)
+            # Convert points to tensor (in robot frame)
+            points_robot_t = torch.tensor(cluster_robot, dtype=DTYPE, device=self.device)
 
-            # Prior = posterior from previous frame (current belief state)
-            # This is the correct prior according to Active Inference
-            prior_mu, prior_Sigma = belief.propagate_prior()
+            # Prior = posterior from previous frame (current belief state in room frame)
+            prior_mu_room, prior_Sigma_room = belief.propagate_prior()
 
-            # Optimize belief via VFE minimization
-            # The prior precision (Sigma^-1) balances prior vs likelihood
-            belief.optimize(points_t, prior_mu, prior_Sigma)
+            # Transform box to robot frame with covariance composition
+            # This composes box uncertainty + robot pose uncertainty
+            box_mu_robot, box_Sigma_robot = self._transform_box_to_robot_frame_with_cov(
+                belief.mu, belief.Sigma, self.robot_pose, self.robot_cov
+            )
 
-            # Log movement
-            move_dist = np.sqrt((belief.cx - old_cx)**2 + (belief.cy - old_cy)**2)
-            if move_dist > 0.05:  # Only log movements > 5cm
-                console.print(f"[magenta]Belief {belief_id} moved {move_dist:.2f}m: ({old_cx:.2f},{old_cy:.2f}) -> ({belief.cx:.2f},{belief.cy:.2f})")
+            # Optimize in robot frame
+            # The optimization updates box_mu_robot, then we transform back to room frame
+            optimized_mu_robot, sdf_mean = self._optimize_in_robot_frame(
+                points_robot_t, box_mu_robot, box_Sigma_robot, prior_mu_room, prior_Sigma_room, belief.config
+            )
+
+            # Transform optimized parameters back to room frame
+            belief.mu = self._transform_box_to_room_frame(optimized_mu_robot, self.robot_pose)
+
+            # Store the SDF mean for visualization
+            belief.last_sdf_mean = sdf_mean
+
+            # Log movement (commented for now)
+            # move_dist = np.sqrt((belief.cx - old_cx)**2 + (belief.cy - old_cy)**2)
+            # if move_dist > 0.05:  # Only log movements > 5cm
+            #     console.print(f"[magenta]Belief {belief_id} moved {move_dist:.2f}m: ({old_cx:.2f},{old_cy:.2f}) -> ({belief.cx:.2f},{belief.cy:.2f})")
 
             # Update lifecycle
             belief.last_seen = self.frame_count
@@ -890,6 +1196,143 @@ class BoxManager:
             # Check for confirmation
             if belief.confidence >= self.config.confirmed_threshold:
                 belief.is_confirmed = True
+
+    def _transform_box_to_room_frame(self, box_mu_robot: torch.Tensor,
+                                      robot_pose: np.ndarray) -> torch.Tensor:
+        """
+        Transform box parameters from robot frame back to room frame.
+
+        This is the forward transformation (inverse of _transform_box_to_robot_frame).
+
+        T_robot_to_room: p_room = R(θ) * p_robot + [rx, ry]
+
+        Box center in room frame:
+        [cx_room, cy_room] = R(θ) * [cx_robot, cy_robot] + [rx, ry]
+
+        Box angle in room frame:
+        theta_room = theta_robot + rtheta
+        """
+        rx, ry, rtheta = robot_pose
+        cos_t = np.cos(rtheta)
+        sin_t = np.sin(rtheta)
+
+        cx_robot = box_mu_robot[0]
+        cy_robot = box_mu_robot[1]
+
+        # Rotate and translate to room frame
+        cx_room = cos_t * cx_robot - sin_t * cy_robot + rx
+        cy_room = sin_t * cx_robot + cos_t * cy_robot + ry
+
+        # Dimensions stay the same
+        w, h, d = box_mu_robot[2], box_mu_robot[3], box_mu_robot[4]
+
+        # Angle in room frame
+        theta_room = box_mu_robot[5] + rtheta
+
+        return torch.tensor([cx_room, cy_room, w, h, d, theta_room],
+                           dtype=DTYPE, device=box_mu_robot.device)
+
+    def _optimize_in_robot_frame(self, points: torch.Tensor, box_mu: torch.Tensor,
+                                  box_Sigma: torch.Tensor, prior_mu_room: torch.Tensor,
+                                  prior_Sigma_room: torch.Tensor, config: RectangleBeliefConfig,
+                                  num_iters: int = 10, lr: float = 0.05) -> torch.Tensor:
+        """
+        Optimize box parameters in robot frame via VFE minimization.
+
+        The SDF is computed with points and box in the same frame (robot).
+        The composed covariance (box + robot) is used for regularization.
+
+        Args:
+            points: LIDAR points in robot frame [N, 2]
+            box_mu: Box mean in robot frame [cx, cy, w, h, d, theta]
+            box_Sigma: Composed covariance (box + robot) in robot frame
+            prior_mu_room: Prior mean in room frame (for reference)
+            prior_Sigma_room: Prior covariance in room frame
+            config: Belief configuration
+
+        Returns:
+            Tuple (optimized_box_mu, sdf_mean) - optimized parameters and mean SDF value
+        """
+        if len(points) < 3:
+            return box_mu, 0.0
+
+        sigma_sq = config.sigma_obs ** 2
+
+        # Make parameters require gradients
+        mu = box_mu.clone().detach().requires_grad_(True)
+        final_sdf_mean = 0.0
+
+        for iteration in range(num_iters):
+            # Extract parameters: cx, cy, w, h, d, theta
+            cx, cy, w, h, d, theta = mu[0], mu[1], mu[2], mu[3], mu[4], mu[5]
+
+            # Transform points to local box frame
+            cos_t = torch.cos(-theta)
+            sin_t = torch.sin(-theta)
+            px = points[:, 0] - cx
+            py = points[:, 1] - cy
+            local_x = px * cos_t - py * sin_t
+            local_y = px * sin_t + py * cos_t
+
+            # Half dimensions
+            half_w = w / 2
+            half_h = h / 2
+
+            # Distance to box faces
+            dx = torch.abs(local_x) - half_w
+            dy = torch.abs(local_y) - half_h
+
+            # 2D SDF
+            outside_mask = (dx > 0) | (dy > 0)
+            sdf = torch.where(
+                outside_mask,
+                torch.sqrt(torch.clamp(dx, min=0)**2 + torch.clamp(dy, min=0)**2 + 1e-8),
+                torch.max(dx, dy)
+            )
+
+            # Store final SDF mean (from last iteration)
+            final_sdf_mean = torch.mean(torch.abs(sdf)).item()
+
+            # Likelihood term with effective variance
+            # The composed covariance already includes robot uncertainty
+            likelihood = torch.mean(sdf ** 2) / (2.0 * sigma_sq)
+
+            # Total loss = likelihood (prediction error)
+            loss = likelihood
+
+            # Compute gradients
+            if mu.grad is not None:
+                mu.grad.zero_()
+            loss.backward()
+
+            # Gradient descent update
+            with torch.no_grad():
+                if mu.grad is not None and not torch.isnan(mu.grad).any():
+                    grad = torch.clamp(mu.grad, -2.0, 2.0)
+                    mu -= lr * grad
+
+                    # Clamp dimensions (w, h, d)
+                    mu[2] = torch.clamp(mu[2], config.min_size, config.max_size)
+                    mu[3] = torch.clamp(mu[3], config.min_size, config.max_size)
+                    mu[4] = torch.clamp(mu[4], config.min_size, config.max_size)
+
+                    # Normalize angle to [-π/2, π/2]
+                    while mu[5] > np.pi/2:
+                        mu[5] -= np.pi
+                    while mu[5] < -np.pi/2:
+                        mu[5] += np.pi
+
+            mu.requires_grad_(True)
+
+        # Enforce width >= height convention (swap if needed)
+        optimized_mu = mu.detach()
+        if optimized_mu[3] > optimized_mu[2]:
+            optimized_mu[2], optimized_mu[3] = optimized_mu[3].clone(), optimized_mu[2].clone()
+            optimized_mu[5] = optimized_mu[5] + np.pi/2
+            while optimized_mu[5] > np.pi/2:
+                optimized_mu[5] -= np.pi
+
+        return optimized_mu, final_sdf_mean
 
     def _create_new_beliefs(self, unmatched_clusters: set, clusters: List[np.ndarray]):
         """
@@ -959,8 +1402,8 @@ class BoxManager:
             self.beliefs[self.next_belief_id] = belief
             self.next_belief_id += 1
 
-            console.print(f"[green]New belief: id={belief.id}, pos=({cx:.2f}, {cy:.2f}), "
-                         f"size=({w:.2f}, {h:.2f}, {d:.2f}), angle={np.degrees(angle):.1f}°")
+            # console.print(f"[green]New belief: id={belief.id}, pos=({cx:.2f}, {cy:.2f}), "
+            #              f"size=({w:.2f}, {h:.2f}, {d:.2f}), angle={np.degrees(angle):.1f}°")
 
     def _fit_rectangle_pca(self, points: np.ndarray) -> Optional[Tuple[float, float, float, float, float]]:
         """
@@ -1077,7 +1520,7 @@ class BoxManager:
 
         # Remove beliefs
         for belief_id in to_remove:
-            console.print(f"[red]Removing belief: id={belief_id}, confidence below threshold")
+            # console.print(f"[red]Removing belief: id={belief_id}, confidence below threshold")
             self._delete_from_dsr(belief_id)
             del self.beliefs[belief_id]
 
@@ -1124,7 +1567,7 @@ class BoxManager:
 
         # Remove merged beliefs
         for belief_id in to_remove:
-            console.print(f"[magenta]Merging belief: id={belief_id} (duplicate)")
+            # console.print(f"[magenta]Merging belief: id={belief_id} (duplicate)")
             self._delete_from_dsr(belief_id)
             del self.beliefs[belief_id]
 
@@ -1157,8 +1600,8 @@ class BoxManager:
                 box_node.attrs["color"] = Attribute("Orange", self.agent_id)
 
                 new_id = self.g.insert_node(box_node)
-                if new_id:
-                    console.print(f"[green]Inserted DSR node: {box_name}")
+                # if new_id:
+                #     console.print(f"[green]Inserted DSR node: {box_name}")
 
     def _delete_from_dsr(self, belief_id: int):
         """Delete a box node from DSR graph."""

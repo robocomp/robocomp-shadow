@@ -32,7 +32,14 @@ console = Console(highlight=False)
 
 from pydsr import *
 from src.box_manager import BoxManager
-from src.visualizer import BoxConceptVisualizer
+
+# Choose visualizer: '2d' for DearPyGui, '3d' for Open3D
+VISUALIZER_MODE = '3d'
+
+if VISUALIZER_MODE == '3d':
+    from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
+else:
+    from src.visualizer import BoxConceptVisualizer
 
 
 class SpecificWorker(GenericWorker):
@@ -102,7 +109,7 @@ class SpecificWorker(GenericWorker):
         )
 
         if len(detected_boxes) > 0:
-            console.print(f"[cyan]Tracking {len(detected_boxes)} boxes")
+            pass  # console.print(f"[cyan]Tracking {len(detected_boxes)} boxes")
 
         return True
 

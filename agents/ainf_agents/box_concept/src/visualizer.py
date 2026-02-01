@@ -94,7 +94,7 @@ class BoxConceptVisualizer:
                 dpg.add_slider_float(label="Scale", default_value=100, min_value=20,
                                     max_value=200, tag="scale_slider", width=200,
                                     callback=self._on_scale_change)
-                dpg.add_checkbox(label="Show Raw Points", default_value=True,
+                dpg.add_checkbox(label="Show Raw Points", default_value=False,
                                tag="show_raw_cb")
                 dpg.add_checkbox(label="Show Filtered Points", default_value=True,
                                tag="show_filtered_cb")
@@ -199,7 +199,7 @@ class BoxConceptVisualizer:
                                fill=(*color, 200), parent="canvas")
 
     def _draw_clusters(self):
-        """Draw DBSCAN clusters with different colors."""
+        """Draw DBSCAN clusters with different colors (lighter and smaller for visibility)."""
         if not self.data.clusters:
             return
 
@@ -208,15 +208,17 @@ class BoxConceptVisualizer:
                 continue
 
             color = self.CLUSTER_COLORS[i % len(self.CLUSTER_COLORS)]
-            self._draw_points(cluster, color, radius=4)
+            # Use lighter color (50% brightness) and smaller radius for better text visibility
+            light_color = (color[0] // 2 + 80, color[1] // 2 + 80, color[2] // 2 + 80)
+            self._draw_points(cluster, light_color, radius=2)
 
             # Draw cluster centroid
             centroid = np.mean(cluster, axis=0)
             screen_pos = self._world_to_screen(centroid[0], centroid[1])
-            dpg.draw_circle(screen_pos, 8, color=(*color, 255),
-                           fill=(0, 0, 0, 0), thickness=2, parent="canvas")
-            dpg.draw_text((screen_pos[0] + 10, screen_pos[1] - 10),
-                         f"C{i}", color=(*color, 255), size=14, parent="canvas")
+            dpg.draw_circle(screen_pos, 6, color=(*light_color, 200),
+                           fill=(0, 0, 0, 0), thickness=1, parent="canvas")
+            dpg.draw_text((screen_pos[0] + 8, screen_pos[1] - 8),
+                         f"C{i}", color=(*light_color, 200), size=10, parent="canvas")
 
     def _draw_beliefs(self):
         """Draw detected box beliefs."""
@@ -231,6 +233,7 @@ class BoxConceptVisualizer:
             angle = belief.get('angle', 0)
             confidence = belief.get('confidence', 0)
             belief_id = belief.get('id', -1)
+            sdf_mean = belief.get('sdf_mean', 0)
 
             # Compute corners
             half_w, half_h = w / 2, h / 2
@@ -251,18 +254,23 @@ class BoxConceptVisualizer:
                 wy = cy + lx * sin_a + ly * cos_a
                 screen_corners.append(self._world_to_screen(wx, wy))
 
-            # Draw box outline
+            # Draw box outline - color based on SDF (green = good fit, red = poor fit)
+            # SDF ~0 means points are on the boundary (good), SDF > 0.1 means poor fit
+            sdf_quality = max(0, min(1, 1.0 - sdf_mean * 5))  # Map [0, 0.2] -> [1, 0]
+            box_r = int(255 * (1 - sdf_quality))
+            box_g = int(255 * sdf_quality)
             alpha = int(255 * confidence)
+
             for i in range(4):
                 dpg.draw_line(screen_corners[i], screen_corners[(i + 1) % 4],
-                             color=(255, 165, 0, alpha), thickness=3, parent="canvas")
+                             color=(box_r, box_g, 0, alpha), thickness=3, parent="canvas")
 
             # Draw center and label
             center_screen = self._world_to_screen(cx, cy)
-            dpg.draw_circle(center_screen, 5, color=(255, 165, 0, 255),
-                           fill=(255, 165, 0, 200), parent="canvas")
-            dpg.draw_text((center_screen[0] + 10, center_screen[1] - 20),
-                         f"Box {belief_id}\nconf: {confidence:.2f}",
+            dpg.draw_circle(center_screen, 5, color=(box_r, box_g, 0, 255),
+                           fill=(box_r, box_g, 0, 200), parent="canvas")
+            dpg.draw_text((center_screen[0] + 10, center_screen[1] - 25),
+                         f"Box {belief_id}\nSDF: {sdf_mean:.3f}\nconf: {confidence:.2f}",
                          color=(255, 200, 100, 255), size=12, parent="canvas")
 
     def _redraw(self):
@@ -407,8 +415,8 @@ if __name__ == "__main__":
 
     # Simulate beliefs
     beliefs = [
-        {'id': 0, 'cx': 1.0, 'cy': 1.0, 'width': 0.4, 'height': 0.3, 'angle': 0.1, 'confidence': 0.8},
-        {'id': 1, 'cx': -1.0, 'cy': 0.5, 'width': 0.35, 'height': 0.35, 'angle': -0.2, 'confidence': 0.5},
+        {'id': 0, 'cx': 1.0, 'cy': 1.0, 'width': 0.4, 'height': 0.3, 'angle': 0.1, 'confidence': 0.8, 'sdf_mean': 0.02},
+        {'id': 1, 'cx': -1.0, 'cy': 0.5, 'width': 0.35, 'height': 0.35, 'angle': -0.2, 'confidence': 0.5, 'sdf_mean': 0.15},
     ]
 
     viz.update(room_dims=room_dims, robot_pose=robot_pose,
