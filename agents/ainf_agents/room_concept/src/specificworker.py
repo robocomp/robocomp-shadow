@@ -101,7 +101,6 @@ class SpecificWorker(GenericWorker):
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
             signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
-            # console.print("signals connected")
         except RuntimeError as e:
             print(e)
     
@@ -1135,8 +1134,6 @@ class SpecificWorker(GenericWorker):
 
         # PHASE 0: Turn to face center
         if self._goto_phase == 0:
-            print(f"[phase0] Turn to center: angle={np.degrees(angle_to_center):.1f}°")
-
             if abs(angle_to_center) > angle_threshold:
                 rot = np.clip(angle_to_center * 1.5, -self.rotation_speed, self.rotation_speed)
                 cmd = (0, 0, rot)
@@ -1145,14 +1142,12 @@ class SpecificWorker(GenericWorker):
                 self._action_step += 1
                 return cmd
             else:
-                print(f"[phase0] ✓ Aligned to center")
+                print(f"[Circle] Phase 0: Aligned to center")
                 self._goto_phase = 1
 
         # PHASE 1: Move forward/backward to reach circle
         if self._goto_phase == 1:
             dist_to_circle = radius - dist_to_center
-
-            print(f"[phase1] Move to circle: r={dist_to_center:.2f}m, Δr={dist_to_circle:+.2f}m")
 
             if abs(dist_to_circle) > dist_threshold:
                 if dist_to_circle > 0:
@@ -1166,7 +1161,7 @@ class SpecificWorker(GenericWorker):
                 self._action_step += 1
                 return cmd
             else:
-                print(f"[phase1] ✓ Reached circle at r={dist_to_center:.2f}m")
+                print(f"[Circle] Phase 1: Reached circle at r={dist_to_center:.2f}m")
                 self._goto_phase = 2
 
         # PHASE 2: Turn 90° left to be tangent (for CCW orbit)
@@ -1192,9 +1187,6 @@ class SpecificWorker(GenericWorker):
             while rotation_needed < -np.pi:
                 rotation_needed += 2 * np.pi
 
-            print(f"[phase2] Turn tangent: center_angle={np.degrees(angle_to_center):.1f}°, "
-                  f"target=-90°, rotation_needed={np.degrees(rotation_needed):.1f}°")
-
             if abs(rotation_needed) > angle_threshold:
                 # Proportional control - rotate in the direction of rotation_needed
                 rot = np.clip(rotation_needed * 1.5, -self.rotation_speed, self.rotation_speed)
@@ -1206,7 +1198,7 @@ class SpecificWorker(GenericWorker):
                 return cmd
             else:
                 # Tangent achieved - move to phase 3
-                print(f"[phase2] ✓ Tangent to circle - starting orbit")
+                print(f"[Circle] Phase 2: Tangent aligned, starting orbit")
                 self._goto_phase = 3
                 # Initialize orbit tracking - use robot position angle in room frame
                 self._orbit_accumulated = 0.0
@@ -1237,7 +1229,7 @@ class SpecificWorker(GenericWorker):
 
             # Check if orbit complete
             if abs(self._orbit_accumulated) >= target_arc:
-                print(f"[phase3] ✓ Orbit complete! Total: {np.degrees(self._orbit_accumulated):.1f}°")
+                print(f"[Circle] Phase 3: Orbit complete ({np.degrees(self._orbit_accumulated):.0f}°)")
                 self.omnirobot_proxy.setSpeedBase(0, 0, 0)
                 self._goto_phase = 0
                 self._current_action_idx += 1
@@ -1247,7 +1239,6 @@ class SpecificWorker(GenericWorker):
             # Proportional controllers:
             # 1. Radius error: we want dist_to_center == target_radius
             radius_error = dist_to_center - target_radius
-            # Positive error means we're too far -> need to move toward center (reduce lateral speed or curve in)
 
             # 2. Tangent error: we want center at -90° (on our right)
             target_tangent_angle = -np.pi / 2
@@ -1265,7 +1256,6 @@ class SpecificWorker(GenericWorker):
             base_speed = self.advance_speed  # mm/s
 
             # Lateral correction: if too far (radius_error > 0), move left (toward center)
-            # Robot's left is positive side_speed
             lateral_correction = -Kp_radius * radius_error * 1000  # Convert to mm/s
 
             # Rotation correction: maintain tangent angle
@@ -1276,9 +1266,6 @@ class SpecificWorker(GenericWorker):
             advz = base_speed  # Forward speed in mm/s
             rot = np.clip(rotation_correction, -self.rotation_speed, self.rotation_speed)
 
-            print(f"[phase3] Orbit: r={dist_to_center:.2f}m (Δ={radius_error:+.2f}), "
-                  f"θ_center={np.degrees(current_angle_to_center):.0f}°, "
-                  f"arc={np.degrees(self._orbit_accumulated):.0f}°/360°")
 
             cmd = (advx, advz, rot)
             cmd = self._apply_speed_modulation(cmd)
@@ -1291,17 +1278,12 @@ class SpecificWorker(GenericWorker):
 
     ##########################################################################################
     def startup_check(self):
-        print(f"Testing RoboCompLidar3D.TPoint from ifaces.RoboCompLidar3D")
+        """Test interface types and quit (used for testing only)"""
         test = ifaces.RoboCompLidar3D.TPoint()
-        print(f"Testing RoboCompLidar3D.TDataImage from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TDataImage()
-        print(f"Testing RoboCompLidar3D.TData from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TData()
-        print(f"Testing RoboCompLidar3D.TDataCategory from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TDataCategory()
-        print(f"Testing RoboCompLidar3D.TColorCloudData from ifaces.RoboCompLidar3D")
         test = ifaces.RoboCompLidar3D.TColorCloudData()
-        print(f"Testing RoboCompOmniRobot.TMechParams from ifaces.RoboCompOmniRobot")
         test = ifaces.RoboCompOmniRobot.TMechParams()
         QTimer.singleShot(200, QApplication.instance().quit)
 
