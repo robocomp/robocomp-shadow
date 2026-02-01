@@ -16,10 +16,17 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import numpy as np
+import os
+import json
 from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass, field
 import threading
 import time
+
+# Path to the robot mesh
+ROBOT_MESH_PATH = os.path.join(os.path.dirname(__file__), "meshes", "shadow.obj")
+# Path to save camera settings
+CAMERA_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), ".camera_settings.json")
 
 
 @dataclass
@@ -31,6 +38,7 @@ class Visualizer3DData:
     lidar_points_filtered: np.ndarray = None  # After wall filtering
     clusters: List[np.ndarray] = None  # List of point clusters
     beliefs: List[dict] = None  # List of belief info dicts
+    historical_points: Dict[int, np.ndarray] = None  # Per-belief historical points
 
     def __post_init__(self):
         if self.robot_pose is None:
@@ -43,6 +51,8 @@ class Visualizer3DData:
             self.clusters = []
         if self.beliefs is None:
             self.beliefs = []
+        if self.historical_points is None:
+            self.historical_points = {}
 
 
 class BoxConceptVisualizer3D:
@@ -71,6 +81,7 @@ class BoxConceptVisualizer3D:
         self.running = False
         self.vis = None
         self.geometries = {}
+        self.current_geometries = []  # Track current geometries for removal
         self.needs_update = True
 
         # Settings
@@ -79,17 +90,48 @@ class BoxConceptVisualizer3D:
         self.show_clusters = True
         self.show_beliefs = True
         self.show_room = True
-        self.point_size = 3.0
+        self.show_historical_points = True
+        self.point_size = 2.0
 
     def _create_room_geometry(self) -> List[o3d.geometry.LineSet]:
-        """Create room floor and wall wireframes."""
+        """Create room floor with grid and wall wireframes."""
         width, depth = self.data.room_dims
         half_w, half_d = width / 2, depth / 2
         wall_height = 0.5  # meters
 
         geometries = []
 
-        # Floor outline
+        # Create floor grid
+        grid_spacing = 0.5  # meters between grid lines
+        grid_points = []
+        grid_lines = []
+        point_idx = 0
+
+        # Horizontal lines (along X axis)
+        y = -half_d
+        while y <= half_d + 0.01:
+            grid_points.append([-half_w, y, 0])
+            grid_points.append([half_w, y, 0])
+            grid_lines.append([point_idx, point_idx + 1])
+            point_idx += 2
+            y += grid_spacing
+
+        # Vertical lines (along Y axis)
+        x = -half_w
+        while x <= half_w + 0.01:
+            grid_points.append([x, -half_d, 0])
+            grid_points.append([x, half_d, 0])
+            grid_lines.append([point_idx, point_idx + 1])
+            point_idx += 2
+            x += grid_spacing
+
+        floor_grid = o3d.geometry.LineSet()
+        floor_grid.points = o3d.utility.Vector3dVector(np.array(grid_points))
+        floor_grid.lines = o3d.utility.Vector2iVector(grid_lines)
+        floor_grid.colors = o3d.utility.Vector3dVector([[0.3, 0.3, 0.35]] * len(grid_lines))
+        geometries.append(floor_grid)
+
+        # Floor outline (thicker border)
         floor_points = np.array([
             [-half_w, -half_d, 0],
             [half_w, -half_d, 0],
@@ -100,7 +142,7 @@ class BoxConceptVisualizer3D:
         floor = o3d.geometry.LineSet()
         floor.points = o3d.utility.Vector3dVector(floor_points)
         floor.lines = o3d.utility.Vector2iVector(floor_lines)
-        floor.colors = o3d.utility.Vector3dVector([[0.5, 0.5, 0.5]] * 4)
+        floor.colors = o3d.utility.Vector3dVector([[0.6, 0.6, 0.6]] * 4)
         geometries.append(floor)
 
         # Wall outlines (vertical lines at corners)
@@ -129,38 +171,71 @@ class BoxConceptVisualizer3D:
         return geometries
 
     def _create_robot_geometry(self) -> o3d.geometry.TriangleMesh:
-        """Create robot representation as a cone/arrow."""
+        """Create robot representation using shadow.obj mesh."""
         if self.data.robot_pose is None:
             return None
 
         x, y, theta = self.data.robot_pose
 
-        # Create a cone pointing in the direction of theta
-        robot = o3d.geometry.TriangleMesh.create_cone(radius=0.15, height=0.3)
+        # Try to load the robot mesh
+        if os.path.exists(ROBOT_MESH_PATH):
+            try:
+                robot = o3d.io.read_triangle_mesh(ROBOT_MESH_PATH)
+                robot.compute_vertex_normals()
+
+                # The mesh is already in meters (about 0.48m x 0.48m x 1.4m)
+                # Scale it down to a reasonable size for visualization (e.g., 0.3m wide)
+                current_size = robot.get_axis_aligned_bounding_box().get_extent()
+                scale_factor = 0.3 / max(current_size[0], current_size[1])  # Scale to ~30cm width
+                robot.scale(scale_factor, center=(0, 0, 0))
+
+                # Move to sit on floor (translate so bottom is at z=0)
+                bounds = robot.get_axis_aligned_bounding_box()
+                min_z = bounds.min_bound[2]
+                robot.translate([0, 0, -min_z])
+
+                # Rotate to align with robot orientation
+                R = robot.get_rotation_matrix_from_xyz((0, 0, theta))
+                robot.rotate(R, center=(0, 0, 0))
+
+                # Translate to robot position
+                robot.translate([x, y, 0])
+
+                # Color: cyan
+                robot.paint_uniform_color([0.0, 0.8, 1.0])
+
+                return robot
+            except Exception as e:
+                print(f"Failed to load robot mesh: {e}")
+
+        # Fallback to cone if mesh loading fails
+        robot = o3d.geometry.TriangleMesh.create_cone(radius=0.08, height=0.15)
         robot.compute_vertex_normals()
-
-        # Rotate to point in XY plane (cone starts pointing up in Z)
-        # Add pi/2 to align with robot convention (theta=0 means facing +Y)
-        R = robot.get_rotation_matrix_from_xyz((np.pi/2, 0, theta + np.pi/2))
+        R = robot.get_rotation_matrix_from_xyz((np.pi/2, 0, theta))
         robot.rotate(R, center=(0, 0, 0))
-
-        # Translate to robot position
-        robot.translate([x, y, 0.15])
-
-        # Color: cyan
+        robot.translate([x, y, 0.08])
         robot.paint_uniform_color([0.0, 0.8, 1.0])
 
         return robot
 
     def _create_points_geometry(self, points: np.ndarray, color: List[float],
                                   height: float = 0.1) -> o3d.geometry.PointCloud:
-        """Create point cloud geometry from 2D points."""
+        """Create point cloud geometry from 2D or 3D points.
+
+        For 2D points [N, 2]: adds height as Z coordinate.
+        For 3D points [N, 3]: uses the Z coordinate directly.
+        """
         if points is None or len(points) == 0:
             return None
 
-        # Add Z coordinate (height)
-        points_3d = np.column_stack([points[:, 0], points[:, 1],
-                                      np.full(len(points), height)])
+        # Check if points are already 3D
+        if points.shape[1] >= 3:
+            # Use the actual Z coordinates
+            points_3d = points[:, :3]
+        else:
+            # Add Z coordinate (height) for 2D points
+            points_3d = np.column_stack([points[:, 0], points[:, 1],
+                                          np.full(len(points), height)])
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points_3d)
@@ -180,15 +255,16 @@ class BoxConceptVisualizer3D:
                 continue
 
             color = self.CLUSTER_COLORS[i % len(self.CLUSTER_COLORS)]
-            # Use slightly different height for visibility
-            pcd = self._create_points_geometry(cluster, color, height=0.05)
+            # Use slightly lighter/muted color for cluster points
+            muted_color = [c * 0.6 for c in color]  # Darker/lighter version
+            pcd = self._create_points_geometry(cluster, muted_color, height=0.05)
             if pcd:
                 geometries.append(pcd)
 
         return geometries
 
     def _create_box_geometry(self, belief: dict) -> List[o3d.geometry.Geometry]:
-        """Create 3D box geometry for a belief."""
+        """Create 3D box geometry for a belief (semi-transparent wireframe)."""
         geometries = []
 
         cx = belief.get('cx', 0)
@@ -200,37 +276,63 @@ class BoxConceptVisualizer3D:
         confidence = belief.get('confidence', 0)
         sdf_mean = belief.get('sdf_mean', 0)
 
-        # Create oriented bounding box
-        # Box sits on the ground (z=0 to z=d)
-        center = np.array([cx, cy, d/2])
-        extent = np.array([w, h, d])
-
-        # Rotation around Z axis
-        R = o3d.geometry.OrientedBoundingBox.get_rotation_matrix_from_xyz((0, 0, angle))
-
-        obb = o3d.geometry.OrientedBoundingBox(center, R, extent)
-
         # Color based on SDF quality (green = good fit, red = poor fit)
-        sdf_quality = max(0, min(1, 1.0 - sdf_mean * 5))
+        sdf_quality = max(0.0, min(1.0, 1.0 - sdf_mean * 5))
         box_color = [1.0 - sdf_quality, sdf_quality, 0.0]
-        obb.color = box_color
 
-        geometries.append(obb)
+        # Create wireframe box using LineSet for transparency effect
+        half_w, half_h = w / 2, h / 2
+        cos_a, sin_a = np.cos(angle), np.sin(angle)
 
-        # Create a solid semi-transparent box mesh for better visibility
-        box_mesh = o3d.geometry.TriangleMesh.create_box(w, h, d)
-        box_mesh.translate([-w/2, -h/2, 0])  # Center at origin
-        box_mesh.rotate(R, center=(0, 0, 0))
-        box_mesh.translate([cx, cy, 0])
-        box_mesh.compute_vertex_normals()
+        # 8 corners of the box in local frame
+        local_corners = np.array([
+            [-half_w, -half_h, 0],
+            [half_w, -half_h, 0],
+            [half_w, half_h, 0],
+            [-half_w, half_h, 0],
+            [-half_w, -half_h, d],
+            [half_w, -half_h, d],
+            [half_w, half_h, d],
+            [-half_w, half_h, d],
+        ])
 
-        # Color with alpha based on confidence
-        alpha_color = [box_color[0] * confidence,
-                       box_color[1] * confidence,
-                       box_color[2] * 0.5 + 0.2]
-        box_mesh.paint_uniform_color(alpha_color)
+        # Rotate and translate corners
+        world_corners = []
+        for corner in local_corners:
+            rx = corner[0] * cos_a - corner[1] * sin_a + cx
+            ry = corner[0] * sin_a + corner[1] * cos_a + cy
+            rz = corner[2]
+            world_corners.append([rx, ry, rz])
+        world_corners = np.array(world_corners)
 
-        geometries.append(box_mesh)
+        # 12 edges of the box
+        edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],  # Bottom face
+            [4, 5], [5, 6], [6, 7], [7, 4],  # Top face
+            [0, 4], [1, 5], [2, 6], [3, 7],  # Vertical edges
+        ]
+
+        # Create wireframe
+        wireframe = o3d.geometry.LineSet()
+        wireframe.points = o3d.utility.Vector3dVector(world_corners)
+        wireframe.lines = o3d.utility.Vector2iVector(edges)
+        # Color intensity based on confidence
+        edge_color = [c * (0.5 + 0.5 * confidence) for c in box_color]
+        wireframe.colors = o3d.utility.Vector3dVector([edge_color] * len(edges))
+        geometries.append(wireframe)
+
+        # Add semi-transparent faces using very light colored mesh
+        # Only show top face for less visual clutter
+        if confidence > 0.3:
+            # Top face as a thin quad
+            top_mesh = o3d.geometry.TriangleMesh()
+            top_mesh.vertices = o3d.utility.Vector3dVector(world_corners[4:8])
+            top_mesh.triangles = o3d.utility.Vector3iVector([[0, 1, 2], [0, 2, 3]])
+            top_mesh.compute_vertex_normals()
+            # Very light color for transparency effect
+            alpha = 0.2 + 0.3 * confidence
+            top_mesh.paint_uniform_color([box_color[0] * alpha, box_color[1] * alpha, box_color[2] * alpha + 0.1])
+            geometries.append(top_mesh)
 
         return geometries
 
@@ -244,6 +346,41 @@ class BoxConceptVisualizer3D:
         for belief in self.data.beliefs:
             box_geoms = self._create_box_geometry(belief)
             geometries.extend(box_geoms)
+
+        return geometries
+
+    def _create_historical_points_geometry(self) -> List[o3d.geometry.PointCloud]:
+        """Create point clouds for historical points of each belief.
+
+        Historical points are 3D (x, y, z) and already contain the original
+        Z coordinate from the lidar scan, so we use them directly.
+        """
+        geometries = []
+
+        if not self.data.historical_points:
+            return geometries
+
+        for belief_id, points in self.data.historical_points.items():
+            if points is None or len(points) == 0:
+                continue
+
+            # Bright yellow/gold color for historical points to stand out
+            hist_color = [1.0, 0.9, 0.2]  # Bright yellow
+
+            # Points should be [N, 3] with real Z coordinates from lidar
+            if points.shape[1] == 3:
+                # Use the 3D points directly
+                points_3d = points
+            else:
+                # Fallback: if only 2D, place at lidar height
+                lidar_height = 0.15
+                points_3d = np.column_stack([points[:, 0], points[:, 1],
+                                              np.full(len(points), lidar_height)])
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points_3d)
+            pcd.colors = o3d.utility.Vector3dVector([hist_color] * len(points_3d))
+            geometries.append(pcd)
 
         return geometries
 
@@ -279,6 +416,10 @@ class BoxConceptVisualizer3D:
             if self.show_clusters:
                 all_geometries.extend(self._create_cluster_geometries())
 
+            # Historical points (accumulated evidence)
+            if self.show_historical_points:
+                all_geometries.extend(self._create_historical_points_geometry())
+
             # Beliefs (boxes)
             if self.show_beliefs:
                 all_geometries.extend(self._create_belief_geometries())
@@ -290,7 +431,8 @@ class BoxConceptVisualizer3D:
                lidar_points_raw: np.ndarray = None,
                lidar_points_filtered: np.ndarray = None,
                clusters: List[np.ndarray] = None,
-               beliefs: List[dict] = None):
+               beliefs: List[dict] = None,
+               historical_points: Dict[int, np.ndarray] = None):
         """Update visualization data (thread-safe)."""
         with self.lock:
             if room_dims is not None:
@@ -303,6 +445,8 @@ class BoxConceptVisualizer3D:
                 self.data.lidar_points_filtered = lidar_points_filtered.copy() if len(lidar_points_filtered) > 0 else np.array([])
             if clusters is not None:
                 self.data.clusters = [c.copy() for c in clusters if c is not None and len(c) > 0]
+            if historical_points is not None:
+                self.data.historical_points = {k: v.copy() for k, v in historical_points.items()}
             if beliefs is not None:
                 self.data.beliefs = beliefs.copy() if beliefs else []
 
@@ -311,8 +455,14 @@ class BoxConceptVisualizer3D:
     def start(self):
         """Start the visualizer (blocking)."""
         self.running = True
-        self.vis = o3d.visualization.Visualizer()
+        self.vis = o3d.visualization.VisualizerWithKeyCallback()
         self.vis.create_window("Box Concept 3D Visualizer", self.width, self.height)
+
+        # Register key callbacks
+        # Press 'R' to reset view
+        self.vis.register_key_callback(ord('R'), self._reset_view_callback)
+        # Press 'S' to save camera settings
+        self.vis.register_key_callback(ord('S'), self._save_camera_callback)
 
         # Set render options
         opt = self.vis.get_render_option()
@@ -320,21 +470,36 @@ class BoxConceptVisualizer3D:
         opt.point_size = self.point_size
         opt.line_width = 2.0
 
+        # Set mouse mode to rotate around the scene center (like Webots)
+        # This makes rotation orbit around the lookat point
+        ctr = self.vis.get_view_control()
+        ctr.set_constant_z_near(0.01)
+        ctr.set_constant_z_far(100.0)
+
         # Initial geometry
-        geometries = self._rebuild_scene()
-        for geom in geometries:
+        self.current_geometries = self._rebuild_scene()
+        for geom in self.current_geometries:
             self.vis.add_geometry(geom)
 
-        # Set initial viewpoint (bird's eye view)
-        ctr = self.vis.get_view_control()
-        ctr.set_zoom(0.5)
-        ctr.set_front([0, -0.3, -1])
-        ctr.set_lookat([0, 0, 0])
-        ctr.set_up([0, 0, 1])
+        # Set initial viewpoint: top-down view from above
+        # First reset to default view that fits all geometry
+        self.vis.reset_view_point(True)
+
+        # Try to load saved camera settings, otherwise use default
+        saved_settings = self._load_camera_settings()
+        if saved_settings:
+            self._apply_camera_settings(saved_settings)
+            print("Loaded saved camera settings")
+        else:
+            ctr = self.vis.get_view_control()
+            # Default camera: rotate to look from above
+            ctr.rotate(0.0, -300.0)
+            ctr.scale(15.0)
 
         # Main loop
         frame_count = 0
         update_interval = 5  # Update geometries every N frames
+        save_interval = 60  # Save camera settings every N frames (~1 second)
 
         while self.running:
             frame_count += 1
@@ -343,11 +508,20 @@ class BoxConceptVisualizer3D:
             if self.needs_update and frame_count % update_interval == 0:
                 self.needs_update = False
 
-                # Clear and rebuild
-                self.vis.clear_geometries()
-                geometries = self._rebuild_scene()
-                for geom in geometries:
-                    self.vis.add_geometry(geom)
+                # Remove old geometries
+                for geom in self.current_geometries:
+                    self.vis.remove_geometry(geom, reset_bounding_box=False)
+
+                # Rebuild scene
+                self.current_geometries = self._rebuild_scene()
+
+                # Add new geometries without resetting bounding box
+                for geom in self.current_geometries:
+                    self.vis.add_geometry(geom, reset_bounding_box=False)
+
+            # Save camera settings periodically
+            if frame_count % save_interval == 0:
+                self._save_camera_settings()
 
             # Poll events and update renderer
             if not self.vis.poll_events():
@@ -355,6 +529,10 @@ class BoxConceptVisualizer3D:
             self.vis.update_renderer()
 
             time.sleep(0.016)  # ~60 FPS limit
+
+        # Save camera settings before closing
+        self._save_camera_settings()
+        print("Camera settings saved")
 
         self.vis.destroy_window()
 
@@ -366,6 +544,79 @@ class BoxConceptVisualizer3D:
     def stop(self):
         """Stop the visualizer."""
         self.running = False
+
+    def _reset_view_callback(self, vis):
+        """Callback to reset view when 'R' is pressed."""
+        self.vis.reset_view_point(True)
+        ctr = self.vis.get_view_control()
+        ctr.rotate(0.0, -300.0)
+        ctr.scale(15.0)
+        print("View reset")
+        return False
+
+    def _save_camera_callback(self, vis):
+        """Callback to save camera settings when 'S' is pressed."""
+        self._save_camera_settings()
+        print("Camera settings saved manually")
+        return False
+
+    def _save_camera_settings(self):
+        """Save current camera settings to a JSON file."""
+        if self.vis is None:
+            return
+        try:
+            ctr = self.vis.get_view_control()
+            # Try to get pinhole camera parameters
+            try:
+                cam_params = ctr.convert_to_pinhole_camera_parameters()
+                # Save intrinsic and extrinsic matrices
+                settings = {
+                    'extrinsic': cam_params.extrinsic.tolist(),
+                    'intrinsic_width': cam_params.intrinsic.width,
+                    'intrinsic_height': cam_params.intrinsic.height,
+                    'intrinsic_matrix': cam_params.intrinsic.intrinsic_matrix.tolist()
+                }
+                with open(CAMERA_SETTINGS_PATH, 'w') as f:
+                    json.dump(settings, f, indent=2)
+            except Exception as e:
+                # If pinhole conversion fails (orthographic mode), skip saving
+                pass
+        except Exception as e:
+            print(f"Failed to save camera settings: {e}")
+
+    def _load_camera_settings(self) -> Optional[dict]:
+        """Load camera settings from JSON file."""
+        if not os.path.exists(CAMERA_SETTINGS_PATH):
+            return None
+        try:
+            with open(CAMERA_SETTINGS_PATH, 'r') as f:
+                settings = json.load(f)
+            return settings
+        except Exception as e:
+            print(f"Failed to load camera settings: {e}")
+            return None
+
+    def _apply_camera_settings(self, settings: dict):
+        """Apply saved camera settings."""
+        if self.vis is None or settings is None:
+            return
+        try:
+            ctr = self.vis.get_view_control()
+            # Create pinhole camera parameters
+            cam_params = ctr.convert_to_pinhole_camera_parameters()
+
+            # Apply saved extrinsic matrix
+            cam_params.extrinsic = np.array(settings['extrinsic'])
+
+            # Apply saved intrinsic if dimensions match
+            if (cam_params.intrinsic.width == settings['intrinsic_width'] and
+                cam_params.intrinsic.height == settings['intrinsic_height']):
+                cam_params.intrinsic.intrinsic_matrix = np.array(settings['intrinsic_matrix'])
+
+            ctr.convert_from_pinhole_camera_parameters(cam_params, allow_arbitrary=True)
+        except Exception as e:
+            # If applying fails, just use default view
+            print(f"Failed to apply camera settings: {e}")
 
 
 # Convenience functions
@@ -428,10 +679,13 @@ if __name__ == "__main__":
                clusters=clusters, beliefs=beliefs)
 
     print("Starting 3D visualizer...")
-    print("Controls:")
-    print("  - Left mouse: Rotate")
-    print("  - Right mouse: Pan")
-    print("  - Scroll: Zoom")
-    print("  - Close window to exit")
+    print("Controls (Webots-style):")
+    print("  - Left mouse + drag: Rotate around center")
+    print("  - Right mouse + drag: Pan")
+    print("  - Scroll: Zoom in/out")
+    print("  - Middle mouse + drag: Tilt")
+    print("  - R: Reset view")
+    print("  - S: Save camera settings")
+    print("  - Q or close window: Exit")
 
     viz.start()

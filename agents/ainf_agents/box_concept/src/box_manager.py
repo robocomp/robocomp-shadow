@@ -109,6 +109,14 @@ class RectangleBelief:
     - μ: mean of the belief (6D tensor)
     - Σ: covariance matrix (6x6 tensor)
     - κ: confidence score ∈ [0,1]
+    - historical_points: points in box frame with Y+ pointing toward robot
+    - historical_covs: covariance for each historical point (based on SDF)
+
+    Box frame convention:
+    - Origin at box center
+    - Y+ points toward the robot (updated each frame)
+    - X+ is perpendicular to Y+ (right side of box from robot's view)
+    - Points are stored relative to this frame
 
     Prior for dimensions centered at 0.5m (typical box size)
     """
@@ -122,6 +130,253 @@ class RectangleBelief:
     is_confirmed: bool = False
     last_sdf_mean: float = 0.0  # Last computed mean SDF value
     config: RectangleBeliefConfig = field(default_factory=RectangleBeliefConfig)
+
+    # Historical points in ROOM frame (accumulated evidence)
+    # Each point has [x, y, z] in room/world frame and a variance (from SDF)
+    # Stored in room frame so they don't rotate when box orientation changes
+    historical_points: torch.Tensor = None  # [N, 3] points in room frame (x, y, z)
+    historical_vars: torch.Tensor = None    # [N] variance for each point
+    max_historical_points: int = 500
+
+    def __post_init__(self):
+        """Initialize historical points storage."""
+        if self.historical_points is None:
+            self.historical_points = torch.empty((0, 3), dtype=DTYPE, device=self.mu.device)
+        if self.historical_vars is None:
+            self.historical_vars = torch.empty(0, dtype=DTYPE, device=self.mu.device)
+
+    def transform_to_box_frame(self, points_world: torch.Tensor, robot_pose: np.ndarray) -> torch.Tensor:
+        """
+        Transform points from world/room frame to box frame.
+
+        Box frame convention:
+        - Origin at box center (cx, cy)
+        - Y+ points toward the robot
+        - X+ is perpendicular (right side from robot's view)
+
+        Args:
+            points_world: [N, 2] points in room frame
+            robot_pose: [x, y, theta] robot pose in room frame
+
+        Returns:
+            [N, 2] points in box frame
+        """
+        cx, cy = self.mu[0], self.mu[1]
+        box_theta = self.mu[5]
+
+        # Compute angle from box to robot (Y+ should point to robot)
+        robot_x, robot_y = robot_pose[0], robot_pose[1]
+        angle_to_robot = np.arctan2(robot_y - cy.item(), robot_x - cx.item())
+
+        # Box frame rotation: Y+ points to robot
+        # So we rotate by (angle_to_robot - pi/2) to align Y+ with direction to robot
+        frame_angle = angle_to_robot - np.pi/2
+
+        cos_t = np.cos(-frame_angle)
+        sin_t = np.sin(-frame_angle)
+
+        # Translate to box center, then rotate
+        px = points_world[:, 0] - cx
+        py = points_world[:, 1] - cy
+
+        local_x = px * cos_t - py * sin_t
+        local_y = px * sin_t + py * cos_t
+
+        return torch.stack([local_x, local_y], dim=1)
+
+    def transform_from_box_frame(self, points_box: torch.Tensor, robot_pose: np.ndarray) -> torch.Tensor:
+        """
+        Transform points from box frame back to world/room frame.
+
+        Args:
+            points_box: [N, 2] or [N, 3] points in box frame
+            robot_pose: [x, y, theta] robot pose in room frame
+
+        Returns:
+            [N, 2] or [N, 3] points in room frame (preserves dimensionality)
+        """
+        cx, cy = self.mu[0], self.mu[1]
+
+        # Compute angle from box to robot
+        robot_x, robot_y = robot_pose[0], robot_pose[1]
+        angle_to_robot = np.arctan2(robot_y - cy.item(), robot_x - cx.item())
+        frame_angle = angle_to_robot - np.pi/2
+
+        cos_t = np.cos(frame_angle)
+        sin_t = np.sin(frame_angle)
+
+        # Rotate then translate (only XY)
+        local_x = points_box[:, 0]
+        local_y = points_box[:, 1]
+
+        world_x = local_x * cos_t - local_y * sin_t + cx
+        world_y = local_x * sin_t + local_y * cos_t + cy
+
+        # If 3D, preserve Z coordinate
+        if points_box.shape[1] == 3:
+            world_z = points_box[:, 2]
+            return torch.stack([world_x, world_y, world_z], dim=1)
+        else:
+            return torch.stack([world_x, world_y], dim=1)
+
+    def add_historical_points(self, points_room: torch.Tensor, sdf_values: torch.Tensor,
+                               sdf_threshold: float = 0.05):
+        """
+        Add points with low SDF to historical storage with uniform surface coverage.
+
+        Points are stored in ROOM frame so they don't rotate when box orientation changes.
+        Points with SDF close to 0 (on the surface) are valuable evidence.
+        We use the SDF value as a measure of uncertainty (higher SDF = higher variance).
+
+        Surface coverage strategy:
+        - Discretize the box surface into angular bins (around XY) and Z bins (height)
+        - Each bin can hold a limited number of points (max_per_bin)
+        - When adding new points, replace worse points in the same bin
+        - This ensures uniform coverage across all visible faces
+
+        Args:
+            points_room: [N, 2] or [N, 3] points in room frame (if 2D, Z is set to 0)
+            sdf_values: [N] SDF values for each point
+            sdf_threshold: Maximum SDF to consider a point as surface evidence
+        """
+        # Filter points with low SDF (close to surface)
+        good_mask = torch.abs(sdf_values) < sdf_threshold
+        if not good_mask.any():
+            return
+
+        good_points = points_room[good_mask]
+        good_sdf = torch.abs(sdf_values[good_mask])
+
+        # Ensure we have Z coordinate
+        if good_points.shape[1] == 2:
+            z_coords = torch.zeros(len(good_points), 1, dtype=good_points.dtype, device=good_points.device)
+            good_points = torch.cat([good_points, z_coords], dim=1)
+
+        # Convert SDF to variance (lower SDF = lower variance = more certain)
+        base_var = 0.001
+        new_vars = good_sdf ** 2 + base_var
+
+        # Discretize surface into bins for uniform spacing
+        # Use angle from box center to each point and Z level to determine bin
+        cx, cy = self.mu[0].item(), self.mu[1].item()
+        dx = good_points[:, 0] - cx
+        dy = good_points[:, 1] - cy
+        angles = torch.atan2(dy, dx)
+        z_world = good_points[:, 2]
+
+        # Bin configuration
+        n_angle_bins = 24  # Angular bins around the box
+        n_z_bins = 8       # Vertical bins (0-0.8m typical box height)
+        max_per_bin = self.max_historical_points // (n_angle_bins * n_z_bins) + 1
+
+        z_bins = (z_world / 0.1).long().clamp(0, n_z_bins - 1)  # 10cm per bin
+        angle_bins = ((angles + np.pi) / (2 * np.pi) * n_angle_bins).long() % n_angle_bins
+
+        # Combined bin index
+        bin_indices = angle_bins * n_z_bins + z_bins
+
+        # Organize all existing points by bin
+        bin_contents = {}  # bin_idx -> list of (point, variance)
+
+        # Add existing historical points
+        if len(self.historical_points) > 0:
+            for i in range(len(self.historical_points)):
+                pt = self.historical_points[i]
+                var = self.historical_vars[i].item()
+                dx_h = pt[0] - cx
+                dy_h = pt[1] - cy
+                angle_h = torch.atan2(dy_h, dx_h)
+                z_h = pt[2]
+                z_bin_h = int((z_h / 0.1).clamp(0, n_z_bins - 1).item())
+                angle_bin_h = int(((angle_h + np.pi) / (2 * np.pi) * n_angle_bins).clamp(0, n_angle_bins - 1).item())
+                bin_idx = angle_bin_h * n_z_bins + z_bin_h
+
+                if bin_idx not in bin_contents:
+                    bin_contents[bin_idx] = []
+                bin_contents[bin_idx].append((pt, var))
+
+        # Add new points to bins
+        for i in range(len(good_points)):
+            bin_idx = bin_indices[i].item()
+            var = new_vars[i].item()
+            pt = good_points[i]
+
+            if bin_idx not in bin_contents:
+                bin_contents[bin_idx] = []
+            bin_contents[bin_idx].append((pt, var))
+
+        # For each bin, keep only the best points (lowest variance)
+        final_points = []
+        final_vars = []
+
+        for bin_idx, contents in bin_contents.items():
+            # Sort by variance (ascending)
+            contents_sorted = sorted(contents, key=lambda x: x[1])
+            # Keep at most max_per_bin points per bin
+            for pt, var in contents_sorted[:max_per_bin]:
+                final_points.append(pt)
+                final_vars.append(var)
+
+        if final_points:
+            self.historical_points = torch.stack(final_points)
+            self.historical_vars = torch.tensor(final_vars, dtype=DTYPE, device=self.mu.device)
+
+        # Final trim if still exceeds (should rarely happen with proper bin sizing)
+        if len(self.historical_points) > self.max_historical_points:
+            sorted_indices = torch.argsort(self.historical_vars)[:self.max_historical_points]
+            self.historical_points = self.historical_points[sorted_indices]
+            self.historical_vars = self.historical_vars[sorted_indices]
+
+    def get_historical_points_in_robot_frame(self, robot_pose: np.ndarray,
+                                              robot_cov: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get historical points transformed to robot frame with propagated covariance.
+
+        Historical points are stored in room frame, so we transform directly
+        from room frame to robot frame.
+
+        Args:
+            robot_pose: [x, y, theta] robot pose in room frame
+            robot_cov: 3x3 robot pose covariance
+
+        Returns:
+            Tuple (points_robot_xy [N, 2], points_robot_3d [N, 3], variances [N])
+            - points_robot_xy: XY coordinates for 2D SDF optimization
+            - points_robot_3d: Full 3D coordinates for height optimization
+            - variances: Propagated variances including robot pose uncertainty
+        """
+        if len(self.historical_points) == 0:
+            return (torch.empty((0, 2), dtype=DTYPE, device=self.mu.device),
+                    torch.empty((0, 3), dtype=DTYPE, device=self.mu.device),
+                    torch.empty(0, dtype=DTYPE, device=self.mu.device))
+
+        # Historical points are already in room frame, transform to robot frame
+        rx, ry, rtheta = robot_pose
+        cos_t = np.cos(-rtheta)
+        sin_t = np.sin(-rtheta)
+
+        px = self.historical_points[:, 0] - rx
+        py = self.historical_points[:, 1] - ry
+
+        robot_x = px * cos_t - py * sin_t
+        robot_y = px * sin_t + py * cos_t
+        robot_z = self.historical_points[:, 2]  # Z stays the same
+
+        # XY only for 2D SDF
+        points_robot_xy = torch.stack([robot_x, robot_y], dim=1)
+        # Full 3D for height optimization
+        points_robot_3d = torch.stack([robot_x, robot_y, robot_z], dim=1)
+
+        # Propagate covariance: add robot pose uncertainty to historical variance
+        # Approximate: use trace of position covariance as isotropic addition
+        robot_pos_var = (robot_cov[0, 0] + robot_cov[1, 1]) / 2
+        propagated_vars = self.historical_vars + robot_pos_var
+
+        return points_robot_xy, points_robot_3d, propagated_vars
+
+    @property
+    def num_historical_points(self) -> int:
+        return len(self.historical_points)
 
     @property
     def cx(self) -> float:
@@ -162,66 +417,15 @@ class RectangleBelief:
         From paper Eq. cluster_likelihood:
         d_i(s) = SDF(p_i, s)
         """
-        cx, cy, w, h, d = self.mu[0], self.mu[1], self.mu[2], self.mu[3], self.mu[4]
-        theta = self.mu[5]  # θ is at index 5
-
         # Check if points are 2D or 3D
         is_3d = points.shape[1] == 3
 
-        # Transform points to local box frame (rotation around z-axis)
-        cos_t = torch.cos(-theta)
-        sin_t = torch.sin(-theta)
+        points_xy = points[:, :2]
+        points_z = points[:, 2] if is_3d else None
 
-        # Translate to box center
-        px = points[:, 0] - cx
-        py = points[:, 1] - cy
+        # Delegate to the static method in BoxManager
+        return BoxManager.compute_box_sdf(points_xy, self.mu, points_z)
 
-        # Rotate to align with box axes (rotation in XY plane)
-        local_x = px * cos_t - py * sin_t
-        local_y = px * sin_t + py * cos_t
-
-        # Half dimensions
-        half_w = w / 2
-        half_h = h / 2
-        half_d = d / 2
-
-        # Distance to box faces in local frame
-        dx = torch.abs(local_x) - half_w
-        dy = torch.abs(local_y) - half_h
-
-        if is_3d:
-            # 3D SDF: consider z coordinate and depth
-            pz = points[:, 2]
-            # Box extends from z=0 to z=d (sitting on ground)
-            local_z = pz - half_d  # Center the z-axis
-            dz = torch.abs(local_z) - half_d
-
-            # 3D outside distance (Euclidean to nearest point on box surface)
-            outside = torch.sqrt(
-                torch.clamp(dx, min=0)**2 +
-                torch.clamp(dy, min=0)**2 +
-                torch.clamp(dz, min=0)**2 + 1e-8
-            )
-
-            # 3D inside distance (negative, distance to nearest face)
-            inside = torch.max(torch.max(dx, dy), dz)
-
-            # Combine: positive outside, negative inside
-            is_outside = (dx > 0) | (dy > 0) | (dz > 0)
-        else:
-            # 2D SDF: only XY plane (top-down view)
-            outside = torch.sqrt(
-                torch.clamp(dx, min=0)**2 +
-                torch.clamp(dy, min=0)**2 + 1e-8
-            )
-
-            # 2D inside distance (negative, distance to nearest edge)
-            inside = torch.max(dx, dy)
-
-            # Combine: positive outside, negative inside
-            is_outside = (dx > 0) | (dy > 0)
-
-        return torch.where(is_outside, outside, inside)
 
     def compute_vfe(self, points: torch.Tensor, prior_mu: torch.Tensor = None,
                     prior_Sigma: torch.Tensor = None) -> torch.Tensor:
@@ -486,6 +690,82 @@ class BoxManager:
             'robot_pose': np.array([0.0, 0.0, 0.0])
         }
 
+    @staticmethod
+    def compute_box_sdf(points_xy: torch.Tensor, box_params: torch.Tensor,
+                        points_z: torch.Tensor = None) -> torch.Tensor:
+        """
+        Compute Signed Distance Function for an oriented 3D box.
+
+        SDF(p, s) = distance from point p to box boundary
+        - Positive: point outside box
+        - Negative: point inside box
+        - Zero: point on boundary
+
+        Args:
+            points_xy: [N, 2] points in box-local or world frame (x, y)
+            box_params: [6] tensor [cx, cy, w, h, d, theta]
+            points_z: Optional [N] z-coordinates for 3D SDF
+
+        Returns:
+            [N] SDF values for each point
+        """
+        cx, cy, w, h, d, theta = box_params[0], box_params[1], box_params[2], \
+                                  box_params[3], box_params[4], box_params[5]
+
+        # Transform points to local box frame (rotation around z-axis)
+        cos_t = torch.cos(-theta)
+        sin_t = torch.sin(-theta)
+
+        # Translate to box center
+        px = points_xy[:, 0] - cx
+        py = points_xy[:, 1] - cy
+
+        # Rotate to align with box axes (rotation in XY plane)
+        local_x = px * cos_t - py * sin_t
+        local_y = px * sin_t + py * cos_t
+
+        # Half dimensions
+        half_w = w / 2
+        half_h = h / 2
+        half_d = d / 2
+
+        # Distance to box faces in local frame
+        dx = torch.abs(local_x) - half_w
+        dy = torch.abs(local_y) - half_h
+
+        if points_z is not None and len(points_z) > 0:
+            # 3D SDF: consider z coordinate and depth
+            # Box extends from z=0 to z=d (sitting on ground)
+            local_z = points_z - half_d  # Center the z-axis
+            dz = torch.abs(local_z) - half_d
+
+            # 3D outside distance (Euclidean to nearest point on box surface)
+            outside = torch.sqrt(
+                torch.clamp(dx, min=0)**2 +
+                torch.clamp(dy, min=0)**2 +
+                torch.clamp(dz, min=0)**2 + 1e-8
+            )
+
+            # 3D inside distance (negative, distance to nearest face)
+            inside = torch.max(torch.max(dx, dy), dz)
+
+            # Combine: positive outside, negative inside
+            is_outside = (dx > 0) | (dy > 0) | (dz > 0)
+        else:
+            # 2D SDF: only XY plane (top-down view)
+            outside = torch.sqrt(
+                torch.clamp(dx, min=0)**2 +
+                torch.clamp(dy, min=0)**2 + 1e-8
+            )
+
+            # 2D inside distance (negative, distance to nearest edge)
+            inside = torch.max(dx, dy)
+
+            # Combine: positive outside, negative inside
+            is_outside = (dx > 0) | (dy > 0)
+
+        return torch.where(is_outside, outside, inside)
+
     def get_beliefs_as_dicts(self) -> List[dict]:
         """Get beliefs as a list of dictionaries for visualization."""
         result = []
@@ -500,8 +780,21 @@ class BoxManager:
                 'angle': belief.angle,
                 'confidence': belief.confidence,
                 'is_confirmed': belief.is_confirmed,
-                'sdf_mean': belief.last_sdf_mean
+                'sdf_mean': belief.last_sdf_mean,
+                'num_hist_points': belief.num_historical_points
             })
+        return result
+
+    def get_historical_points_for_viz(self) -> Dict[int, np.ndarray]:
+        """Get historical points for each belief in room frame for visualization.
+
+        Historical points are already stored in room frame, so no transformation needed.
+        """
+        result = {}
+        for belief_id, belief in self.beliefs.items():
+            if belief.num_historical_points > 0:
+                # Points are already in room frame
+                result[belief_id] = belief.historical_points.cpu().numpy()
         return result
 
     def update(self, lidar_points: np.ndarray, robot_pose: np.ndarray,
@@ -625,15 +918,21 @@ class BoxManager:
 
         From paper Eq. lidar_room_transform:
         T(μ_loc) p = R(θ) p + [x, y]ᵀ
+
+        Preserves Z coordinate if points are 3D.
         """
         x, y, theta = robot_pose
         cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-        # Rotate and translate
+        # Rotate and translate XY
         world_x = points[:, 0] * cos_t - points[:, 1] * sin_t + x
         world_y = points[:, 0] * sin_t + points[:, 1] * cos_t + y
 
-        return np.column_stack([world_x, world_y])
+        # Preserve Z if 3D points
+        if points.shape[1] == 3:
+            return np.column_stack([world_x, world_y, points[:, 2]])
+        else:
+            return np.column_stack([world_x, world_y])
 
     def _transform_box_to_robot_frame(self, box_mu: torch.Tensor, robot_pose: np.ndarray) -> torch.Tensor:
         """
@@ -920,6 +1219,9 @@ class BoxManager:
         Similar to DBSCAN as described in paper Sec. obstacle-dbscan.
         Uses larger expansion radius to merge nearby point groups into single clusters.
         Applies NMS-like merging to avoid duplicate clusters for the same object.
+
+        Clustering uses only XY coordinates (2D) for distance computation,
+        but preserves full 3D points in the output clusters.
         """
         if len(points) == 0:
             return []
@@ -929,16 +1231,18 @@ class BoxManager:
 
         clusters = []
         remaining = points.copy()
+        # Use only XY for distance calculations
+        remaining_xy = remaining[:, :2]
         used = np.zeros(len(remaining), dtype=bool)
 
         for i in range(len(remaining)):
             if used[i]:
                 continue
 
-            seed = remaining[i]
+            seed_xy = remaining_xy[i]
 
-            # Find all neighbors within eps
-            distances = np.linalg.norm(remaining - seed, axis=1)
+            # Find all neighbors within eps (2D distance)
+            distances = np.linalg.norm(remaining_xy - seed_xy, axis=1)
             neighbor_mask = (distances < eps) & (~used)
 
             if np.sum(neighbor_mask) < min_pts:
@@ -952,10 +1256,10 @@ class BoxManager:
             to_check = list(cluster_indices)
             while to_check:
                 current_idx = to_check.pop(0)
-                current_point = remaining[current_idx]
+                current_point_xy = remaining_xy[current_idx]
 
-                # Find neighbors of this point
-                distances = np.linalg.norm(remaining - current_point, axis=1)
+                # Find neighbors of this point (2D distance)
+                distances = np.linalg.norm(remaining_xy - current_point_xy, axis=1)
                 new_neighbors = np.where((distances < eps) & (~used))[0]
 
                 for neighbor_idx in new_neighbors:
@@ -964,7 +1268,7 @@ class BoxManager:
                         used[neighbor_idx] = True
                         to_check.append(neighbor_idx)
 
-            # Create cluster from collected indices
+            # Create cluster from collected indices (full 3D points)
             cluster = remaining[list(cluster_indices)]
             if len(cluster) >= min_pts:
                 clusters.append(cluster)
@@ -979,14 +1283,15 @@ class BoxManager:
         Merge clusters that are too close together (NMS-like).
 
         Single-pass algorithm for efficiency.
+        Uses only XY coordinates for distance/overlap calculations.
         """
         if len(clusters) <= 1:
             return clusters
 
         merge_distance = self.config.cluster_eps * 2.5
 
-        # Pre-compute centroids and bboxes
-        centroids = [np.mean(c, axis=0) for c in clusters]
+        # Pre-compute centroids (XY only) and bboxes
+        centroids = [np.mean(c[:, :2], axis=0) for c in clusters]
         bboxes = [self._get_bbox(c) for c in clusters]
 
         merged = []
@@ -1026,9 +1331,9 @@ class BoxManager:
         return merged
 
     def _get_bbox(self, points: np.ndarray) -> Tuple[float, float, float, float]:
-        """Get bounding box (min_x, min_y, max_x, max_y) for a set of points."""
-        min_xy = np.min(points, axis=0)
-        max_xy = np.max(points, axis=0)
+        """Get bounding box (min_x, min_y, max_x, max_y) for a set of points (XY only)."""
+        min_xy = np.min(points[:, :2], axis=0)
+        max_xy = np.max(points[:, :2], axis=0)
         return (min_xy[0], min_xy[1], max_xy[0], max_xy[1])
 
     def _bbox_overlap(self, bbox1: Tuple[float, float, float, float],
@@ -1079,8 +1384,11 @@ class BoxManager:
         cost_matrix = np.full((n_clusters, n_beliefs), np.inf)
 
         for k, cluster in enumerate(clusters):
-            cluster_centroid = np.mean(cluster, axis=0)
-            cluster_t = torch.tensor(cluster, dtype=DTYPE, device=self.device)
+            # Use only XY for centroid calculation
+            cluster_centroid = np.mean(cluster[:, :2], axis=0)
+            # Use only XY for SDF computation
+            cluster_xy = cluster[:, :2]
+            cluster_t = torch.tensor(cluster_xy, dtype=DTYPE, device=self.device)
 
             for j, belief_id in enumerate(belief_ids):
                 belief = self.beliefs[belief_id]
@@ -1141,39 +1449,76 @@ class BoxManager:
         """
         Update matched beliefs by minimizing Variational Free Energy.
 
-        NEW APPROACH: The box is transformed from room frame to robot frame,
-        composing the covariances. The SDF is computed with LIDAR points
-        in robot frame. This propagates robot pose uncertainty efficiently.
+        NEW APPROACH with HISTORICAL POINTS:
+        1. Get current LIDAR points in robot frame
+        2. Get historical points transformed to robot frame with propagated covariance
+        3. Combine both sets for optimization (historical points provide evidence from hidden faces)
+        4. After optimization, add good new points to historical storage
 
         From paper Eq. obstacle_objective:
         F(s) = (1/2σ²_o) Σᵢ dᵢ(s)² + (1/2)(s-μₚ)ᵀΣₚ⁻¹(s-μₚ)
 
         The composed covariance (box + robot) is used in the prior term.
+        Historical points stabilize the belief as the robot moves around the box.
         """
         for cluster_idx, belief_id in associations:
             # Get cluster in ROBOT frame for SDF computation
             cluster_robot = clusters_robot[cluster_idx] if cluster_idx < len(clusters_robot) else clusters_room[cluster_idx]
+            cluster_room = clusters_room[cluster_idx]
             belief = self.beliefs[belief_id]
 
             # Store position before optimization
             old_cx, old_cy = belief.cx, belief.cy
 
-            # Convert points to tensor (in robot frame)
-            points_robot_t = torch.tensor(cluster_robot, dtype=DTYPE, device=self.device)
+            # Convert current LIDAR points to tensor (in robot frame)
+            # Keep both 2D (for SDF) and 3D (for height optimization)
+            cluster_robot_xy = cluster_robot[:, :2] if cluster_robot.shape[1] > 2 else cluster_robot
+            current_points_robot_xy = torch.tensor(cluster_robot_xy, dtype=DTYPE, device=self.device)
+
+            # Get 3D points if available
+            if cluster_robot.shape[1] >= 3:
+                current_points_robot_3d = torch.tensor(cluster_robot, dtype=DTYPE, device=self.device)
+            else:
+                current_points_robot_3d = None
+
+            # Get historical points in robot frame with propagated variance (both 2D and 3D)
+            hist_points_robot_xy, hist_points_robot_3d, hist_vars = belief.get_historical_points_in_robot_frame(
+                self.robot_pose, self.robot_cov
+            )
+
+            # Combine current and historical points for optimization
+            if len(hist_points_robot_xy) > 0:
+                # Create weights: current points have base variance, historical have propagated
+                current_vars = torch.full((len(current_points_robot_xy),),
+                                          self.config.sigma_obs ** 2,
+                                          dtype=DTYPE, device=self.device)
+                all_points_robot_xy = torch.cat([current_points_robot_xy, hist_points_robot_xy], dim=0)
+                all_vars = torch.cat([current_vars, hist_vars], dim=0)
+
+                # Also combine 3D points for height optimization
+                if current_points_robot_3d is not None:
+                    all_points_robot_3d = torch.cat([current_points_robot_3d, hist_points_robot_3d], dim=0)
+                else:
+                    all_points_robot_3d = hist_points_robot_3d
+            else:
+                all_points_robot_xy = current_points_robot_xy
+                all_vars = None
+                all_points_robot_3d = current_points_robot_3d
+
 
             # Prior = posterior from previous frame (current belief state in room frame)
             prior_mu_room, prior_Sigma_room = belief.propagate_prior()
 
             # Transform box to robot frame with covariance composition
-            # This composes box uncertainty + robot pose uncertainty
             box_mu_robot, box_Sigma_robot = self._transform_box_to_robot_frame_with_cov(
                 belief.mu, belief.Sigma, self.robot_pose, self.robot_cov
             )
 
-            # Optimize in robot frame
-            # The optimization updates box_mu_robot, then we transform back to room frame
-            optimized_mu_robot, sdf_mean = self._optimize_in_robot_frame(
-                points_robot_t, box_mu_robot, box_Sigma_robot, prior_mu_room, prior_Sigma_room, belief.config
+            # Optimize in robot frame with combined points (including 3D for height)
+            optimized_mu_robot, sdf_mean, sdf_values = self._optimize_in_robot_frame_with_weights(
+                all_points_robot_xy, all_vars, box_mu_robot, box_Sigma_robot,
+                prior_mu_room, prior_Sigma_room, belief.config,
+                points_3d=all_points_robot_3d
             )
 
             # Transform optimized parameters back to room frame
@@ -1182,10 +1527,13 @@ class BoxManager:
             # Store the SDF mean for visualization
             belief.last_sdf_mean = sdf_mean
 
-            # Log movement (commented for now)
-            # move_dist = np.sqrt((belief.cx - old_cx)**2 + (belief.cy - old_cy)**2)
-            # if move_dist > 0.05:  # Only log movements > 5cm
-            #     console.print(f"[magenta]Belief {belief_id} moved {move_dist:.2f}m: ({old_cx:.2f},{old_cy:.2f}) -> ({belief.cx:.2f},{belief.cy:.2f})")
+            # Add good current points to historical storage (full 3D for visualization)
+            # Pass the full cluster_room which may be 3D - already in room frame
+            current_points_room = torch.tensor(cluster_room, dtype=DTYPE, device=self.device)
+            # SDF needs only XY
+            cluster_room_xy = cluster_room[:, :2] if cluster_room.shape[1] > 2 else cluster_room
+            current_sdf = belief.sdf(torch.tensor(cluster_room_xy, dtype=DTYPE, device=self.device))
+            belief.add_historical_points(current_points_room, current_sdf)
 
             # Update lifecycle
             belief.last_seen = self.frame_count
@@ -1334,6 +1682,154 @@ class BoxManager:
 
         return optimized_mu, final_sdf_mean
 
+    def _optimize_in_robot_frame_with_weights(self, points: torch.Tensor,
+                                               point_vars: Optional[torch.Tensor],
+                                               box_mu: torch.Tensor,
+                                               box_Sigma: torch.Tensor,
+                                               prior_mu_room: torch.Tensor,
+                                               prior_Sigma_room: torch.Tensor,
+                                               config: RectangleBeliefConfig,
+                                               num_iters: int = 10,
+                                               lr: float = 0.05,
+                                               points_3d: torch.Tensor = None) -> Tuple[torch.Tensor, float, torch.Tensor]:
+        """
+        Optimize box parameters with weighted points (different variances per point).
+
+        This version supports combining current LIDAR points with historical points,
+        each having different uncertainty levels. Points with lower variance
+        contribute more to the optimization.
+
+        If points_3d is provided, uses 3D SDF to also optimize the box height (depth).
+
+        Args:
+            points: Points in robot frame [N, 2] (combined current + historical XY)
+            point_vars: Variance for each point [N] (None = use uniform sigma_obs²)
+            box_mu: Box mean in robot frame [cx, cy, w, h, d, theta]
+            box_Sigma: Composed covariance in robot frame
+            prior_mu_room: Prior mean in room frame
+            prior_Sigma_room: Prior covariance in room frame
+            config: Belief configuration
+            num_iters: Optimization iterations
+            lr: Learning rate
+            points_3d: Optional 3D points [N, 3] for height optimization
+
+        Returns:
+            Tuple (optimized_box_mu, sdf_mean, final_sdf_values)
+        """
+        if len(points) < 3:
+            return box_mu, 0.0, torch.empty(0, device=box_mu.device)
+
+        # Default variance if not provided
+        if point_vars is None:
+            point_vars = torch.full((len(points),), config.sigma_obs ** 2,
+                                    dtype=DTYPE, device=points.device)
+
+        # Check if we have 3D points for height optimization
+        use_3d = points_3d is not None and len(points_3d) > 0 and len(points_3d) == len(points)
+
+        # Make parameters require gradients
+        mu = box_mu.clone().detach().requires_grad_(True)
+        final_sdf_mean = 0.0
+        final_sdf = None
+
+        for iteration in range(num_iters):
+            # Compute SDF using the dedicated method
+            points_z = points_3d[:, 2] if use_3d else None
+            sdf = self.compute_box_sdf(points, mu, points_z)
+
+            # Store final SDF (from last iteration)
+            final_sdf = sdf.detach()
+            final_sdf_mean = torch.mean(torch.abs(sdf)).item()
+
+            # =====================================================================
+            # LIKELIHOOD TERM (prediction error / negative accuracy)
+            # From paper Eq. obstacle_objective:
+            # F_likelihood = (1/2σ_o²) Σᵢ dᵢ(s)²
+            #
+            # ASYMMETRIC PENALTY:
+            # - Exterior points (SDF > 0): Full weight - push box to expand
+            # - Interior points (SDF < 0): Reduced weight - push box to shrink
+            #
+            # This is because LIDAR points should be ON the surface, not inside.
+            # If box is too large, interior points gently push it to shrink.
+            # =====================================================================
+            interior_weight = 0.3  # Weight for interior points (< 1.0)
+
+            # Create asymmetric weights based on SDF sign
+            sdf_weights = torch.where(sdf > 0,
+                                       torch.ones_like(sdf),  # Exterior: weight = 1
+                                       torch.full_like(sdf, interior_weight))  # Interior: weight = 0.3
+
+            weights = 1.0 / (2.0 * point_vars + 1e-8)
+            weighted_likelihood = torch.sum(weights * sdf_weights * sdf ** 2) / len(points)
+
+            # =====================================================================
+            # PRIOR TERM (complexity / KL divergence from prior)
+            # From paper Eq. obstacle_objective:
+            # F_prior = (1/2)(s-μₚ)ᵀΣₚ⁻¹(s-μₚ)
+            #
+            # Where:
+            # - μₚ = prior_mu_room (posterior from previous frame, propagated)
+            # - Σₚ = prior_Sigma_room (covariance + process noise)
+            #
+            # Since we optimize in robot frame, we need to transform prior_mu_room
+            # to robot frame for consistent comparison.
+            # =====================================================================
+            # Transform prior_mu from room frame to robot frame
+            prior_mu_robot = self._transform_box_to_robot_frame(prior_mu_room, self.robot_pose)
+
+            # Deviation from prior (in robot frame)
+            delta = mu - prior_mu_robot
+
+            # Use prior_Sigma_room transformed with robot covariance
+            # For simplicity, use diagonal approximation of composed covariance
+            prior_precision = 1.0 / (torch.diag(box_Sigma) + 1e-6)
+            prior_term = 0.5 * torch.sum(prior_precision * delta ** 2)
+
+            # Scale prior term relative to likelihood (lambda controls balance)
+            # Higher lambda = stronger regularization toward prior
+            # Object is STATIC - shape doesn't change by itself, so prior should be strong
+            lambda_prior = 0.5  # Moderate regularization for static objects
+
+            # =====================================================================
+            # TOTAL VFE = Likelihood + Prior
+            # =====================================================================
+            loss = weighted_likelihood + lambda_prior * prior_term
+
+            # Compute gradients
+            if mu.grad is not None:
+                mu.grad.zero_()
+            loss.backward()
+
+            # Gradient descent update
+            with torch.no_grad():
+                if mu.grad is not None and not torch.isnan(mu.grad).any():
+                    grad = torch.clamp(mu.grad, -2.0, 2.0)
+                    mu -= lr * grad
+
+                    # Clamp dimensions (w, h, d)
+                    mu[2] = torch.clamp(mu[2], config.min_size, config.max_size)
+                    mu[3] = torch.clamp(mu[3], config.min_size, config.max_size)
+                    mu[4] = torch.clamp(mu[4], config.min_size, config.max_size)
+
+                    # Normalize angle to [-π/2, π/2]
+                    while mu[5] > np.pi/2:
+                        mu[5] -= np.pi
+                    while mu[5] < -np.pi/2:
+                        mu[5] += np.pi
+
+            mu.requires_grad_(True)
+
+        # Enforce width >= height convention (swap if needed)
+        optimized_mu = mu.detach()
+        if optimized_mu[3] > optimized_mu[2]:
+            optimized_mu[2], optimized_mu[3] = optimized_mu[3].clone(), optimized_mu[2].clone()
+            optimized_mu[5] = optimized_mu[5] + np.pi/2
+            while optimized_mu[5] > np.pi/2:
+                optimized_mu[5] -= np.pi
+
+        return optimized_mu, final_sdf_mean, final_sdf if final_sdf is not None else torch.empty(0)
+
     def _create_new_beliefs(self, unmatched_clusters: set, clusters: List[np.ndarray]):
         """
         Initialize new beliefs for unmatched clusters.
@@ -1410,6 +1906,7 @@ class BoxManager:
         Fit oriented rectangle to points using PCA.
 
         Also rejects linear clusters (walls) based on eigenvalue ratio.
+        Uses only XY coordinates for fitting.
 
         Returns:
             (cx, cy, width, height, angle) or None if fitting fails or cluster is linear
@@ -1417,11 +1914,14 @@ class BoxManager:
         if len(points) < 3:
             return None
 
+        # Use only XY for 2D rectangle fitting
+        points_xy = points[:, :2]
+
         # Centroid
-        centroid = np.mean(points, axis=0)
+        centroid = np.mean(points_xy, axis=0)
 
         # PCA for orientation
-        centered = points - centroid
+        centered = points_xy - centroid
         cov = np.cov(centered.T)
 
         try:

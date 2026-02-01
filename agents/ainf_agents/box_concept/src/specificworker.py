@@ -105,7 +105,8 @@ class SpecificWorker(GenericWorker):
             lidar_points_raw=self.box_manager.viz_data['lidar_points_raw'],
             lidar_points_filtered=self.box_manager.viz_data['lidar_points_filtered'],
             clusters=self.box_manager.viz_data['clusters'],
-            beliefs=self.box_manager.get_beliefs_as_dicts()
+            beliefs=self.box_manager.get_beliefs_as_dicts(),
+            historical_points=self.box_manager.get_historical_points_for_viz()
         )
 
         if len(detected_boxes) > 0:
@@ -193,20 +194,20 @@ class SpecificWorker(GenericWorker):
             return None, None
 
     def get_lidar_points(self) -> np.ndarray:
-        """Get LIDAR points projected to 2D horizontal plane.
+        """Get LIDAR points in 3D.
 
-        Coordinate convention in robot frame: x+ = right, y+ = forward
+        Coordinate convention in robot frame: x+ = right, y+ = forward, z+ = up
+        Returns [N, 3] array with (x, y, z) coordinates in meters.
         """
         try:
-            # Get 2D LIDAR data (getLidarDataWithThreshold2d projects to horizontal plane)
+            # Get 3D LIDAR data
             helios = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 8000, 1)
-            # LIDAR points in robot frame: p.x = right, p.y = forward
-            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points])
-
+            # LIDAR points in robot frame: p.x = right, p.y = forward, p.z = up
+            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in helios.points])
 
         except Ice.Exception as e:
             print(f"Error reading lidar: {e}")
-            lidar_points = np.array([])
+            lidar_points = np.array([]).reshape(0, 3)
 
         return lidar_points
 
