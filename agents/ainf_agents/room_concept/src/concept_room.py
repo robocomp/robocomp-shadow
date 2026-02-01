@@ -688,11 +688,6 @@ class RoomPoseEstimatorV2:
                     break  # Converged
                 prev_loss = loss_val
 
-            # Debug print occasionally
-            if iteration % 50 == 0 and self.init_iterations < 5:
-                # print(f"  [OPT iter {iteration}] SDF loss: {sdf_loss.item():.4f}, total: {loss.item():.4f}")
-                pass
-
             loss.backward()
 
             # Clip gradients
@@ -742,7 +737,6 @@ class RoomPoseEstimatorV2:
                     self.belief.length = opt_length
                 else:
                     # Swap dimensions and rotate theta by 90°
-                    # print(f"[INIT] Swapping dimensions: {opt_width:.2f}x{opt_length:.2f} -> {opt_length:.2f}x{opt_width:.2f}")
                     self.belief.width = opt_length
                     self.belief.length = opt_width
                     self.belief.theta += np.pi / 2

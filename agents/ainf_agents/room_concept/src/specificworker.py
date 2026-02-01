@@ -41,6 +41,55 @@ import torch
 
 
 class SpecificWorker(GenericWorker):
+    """
+    Active Inference Room and Pose Estimator.
+
+    This component implements variational inference for joint room geometry and robot
+    pose estimation using the Active Inference framework. The system operates in two
+    phases following the theoretical development in main.tex:
+
+    MATHEMATICAL FOUNDATION (see main.tex Section 5.2):
+    ====================================================
+
+    Hidden State (Eq. in Sec. 5.2.1):
+        s_loc = (x, y, θ, W, L)ᵀ
+
+        where (x, y, θ) is robot pose in room frame, and (W, L) are room dimensions.
+
+    Variational Free Energy (Sec. 2.2, Eq. 5):
+        F[q, o] = D_KL[q(s) || p(s|o)] - ln p(o)
+
+        Minimizing F makes q(s) approximate the true posterior p(s|o).
+
+    Free Energy Decomposition (Sec. 2.2.1, Eq. 11):
+        F = D_KL[q(s) || p(s)]  -  E_q[ln p(o|s)]
+            \_____________/        \____________/
+              Complexity              Accuracy
+
+    TWO-PHASE OPERATION:
+    ====================
+
+    Phase 1 - Initialization (Sec. 5.2.3):
+        Robot static, estimate full state s = (x, y, θ, W, L) from LIDAR.
+        Uses Laplace approximation: q(s) = N(μ, Σ)
+
+    Phase 2 - Tracking (Sec. 5.2.4):
+        Room fixed, update pose using motion model + LIDAR correction.
+        Prediction: s_pred = f(s_prev, u)    [motion model]
+        Correction: minimize F = F_likelihood + π_prior · F_prior
+
+    COORDINATE CONVENTION:
+    ======================
+    - Room frame: origin at center, X+ right, Y+ forward
+    - Robot frame: X+ right, Y+ forward (direction facing)
+    - Walls at x = ±W/2, y = ±L/2
+
+    References:
+        - main.tex Section 2: Fundamental Equations of Active Inference
+        - main.tex Section 5.2: Perception (I): Variational Inference for Room and Pose
+        - ACTIVE_INFERENCE_MATH.md: Implementation-specific mathematical details
+    """
+
     def __init__(self, proxy_map, configData, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map, configData)
         self.Period = configData["Period"]["Compute"]
@@ -171,12 +220,47 @@ class SpecificWorker(GenericWorker):
         self.selected_plan = plan_index
         # Reset trajectory so it uses the new plan on next start
         self._trajectory_initialized = False
-        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)"]
-        print(f"[SpecificWorker] Plan changed to: {plan_names[plan_index]}")
+        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]
+        plan_name = plan_names[plan_index] if plan_index < len(plan_names) else f"Unknown ({plan_index})"
+        print(f"[SpecificWorker] Plan changed to: {plan_name}")
 
     @QtCore.Slot()
     def compute(self):
-        """Main computation loop - called periodically"""
+        """
+        Main perception-action loop implementing Active Inference.
+
+        This method realizes the core Active Inference cycle described in main.tex
+        Section 3.2 (Perception as free energy minimisation) and Section 5:
+
+        PERCEPTION-ACTION CYCLE:
+        ========================
+
+        1. OBSERVE: Acquire LIDAR observations o_t
+           - Upper LIDAR points detect room walls
+           - Points in robot frame: o = {p_j}_{j=1}^M
+
+        2. INFER (Perception): Update beliefs by minimizing Variational Free Energy
+           - F[q, o] = E_q[ln q(s) - ln p(o,s)]    [main.tex Eq. 5]
+           - Uses previous velocity command for motion model prediction
+
+        3. ACT: Execute exploration trajectory
+           - Actions affect future observations o(a)
+           - Cannot change current F, but shapes future F
+
+        4. UPDATE GRAPH: Propagate beliefs to DSR knowledge graph
+           - Room node with dimensions (W, L)
+           - RT edge with pose (x, y, θ) and covariance Σ
+
+        TIMING MODEL:
+        =============
+        - At time t: LIDAR reflects state after command u_{t-1}
+        - Command u_t issued now will affect state at t+1
+        - This temporal ordering is critical for correct state estimation
+
+        References:
+            main.tex Section 3.2: Perception as free energy minimisation
+            main.tex Section 5.2: Room and Pose Estimation
+        """
 
         if not self.plan_running:
             return True
@@ -288,15 +372,51 @@ class SpecificWorker(GenericWorker):
             self._timing_stats[key] = []
 
     def update_room_estimator(self, last_cmd, lidar_points):
-        """Update the room estimator with current sensor data.
+        """
+        Update room and pose beliefs by minimizing Variational Free Energy.
 
-        Uses Active Inference approach:
-        - Phase INIT: Uses robot_pose_gt for initial approximation, estimates room dimensions
-        - Phase TRACKING: Propagate pose with velocity (dead reckoning), correct with LIDAR
+        This method implements the core perception update of Active Inference,
+        approximating the posterior p(s|o) by minimizing:
+
+            F[q, o] = D_KL[q(s) || p(s)] - E_q[ln p(o|s)]
+                      \_______________/   \_____________/
+                        Complexity          Accuracy
+
+        PHASE 1 - INITIALIZATION (main.tex Sec. 5.2.3):
+        ===============================================
+        Estimate full state s = (x, y, θ, W, L) from accumulated LIDAR points.
+
+        Likelihood (SDF-based):
+            p(o|s) ∝ exp(-1/(2σ²) · Σᵢ SDF(pᵢ)²)
+
+        where SDF measures distance of transformed LIDAR points to room walls.
+
+        PHASE 2 - TRACKING (main.tex Sec. 5.2.4):
+        =========================================
+        Room dimensions fixed, update pose s = (x, y, θ).
+
+        Prediction step (motion model):
+            s_pred = f(s_prev, u) = s_prev + [R(θ)·v·Δt, ω·Δt]ᵀ
+
+        Correction step (minimize Free Energy):
+            F = F_likelihood + π_prior · F_prior
+
+        where:
+            F_likelihood = (1/N) Σᵢ SDF(pᵢ)²           [LIDAR fit]
+            F_prior = ½(s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)  [motion model]
+            π_prior = adaptive precision (see ACTIVE_INFERENCE_MATH.md Sec. 7)
 
         Args:
-            last_cmd: Last command issued (advx, advz, rot) in mm/s and rad/s
-            lidar_points: LIDAR points in meters
+            last_cmd: Last velocity command (advx, advz, rot) in mm/s and rad/s
+            lidar_points: LIDAR wall points in robot frame [N, 2] in meters
+
+        Returns:
+            Updates self.room_estimator.belief with posterior (μ, Σ)
+
+        References:
+            main.tex Sec. 5.2.2: Variational Free Energy Objective
+            main.tex Sec. 5.2.3: Approximation 1 - Laplace Approximation
+            ACTIVE_INFERENCE_MATH.md Sec. 3: Two-Phase Estimation
         """
         if len(lidar_points) > 0:
             # Convert last command to velocity in m/s for the estimator
@@ -471,13 +591,42 @@ class SpecificWorker(GenericWorker):
         print("="*60 + "\n")
 
     def get_lidar_points(self) -> np.ndarray:
-        """Get LIDAR points projected to 2D horizontal plane.
+        """
+        Acquire LIDAR observations for room perception.
 
-        Coordinate convention in robot frame: x+ = right, y+ = forward
+        Returns wall points detected by upper LIDAR, which constitute the
+        observations o = {pⱼ}ⱼ₌₁ᴹ used in the generative model (main.tex Sec. 5.2.1).
 
-        Uses adaptive subsampling based on system stability:
-        - Stable (low SDF error): higher subsampling (fewer points)
-        - Unstable: lower subsampling (more points)
+        OBSERVATION MODEL:
+        ==================
+        Each LIDAR point pⱼ in robot frame is transformed to room frame:
+
+            pⱼ^room = R(θ) · pⱼ^robot + [x, y]ᵀ
+
+        where R(θ) is the 2D rotation matrix:
+
+            R(θ) = [cos(θ)  -sin(θ)]
+                   [sin(θ)   cos(θ)]
+
+        The likelihood p(o|s) is based on the SDF (Signed Distance Function):
+
+            p(o|s) ∝ exp(-1/(2σ²) · Σⱼ SDF(pⱼ^room)²)
+
+        ADAPTIVE SUBSAMPLING:
+        =====================
+        Uses stability-based subsampling to reduce CPU usage when system is stable:
+        - SDF error < τ: high subsampling (fewer points, faster)
+        - SDF error > 4τ: no subsampling (all points, more accurate)
+
+        Coordinate convention:
+            Robot frame: x+ = right, y+ = forward
+
+        Returns:
+            np.ndarray: [N, 2] array of LIDAR points in robot frame (meters)
+
+        References:
+            main.tex Sec. 5.2.1: Hidden State and Observations
+            main.tex Sec. 5.4.1: LIDAR Observations in the Room Frame
         """
         try:
             # Determine adaptive subsampling factor
@@ -515,16 +664,43 @@ class SpecificWorker(GenericWorker):
 
     def explore_room(self):
         """
-        Exploration behavior using a trajectory definition system.
+        Execute exploration policy to gather informative observations.
 
-        Trajectory is defined as a list of actions:
-        - ('turn', angle_deg): Turn by angle in degrees (positive=left, negative=right)
-        - ('forward', distance_m): Move forward by distance in meters
-        - ('backward', distance_m): Move backward by distance in meters
-        - ('wait', seconds): Wait for specified time
+        In Active Inference, action selection minimizes Expected Free Energy G(π)
+        over future trajectories (main.tex Sec. 4). For room estimation, we use
+        predefined exploration trajectories that maximize information gain.
+
+        EXPECTED FREE ENERGY (main.tex Sec. 4.1):
+        =========================================
+        G(π) = E_q(s̃,õ|π)[F[q, õ]]
+
+        Decomposes into (main.tex Sec. 4.2):
+            G(π) = Epistemic Value + Pragmatic Value
+                 = Information Gain + Goal Achievement
+
+        EXPLORATION RATIONALE:
+        ======================
+        Movement generates diverse viewpoints, reducing uncertainty about:
+        - Room dimensions (W, L) during initialization
+        - Robot pose (x, y, θ) during tracking
+
+        Circular/figure-8 trajectories are particularly effective because they:
+        1. Observe all walls from multiple angles
+        2. Create large pose changes that disambiguate orientation
+        3. Return to start, allowing drift assessment
+
+        AVAILABLE PLANS:
+        ================
+        - Plan 0 (Basic): Static detection, wait for room convergence
+        - Plan 1 (Circle): Forward 0.75m, then 360° arc
+        - Plan 2 (Ocho): Figure-8 pattern, 1m loops
 
         Returns:
-            tuple: (advx, advz, rot) - the last command issued to the robot
+            tuple: (advx, advz, rot) velocity command in mm/s and rad/s
+
+        References:
+            main.tex Sec. 4: From Free Energy to Action Selection
+            main.tex Sec. 4.3: Unifying Planning and Reactive Control
         """
         # Initialize trajectory on first call or when reset
         if not self._trajectory_initialized:
@@ -724,8 +900,6 @@ class SpecificWorker(GenericWorker):
         # Calculate steps needed for this action (on first step)
         if self._action_step == 0:
             self._action_total_steps = self._calculate_action_steps(action_type, value)
-            #print(f"[Explorer] Action {self._current_action_idx + 1}/{len(self._trajectory)}: "
-            #      f"{action_type} {value} ({self._action_total_steps} steps)")
 
         # Execute action
         if action_type == 'forward':
@@ -840,9 +1014,26 @@ class SpecificWorker(GenericWorker):
     # SUBSCRIPTION to newFullPose method from FullPoseEstimationPub interface
     #
     def FullPoseEstimationPub_newFullPose(self, pose):
-        """Handle ground truth pose from simulator.
+        """
+        Receive ground truth pose from simulator (for evaluation only).
 
-        Transforms from simulator's coordinate system to ours by negating all coordinates.
+        IMPORTANT: Ground truth is used ONLY for:
+        1. Performance evaluation (computing pose error vs estimate)
+        2. Initial approximation during INIT phase (weak prior)
+
+        The Active Inference estimator does NOT use ground truth during
+        TRACKING phase - it relies solely on:
+        - Motion model prediction: s_pred = f(s_prev, u)
+        - LIDAR observations: o = {pⱼ}
+
+        This separation is critical for demonstrating that the system can
+        operate without external localization (GPS, motion capture, etc.).
+
+        Coordinate transform:
+            Simulator frame → Room frame by negating (x, y, θ)
+
+        Args:
+            pose: FullPose message with (x, y, rz) from simulator
         """
         normalized_theta = np.arctan2(np.sin(-pose.rz), np.cos(-pose.rz))
         x_transformed = -pose.x
@@ -854,9 +1045,45 @@ class SpecificWorker(GenericWorker):
 
     # =============== DSR GRAPH MANAGEMENT  ================
     # =====================================================
+    #
+    # The DSR (Deep State Representation) graph stores the agent's beliefs
+    # about the world in a distributed knowledge graph. This implements the
+    # "generative model" structure described in main.tex Section 5.1.
+    #
+    # Graph structure for room estimation:
+    #   room (node) ──[RT edge]──> robot (node)
+    #
+    # The RT edge encodes the robot's pose belief q(s) = N(μ, Σ):
+    #   - rt_translation: μ_{x,y} (position mean)
+    #   - rt_rotation_euler_xyz: μ_θ (orientation mean)
+    #   - rt_se2_covariance: Σ (3x3 pose covariance matrix)
+    #
+    # =====================================================
 
     def insert_room_node(self):
-        """Create room node and RT edge room→robot when room estimation converges."""
+        """
+        Insert room node into DSR graph when room estimation converges.
+
+        This method is called once during the transition from INIT to TRACKING phase,
+        when the room dimensions (W, L) have been estimated with sufficient confidence.
+
+        The room node represents the inferred room geometry and serves as the
+        reference frame for robot localization. The RT edge room→robot encodes
+        the posterior belief q(s) = N(μ, Σ) over robot pose.
+
+        Graph structure created:
+            room ──[RT]──> robot
+
+        Attributes stored:
+            - room_width, room_length: Estimated room dimensions (mm)
+            - RT translation: Robot position μ_{x,y} (mm)
+            - RT rotation: Robot heading μ_θ (rad)
+            - RT covariance: Pose uncertainty Σ (3x3 matrix)
+
+        References:
+            main.tex Sec. 5.1: State Space and Generative Model
+            main.tex Fig. 5: Reference frames
+        """
         belief = self.room_estimator.belief
         if belief is None:
             return
@@ -890,8 +1117,42 @@ class SpecificWorker(GenericWorker):
             print("[DSR] ERROR: Failed to insert room node")
 
     def _update_rt_edge(self, belief):
-        """Create or update the RT edge from room to robot with the current pose.
-        Translation in mm, rotation in radians."""
+        """
+        Update RT edge with current pose belief q(s) = N(μ, Σ).
+
+        The RT (Rigid Transform) edge encodes the spatial relationship between
+        room and robot frames. In Active Inference terms, this represents the
+        current posterior belief over robot pose after free energy minimization.
+
+        BELIEF REPRESENTATION:
+        ======================
+        The Laplace approximation (main.tex Sec. 5.2.3) yields a Gaussian posterior:
+
+            q(s) = N(s | μ, Σ)
+
+        where:
+            μ = [x, y, θ]ᵀ       - posterior mean (MAP estimate)
+            Σ = H⁻¹ · σ²         - posterior covariance (from Hessian)
+
+        The covariance Σ encodes uncertainty and is computed via:
+
+            Σ_post = σ² · H⁻¹
+
+        where H is the Hessian of the Free Energy at the optimum and σ² is
+        the residual variance (SDF error).
+
+        Args:
+            belief: RoomBelief object containing pose mean and covariance
+
+        Edge attributes:
+            - rt_translation: [x, y, 0] in mm
+            - rt_rotation_euler_xyz: [0, 0, θ] in radians
+            - rt_se2_covariance: flattened 3x3 covariance matrix
+
+        References:
+            main.tex Sec. 5.2.3: Laplace Approximation
+            ACTIVE_INFERENCE_MATH.md Sec. 4: Posterior Covariance
+        """
         robot_node = self.g.get_node("robot")
         if robot_node is None:
             return
@@ -913,7 +1174,30 @@ class SpecificWorker(GenericWorker):
         self.g.insert_or_assign_edge(rt_edge)
 
     def update_graph_from_estimator(self):
-        """Called each compute step to keep the graph in sync with the estimator."""
+        """
+        Synchronize DSR graph with current estimator beliefs.
+
+        This method propagates the posterior belief q(s) from the Active Inference
+        estimator to the DSR knowledge graph, making the robot's internal model
+        available to other agents and components in the system.
+
+        TEMPORAL DYNAMICS:
+        ==================
+        The graph update follows the perception-action cycle (main.tex Sec. 3.2):
+
+        1. INIT phase: No graph updates (beliefs not yet reliable)
+        2. INIT→TRACKING transition: Insert room node with estimated (W, L)
+        3. TRACKING phase: Update RT edge with current pose belief (x, y, θ, Σ)
+
+        This ensures the graph always reflects the agent's best current estimate
+        of the world state, enabling other components to:
+        - Plan paths using the room geometry
+        - Reason about robot position uncertainty
+        - Detect and track obstacles relative to the room frame
+
+        References:
+            main.tex Sec. 5.1: Robot and Environment State Spaces
+        """
         belief = self.room_estimator.belief
         if belief is None:
             return
