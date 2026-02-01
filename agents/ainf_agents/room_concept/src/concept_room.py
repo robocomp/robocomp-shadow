@@ -164,7 +164,7 @@ class RoomPoseEstimatorV2:
         self.max_iterations_tracking = 50  # Max iterations for tracking phase
         self.early_stop_threshold = 1e-5  # Stop if loss improvement < this
         self.skip_frames_when_stable = True  # Skip processing when stable
-        self.stability_threshold = 0.02  # SDF error below this = stable (2cm)
+        self.stability_threshold = 0.05  # SDF error below this = stable (5cm)
         self.max_skip_frames = 3  # Maximum frames to skip when stable
         self._skip_counter = 0   # Current skip counter
         self._last_sdf_error = float('inf')  # Last SDF error for stability check
@@ -352,8 +352,8 @@ class RoomPoseEstimatorV2:
         room_y = sin_t * px + cos_t * py + y
 
         # Half dimensions (walls at ±half_width, ±half_length)
-        half_width = width / 2.0
-        half_length = length / 2.0
+        half_width = width * 0.5
+        half_length = length * 0.5
 
         # Distance to each wall (absolute, unsigned)
         d_left = torch.abs(room_x + half_width)   # Distance to x = -width/2
@@ -361,9 +361,9 @@ class RoomPoseEstimatorV2:
         d_bottom = torch.abs(room_y + half_length)  # Distance to y = -length/2
         d_top = torch.abs(room_y - half_length)     # Distance to y = +length/2
 
-        # Each point should be ON exactly one wall, so min distance should be ≈ 0
-        distances = torch.stack([d_left, d_right, d_bottom, d_top], dim=1)  # [N, 4]
-        min_dist, _ = torch.min(distances, dim=1)  # [N]
+        # OPTIMIZED: Use torch.minimum chain instead of stack+min (avoids tensor allocation)
+        min_dist = torch.minimum(torch.minimum(d_left, d_right),
+                                  torch.minimum(d_bottom, d_top))
 
         return min_dist
 
@@ -400,9 +400,14 @@ class RoomPoseEstimatorV2:
         if robot_pose_gt is None:
             robot_pose_gt = np.zeros(3)
 
-        # Get LIDAR points
+        # Get LIDAR points - OPTIMIZED: use from_numpy for zero-copy when possible
         if lidar_points is not None and len(lidar_points) > 0:
-            lidar_points_t = torch.tensor(lidar_points, dtype=DTYPE, device=DEVICE)
+            # Ensure contiguous float32 array for zero-copy transfer
+            if lidar_points.dtype != np.float32:
+                lidar_points = lidar_points.astype(np.float32)
+            if not lidar_points.flags['C_CONTIGUOUS']:
+                lidar_points = np.ascontiguousarray(lidar_points)
+            lidar_points_t = torch.from_numpy(lidar_points).to(device=DEVICE)
         else:
             return {
                 'phase': self.phase,
@@ -869,33 +874,42 @@ class RoomPoseEstimatorV2:
         # F_likelihood = sum(SDF²) / (2 * σ_sdf²)
         # F_prior = 0.5 * (s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
         # =====================================================================
-        width = torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE)
-        length = torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
+
+        # OPTIMIZED: Cache room dimensions as tensors (they don't change in tracking)
+        if not hasattr(self, '_cached_width_t') or self._cached_width != self.belief.width:
+            self._cached_width = self.belief.width
+            self._cached_width_t = torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE)
+        if not hasattr(self, '_cached_length_t') or self._cached_length != self.belief.length:
+            self._cached_length = self.belief.length
+            self._cached_length_t = torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
+        width = self._cached_width_t
+        length = self._cached_length_t
 
         # Compute velocity-adaptive weights for [x, y, theta]
         velocity_weights = self._compute_velocity_adaptive_weights(robot_velocity, angular_velocity)
-        velocity_weights_t = torch.tensor(velocity_weights, dtype=DTYPE, device=DEVICE)
+
+        # OPTIMIZED: Use float32 numpy array for faster tensor conversion
+        velocity_weights_f32 = velocity_weights.astype(np.float32)
+        velocity_weights_t = torch.from_numpy(velocity_weights_f32).to(device=DEVICE)
 
         # Apply velocity weights to prediction covariance
-        # Higher weight = lower uncertainty = more trust in that parameter's optimization
-        # We scale the covariance inversely with weights (higher weight -> lower covariance)
         weight_scale = np.diag(1.0 / (velocity_weights + 1e-6))
         Sigma_pred_weighted = weight_scale @ Sigma_pred @ weight_scale
 
         # Initialize at PREDICTED pose
-        pose_params = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE, requires_grad=True)
-        s_pred_t = torch.tensor(s_pred, dtype=DTYPE, device=DEVICE)
+        s_pred_f32 = s_pred.astype(np.float32)
+        pose_params = torch.tensor(s_pred_f32, dtype=DTYPE, device=DEVICE, requires_grad=True)
+        s_pred_t = torch.from_numpy(s_pred_f32).to(device=DEVICE)
 
-        # Prior information (inverse covariance) - now weighted
-        Sigma_pred_inv = torch.tensor(np.linalg.inv(Sigma_pred_weighted + 1e-6 * np.eye(3)),
-                                       dtype=DTYPE, device=DEVICE)
+        # Prior information (inverse covariance) - pre-compute as float32
+        Sigma_inv_np = np.linalg.inv(Sigma_pred_weighted + 1e-6 * np.eye(3)).astype(np.float32)
+        Sigma_pred_inv = torch.from_numpy(Sigma_inv_np).to(device=DEVICE)
 
         # Prior precision (balances odometry vs LIDAR)
-        # Uses adaptive precision from previous step, or default if first iteration
         if hasattr(self, '_adaptive_prior_precision'):
             prior_precision = self._adaptive_prior_precision
         else:
-            prior_precision = 0.1  # Initial default
+            prior_precision = 0.1
 
         optimizer = torch.optim.Adam([pose_params], lr=0.05)
 
@@ -903,6 +917,11 @@ class RoomPoseEstimatorV2:
         prev_loss = float('inf')
         iterations_used = 0
         max_iters = self.max_iterations_tracking if self.adaptive_cpu else 50
+
+        # Pre-compute constants outside loop
+        check_convergence = self.adaptive_cpu
+        min_iters = self.min_iterations
+        early_threshold = self.early_stop_threshold
 
         for iteration in range(max_iters):
             optimizer.zero_grad()
@@ -913,11 +932,19 @@ class RoomPoseEstimatorV2:
             F_likelihood = torch.mean(sdf_values ** 2)
 
             # Prior: deviation from motion model prediction
-            pose_diff = pose_params - s_pred_t
-            # Handle angle wrapping
-            pose_diff_wrapped = pose_diff.clone()
-            pose_diff_wrapped[2] = torch.atan2(torch.sin(pose_diff[2]), torch.cos(pose_diff[2]))
-            F_prior = 0.5 * pose_diff_wrapped @ Sigma_pred_inv @ pose_diff_wrapped
+            # OPTIMIZED: avoid clone(), compute angle diff inline
+            pose_diff_x = pose_params[0] - s_pred_t[0]
+            pose_diff_y = pose_params[1] - s_pred_t[1]
+            pose_diff_theta = torch.atan2(torch.sin(pose_params[2] - s_pred_t[2]),
+                                          torch.cos(pose_params[2] - s_pred_t[2]))
+
+            # Compute F_prior without creating intermediate tensor
+            # F_prior = 0.5 * diff^T @ Sigma_inv @ diff (manual expansion for 3x3)
+            F_prior = 0.5 * (
+                pose_diff_x * (Sigma_pred_inv[0, 0] * pose_diff_x + Sigma_pred_inv[0, 1] * pose_diff_y + Sigma_pred_inv[0, 2] * pose_diff_theta) +
+                pose_diff_y * (Sigma_pred_inv[1, 0] * pose_diff_x + Sigma_pred_inv[1, 1] * pose_diff_y + Sigma_pred_inv[1, 2] * pose_diff_theta) +
+                pose_diff_theta * (Sigma_pred_inv[2, 0] * pose_diff_x + Sigma_pred_inv[2, 1] * pose_diff_y + Sigma_pred_inv[2, 2] * pose_diff_theta)
+            )
 
             # Total Free Energy
             F = F_likelihood + prior_precision * F_prior
@@ -925,23 +952,23 @@ class RoomPoseEstimatorV2:
             iterations_used = iteration + 1
 
             # Early stopping check (after minimum iterations)
-            if self.adaptive_cpu and iteration >= self.min_iterations:
+            # OPTIMIZED: only call .item() when checking convergence
+            if check_convergence and iteration >= min_iters:
                 loss_val = F.item()
-                improvement = prev_loss - loss_val
-                if improvement < self.early_stop_threshold and improvement >= 0:
+                if prev_loss - loss_val < early_threshold:
                     break  # Converged
                 prev_loss = loss_val
 
             F.backward()
 
             # Apply velocity-adaptive gradient weighting
-            # Scale gradients by velocity weights: higher weight = stronger update
             with torch.no_grad():
                 if pose_params.grad is not None:
                     pose_params.grad *= velocity_weights_t
 
             optimizer.step()
 
+            # Normalize theta to [-pi, pi]
             with torch.no_grad():
                 pose_params[2] = torch.atan2(torch.sin(pose_params[2]), torch.cos(pose_params[2]))
 
@@ -985,61 +1012,73 @@ class RoomPoseEstimatorV2:
         # =====================================================================
         # POSTERIOR COVARIANCE via Hessian of the cost function
         # Formula: Σ = σ² × H⁻¹ where σ² is the residual variance
-        # This scales the geometric uncertainty (H⁻¹) by the actual fit quality (σ²)
         # =====================================================================
         N_obs = len(lidar_points)
-        pose_opt = torch.tensor(optimized_pose, dtype=DTYPE, device=DEVICE, requires_grad=True)
+
+        # OPTIMIZED: Reuse optimized pose tensor, enable grad temporarily
+        pose_opt = torch.tensor(optimized_pose.astype(np.float32), dtype=DTYPE, device=DEVICE, requires_grad=True)
         sdf_opt = self.sdf_rect(lidar_points, pose_opt[0], pose_opt[1], pose_opt[2], width, length)
 
-        # Residual variance: how well the model fits the data
-        residual_var = torch.mean(sdf_opt ** 2).item()
-
-        # Use MEAN like C++ RoomLoss::compute_loss
-        loss = torch.mean(sdf_opt ** 2)
+        # Residual variance and loss
+        sdf_sq = sdf_opt ** 2
+        residual_var = torch.mean(sdf_sq).item()
+        loss = torch.mean(sdf_sq)
 
         # Compute gradient
         grad = torch.autograd.grad(loss, pose_opt, create_graph=True)[0]
 
-        # Compute Hessian
-        hessian = torch.zeros(3, 3, dtype=DTYPE, device=DEVICE)
-        for i in range(3):
-            hessian[i] = torch.autograd.grad(grad[i], pose_opt, retain_graph=True)[0]
+        # OPTIMIZED: Compute Hessian rows more efficiently
+        hessian = torch.stack([
+            torch.autograd.grad(grad[i], pose_opt, retain_graph=(i < 2))[0]
+            for i in range(3)
+        ])
         hessian = 0.5 * (hessian + hessian.T)  # Ensure symmetry
 
         try:
-            hessian_np = hessian.cpu().numpy()
+            hessian_np = hessian.detach().cpu().numpy()
 
-            # Robust inversion with regularization
+            # Robust inversion with progressive regularization
             reg = 1e-6
-            max_attempts = 6
-            success = False
-
-            for attempt in range(max_attempts):
-                h_reg = hessian_np + reg * np.eye(3)
+            H_inv = None
+            for _ in range(5):
                 try:
-                    L = np.linalg.cholesky(h_reg)
-                    H_inv = np.linalg.inv(h_reg)
-                    success = True
+                    H_inv = np.linalg.inv(hessian_np + reg * np.eye(3))
+                    # Verify it's positive definite
+                    np.linalg.cholesky(H_inv + 1e-10 * np.eye(3))
                     break
                 except np.linalg.LinAlgError:
                     reg *= 10.0
 
-            if not success:
-                H_inv = np.linalg.pinv(hessian_np + reg * np.eye(3))
+            if H_inv is None:
+                H_inv = np.linalg.pinv(hessian_np + 1e-3 * np.eye(3))
 
             # Covariance = σ² × H⁻¹
-            # This makes covariance small when residuals are small (good fit)
-            # and large when residuals are large (poor fit)
             Sigma_post = residual_var * H_inv
 
-        except Exception as e:
-            # Fallback
+        except Exception:
             Sigma_post = np.diag([0.01, 0.01, 0.01])
 
         # Compute final SDF error for diagnostics
         mean_sdf_error = torch.mean(torch.abs(sdf_opt)).detach().item()
-        self._last_sdf_error = mean_sdf_error  # Update for adaptive CPU
+        self._last_sdf_error = mean_sdf_error
 
+        # =====================================================================
+        # COMPUTE FINAL FREE ENERGY COMPONENTS (for visualization)
+        # F = F_likelihood + π_prior × F_prior
+        # =====================================================================
+        with torch.no_grad():
+            # Final likelihood term (SDF fit)
+            final_sdf = self.sdf_rect(lidar_points, pose_params[0], pose_params[1],
+                                      pose_params[2], width, length)
+            final_f_likelihood = torch.mean(final_sdf ** 2).item()
+
+            # Final prior term (deviation from motion model)
+            final_pose_diff = pose_params - s_pred_t
+            final_pose_diff[2] = torch.atan2(torch.sin(final_pose_diff[2]), torch.cos(final_pose_diff[2]))
+            final_f_prior = (0.5 * final_pose_diff @ Sigma_pred_inv @ final_pose_diff).item()
+
+            # Total VFE after optimization
+            final_vfe = final_f_likelihood + prior_precision * final_f_prior
 
         # =====================================================================
         # UPDATE BELIEF
@@ -1062,7 +1101,11 @@ class RoomPoseEstimatorV2:
             'prior_precision': self._adaptive_prior_precision,
             'iterations_used': iterations_used,
             'lidar_points_used': len(lidar_points),
-            'velocity_weights': velocity_weights  # [w_x, w_y, w_theta] velocity-adaptive weights
+            'velocity_weights': velocity_weights,  # [w_x, w_y, w_theta] velocity-adaptive weights
+            # Free Energy components
+            'f_likelihood': final_f_likelihood,  # Accuracy term (SDF²)
+            'f_prior': final_f_prior,            # Complexity term (motion model deviation)
+            'vfe': final_vfe                     # Total Variational Free Energy
         }
 
     def is_converged(self) -> bool:

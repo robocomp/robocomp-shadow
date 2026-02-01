@@ -51,6 +51,10 @@ class ViewerData:
     innovation_y: float = 0.0      # Innovation in y (meters)
     innovation_theta: float = 0.0  # Innovation in theta (degrees)
     prior_precision: float = 0.0   # Adaptive prior precision
+    # Free Energy components (Active Inference)
+    f_likelihood: float = 0.0      # F_likelihood = mean(SDF²) - accuracy term
+    f_prior: float = 0.0           # F_prior = (s-s_pred)ᵀΣ⁻¹(s-s_pred) - complexity term
+    vfe: float = 0.0               # Variational Free Energy after optimization
     # Ground truth room size
     gt_room_width: float = 6.0     # GT room width (meters)
     gt_room_length: float = 4.0    # GT room length (meters)
@@ -63,6 +67,8 @@ class ViewerData:
     cpu_percent: float = 0.0            # CPU usage percentage
     # Velocity-adaptive weights
     velocity_weights: np.ndarray = None  # [w_x, w_y, w_theta] velocity-based optimization weights
+    # Uncertainty-based speed modulation
+    speed_factor: float = 1.0          # Speed modulation factor based on uncertainty
 
     def __post_init__(self):
         if self.estimated_pose is None:
@@ -132,7 +138,8 @@ class RoomViewerDPG(RoomObserver):
         self.plan_running = False
         self._on_plan_toggle = None  # External callback
         self._on_plan_selected = None  # Callback for plan selection
-        self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]  # Available plans
+        self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)", "Circle Center (r=1.5m)"]  # Available plans
+        
 
         # Current data
         self.data: ViewerData = ViewerData()
@@ -291,6 +298,21 @@ class RoomViewerDPG(RoomObserver):
 
                     dpg.add_spacer(width=30)
 
+                    # Column 5b: Free Energy Components
+                    with dpg.group():
+                        dpg.add_text("FREE ENERGY", color=(255, 100, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("F_like:", color=(200, 200, 200))
+                            dpg.add_text("0.000", tag="f_likelihood_text", color=(255, 200, 100))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("F_prior:", color=(200, 200, 200))
+                            dpg.add_text("0.000", tag="f_prior_text", color=(100, 200, 255))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("VFE:", color=(200, 200, 200))
+                            dpg.add_text("0.000", tag="vfe_text", color=(255, 255, 100))
+
+                    dpg.add_spacer(width=30)
+
                     # Column 6: Legend + Control
                     with dpg.group():
                         dpg.add_text("LEGEND", color=(255, 255, 0))
@@ -328,6 +350,9 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("CPU:", color=(200, 200, 200))
                             dpg.add_text("0.0%", tag="cpu_percent_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Speed:", color=(200, 200, 200))
+                            dpg.add_text("100%", tag="speed_factor_text", color=(100, 255, 100))
 
                     dpg.add_spacer(width=30)
 
@@ -712,6 +737,12 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("cpu_percent_text", f"{data.cpu_percent:.1f}%")
         dpg.configure_item("cpu_percent_text", color=cpu_color)
 
+        # Speed factor (uncertainty-based modulation)
+        speed_pct = data.speed_factor * 100
+        speed_color = (100, 255, 100) if data.speed_factor > 0.8 else (255, 255, 100) if data.speed_factor > 0.5 else (255, 150, 100)
+        dpg.set_value("speed_factor_text", f"{speed_pct:.0f}%")
+        dpg.configure_item("speed_factor_text", color=speed_color)
+
         # Velocity-adaptive weights
         if data.velocity_weights is not None and len(data.velocity_weights) >= 3:
             w_x, w_y, w_theta = data.velocity_weights[:3]
@@ -731,6 +762,22 @@ class RoomViewerDPG(RoomObserver):
             dpg.configure_item("vel_weight_y_text", color=weight_color(w_y))
             dpg.set_value("vel_weight_theta_text", f"{w_theta:.2f}")
             dpg.configure_item("vel_weight_theta_text", color=weight_color(w_theta))
+
+        # Free Energy components
+        # F_likelihood (accuracy term) - lower is better
+        f_like_color = (100, 255, 100) if data.f_likelihood < 0.01 else (255, 255, 100) if data.f_likelihood < 0.05 else (255, 150, 100)
+        dpg.set_value("f_likelihood_text", f"{data.f_likelihood:.4f}")
+        dpg.configure_item("f_likelihood_text", color=f_like_color)
+
+        # F_prior (complexity term) - lower means motion model is accurate
+        f_prior_color = (100, 255, 100) if data.f_prior < 0.1 else (255, 255, 100) if data.f_prior < 0.5 else (255, 150, 100)
+        dpg.set_value("f_prior_text", f"{data.f_prior:.4f}")
+        dpg.configure_item("f_prior_text", color=f_prior_color)
+
+        # VFE (total Free Energy after optimization) - lower is better
+        vfe_color = (100, 255, 100) if data.vfe < 0.05 else (255, 255, 100) if data.vfe < 0.1 else (255, 150, 100)
+        dpg.set_value("vfe_text", f"{data.vfe:.4f}")
+        dpg.configure_item("vfe_text", color=vfe_color)
 
 
 class RoomSubject:
@@ -774,7 +821,11 @@ def create_viewer_data(room_estimator,
                        optimizer_iterations: int = 0,
                        compute_time_ms: float = 0.0,
                        cpu_percent: float = 0.0,
-                       velocity_weights: np.ndarray = None) -> ViewerData:
+                       velocity_weights: np.ndarray = None,
+                       f_likelihood: float = 0.0,
+                       f_prior: float = 0.0,
+                       vfe: float = 0.0,
+                       speed_factor: float = 1.0) -> ViewerData:
     """
     Create ViewerData from room estimator and ground truth.
 
@@ -790,6 +841,10 @@ def create_viewer_data(room_estimator,
         compute_time_ms: Total compute time in milliseconds
         cpu_percent: CPU usage percentage
         velocity_weights: Optional [w_x, w_y, w_theta] velocity-adaptive weights
+        f_likelihood: F_likelihood term (SDF error = accuracy)
+        f_prior: F_prior term (motion model deviation = complexity)
+        vfe: Variational Free Energy after optimization
+        speed_factor: Uncertainty-based speed modulation factor
 
     Returns:
         ViewerData instance ready for the viewer
@@ -864,5 +919,13 @@ def create_viewer_data(room_estimator,
     # Velocity-adaptive weights
     if velocity_weights is not None:
         data.velocity_weights = velocity_weights
+
+    # Free Energy components
+    data.f_likelihood = f_likelihood
+    data.f_prior = f_prior
+    data.vfe = vfe
+
+    # Speed modulation factor
+    data.speed_factor = speed_factor
 
     return data

@@ -122,11 +122,20 @@ $$Q_t = Q_{base} \cdot \Delta t \cdot \max(0.1, \|\mathbf{v}\| / 0.2)$$
 The Free Energy combines likelihood and prior:
 $$\mathcal{F} = \mathcal{F}_{likelihood} + \pi_{prior} \cdot \mathcal{F}_{prior}$$
 
-**Likelihood term** (LIDAR fit):
+**Likelihood term** (LIDAR fit) - displayed as `F_like` in UI:
 $$\mathcal{F}_{likelihood} = \frac{1}{N}\sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i)^2$$
 
-**Prior term** (motion model):
+This is the **accuracy** term in Active Inference. Lower values indicate better fit between transformed LIDAR points and room walls. Typical values: 0.001-0.01 (good), 0.01-0.05 (acceptable), >0.05 (poor).
+
+**Prior term** (motion model) - displayed as `F_prior` in UI:
 $$\mathcal{F}_{prior} = \frac{1}{2}(\mathbf{s} - \mathbf{s}_{pred})^T \Sigma_{pred}^{-1} (\mathbf{s} - \mathbf{s}_{pred})$$
+
+This is the **complexity** term in Active Inference. It measures the Mahalanobis distance between optimized pose and motion model prediction. Lower values indicate the motion model predicted well. Typical values: 0.0-0.1 (good), 0.1-0.5 (moderate correction), >0.5 (large correction needed).
+
+**Variational Free Energy (VFE)** - displayed as `VFE` in UI:
+$$\mathcal{F} = \mathcal{F}_{likelihood} + \pi_{prior} \cdot \mathcal{F}_{prior}$$
+
+The total Free Energy after optimization. This is the objective that the optimizer minimizes. Lower VFE indicates a better balance between explaining observations (accuracy) and staying close to predictions (complexity).
 
 **Adaptive Prior Precision** $\pi_{prior}$:
 
@@ -313,7 +322,57 @@ This **action-conditional precision** allows the agent to adaptively weight pred
 
 ---
 
-## 8. Performance Characteristics
+## 8. Uncertainty-Based Speed Modulation
+
+The robot's velocity is modulated based on pose uncertainty, implementing **precision-weighted action** from Active Inference.
+
+### Motivation
+
+When pose uncertainty is high:
+- Risk of collision increases (uncertain position)
+- Slower movement allows more observations for uncertainty reduction
+- Cautious behavior is adaptive
+
+### Speed Factor Computation
+
+From the pose covariance matrix $\Sigma = \begin{pmatrix} \sigma_x^2 & \cdot & \cdot \\ \cdot & \sigma_y^2 & \cdot \\ \cdot & \cdot & \sigma_\theta^2 \end{pmatrix}$, we compute:
+
+**Positional uncertainty:**
+$$\sigma_{pos} = \sqrt{\sigma_x^2 + \sigma_y^2}$$
+
+**Speed factor (exponential decay):**
+$$f_{speed} = f_{min} + (1 - f_{min}) \cdot \exp(-\lambda \cdot \max(0, \sigma_{pos} - \tau))$$
+
+Where:
+- $f_{min} = 0.2$: Minimum speed factor (20% of commanded speed)
+- $\lambda = 10$: Uncertainty sensitivity
+- $\tau = 0.02$ m: Threshold below which no reduction occurs
+
+### Application to Velocity Commands
+
+$$\mathbf{v}_{actual} = f_{speed} \cdot \mathbf{v}_{commanded}$$
+
+Applied to all velocity components: $(v_x, v_y, \omega)$.
+
+### Temporal Smoothing
+
+To avoid jerky motion, the factor is smoothed with EMA:
+$$f_{speed}(t) = (1-\alpha) \cdot f_{speed}(t-1) + \alpha \cdot f_{target}$$
+
+Where $\alpha = 0.3$ is the smoothing factor.
+
+### Active Inference Interpretation
+
+This mechanism implements **precision-weighted action selection**:
+
+- High precision (low $\sigma_{pos}$) → confident actions at full speed
+- Low precision (high $\sigma_{pos}$) → cautious actions at reduced speed
+
+This is consistent with the Free Energy Principle: the agent acts to minimize expected free energy, and when uncertainty is high, exploratory (slow, information-gathering) behavior is preferred over exploitative (fast, goal-directed) behavior.
+
+---
+
+## 9. Performance Characteristics
 
 | Metric | Typical Value |
 |--------|---------------|
@@ -325,7 +384,7 @@ This **action-conditional precision** allows the agent to adaptively weight pred
 
 ---
 
-## 9. References
+## 10. References
 
 - Friston, K. (2010). The free-energy principle: a unified brain theory?
 - Buckley, C. L., et al. (2017). The free energy principle for action and perception.

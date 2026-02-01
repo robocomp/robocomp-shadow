@@ -164,6 +164,21 @@ class SpecificWorker(GenericWorker):
             self._trajectory_complete = False
             self._waiting_for_tracking = False
 
+            # Circle Center plan state variables
+            self._circle_radius = 0.9          # Target orbit radius (meters)
+            self._orbit_target_angle = 0.0     # Target angle for orbit completion
+            self._orbit_start_angle = 0.0      # Starting angle in orbit
+            self._goto_phase = 0               # 0=turn_to_target, 1=move_to_circle, 2=turn_tangent
+
+            # Uncertainty-based speed modulation parameters
+            # Speed is reduced when pose uncertainty is high (precision-weighted action)
+            self._speed_modulation_enabled = True
+            self._min_speed_factor = 0.3       # Minimum speed factor (30% of commanded)
+            self._uncertainty_scale = 3.0      # Sensitivity to uncertainty (lower = less aggressive)
+            self._uncertainty_threshold = 0.05 # Below this, no reduction (meters)
+            self._current_speed_factor = 1.0   # Current speed modulation factor
+            self._speed_factor_smoothing = 0.2 # EMA smoothing factor (lower = smoother)
+
             # Adaptive LIDAR subsampling (passed to proxy call)
             # 1 = no subsampling, 2 = one of two, 4 = one of four, etc.
             self._lidar_subsample_factor = 4  # Default value
@@ -220,7 +235,7 @@ class SpecificWorker(GenericWorker):
         self.selected_plan = plan_index
         # Reset trajectory so it uses the new plan on next start
         self._trajectory_initialized = False
-        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]
+        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)", "Circle Center (r=1.5m)"]
         plan_name = plan_names[plan_index] if plan_index < len(plan_names) else f"Unknown ({plan_index})"
         print(f"[SpecificWorker] Plan changed to: {plan_name}")
 
@@ -464,36 +479,17 @@ class SpecificWorker(GenericWorker):
                 self.pose_errors.append(pose_error)
                 self.sdf_errors.append(sdf_err)
 
-                print(f"[Step {self.total_steps}] Phase: {phase}, SDF: {sdf_err:.3f}, "
-                      f"Pose_err: {pose_error:.3f}m, Angle_err: {np.degrees(abs(angle_error)):.1f}°, Uncertainty: {uncertainty:.3f}")
-
-                # Show current action being executed
-                current_action = self._get_current_action_description()
-                print(f"  Action: {current_action}")
-
-                # Show innovation (prediction error) and prior precision if available
-                if phase == 'tracking' and 'innovation' in result:
-                    innov = result['innovation']
-                    pp = result.get('prior_precision', 0.0)
-                    print(f"  Innovation: dx={innov[0]*100:.1f}cm, dy={innov[1]*100:.1f}cm, dθ={np.degrees(innov[2]):.1f}°, Precision: {pp:.3f}")
-
-                # Ground truth (from simulator)
-                print(f"  Ground truth: x={gt_x:.3f}m, y={gt_y:.3f}m, theta={gt_theta:.3f}rad ({np.degrees(gt_theta):.1f}°)")
-
-                # Estimated pose (from Active Inference)
-                print(f"  Estimated:    x={est_x:.3f}m, y={est_y:.3f}m, theta={est_theta:.3f}rad ({np.degrees(est_theta):.1f}°)")
-
-                # Room estimation
-                if self.room_estimator.belief:
-                    print(f"  Room: {self.room_estimator.belief.width:.2f} x "
-                          f"{self.room_estimator.belief.length:.2f}m (true: {self.room_estimator.true_width:.1f} x {self.room_estimator.true_height:.1f}m)")
-
             # Update viewer with current data
             # Extract innovation and prior precision from result if available
             innovation = result.get('innovation', None)
             prior_precision = result.get('prior_precision', 0.0)
             optimizer_iterations = result.get('iterations_used', 0)
             velocity_weights = result.get('velocity_weights', None)
+
+            # Free Energy components
+            f_likelihood = result.get('f_likelihood', 0.0)
+            f_prior = result.get('f_prior', 0.0)
+            vfe = result.get('vfe', 0.0)
 
             # Get last compute time from timing stats
             last_compute_time = self._timing_stats['total'][-1] * 1000 if len(self._timing_stats['total']) > 0 else 0.0
@@ -509,7 +505,11 @@ class SpecificWorker(GenericWorker):
                 optimizer_iterations=optimizer_iterations,
                 compute_time_ms=last_compute_time,
                 cpu_percent=self._cpu_percent,
-                velocity_weights=velocity_weights
+                velocity_weights=velocity_weights,
+                f_likelihood=f_likelihood,
+                f_prior=f_prior,
+                vfe=vfe,
+                speed_factor=self._current_speed_factor
             )
             self.viewer_subject.notify(viewer_data)
 
@@ -524,7 +524,7 @@ class SpecificWorker(GenericWorker):
         print("="*60)
 
         # Plan executed
-        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)"]
+        plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)", "Circle Center (r=1.5m)"]
         plan_name = plan_names[self.selected_plan] if self.selected_plan < len(plan_names) else f"Unknown ({self.selected_plan})"
         print(f"\n🎯 PLAN EXECUTED: {plan_name}")
         if self._trajectory_initialized and len(self._trajectory) > 0:
@@ -629,19 +629,20 @@ class SpecificWorker(GenericWorker):
             main.tex Sec. 5.4.1: LIDAR Observations in the Room Frame
         """
         try:
-            # Determine adaptive subsampling factor
+            # Determine adaptive subsampling factor based on SDF error stability
+            # Lower SDF error = more stable = can use more subsampling
             if self._adaptive_lidar_enabled and hasattr(self, 'room_estimator'):
                 last_sdf = getattr(self.room_estimator, '_last_sdf_error', float('inf'))
-                stability_threshold = getattr(self.room_estimator, 'stability_threshold', 0.02)
+                stability_threshold = getattr(self.room_estimator, 'stability_threshold', 0.05)
 
                 if last_sdf < stability_threshold:
-                    # Very stable - use high subsampling (fewer points)
-                    self._lidar_subsample_factor = 8
-                elif last_sdf < stability_threshold * 2:
-                    # Moderately stable
+                    # Very stable (SDF < 0.05) - use high subsampling
                     self._lidar_subsample_factor = 4
-                elif last_sdf < stability_threshold * 4:
-                    # Slightly unstable
+                elif last_sdf < stability_threshold * 1.5:
+                    # Stable (SDF < 0.075) - moderate subsampling
+                    self._lidar_subsample_factor = 3
+                elif last_sdf < stability_threshold * 2.5:
+                    # Slightly unstable (SDF < 0.125)
                     self._lidar_subsample_factor = 2
                 else:
                     # Unstable - use all points
@@ -652,8 +653,22 @@ class SpecificWorker(GenericWorker):
             helios = self.lidar3d_proxy.getLidarDataWithThreshold2d(
                 "helios", 8000, self._lidar_subsample_factor
             )
-            # LIDAR points in robot frame: p.x = right, p.y = forward
-            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0] for p in helios.points if p.z > 1000])
+
+            # OPTIMIZED: Vectorized LIDAR processing
+            n_points = len(helios.points)
+            if n_points > 0:
+                # Extract all points as numpy array (single pass)
+                xyz = np.array([(p.x, p.y, p.z) for p in helios.points], dtype=np.float32)
+
+                # Vectorized filtering (z > 1000mm) and convert to meters
+                mask = xyz[:, 2] > 1000
+                if np.any(mask):
+                    # Extract x, y and convert mm -> m in one step
+                    lidar_points = xyz[mask, :2] * 0.001  # Multiply faster than divide
+                else:
+                    lidar_points = np.empty((0, 2), dtype=np.float32)
+            else:
+                lidar_points = np.empty((0, 2), dtype=np.float32)
 
 
         except Ice.Exception as e:
@@ -708,6 +723,69 @@ class SpecificWorker(GenericWorker):
 
         return self._execute_trajectory()
 
+    def _compute_speed_factor(self) -> float:
+        """
+        Compute speed modulation factor based on pose uncertainty.
+
+        This implements precision-weighted action from Active Inference:
+        - High precision (low uncertainty) → full speed
+        - Low precision (high uncertainty) → reduced speed
+
+        The factor is computed from the positional covariance:
+            σ_pos = sqrt(σ²ₓ + σ²ᵧ)
+            factor = min_factor + (1 - min_factor) × exp(-scale × σ_pos)
+
+        Returns:
+            float: Speed factor in [min_speed_factor, 1.0]
+
+        References:
+            ACTIVE_INFERENCE_MATH.md Sec. 7: Velocity-Adaptive Precision Weighting
+        """
+        if not self._speed_modulation_enabled:
+            return 1.0
+
+        if self.room_estimator.belief is None:
+            return self._min_speed_factor  # Maximum caution when no estimate
+
+        # Get pose covariance
+        pose_cov = self.room_estimator.belief.pose_cov  # 3x3 matrix [x, y, theta]
+
+        # Compute positional uncertainty (standard deviation in meters)
+        sigma_x = np.sqrt(max(0, pose_cov[0, 0]))
+        sigma_y = np.sqrt(max(0, pose_cov[1, 1]))
+        sigma_pos = np.sqrt(sigma_x**2 + sigma_y**2)
+
+        # Below threshold, no reduction
+        if sigma_pos < self._uncertainty_threshold:
+            target_factor = 1.0
+        else:
+            # Exponential decay: factor → min_factor as uncertainty → ∞
+            excess_uncertainty = sigma_pos - self._uncertainty_threshold
+            target_factor = self._min_speed_factor + \
+                           (1.0 - self._min_speed_factor) * \
+                           np.exp(-self._uncertainty_scale * excess_uncertainty)
+
+        # Smooth the factor with EMA to avoid jerky motion
+        self._current_speed_factor = (1 - self._speed_factor_smoothing) * self._current_speed_factor + \
+                                     self._speed_factor_smoothing * target_factor
+
+        return self._current_speed_factor
+
+    def _apply_speed_modulation(self, cmd: tuple) -> tuple:
+        """
+        Apply uncertainty-based speed modulation to velocity command.
+
+        Args:
+            cmd: (advx, advz, rot) raw velocity command
+
+        Returns:
+            (advx, advz, rot) modulated velocity command
+        """
+        factor = self._compute_speed_factor()
+
+        advx, advz, rot = cmd
+        return (advx * factor, advz * factor, rot * factor)
+
     def _get_current_action_description(self) -> str:
         """Get a human-readable description of the current action being executed"""
         if not self._trajectory_initialized:
@@ -739,6 +817,21 @@ class SpecificWorker(GenericWorker):
             return "Waiting for tracking..."
         elif action_type == 'statistics':
             return "Statistics"
+        elif action_type == 'goto_circle_start':
+            # Show distance to circle
+            if self.room_estimator.belief is not None:
+                est_x = self.room_estimator.belief.x
+                est_y = self.room_estimator.belief.y
+                dist = np.sqrt(est_x**2 + est_y**2)
+                remaining = abs(value - dist)
+                return f"Goto circle r={value:.1f}m (dist={remaining:.2f}m)"
+            return f"Moving to circle (r={value:.1f}m) {progress}"
+        elif action_type == 'orbit_center':
+            # Show accumulated progress if available
+            if hasattr(self, '_orbit_accumulated'):
+                done_deg = np.degrees(self._orbit_accumulated)
+                return f"Orbiting {done_deg:.0f}°/{value:.0f}°"
+            return f"Orbiting center ({value:.0f}°) {progress}"
         else:
             return f"{action_type} {progress}"
 
@@ -806,6 +899,24 @@ class SpecificWorker(GenericWorker):
             ]
             print("[Explorer] Using Plan 2: Ocho (Figure-8, 1m per side)")
 
+        elif self.selected_plan == 3:
+            # Plan 3: Circle around room center
+            # Phase 0: Turn to face center
+            # Phase 1: Move to circle radius (1.5m)
+            # Phase 2: Turn 90° to be tangent
+            # Phase 3: Complete 360° orbit
+            self.rotation_speed = 0.3    # rad/s for turning
+            self.advance_speed = 150.0   # mm/s
+            self._goto_phase = 0         # Reset phase
+
+            self._trajectory = [
+                ('wait', 1.0),                    # Initial stabilization
+                ('goto_circle_start', 1.5),       # All 4 phases in one action
+                ('wait', 1.0),
+                ('statistics', 0),
+            ]
+            print("[Explorer] Using Plan 3: Circle around center (r=1.5m, 360°)")
+
         else:
             # Default to basic plan
             self._trajectory = [
@@ -858,6 +969,11 @@ class SpecificWorker(GenericWorker):
                 print(f"  {i+1}. HOLD - Wait for tracking mode")
             elif action_type == 'statistics':
                 print(f"  {i+1}. Print statistics summary")
+            elif action_type == 'goto_circle_start':
+                print(f"  {i+1}. Go to circle start (radius={value:.2f}m)")
+            elif action_type == 'orbit_center':
+                print(f"  {i+1}. Orbit around center ({value:.0f}°)")
+                total_rotation += value
         print(f"  Total: {total_distance:.2f}m distance, {total_rotation:.0f}° rotation")
 
     def _execute_trajectory(self):
@@ -928,6 +1044,20 @@ class SpecificWorker(GenericWorker):
             self._action_step = 0
             return cmd
 
+        elif action_type == 'goto_circle_start':
+            # Move from current position to a point on the circle around room center
+            # Uses estimated pose to calculate path (modulation applied inside)
+            cmd = self._execute_goto_circle_start(value)  # value = radius
+            return cmd
+
+        elif action_type == 'orbit_center':
+            # Orbit around the room center (modulation applied inside)
+            cmd = self._execute_orbit_center(value)  # value = degrees
+            return cmd
+
+        # Apply uncertainty-based speed modulation
+        cmd = self._apply_speed_modulation(cmd)
+
         self.omnirobot_proxy.setSpeedBase(*cmd)
         self._action_step += 1
 
@@ -958,7 +1088,206 @@ class SpecificWorker(GenericWorker):
         elif action_type == 'statistics':
             # Instant action - no steps needed
             return 0
+        elif action_type in ('goto_circle_start', 'orbit_center'):
+            # Dynamic actions - steps calculated during execution
+            return 1  # Placeholder, actual control is continuous
         return 0
+
+    def _execute_goto_circle_start(self, radius: float) -> tuple:
+        """
+        Move robot to circle around room center:
+        Phase 0: Turn to face center
+        Phase 1: Move forward/backward until at circle radius
+        Phase 2: Turn 90° to be tangent
+        Phase 3: Complete the arc (orbit around center)
+        """
+        if self.room_estimator.belief is None:
+            return (0, 0, 0)
+
+        # Get current estimated pose (robot in room frame)
+        est_x = self.room_estimator.belief.x
+        est_y = self.room_estimator.belief.y
+        est_theta = self.room_estimator.belief.theta
+
+        # Distance from center
+        dist_to_center = np.sqrt(est_x**2 + est_y**2)
+
+        # Center is at (0,0) in room frame
+        # Transform center to robot frame:
+        dx = -est_x
+        dy = -est_y
+        cos_t = np.cos(-est_theta)
+        sin_t = np.sin(-est_theta)
+        center_robot_x = dx * cos_t - dy * sin_t
+        center_robot_y = dx * sin_t + dy * cos_t
+        center_in_robot = (center_robot_x, center_robot_y)
+
+        # Angle to center in robot frame (0 = straight ahead, positive = left)
+        angle_to_center = np.arctan2(center_robot_x, center_robot_y)
+
+        # Thresholds
+        angle_threshold = 0.20  # ~11 degrees
+        dist_threshold = 0.15   # 15 cm
+
+        # Initialize phase
+        if not hasattr(self, '_goto_phase'):
+            self._goto_phase = 0
+
+        # PHASE 0: Turn to face center
+        if self._goto_phase == 0:
+            print(f"[phase0] Turn to center: angle={np.degrees(angle_to_center):.1f}°")
+
+            if abs(angle_to_center) > angle_threshold:
+                rot = np.clip(angle_to_center * 1.5, -self.rotation_speed, self.rotation_speed)
+                cmd = (0, 0, rot)
+                cmd = self._apply_speed_modulation(cmd)
+                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._action_step += 1
+                return cmd
+            else:
+                print(f"[phase0] ✓ Aligned to center")
+                self._goto_phase = 1
+
+        # PHASE 1: Move forward/backward to reach circle
+        if self._goto_phase == 1:
+            dist_to_circle = radius - dist_to_center
+
+            print(f"[phase1] Move to circle: r={dist_to_center:.2f}m, Δr={dist_to_circle:+.2f}m")
+
+            if abs(dist_to_circle) > dist_threshold:
+                if dist_to_circle > 0:
+                    speed = -self.advance_speed  # backward (away from center)
+                else:
+                    speed = self.advance_speed   # forward (toward center)
+
+                cmd = (0, speed, 0)
+                cmd = self._apply_speed_modulation(cmd)
+                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._action_step += 1
+                return cmd
+            else:
+                print(f"[phase1] ✓ Reached circle at r={dist_to_center:.2f}m")
+                self._goto_phase = 2
+
+        # PHASE 2: Turn 90° left to be tangent (for CCW orbit)
+        if self._goto_phase == 2:
+            # We want the center to be at -90° (on our right) for CCW orbit
+            # So we need to turn until angle_to_center reaches -90°
+            target_angle = -np.pi / 2  # -90°
+
+            # The rotation we need is simply to make the center move from
+            # its current angle to -90°. If center is at +30°, we turn right (positive rot)
+            # to make it appear at -90°. We need to turn by: current - target = 30 - (-90) = 120°
+            # But we want the shortest path.
+
+            # How much do we need to turn? If we rotate by 'r', the center angle changes by '-r'
+            # New angle = angle_to_center - r
+            # We want: angle_to_center - r = -90°
+            # So: r = angle_to_center - (-90°) = angle_to_center + 90°
+
+            rotation_needed = angle_to_center - target_angle
+            # Normalize to [-pi, pi]
+            while rotation_needed > np.pi:
+                rotation_needed -= 2 * np.pi
+            while rotation_needed < -np.pi:
+                rotation_needed += 2 * np.pi
+
+            print(f"[phase2] Turn tangent: center_angle={np.degrees(angle_to_center):.1f}°, "
+                  f"target=-90°, rotation_needed={np.degrees(rotation_needed):.1f}°")
+
+            if abs(rotation_needed) > angle_threshold:
+                # Proportional control - rotate in the direction of rotation_needed
+                rot = np.clip(rotation_needed * 1.5, -self.rotation_speed, self.rotation_speed)
+
+                cmd = (0, 0, rot)
+                cmd = self._apply_speed_modulation(cmd)
+                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._action_step += 1
+                return cmd
+            else:
+                # Tangent achieved - move to phase 3
+                print(f"[phase2] ✓ Tangent to circle - starting orbit")
+                self._goto_phase = 3
+                # Initialize orbit tracking - use robot position angle in room frame
+                self._orbit_accumulated = 0.0
+                self._orbit_last_angle = np.arctan2(est_y, est_x)  # Robot's angle around room center
+
+        # PHASE 3: Orbit around center (360°) with proportional control on radius and tangent
+        if self._goto_phase == 3:
+            target_radius = radius
+            target_arc = 2 * np.pi  # 360°
+
+            # Current angle to center (from robot perspective)
+            current_angle_to_center = angle_to_center
+
+            # Calculate how far we've orbited using robot position in ROOM frame
+            # This measures the polar angle of the robot around the room center
+            robot_polar_angle = np.arctan2(est_y, est_x)
+
+            # Update accumulated angle
+            if hasattr(self, '_orbit_last_angle'):
+                delta_angle = robot_polar_angle - self._orbit_last_angle
+                # Handle wrap-around
+                while delta_angle > np.pi:
+                    delta_angle -= 2 * np.pi
+                while delta_angle < -np.pi:
+                    delta_angle += 2 * np.pi
+                self._orbit_accumulated += delta_angle
+            self._orbit_last_angle = robot_polar_angle
+
+            # Check if orbit complete
+            if abs(self._orbit_accumulated) >= target_arc:
+                print(f"[phase3] ✓ Orbit complete! Total: {np.degrees(self._orbit_accumulated):.1f}°")
+                self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+                self._goto_phase = 0
+                self._current_action_idx += 1
+                self._action_step = 0
+                return (0, 0, 0)
+
+            # Proportional controllers:
+            # 1. Radius error: we want dist_to_center == target_radius
+            radius_error = dist_to_center - target_radius
+            # Positive error means we're too far -> need to move toward center (reduce lateral speed or curve in)
+
+            # 2. Tangent error: we want center at -90° (on our right)
+            target_tangent_angle = -np.pi / 2
+            tangent_error = current_angle_to_center - target_tangent_angle
+            while tangent_error > np.pi:
+                tangent_error -= 2 * np.pi
+            while tangent_error < -np.pi:
+                tangent_error += 2 * np.pi
+
+            # Control gains
+            Kp_radius = 0.3   # Lateral correction gain
+            Kp_tangent = 1.0  # Rotation correction gain
+
+            # Base forward speed (CCW orbit means moving forward while center is on the right)
+            base_speed = self.advance_speed  # mm/s
+
+            # Lateral correction: if too far (radius_error > 0), move left (toward center)
+            # Robot's left is positive side_speed
+            lateral_correction = -Kp_radius * radius_error * 1000  # Convert to mm/s
+
+            # Rotation correction: maintain tangent angle
+            rotation_correction = Kp_tangent * tangent_error
+
+            # Combine commands
+            advx = np.clip(lateral_correction, -100, 100)  # Side speed in mm/s
+            advz = base_speed  # Forward speed in mm/s
+            rot = np.clip(rotation_correction, -self.rotation_speed, self.rotation_speed)
+
+            print(f"[phase3] Orbit: r={dist_to_center:.2f}m (Δ={radius_error:+.2f}), "
+                  f"θ_center={np.degrees(current_angle_to_center):.0f}°, "
+                  f"arc={np.degrees(self._orbit_accumulated):.0f}°/360°")
+
+            cmd = (advx, advz, rot)
+            cmd = self._apply_speed_modulation(cmd)
+            self.omnirobot_proxy.setSpeedBase(*cmd)
+            self._action_step += 1
+            return cmd
+
+        return (0, 0, 0)
+
 
     ##########################################################################################
     def startup_check(self):
