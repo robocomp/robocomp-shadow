@@ -98,6 +98,13 @@ class SpecificWorker(GenericWorker):
         # Call box manager to process the data
         detected_boxes = self.box_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
 
+        # Debug: compare first belief against GT (box at origin, 0.5x0.5x0.5)
+        if len(detected_boxes) > 0:
+            BoxManager.debug_belief_vs_gt(detected_boxes[0],
+                                          gt_cx=0.0, gt_cy=0.0,
+                                          gt_w=0.5, gt_h=0.5, gt_d=0.5,
+                                          gt_theta=0.0)
+
         # Update visualizer
         self.visualizer.update(
             room_dims=room_dims,
