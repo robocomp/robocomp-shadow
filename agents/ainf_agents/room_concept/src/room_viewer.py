@@ -69,6 +69,10 @@ class ViewerData:
     velocity_weights: np.ndarray = None  # [w_x, w_y, w_theta] velocity-based optimization weights
     # Uncertainty-based speed modulation
     speed_factor: float = 1.0          # Speed modulation factor based on uncertainty
+    # Commanded velocities
+    cmd_adv_x: float = 0.0             # Commanded forward velocity (mm/s)
+    cmd_adv_y: float = 0.0             # Commanded lateral velocity (mm/s)
+    cmd_rot: float = 0.0               # Commanded rotation velocity (rad/s)
 
     def __post_init__(self):
         if self.estimated_pose is None:
@@ -113,8 +117,8 @@ class RoomViewerDPG(RoomObserver):
     """
 
     def __init__(self,
-                 window_width: int = 530,
-                 window_height: int = 500,
+                 window_width: int = 900,
+                 window_height: int = 900,
                  margin: float = 1.0,
                  show_lidar: bool = True,
                  dsr_viewer=None):
@@ -149,7 +153,7 @@ class RoomViewerDPG(RoomObserver):
         # Top row: Room canvas + DSR panel (side by side)
         # Bottom row: Stats panel (horizontal, full width)
         dsr_width = self.dsr_viewer.canvas_width if dsr_viewer else 0
-        stats_height = 150  # Height of horizontal stats bar at bottom
+        stats_height = 320  # Height of stats panel (two rows)
         self.draw_width = window_width - dsr_width - 20  # Room canvas width
         self.dsr_width = dsr_width  # DSR panel width
         self.stats_height = stats_height
@@ -236,8 +240,9 @@ class RoomViewerDPG(RoomObserver):
                                         tag="dsr_canvas"):
                             pass
 
-            # BOTTOM ROW: Stats panel (horizontal, full width)
+            # BOTTOM: Stats panel (two rows)
             with dpg.child_window(width=-1, height=self.stats_height):
+                # ROW 1: Status, Motion, Estimated, GT, Errors
                 with dpg.group(horizontal=True):
                     # Column 1: Phase, Step, Room
                     with dpg.group():
@@ -253,7 +258,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("Est: 0.0 x 0.0 m", tag="room_size_text")
                         dpg.add_text("GT:  0.0 x 0.0 m", tag="room_gt_size_text", color=(100, 255, 100))
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
                     # Column 2: Motion Model
                     with dpg.group():
@@ -263,7 +268,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("dθ: 0.0°", tag="innov_theta_text")
                         dpg.add_text("π: 0.000", tag="prior_precision_text")
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
                     # Column 3: Estimated Pose
                     with dpg.group():
@@ -272,7 +277,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("Y: 0.000 m", tag="est_y_text")
                         dpg.add_text("θ: 0.0°", tag="est_theta_text")
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
                     # Column 4: Ground Truth
                     with dpg.group():
@@ -281,7 +286,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("Y: 0.000 m", tag="gt_y_text")
                         dpg.add_text("θ: 0.0°", tag="gt_theta_text")
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
                     # Column 5: Errors
                     with dpg.group():
@@ -296,9 +301,11 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("SDF:", color=(200, 200, 200))
                             dpg.add_text("0.000 m", tag="sdf_error_text")
 
-                    dpg.add_spacer(width=8)
+                dpg.add_separator()
 
-                    # Column 5b: Free Energy Components
+                # ROW 2: Free Energy, Legend, CPU Stats, Vel Weights
+                with dpg.group(horizontal=True):
+                    # Column 1: Free Energy Components
                     with dpg.group():
                         dpg.add_text("FREE ENERGY", color=(255, 100, 255))
                         with dpg.group(horizontal=True):
@@ -311,28 +318,32 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("VFE:", color=(200, 200, 200))
                             dpg.add_text("0.000", tag="vfe_text", color=(255, 255, 100))
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
-                    # Column 6: Legend + Control
+                    # Column 2: Legend
                     with dpg.group():
                         dpg.add_text("LEGEND", color=(255, 255, 0))
                         dpg.add_text("● Estimated", color=(100, 150, 255))
                         dpg.add_text("● Ground Truth", color=(100, 255, 100))
                         dpg.add_text("· LIDAR points", color=(255, 200, 100))
-                        dpg.add_spacer(height=3)
-                        dpg.add_text("Plan:", color=(200, 200, 200))
+
+                    dpg.add_spacer(width=20)
+
+                    # Column 3: Plan Control
+                    with dpg.group():
+                        dpg.add_text("PLAN", color=(255, 255, 0))
                         dpg.add_combo(self.plan_names, tag="plan_combo",
                                       default_value=self.plan_names[0],
                                       callback=self._on_plan_combo_changed,
-                                      width=110)
+                                      width=150)
                         dpg.add_spacer(height=2)
                         dpg.add_button(label="Start Plan", tag="plan_button",
                                        callback=self._on_plan_button_clicked,
-                                       width=80)
+                                       width=100)
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
-                    # Column 7: CPU/Performance Stats
+                    # Column 4: CPU/Performance Stats
                     with dpg.group():
                         dpg.add_text("CPU STATS", color=(255, 150, 50))
                         with dpg.group(horizontal=True):
@@ -344,6 +355,12 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("Optimizer:", color=(200, 200, 200))
                             dpg.add_text("0 iters", tag="optimizer_iters_text")
+
+                    dpg.add_spacer(width=20)
+
+                    # Column 5: More CPU Stats
+                    with dpg.group():
+                        dpg.add_text("PERF", color=(255, 150, 50))
                         with dpg.group(horizontal=True):
                             dpg.add_text("Compute:", color=(200, 200, 200))
                             dpg.add_text("0.0 ms", tag="compute_time_text")
@@ -354,9 +371,9 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("Speed:", color=(200, 200, 200))
                             dpg.add_text("100%", tag="speed_factor_text", color=(100, 255, 100))
 
-                    dpg.add_spacer(width=8)
+                    dpg.add_spacer(width=20)
 
-                    # Column 8: Velocity-Adaptive Weights
+                    # Column 6: Velocity-Adaptive Weights
                     with dpg.group():
                         dpg.add_text("VEL WEIGHTS", color=(180, 100, 255))
                         with dpg.group(horizontal=True):
@@ -368,6 +385,21 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("w_θ:", color=(200, 200, 200))
                             dpg.add_text("1.00", tag="vel_weight_theta_text", color=(150, 200, 255))
+
+                    dpg.add_spacer(width=20)
+
+                    # Column 7: Commanded Velocities
+                    with dpg.group():
+                        dpg.add_text("CMD VEL", color=(100, 255, 200))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("adv_x:", color=(200, 200, 200))
+                            dpg.add_text("0", tag="cmd_adv_x_text", color=(150, 255, 200))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("adv_y:", color=(200, 200, 200))
+                            dpg.add_text("0", tag="cmd_adv_y_text", color=(150, 255, 200))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("rot:", color=(200, 200, 200))
+                            dpg.add_text("0.00", tag="cmd_rot_text", color=(150, 255, 200))
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -779,6 +811,26 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("vfe_text", f"{data.vfe:.4f}")
         dpg.configure_item("vfe_text", color=vfe_color)
 
+        # Commanded velocities
+        # adv_x: green if moving, gray if zero
+        adv_x_color = (100, 255, 200) if abs(data.cmd_adv_x) > 1 else (150, 150, 150)
+        dpg.set_value("cmd_adv_x_text", f"{data.cmd_adv_x:.0f}")
+        dpg.configure_item("cmd_adv_x_text", color=adv_x_color)
+
+        adv_y_color = (100, 255, 200) if abs(data.cmd_adv_y) > 1 else (150, 150, 150)
+        dpg.set_value("cmd_adv_y_text", f"{data.cmd_adv_y:.0f}")
+        dpg.configure_item("cmd_adv_y_text", color=adv_y_color)
+
+        # rot: positive=left (green), negative=right (cyan), zero=gray
+        if abs(data.cmd_rot) < 0.01:
+            rot_color = (150, 150, 150)
+        elif data.cmd_rot > 0:
+            rot_color = (100, 255, 100)  # Turning left - green
+        else:
+            rot_color = (100, 200, 255)  # Turning right - cyan
+        dpg.set_value("cmd_rot_text", f"{data.cmd_rot:.2f}")
+        dpg.configure_item("cmd_rot_text", color=rot_color)
+
 
 class RoomSubject:
     """
@@ -825,7 +877,8 @@ def create_viewer_data(room_estimator,
                        f_likelihood: float = 0.0,
                        f_prior: float = 0.0,
                        vfe: float = 0.0,
-                       speed_factor: float = 1.0) -> ViewerData:
+                       speed_factor: float = 1.0,
+                       cmd_vel: tuple = (0.0, 0.0, 0.0)) -> ViewerData:
     """
     Create ViewerData from room estimator and ground truth.
 
@@ -927,5 +980,10 @@ def create_viewer_data(room_estimator,
 
     # Speed modulation factor
     data.speed_factor = speed_factor
+
+    # Commanded velocities
+    data.cmd_adv_x = cmd_vel[0]  # Forward velocity (mm/s)
+    data.cmd_adv_y = cmd_vel[1]  # Lateral velocity (mm/s)
+    data.cmd_rot = cmd_vel[2]    # Rotation velocity (rad/s)
 
     return data
