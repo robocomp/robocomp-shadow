@@ -153,6 +153,7 @@ class Requires:
         self.mprx={}
 
         self.Lidar3D = self.create_proxy("Lidar3D", RoboCompLidar3D.Lidar3DPrx, parameters["Proxies"]["Lidar3D"])
+        self.Lidar3D1 = self.create_proxy("Lidar3D1", RoboCompLidar3D.Lidar3DPrx, parameters["Proxies"]["Lidar3D1"])
 
     def get_proxies_map(self):
         return self.mprx

@@ -31,7 +31,7 @@ sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
 from pydsr import *
-from src.box_manager import BoxManager
+from src.table_manager import TableManager
 
 # Choose visualizer: '2d' for DearPyGui, '3d' for Open3D
 VISUALIZER_MODE = '3d'
@@ -58,8 +58,8 @@ class SpecificWorker(GenericWorker):
         except RuntimeError as e:
             print(e)
 
-        # Initialize box manager
-        self.box_manager = BoxManager(self.g, self.g.get_agent_id())
+        # Initialize table manager
+        self.table_manager = TableManager(self.g, self.g.get_agent_id())
 
         # Initialize visualizer
         self.visualizer = BoxConceptVisualizer()
@@ -94,30 +94,31 @@ class SpecificWorker(GenericWorker):
         if robot_pose is None:
             return True
 
-        # Call box manager to process the data
-        detected_boxes = self.box_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
+        # Call table manager to process the data
+        detected_tables = self.table_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
 
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
         debug_every_n_frames = 100
-        if debug_every_n_frames > 0 and len(detected_boxes) > 0 and self.box_manager.frame_count % debug_every_n_frames == 0:
-            BoxManager.debug_belief_vs_gt(detected_boxes[0],
-                                          gt_cx=0.0, gt_cy=0.0,
-                                          gt_w=0.5, gt_h=0.5, gt_d=0.25,
-                                          gt_theta=0.0)
+        if debug_every_n_frames > 0 and len(detected_tables) > 0 and self.table_manager.frame_count % debug_every_n_frames == 0:
+            TableManager.debug_belief_vs_gt(detected_tables[0].to_dict(),
+                                            gt_cx=0.0, gt_cy=0.0,
+                                            gt_w=1.0, gt_h=0.6,
+                                            gt_table_height=0.75,
+                                            gt_theta=0.0)
 
         # Update visualizer
         self.visualizer.update(
             room_dims=room_dims,
             robot_pose=robot_pose,
-            lidar_points_raw=self.box_manager.viz_data['lidar_points_raw'],
-            lidar_points_filtered=self.box_manager.viz_data['lidar_points_filtered'],
-            clusters=self.box_manager.viz_data['clusters'],
-            beliefs=self.box_manager.get_beliefs_as_dicts(),
-            historical_points=self.box_manager.get_historical_points_for_viz()
+            lidar_points_raw=self.table_manager.viz_data['lidar_points_raw'],
+            lidar_points_filtered=self.table_manager.viz_data['lidar_points_filtered'],
+            clusters=self.table_manager.viz_data['clusters'],
+            beliefs=self.table_manager.get_beliefs_as_dicts(),
+            historical_points=self.table_manager.get_historical_points_for_viz()
         )
 
-        if len(detected_boxes) > 0:
-            pass  # console.print(f"[cyan]Tracking {len(detected_boxes)} boxes")
+        if len(detected_tables) > 0:
+            pass  # console.print(f"[cyan]Tracking {len(detected_tables)} tables")
 
         return True
 
@@ -208,9 +209,12 @@ class SpecificWorker(GenericWorker):
         """
         try:
             # Get 3D LIDAR data
-            helios = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 8000, 1)
+            bpearl = self.lidar3d_proxy.getLidarDataWithThreshold2d("bpearl", 8000, 1)
+            helios = self.lidar3d1_proxy.getLidarDataWithThreshold2d("helios", 8000, 1)
             # LIDAR points in robot frame: p.x = right, p.y = forward, p.z = up
-            lidar_points = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in helios.points])
+            bpearl_np = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in bpearl.points])
+            helios_np = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in helios.points if p.z < 1000])
+            lidar_points = np.vstack((bpearl_np, helios_np))
 
         except Ice.Exception as e:
             print(f"Error reading lidar: {e}")

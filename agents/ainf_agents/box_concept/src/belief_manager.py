@@ -20,8 +20,8 @@ from rich.console import Console
 
 from src.belief_core import Belief, BeliefConfig, DEVICE, DTYPE
 from src.transforms import (transform_points_robot_to_room,
-                        transform_box_to_robot_frame,
-                        transform_box_to_room_frame,
+                        transform_object_to_robot_frame,
+                        transform_object_to_room_frame,
                         transform_box_with_covariance)
 
 console = Console(highlight=False)
@@ -326,10 +326,10 @@ class BeliefManager:
             # Optimize
             opt_mu, sdf_mean = self._optimize_belief(
                 all_pts, all_weights, box_mu_robot, box_Sigma_robot,
-                prior_mu, prior_Sigma, belief.config)
+                prior_mu, prior_Sigma, belief.config, belief)
 
             # Transform back to room frame
-            belief.mu = transform_box_to_room_frame(opt_mu, self.robot_pose)
+            belief.mu = transform_object_to_room_frame(opt_mu, self.robot_pose)
             belief.last_sdf_mean = sdf_mean
 
             # Add historical points
@@ -346,7 +346,7 @@ class BeliefManager:
     def _optimize_belief(self, points: torch.Tensor, weights: Optional[torch.Tensor],
                          box_mu: torch.Tensor, box_Sigma: torch.Tensor,
                          prior_mu: torch.Tensor, prior_Sigma: torch.Tensor,
-                         config: BeliefConfig) -> Tuple[torch.Tensor, float]:
+                         config: BeliefConfig, belief: Belief) -> Tuple[torch.Tensor, float]:
         """Optimize belief parameters via VFE minimization."""
         if len(points) < 3:
             return box_mu, 0.0
@@ -358,9 +358,12 @@ class BeliefManager:
         final_sdf_mean = 0.0
 
         for _ in range(self.optimization_iters):
-            # Compute SDF using the centralized module
-            from src.object_sdf_prior import compute_box_sdf, compute_box_priors
-            sdf = compute_box_sdf(points, mu)
+            # Compute SDF using the belief's own SDF method
+            # Temporarily update belief's mu to compute SDF
+            old_mu = belief.mu.clone()
+            belief.mu = mu
+            sdf = belief.sdf(points)
+            belief.mu = old_mu
 
             final_sdf_mean = torch.mean(torch.abs(sdf)).item()
 
@@ -368,14 +371,17 @@ class BeliefManager:
             weighted_likelihood = torch.sum(weights * sdf**2) / len(points)
 
             # Prior term for state parameters (position, size)
-            prior_mu_robot = transform_box_to_robot_frame(prior_mu, self.robot_pose)
+            prior_mu_robot = transform_object_to_robot_frame(prior_mu, self.robot_pose)
             delta = mu - prior_mu_robot
             prior_precision = 1.0 / (torch.diag(box_Sigma) + 1e-6)
             prior_term = 0.5 * torch.sum(prior_precision * delta**2)
 
             # Object-specific priors (angle alignment, etc.)
-            # Uses centralized prior function from object_sdf_prior module
-            object_prior_term = compute_box_priors(mu, config, self.robot_pose)
+            # Get the appropriate prior function based on belief type
+            from src.object_sdf_prior import get_prior_function
+            belief_type = belief.to_dict().get('type', 'box')
+            prior_func = get_prior_function(belief_type)
+            object_prior_term = prior_func(mu, config, self.robot_pose)
 
             # Total VFE = Likelihood + State Prior + Object-specific Priors
             loss = weighted_likelihood + self.lambda_prior * prior_term + object_prior_term
@@ -387,18 +393,16 @@ class BeliefManager:
             with torch.no_grad():
                 if mu.grad is not None and not torch.isnan(mu.grad).any():
                     grad = torch.clamp(mu.grad, -self.grad_clip, self.grad_clip)
-
-
                     mu -= self.optimization_lr * grad
 
-                    # Clamp dimensions
-                    mu[2] = torch.clamp(mu[2], config.min_size, config.max_size)
-                    mu[3] = torch.clamp(mu[3], config.min_size, config.max_size)
-                    mu[4] = torch.clamp(mu[4], config.min_size, config.max_size)
+                    # Clamp size dimensions (indices 2 to state_dim-2)
+                    state_dim = len(mu)
+                    for i in range(2, state_dim - 1):
+                        mu[i] = torch.clamp(mu[i], config.min_size, config.max_size)
 
-                    # Normalize angle
-                    while mu[5] > np.pi/2: mu[5] -= np.pi
-                    while mu[5] < -np.pi/2: mu[5] += np.pi
+                    # Normalize angle (last element)
+                    while mu[-1] > np.pi/2: mu[-1] -= np.pi
+                    while mu[-1] < -np.pi/2: mu[-1] += np.pi
 
             mu.requires_grad_(True)
 

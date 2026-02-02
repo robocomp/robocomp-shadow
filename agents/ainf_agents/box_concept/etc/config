@@ -1,11 +1,8 @@
 
 
 # Proxies for required interfaces
-Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11989"
-
-
-
-
+Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11989" # bpearl
+Proxies.Lidar3D1 = "lidar3d:tcp -h localhost -p 11990"  # helios
 
 
 # Change id

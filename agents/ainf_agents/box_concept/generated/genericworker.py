@@ -32,7 +32,9 @@ class GenericWorker(QtCore.QObject):
         super(GenericWorker, self).__init__()
 
         self.lidar3d_proxy = mprx["Lidar3D"]
+        self.lidar3d1_proxy = mprx["Lidar3D1"]
         self.lidar3d_proxy = mprx["Lidar3D"]
+        self.lidar3d1_proxy = mprx["Lidar3D1"]
 
         self.configData = configData
 

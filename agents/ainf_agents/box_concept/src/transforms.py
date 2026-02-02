@@ -198,39 +198,44 @@ def transform_box_with_covariance(box_mu: torch.Tensor,
                                    robot_pose: np.ndarray,
                                    robot_cov: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Transform box from room frame to robot frame with covariance composition.
+    Transform object from room frame to robot frame with covariance composition.
 
-    Composes box uncertainty with robot pose uncertainty via Jacobians:
-    Σ_robot = J_box @ Σ_box @ J_box.T + J_robot @ Σ_robot_pose @ J_robot.T
+    Composes object uncertainty with robot pose uncertainty via Jacobians:
+    Σ_robot = J_obj @ Σ_obj @ J_obj.T + J_robot @ Σ_robot_pose @ J_robot.T
+
+    Works for any state dimension where:
+    - First 2 elements are position (cx, cy)
+    - Last element is angle (theta)
+    - Middle elements are size/shape parameters (unchanged by transform)
 
     Args:
-        box_mu: Box mean [6] in room frame
-        box_Sigma: Box covariance [6, 6] in room frame
+        box_mu: Object mean [N] in room frame (N = 6 for box, 7 for table, etc.)
+        box_Sigma: Object covariance [N, N] in room frame
         robot_pose: [x, y, theta] robot pose in room frame
         robot_cov: [3, 3] robot pose covariance
 
     Returns:
-        (box_mu_robot, box_Sigma_robot) in robot frame
+        (obj_mu_robot, obj_Sigma_robot) in robot frame
     """
+    state_dim = len(box_mu)
     rx, ry, rtheta = robot_pose
     cos_t = np.cos(-rtheta)
     sin_t = np.sin(-rtheta)
 
-    # Transform box mean
-    box_mu_robot = transform_box_to_robot_frame(box_mu, robot_pose)
+    # Transform object mean
+    box_mu_robot = transform_object_to_robot_frame(box_mu, robot_pose)
 
-    # Jacobian of box_robot w.r.t. box_room (6x6)
-    J_box = np.zeros((6, 6))
-    J_box[0, 0] = cos_t   # ∂cx_r/∂cx
-    J_box[0, 1] = -sin_t  # ∂cx_r/∂cy
-    J_box[1, 0] = sin_t   # ∂cy_r/∂cx
-    J_box[1, 1] = cos_t   # ∂cy_r/∂cy
-    J_box[2, 2] = 1.0     # ∂w_r/∂w
-    J_box[3, 3] = 1.0     # ∂h_r/∂h
-    J_box[4, 4] = 1.0     # ∂d_r/∂d
-    J_box[5, 5] = 1.0     # ∂θ_r/∂θ
+    # Jacobian of obj_robot w.r.t. obj_room (NxN)
+    # Position transforms, sizes stay same, angle transforms
+    J_obj = np.eye(state_dim)
+    J_obj[0, 0] = cos_t   # ∂cx_r/∂cx
+    J_obj[0, 1] = -sin_t  # ∂cx_r/∂cy
+    J_obj[1, 0] = sin_t   # ∂cy_r/∂cx
+    J_obj[1, 1] = cos_t   # ∂cy_r/∂cy
+    # Size parameters (indices 2 to state_dim-2) already have 1.0 from eye()
+    # Angle (last element) already has 1.0 from eye()
 
-    # Jacobian of box_robot w.r.t. robot_pose (6x3)
+    # Jacobian of obj_robot w.r.t. robot_pose (Nx3)
     cx_room = box_mu[0].item()
     cy_room = box_mu[1].item()
     dx = cx_room - rx
@@ -239,28 +244,103 @@ def transform_box_with_covariance(box_mu: torch.Tensor,
     cx_r = cos_t * dx - sin_t * dy
     cy_r = sin_t * dx + cos_t * dy
 
-    J_robot = np.zeros((6, 3))
+    J_robot = np.zeros((state_dim, 3))
     J_robot[0, 0] = -cos_t      # ∂cx_r/∂rx
     J_robot[0, 1] = sin_t       # ∂cx_r/∂ry
     J_robot[0, 2] = cy_r        # ∂cx_r/∂rθ
     J_robot[1, 0] = -sin_t      # ∂cy_r/∂rx
     J_robot[1, 1] = -cos_t      # ∂cy_r/∂ry
     J_robot[1, 2] = -cx_r       # ∂cy_r/∂rθ
-    J_robot[5, 2] = -1.0        # ∂θ_r/∂rθ
+    J_robot[state_dim-1, 2] = -1.0  # ∂θ_r/∂rθ (angle is last element)
 
     # Convert to tensors
     device = box_mu.device
-    J_box_t = torch.tensor(J_box, dtype=DTYPE, device=device)
+    J_obj_t = torch.tensor(J_obj, dtype=DTYPE, device=device)
     J_robot_t = torch.tensor(J_robot, dtype=DTYPE, device=device)
     robot_cov_t = torch.tensor(robot_cov, dtype=DTYPE, device=device)
 
     # Compose covariances
-    cov_from_box = J_box_t @ box_Sigma @ J_box_t.T
+    cov_from_obj = J_obj_t @ box_Sigma @ J_obj_t.T
     cov_from_robot = J_robot_t @ robot_cov_t @ J_robot_t.T
 
-    box_Sigma_robot = cov_from_box + cov_from_robot
+    box_Sigma_robot = cov_from_obj + cov_from_robot
 
     return box_mu_robot, box_Sigma_robot
+
+
+def transform_object_to_robot_frame(obj_mu: torch.Tensor,
+                                     robot_pose: np.ndarray) -> torch.Tensor:
+    """
+    Transform object parameters from room frame to robot frame.
+
+    Works for any state where:
+    - First 2 elements are position (cx, cy)
+    - Last element is angle (theta)
+    - Middle elements are unchanged (sizes)
+
+    Args:
+        obj_mu: Object mean in room frame [N]
+        robot_pose: [x, y, theta] robot pose in room frame
+
+    Returns:
+        Object mean in robot frame [N]
+    """
+    rx, ry, rtheta = robot_pose
+    cos_t = np.cos(-rtheta)
+    sin_t = np.sin(-rtheta)
+
+    # Position transform
+    cx_room = obj_mu[0]
+    cy_room = obj_mu[1]
+    dx = cx_room - rx
+    dy = cy_room - ry
+    cx_robot = dx * cos_t - dy * sin_t
+    cy_robot = dx * sin_t + dy * cos_t
+
+    # Build output: position + middle params + angle
+    result = obj_mu.clone()
+    result[0] = cx_robot
+    result[1] = cy_robot
+    result[-1] = obj_mu[-1] - rtheta  # Angle transform
+
+    return result
+
+
+def transform_object_to_room_frame(obj_mu_robot: torch.Tensor,
+                                    robot_pose: np.ndarray) -> torch.Tensor:
+    """
+    Transform object parameters from robot frame to room frame.
+
+    Works for any state where:
+    - First 2 elements are position (cx, cy)
+    - Last element is angle (theta)
+    - Middle elements are unchanged (sizes)
+
+    Args:
+        obj_mu_robot: Object mean in robot frame [N]
+        robot_pose: [x, y, theta] robot pose in room frame
+
+    Returns:
+        Object mean in room frame [N]
+    """
+    rx, ry, rtheta = robot_pose
+    cos_t = np.cos(rtheta)
+    sin_t = np.sin(rtheta)
+
+    cx_robot = obj_mu_robot[0]
+    cy_robot = obj_mu_robot[1]
+
+    # Rotate and translate to room frame
+    cx_room = cos_t * cx_robot - sin_t * cy_robot + rx
+    cy_room = sin_t * cx_robot + cos_t * cy_robot + ry
+
+    # Build output
+    result = obj_mu_robot.clone()
+    result[0] = cx_room
+    result[1] = cy_room
+    result[-1] = obj_mu_robot[-1] + rtheta  # Angle transform
+
+    return result
 
 
 def compute_jacobian_room_to_robot(point_room: np.ndarray,

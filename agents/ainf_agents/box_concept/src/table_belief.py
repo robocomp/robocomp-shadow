@@ -327,7 +327,9 @@ class TableBelief(Belief):
                 compute_jacobian_room_to_robot(self.historical_points[i].cpu().numpy(), robot_pose),
                 dtype=DTYPE, device=self.mu.device
             )
-            st = self.historical_capture_covs[i] + J @ rc[:2, :2] @ J.T
+            # J is [2x3], rc is [3x3], so J @ rc @ J.T gives [2x2]
+            cov_from_robot = J @ rc @ J.T
+            st = self.historical_capture_covs[i] + cov_from_robot
             w[i] = 1.0 / (1.0 + torch.trace(st) + self.historical_rfe[i])
 
         return pts, w
