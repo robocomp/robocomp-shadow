@@ -1,0 +1,12 @@
+import "CameraRGBDSimple.idsl";
+
+Component vlm_describer
+{
+    Communications
+    {
+        requires CameraRGBDSimple;
+    };
+    language python;
+    gui Qt(QWidget);
+};
+
