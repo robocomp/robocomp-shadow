@@ -164,10 +164,41 @@ class BoxBelief(Belief):
         return d
     @staticmethod
     def debug_vs_gt(belief, gt_cx=0., gt_cy=0., gt_w=0.5, gt_h=0.5, gt_d=0.5, gt_theta=0.):
-        pe = np.sqrt((belief.cx-gt_cx)**2 + (belief.cy-gt_cy)**2)
-        print(f"\n{'='*60}\nBELIEF vs GT ({gt_w}x{gt_h}x{gt_d})\nPos: ({belief.cx:.3f},{belief.cy:.3f}) err={pe:.4f}m")
-        print(f"W:{belief.width:.3f} H:{belief.height:.3f} D:{belief.depth:.3f}")
+        """Print debug info comparing belief against Ground Truth."""
+        est_cx, est_cy = belief.cx, belief.cy
+        est_w, est_h, est_d = belief.width, belief.height, belief.depth
+        est_theta = belief.angle
+
+        # Calculate errors
+        pos_error = np.sqrt((est_cx - gt_cx)**2 + (est_cy - gt_cy)**2)
+        w_error = est_w - gt_w
+        h_error = est_h - gt_h
+        d_error = est_d - gt_d
+        theta_error = np.degrees(est_theta - gt_theta)
+
+        # Volume ratio
+        est_volume = est_w * est_h * est_d
+        gt_volume = gt_w * gt_h * gt_d
+        volume_ratio = est_volume / gt_volume if gt_volume > 0 else 0
+
+        print(f"\n{'='*60}")
+        print(f"BELIEF vs GROUND TRUTH (GT: {gt_w}x{gt_h}x{gt_d} at ({gt_cx},{gt_cy}))")
+        print(f"{'='*60}")
+        print(f"Position:  Est=({est_cx:.3f}, {est_cy:.3f})  GT=({gt_cx:.3f}, {gt_cy:.3f})  Error={pos_error:.4f}m")
+        print(f"Width:     Est={est_w:.3f}m  GT={gt_w:.3f}m  Error={w_error:+.4f}m ({100*w_error/gt_w:+.1f}%)")
+        print(f"Height:    Est={est_h:.3f}m  GT={gt_h:.3f}m  Error={h_error:+.4f}m ({100*h_error/gt_h:+.1f}%)")
+        print(f"Depth(Z):  Est={est_d:.3f}m  GT={gt_d:.3f}m  Error={d_error:+.4f}m ({100*d_error/gt_d:+.1f}%)")
+        print(f"Angle:     Est={np.degrees(est_theta):.1f}°  GT={np.degrees(gt_theta):.1f}°  Error={theta_error:+.1f}°")
+        print(f"Volume:    Est={est_volume:.4f}m³  GT={gt_volume:.4f}m³  Ratio={volume_ratio:.2f}x")
+        print(f"SDF mean:  {belief.last_sdf_mean:.4f}")
+
+        # Show Z range of historical points
         if belief.num_historical_points > 0:
-            z = belief.historical_points[:,2].cpu().numpy()
-            print(f"Hist: N={belief.num_historical_points} Z=[{z.min():.3f},{z.max():.3f}]")
+            z_vals = belief.historical_points[:, 2].cpu().numpy()
+            z_min, z_max = z_vals.min(), z_vals.max()
+            print(f"Hist pts:  N={belief.num_historical_points}, Z=[{z_min:.3f}, {z_max:.3f}]m")
+            print(f"           Box draws from z=0 to z={est_d:.3f}m, points go to z={z_max:.3f}m")
+            if est_d > z_max * 1.5:
+                print(f"           WARNING: Box height ({est_d:.3f}m) >> observed Z_max ({z_max:.3f}m)!")
+
         print(f"{'='*60}\n")
