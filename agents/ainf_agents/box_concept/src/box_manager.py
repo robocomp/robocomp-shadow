@@ -132,18 +132,31 @@ class RectangleBelief:
     config: RectangleBeliefConfig = field(default_factory=RectangleBeliefConfig)
 
     # Historical points in ROOM frame (accumulated evidence)
-    # Each point has [x, y, z] in room/world frame and a variance (from SDF)
+    # Each point has [x, y, z] in room/world frame
     # Stored in room frame so they don't rotate when box orientation changes
-    historical_points: torch.Tensor = None  # [N, 3] points in room frame (x, y, z)
-    historical_vars: torch.Tensor = None    # [N] variance for each point
+    #
+    # Capture covariance follows ACTIVE_INFERENCE_MATH.md Section 5.2:
+    #   Σ_capture = Σ_robot(t₀) + β * SDF² * I
+    # where:
+    #   - Σ_robot(t₀): robot localization uncertainty at capture time
+    #   - β * SDF²: measurement uncertainty from SDF value
+    #
+    historical_points: torch.Tensor = None        # [N, 3] points in room frame (x, y, z)
+    historical_capture_covs: torch.Tensor = None  # [N, 2, 2] capture covariance matrices (2D position)
+    historical_rfe: torch.Tensor = None           # [N] Remembered Free Energy scores
     max_historical_points: int = 500
+
+    # Hyperparameter for SDF-to-variance conversion
+    beta_sdf: float = 1.0  # β in Σ_capture = Σ_robot + β * SDF² * I
 
     def __post_init__(self):
         """Initialize historical points storage."""
         if self.historical_points is None:
             self.historical_points = torch.empty((0, 3), dtype=DTYPE, device=self.mu.device)
-        if self.historical_vars is None:
-            self.historical_vars = torch.empty(0, dtype=DTYPE, device=self.mu.device)
+        if self.historical_capture_covs is None:
+            self.historical_capture_covs = torch.empty((0, 2, 2), dtype=DTYPE, device=self.mu.device)
+        if self.historical_rfe is None:
+            self.historical_rfe = torch.empty(0, dtype=DTYPE, device=self.mu.device)
 
     def transform_to_box_frame(self, points_world: torch.Tensor, robot_pose: np.ndarray) -> torch.Tensor:
         """
@@ -220,23 +233,33 @@ class RectangleBelief:
             return torch.stack([world_x, world_y], dim=1)
 
     def add_historical_points(self, points_room: torch.Tensor, sdf_values: torch.Tensor,
-                               sdf_threshold: float = 0.05):
+                               robot_cov: np.ndarray, sdf_threshold: float = 0.05):
         """
         Add points with low SDF to historical storage with uniform surface coverage.
 
-        Points are stored in ROOM frame so they don't rotate when box orientation changes.
-        Points with SDF close to 0 (on the surface) are valuable evidence.
-        We use the SDF value as a measure of uncertainty (higher SDF = higher variance).
+        Implements ACTIVE_INFERENCE_MATH.md Section 5.2: Capture Covariance Formulation
+
+        Each point is stored with its capture covariance:
+            Σ_capture = Σ_robot(t₀) + β * SDF² * I
+
+        where:
+            - Σ_robot(t₀): Robot localization uncertainty at capture time (2x2 position part)
+            - β * SDF²: Measurement uncertainty from SDF value
+
+        Physical interpretation:
+            - Σ_robot(t₀): "How well localized was the robot when this point was captured?"
+            - β * SDF²: "How well did this point fit the model at capture time?"
 
         Surface coverage strategy:
         - Discretize the box surface into angular bins (around XY) and Z bins (height)
         - Each bin can hold a limited number of points (max_per_bin)
-        - When adding new points, replace worse points in the same bin
+        - When adding new points, replace worse points in the same bin (by trace of covariance)
         - This ensures uniform coverage across all visible faces
 
         Args:
             points_room: [N, 2] or [N, 3] points in room frame (if 2D, Z is set to 0)
             sdf_values: [N] SDF values for each point
+            robot_cov: [3, 3] robot pose covariance at capture time
             sdf_threshold: Maximum SDF to consider a point as surface evidence
         """
         # Filter points with low SDF (close to surface)
@@ -252,12 +275,25 @@ class RectangleBelief:
             z_coords = torch.zeros(len(good_points), 1, dtype=good_points.dtype, device=good_points.device)
             good_points = torch.cat([good_points, z_coords], dim=1)
 
-        # Convert SDF to variance (lower SDF = lower variance = more certain)
-        base_var = 0.001
-        new_vars = good_sdf ** 2 + base_var
+        # Extract 2x2 position covariance from robot pose covariance
+        robot_pos_cov = torch.tensor(robot_cov[:2, :2], dtype=DTYPE, device=self.mu.device)
+
+        # Compute capture covariance for each point: Σ_capture = Σ_robot + β * SDF² * I
+        # Shape: [N, 2, 2]
+        n_points = len(good_points)
+        identity = torch.eye(2, dtype=DTYPE, device=self.mu.device)
+
+        # SDF-based variance: β * SDF²
+        sdf_variance = self.beta_sdf * (good_sdf ** 2)  # [N]
+
+        # Capture covariances: Σ_robot + β * SDF² * I for each point
+        new_capture_covs = robot_pos_cov.unsqueeze(0).expand(n_points, -1, -1) + \
+                          sdf_variance.view(-1, 1, 1) * identity.unsqueeze(0)  # [N, 2, 2]
+
+        # Initialize RFE scores to 0 for new points
+        new_rfe = torch.zeros(n_points, dtype=DTYPE, device=self.mu.device)
 
         # Discretize surface into bins for uniform spacing
-        # Use angle from box center to each point and Z level to determine bin
         cx, cy = self.mu[0].item(), self.mu[1].item()
         dx = good_points[:, 0] - cx
         dy = good_points[:, 1] - cy
@@ -276,13 +312,17 @@ class RectangleBelief:
         bin_indices = angle_bins * n_z_bins + z_bins
 
         # Organize all existing points by bin
-        bin_contents = {}  # bin_idx -> list of (point, variance)
+        # Each entry: (point [3], capture_cov [2,2], rfe, trace_cov)
+        bin_contents = {}
 
         # Add existing historical points
         if len(self.historical_points) > 0:
             for i in range(len(self.historical_points)):
                 pt = self.historical_points[i]
-                var = self.historical_vars[i].item()
+                cov = self.historical_capture_covs[i]
+                rfe = self.historical_rfe[i].item()
+                trace_cov = torch.trace(cov).item()
+
                 dx_h = pt[0] - cx
                 dy_h = pt[1] - cy
                 angle_h = torch.atan2(dy_h, dx_h)
@@ -293,39 +333,47 @@ class RectangleBelief:
 
                 if bin_idx not in bin_contents:
                     bin_contents[bin_idx] = []
-                bin_contents[bin_idx].append((pt, var))
+                bin_contents[bin_idx].append((pt, cov, rfe, trace_cov))
 
         # Add new points to bins
-        for i in range(len(good_points)):
+        for i in range(n_points):
             bin_idx = bin_indices[i].item()
-            var = new_vars[i].item()
             pt = good_points[i]
+            cov = new_capture_covs[i]
+            rfe = new_rfe[i].item()
+            trace_cov = torch.trace(cov).item()
 
             if bin_idx not in bin_contents:
                 bin_contents[bin_idx] = []
-            bin_contents[bin_idx].append((pt, var))
+            bin_contents[bin_idx].append((pt, cov, rfe, trace_cov))
 
-        # For each bin, keep only the best points (lowest variance)
+        # For each bin, keep only the best points (lowest trace of covariance)
         final_points = []
-        final_vars = []
+        final_covs = []
+        final_rfe = []
 
         for bin_idx, contents in bin_contents.items():
-            # Sort by variance (ascending)
-            contents_sorted = sorted(contents, key=lambda x: x[1])
+            # Sort by trace of covariance (ascending) - lower trace = better point
+            contents_sorted = sorted(contents, key=lambda x: x[3])
             # Keep at most max_per_bin points per bin
-            for pt, var in contents_sorted[:max_per_bin]:
+            for pt, cov, rfe, _ in contents_sorted[:max_per_bin]:
                 final_points.append(pt)
-                final_vars.append(var)
+                final_covs.append(cov)
+                final_rfe.append(rfe)
 
         if final_points:
             self.historical_points = torch.stack(final_points)
-            self.historical_vars = torch.tensor(final_vars, dtype=DTYPE, device=self.mu.device)
+            self.historical_capture_covs = torch.stack(final_covs)
+            self.historical_rfe = torch.tensor(final_rfe, dtype=DTYPE, device=self.mu.device)
 
         # Final trim if still exceeds (should rarely happen with proper bin sizing)
         if len(self.historical_points) > self.max_historical_points:
-            sorted_indices = torch.argsort(self.historical_vars)[:self.max_historical_points]
+            # Sort by trace of covariance and keep best
+            traces = torch.tensor([torch.trace(c).item() for c in self.historical_capture_covs])
+            sorted_indices = torch.argsort(traces)[:self.max_historical_points]
             self.historical_points = self.historical_points[sorted_indices]
-            self.historical_vars = self.historical_vars[sorted_indices]
+            self.historical_capture_covs = self.historical_capture_covs[sorted_indices]
+            self.historical_rfe = self.historical_rfe[sorted_indices]
 
     def get_historical_points_in_robot_frame(self, robot_pose: np.ndarray,
                                               robot_cov: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

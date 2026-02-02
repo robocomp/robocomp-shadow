@@ -89,7 +89,7 @@ The first term handles points outside the box, the second handles points inside.
 Boxes are assumed static. The prior at time $t$ is the posterior from time $t-1$ with added process noise:
 
 $$
-p(\mathbf{s}_t) = \mathcal{N}(\mathbf{s}_t \mid \boldsymbol{\mu}_{t-1}, \Sigma_{t-1} + \Sigma_{\text{process}})
+p(\mathbf{s}_t) = \mathcal{N}(\mathbf{s}_t \mid \mathbf{\mu}_{t-1}, \Sigma_{t-1} + \Sigma_{\text{process}})
 $$
 
 where:
@@ -116,7 +116,7 @@ with $\mu_{\text{size}} = 0.5$ m (typical box size).
 Following the Active Inference framework, we approximate the posterior $p(\mathbf{s} | \mathbf{o})$ with a Gaussian recognition density:
 
 $$
-q(\mathbf{s}) = \mathcal{N}(\mathbf{s} \mid \boldsymbol{\mu}, \Sigma)
+q(\mathbf{s}) = \mathcal{N}(\mathbf{s} \mid \mathbf{\mu}, \Sigma)
 $$
 
 The Variational Free Energy (VFE) to minimize is:
@@ -139,7 +139,7 @@ $$
 Under Gaussian assumptions and point estimation at the mode:
 
 $$
-F(\mathbf{s}) \approx \underbrace{\frac{1}{2\sigma_o^2} \sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i, \mathbf{s})^2}_{\text{Likelihood (prediction error)}} + \underbrace{\frac{1}{2} (\mathbf{s} - \boldsymbol{\mu}_{\text{prior}})^\top \Sigma_{\text{prior}}^{-1} (\mathbf{s} - \boldsymbol{\mu}_{\text{prior}})}_{\text{Prior regularization}}
+F(\mathbf{s}) \approx \underbrace{\frac{1}{2\sigma_o^2} \sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i, \mathbf{s})^2}_{\text{Likelihood (prediction error)}} + \underbrace{\frac{1}{2} (\mathbf{s} - \mathbf{\mu}_{\text{prior}})^\top \Sigma_{\text{prior}}^{-1} (\mathbf{s} - \mathbf{\mu}_{\text{prior}})}_{\text{Prior regularization}}
 $$
 
 ---
@@ -154,37 +154,88 @@ Single-frame observations only capture visible surfaces. To build a complete mod
 
 Each historical point is stored with:
 - Position in room frame: $\mathbf{p}_{\text{room}} \in \mathbb{R}^3$
-- Capture covariance: $\Sigma_{\text{capture}} = \Sigma_{\text{robot}}(t_0) + \sigma_{\text{sdf}}^2 \mathbf{I}$
+- Capture covariance: $\Sigma_{\text{capture}}$
+- RFE score: accumulated consistency measure
+
+#### Capture Covariance Formulation
+
+The capture covariance combines two independent sources of uncertainty:
+
+$
+\Sigma_{\text{capture}} = \Sigma_{\text{robot}}(t_0) + \sigma_{\text{sdf}}^2 \mathbf{I}
+$
 
 where:
-$$
-\sigma_{\text{sdf}}^2 = \beta \cdot \text{SDF}(\mathbf{p}, \mathbf{s})^2
-$$
+- $\Sigma_{\text{robot}}(t_0)$: Robot localization uncertainty at capture time
+- $\sigma_{\text{sdf}}^2 = \beta \cdot \text{SDF}(\mathbf{p}, \mathbf{s})^2$: Measurement uncertainty from SDF
+
+**Physical interpretation:**
+- $\Sigma_{\text{robot}}(t_0)$: "How well localized was the robot when this point was captured?"
+- $\sigma_{\text{sdf}}^2$: "How well did this point fit the model at capture time?"
+
+These are **independent error sources**, hence they add:
+
+$
+\sigma_{\text{sdf}}^2 = \beta \cdot \text{SDF}(\mathbf{p}, \mathbf{s}_{t_0})^2
+$
 
 The SDF value at capture time modulates the point's reliability:
-- $\text{SDF} \approx 0$: Point on surface → low variance → high confidence
-- $\text{SDF} > 0$: Point off surface → high variance → low confidence
+- $\text{SDF} \approx 0$: Point exactly on surface → low $\sigma_{\text{sdf}}^2$ → high confidence
+- $\text{SDF} > 0$: Point outside model → high $\sigma_{\text{sdf}}^2$ → low confidence
+- $\text{SDF} < 0$: Point inside model → high $\sigma_{\text{sdf}}^2$ → very low confidence (inconsistent)
+
+**Note:** The capture covariance is **fixed** once the point is stored. It represents the uncertainty at the moment of measurement, not an accumulated uncertainty.
 
 ### 5.3 Using Historical Points
 
-When using a historical point at time $t$:
+When using a historical point at time $t$, we must account for **two sources of uncertainty**:
+
+1. **Capture uncertainty** ($\Sigma_{\text{capture}}$): Fixed at storage time
+2. **Current transformation uncertainty**: From room frame to robot frame
+
+#### Why Covariance Composition is Required
+
+Historical points are stored in the **room frame**, but the SDF optimization operates in the **robot frame**. The transformation from room to robot frame depends on the current robot pose, which has uncertainty $\Sigma_{\text{robot}}(t)$.
+
+**Key insight:** The point position is fixed in the room frame, but our knowledge of *where that point is in the robot frame* depends on how well we know the current robot pose.
+
+#### Transformation and Covariance Propagation
 
 1. **Transform to robot frame:**
 $$
 \mathbf{p}_{\text{robot}}(t) = R(-r_\theta(t))^\top (\mathbf{p}_{\text{room}} - \mathbf{r}_{xy}(t))
 $$
 
-2. **Propagate covariance:**
+2. **Propagate covariance through the transformation:**
 $$
-\Sigma_{\text{total}} = \Sigma_{\text{capture}} + J \cdot \Sigma_{\text{robot}}(t) \cdot J^\top
+\Sigma_{\text{total}} = \Sigma_{\text{capture}} + J(t) \cdot \Sigma_{\text{robot}}(t) \cdot J(t)^\top
 $$
 
-where $J$ is the Jacobian of the room-to-robot transformation.
+where $J(t)$ is the Jacobian of the room-to-robot transformation with respect to robot pose:
 
-3. **Compute weight:**
+$$
+J = \frac{\partial \mathbf{p}_{\text{robot}}}{\partial \mathbf{r}} = 
+\begin{pmatrix}
+-\cos(r_\theta) & -\sin(r_\theta) & -(p_y - r_y)\cos(r_\theta) + (p_x - r_x)\sin(r_\theta) \\
+\sin(r_\theta) & -\cos(r_\theta) & -(p_y - r_y)\sin(r_\theta) - (p_x - r_x)\cos(r_\theta)
+\end{pmatrix}
+$$
+
+3. **Compute weight for optimization:**
 $$
 w = \frac{1}{1 + \text{tr}(\Sigma_{\text{total}}) + \text{RFE}}
 $$
+
+#### Implications
+
+| Robot state at capture ($t_0$) | Robot state now ($t$) | Point weight |
+|-------------------------------|----------------------|--------------|
+| Well localized (small $\Sigma$) | Well localized | **High** |
+| Well localized | Poorly localized | Low |
+| Poorly localized | Well localized | Low |
+| Poorly localized | Poorly localized | **Very low** |
+
+This ensures that historical points only contribute strongly when **both** the capture and current localization are reliable.
 
 ### 5.4 Remembered Free Energy (RFE)
 
@@ -202,6 +253,23 @@ where:
 - $\text{RFE} \approx 0$: Point consistently on surface → **high evidence value**
 - $\text{RFE} \gg 0$: Point inconsistent with model → **likely noise, low value**
 
+### 5.5 Temporal Symmetry: EFE and RFE
+
+Active Inference provides a principled framework for action selection via Expected Free Energy (EFE), which evaluates the quality of future policies. RFE complements this by evaluating the quality of past evidence.
+
+| Concept | Direction | Question Answered |
+|---------|-----------|-------------------|
+| **EFE** | Future → Present | "What actions will reduce my uncertainty?" |
+| **RFE** | Past → Present | "What evidence has been consistently reliable?" |
+
+Together, they form a **temporally symmetric** view of inference:
+
+$$
+\text{Present belief} = f(\underbrace{\text{RFE-weighted past evidence}}_{\text{memory}}, \underbrace{\text{EFE-guided future actions}}_{\text{planning}})
+$$
+
+**Key insight:** Memory in Active Inference is not passive storage, but **evidence weighted by historical consistency and certainty**. Points with low RFE are "trusted memories" that anchor the belief, while points with high RFE are "unreliable memories" that are downweighted or forgotten.
+
 ---
 
 ## 6. Complete Optimization Objective
@@ -211,7 +279,7 @@ where:
 $$
 F(\mathbf{s}) = \underbrace{\frac{1}{2\sigma_o^2} \sum_{i=1}^{N_{\text{current}}} \text{SDF}(\mathbf{p}_i^{\text{curr}}, \mathbf{s})^2}_{\text{Current observations}}
 + \underbrace{\frac{1}{2} \sum_{j=1}^{N_{\text{hist}}} w_j \cdot \text{SDF}(\mathbf{p}_j^{\text{hist}}, \mathbf{s})^2}_{\text{Historical evidence}}
-+ \underbrace{\frac{\lambda}{2} (\mathbf{s} - \boldsymbol{\mu}_{\text{prior}})^\top \Sigma_{\text{prior}}^{-1} (\mathbf{s} - \boldsymbol{\mu}_{\text{prior}})}_{\text{Prior regularization}}
++ \underbrace{\frac{\lambda}{2} (\mathbf{s} - \bold{\mu}_{\text{prior}})^\top \Sigma_{\text{prior}}^{-1} (\mathbf{s} - \mathbf{\mu}_{\text{prior}})}_{\text{Prior regularization}}
 $$
 
 where:
@@ -233,7 +301,7 @@ Gradients are computed via automatic differentiation (PyTorch).
 After convergence, the posterior covariance is approximated by the inverse Hessian:
 
 $$
-\Sigma_{\text{post}}^{-1} = \nabla^2_{\mathbf{s}} F(\mathbf{s}) \big|_{\mathbf{s} = \boldsymbol{\mu}_{\text{post}}}
+\Sigma_{\text{post}}^{-1} = \nabla^2_{\mathbf{s}} F(\mathbf{s}) \big|_{\mathbf{s} = \mathbf{\mu}_{\text{post}}}
 $$
 
 ---
@@ -251,7 +319,7 @@ LIDAR points are clustered using DBSCAN with parameters:
 For cluster $k$ and belief $j$, the association cost is:
 
 $$
-C_{kj} = \frac{1}{|\mathcal{C}_k|} \sum_{\mathbf{p} \in \mathcal{C}_k} \text{SDF}(\mathbf{p}, \boldsymbol{\mu}_j)^2
+C_{kj} = \frac{1}{|\mathcal{C}_k|} \sum_{\mathbf{p} \in \mathcal{C}_k} \text{SDF}(\mathbf{p}, \mathbf{\mu}_j)^2
 $$
 
 ### 7.3 Hungarian Algorithm
