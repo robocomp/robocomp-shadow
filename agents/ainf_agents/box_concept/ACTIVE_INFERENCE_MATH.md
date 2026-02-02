@@ -521,21 +521,92 @@ $$
 
 ---
 
-## 11. Implementation Notes
+## 11. Supported Object Types
 
-### 11.1 Numerical Stability
+The framework supports multiple object types, each with its own SDF and prior functions. All objects share the same Active Inference optimization framework.
+
+### 11.1 Box (6 parameters)
+
+**State:** $\mathbf{s} = (c_x, c_y, w, h, d, \theta)$
+
+| Parameter | Description |
+|-----------|-------------|
+| $c_x, c_y$ | Center position in XY plane |
+| $w$ | Width (X dimension) |
+| $h$ | Height (Y dimension) |
+| $d$ | Depth (Z dimension) |
+| $\theta$ | Rotation angle around Z |
+
+**Files:** `box_belief.py`, `box_manager.py`
+
+### 11.2 Table (7 parameters)
+
+**State:** $\mathbf{s} = (c_x, c_y, w, h, h_{\text{table}}, l_{\text{leg}}, \theta)$
+
+| Parameter | Description |
+|-----------|-------------|
+| $c_x, c_y$ | Center position in XY plane |
+| $w, h$ | Table top dimensions |
+| $h_{\text{table}}$ | Height of table surface from floor |
+| $l_{\text{leg}}$ | Length of legs |
+| $\theta$ | Rotation angle |
+
+**Fixed constants:**
+- Top thickness: 0.03 m
+- Leg radius: 0.025 m
+
+**SDF:** Union of box (top) and 4 cylinders (legs)
+
+**Files:** `table_belief.py`, `table_manager.py`
+
+### 11.3 Chair (8 parameters)
+
+**State:** $\mathbf{s} = (c_x, c_y, w_s, d_s, h_s, h_b, t_b, \theta)$
+
+| Parameter | Description |
+|-----------|-------------|
+| $c_x, c_y$ | Center position |
+| $w_s, d_s$ | Seat width and depth |
+| $h_s$ | Seat height from floor |
+| $h_b$ | Backrest height above seat |
+| $t_b$ | Backrest thickness |
+| $\theta$ | Rotation angle |
+
+**SDF:** Union of box (seat) and box (backrest)
+
+### 11.4 Cylinder (4 parameters)
+
+**State:** $\mathbf{s} = (c_x, c_y, r, h)$
+
+| Parameter | Description |
+|-----------|-------------|
+| $c_x, c_y$ | Center position |
+| $r$ | Radius |
+| $h$ | Height |
+
+**SDF:** Standard cylinder SDF (no angle prior, rotationally symmetric)
+
+### 11.5 Adding New Object Types
+
+See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object types.
+
+---
+
+## 12. Implementation Notes
+
+### 12.1 Numerical Stability
 
 - SDF gradients can be unstable near corners; smoothing helps
 - Covariance matrices must remain positive definite
 - Use Cholesky decomposition for matrix inversions
 
-### 11.2 Computational Efficiency
+### 12.2 Computational Efficiency
 
 - Batch SDF computation on GPU (PyTorch CUDA)
 - Limit historical points per belief (max 500)
 - Uniform surface coverage via angular/height binning
 
-### 11.3 Hyperparameters
+### 12.3 Hyperparameters
 
 | Parameter | Symbol | Typical Value |
 |-----------|--------|---------------|
@@ -545,11 +616,13 @@ $$
 | Prior size mean | $\mu_{\text{size}}$ | 0.5 m |
 | Prior size std | $\sigma_{\text{size}}$ | 0.2 m |
 | Confidence decay | $\gamma$ | 0.85 |
-| Prior precision | $\lambda$ | 0.5 |
+| Prior precision | $\lambda$ | 0.3 |
+| SDF smooth parameter | $k$ | 0.02 m |
+| Inside point scale | $\alpha_{\text{inside}}$ | 0.5 |
 
 ---
 
-## 12. References
+## 13. References
 
 1. Friston, K. (2010). The free-energy principle: a unified brain theory?
 2. Lanillos, P. et al. (2021). Active Inference in Robotics and Artificial Agents
@@ -557,5 +630,5 @@ $$
 
 ---
 
-*Document version: 1.0*
+*Document version: 1.1*
 *Last updated: February 2026*

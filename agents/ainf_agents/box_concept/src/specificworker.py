@@ -80,9 +80,8 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Get lidar data (comes in mm, convert to meters)
-        # LIDAR reflects robot position at time t
-        lidar_points = self.get_lidar_points()
+        # Get lidar data
+        lidar_points = self.get_lidar_points() # meters
         #print(len(lidar_points))
 
         # Check if room node exists in G
