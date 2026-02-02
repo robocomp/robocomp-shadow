@@ -135,8 +135,8 @@ class SpecificWorker(GenericWorker):
             # Create DSR graph viewer (not started independently - integrated into room viewer)
             self.dsr_viewer = DSRGraphViewerDPG(
                 g=self.g,
-                window_width=380,    # Width of DSR panel
-                window_height=560,   # Height adjusted for margins
+                window_width=300,    # Width of DSR panel
+                window_height=300,   # Height adjusted for margins
                 update_period_ms=500,
                 canvas_tag="dsr_canvas"
             )
@@ -144,8 +144,8 @@ class SpecificWorker(GenericWorker):
 
             # Create room viewer with integrated DSR viewer
             self.room_viewer = RoomViewerDPG(
-                window_width=1400,   # Wider to accommodate DSR panel + stats
-                window_height=800,
+                window_width=900,   # Wider to accommodate DSR panel + stats
+                window_height=500,
                 margin=0.5,
                 show_lidar=True,
                 dsr_viewer=self.dsr_viewer

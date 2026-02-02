@@ -155,11 +155,11 @@ class RoomPoseEstimatorV2:
 
         # Optimization parameters
         self.lr_init = 0.5  # Higher learning rate for faster convergence
-        self.lr_tracking = 0.01  # Reduced to avoid oscillations (was 0.1, then 0.02)
+        self.lr_tracking = 0.04  # Reduced to avoid oscillations (was 0.1, then 0.02)
 
         # Dynamic CPU optimization parameters
         self.adaptive_cpu = True  # Enable adaptive CPU optimization
-        self.min_iterations = 25  # Increased to ensure convergence (was 5, then 15)
+        self.min_iterations = 20  # Increased to ensure convergence (was 5, then 15)
         self.max_iterations_init = 100  # Max iterations for init phase
         self.max_iterations_tracking = 50  # Max iterations for tracking phase
         self.early_stop_threshold = 1e-6  # Tighter threshold (was 1e-5)

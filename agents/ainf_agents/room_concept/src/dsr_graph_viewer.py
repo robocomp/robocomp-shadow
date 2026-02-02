@@ -20,7 +20,7 @@ class DSRGraphViewerDPG:
     Periodically reads G and displays nodes and edges.
     """
 
-    def __init__(self, g, window_width=380, window_height=560, update_period_ms=500, canvas_tag="dsr_canvas"):
+    def __init__(self, g, window_width=380, window_height=380, update_period_ms=500, canvas_tag="dsr_canvas"):
         self.g = g
         self.canvas_width = window_width
         self.canvas_height = window_height
@@ -324,15 +324,15 @@ class DSRGraphViewerDPG:
 
             x, y = self.node_positions[node_name]
             color = self.node_colors.get(node_type, self.node_colors['default'])
-            radius = 30
+            radius = 15
 
             dpg.draw_circle((x, y), radius, color=color, fill=color,
                             parent=self.canvas_tag)
             dpg.draw_circle((x, y), radius, color=(255, 255, 255), thickness=2,
                             parent=self.canvas_tag)
             label = f"{node_name}\n({node_type})"
-            dpg.draw_text((x - 25, y - 10), label,
-                          parent=self.canvas_tag, color=(255, 255, 255), size=12)
+            dpg.draw_text((x - 20, y - 8), label,
+                          parent=self.canvas_tag, color=(255, 255, 255), size=10)
 
             # Cache node data as plain Python dict (no pydsr references)
             node_data = self._extract_node_data(node)

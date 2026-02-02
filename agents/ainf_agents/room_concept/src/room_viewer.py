@@ -148,8 +148,8 @@ class RoomViewerDPG(RoomObserver):
         # Drawing area dimensions - NEW LAYOUT:
         # Top row: Room canvas + DSR panel (side by side)
         # Bottom row: Stats panel (horizontal, full width)
-        dsr_width = 400 if dsr_viewer else 0
-        stats_height = 140  # Height of horizontal stats bar at bottom
+        dsr_width = self.dsr_viewer.canvas_width if dsr_viewer else 0
+        stats_height = 150  # Height of horizontal stats bar at bottom
         self.draw_width = window_width - dsr_width - 20  # Room canvas width
         self.dsr_width = dsr_width  # DSR panel width
         self.stats_height = stats_height
@@ -248,12 +248,12 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("Step:", color=(200, 200, 200))
                             dpg.add_text("0", tag="step_text")
-                        dpg.add_spacer(height=5)
+                        dpg.add_spacer(height=3)
                         dpg.add_text("ROOM", color=(255, 255, 0))
                         dpg.add_text("Est: 0.0 x 0.0 m", tag="room_size_text")
                         dpg.add_text("GT:  0.0 x 0.0 m", tag="room_gt_size_text", color=(100, 255, 100))
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 2: Motion Model
                     with dpg.group():
@@ -263,7 +263,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("dθ: 0.0°", tag="innov_theta_text")
                         dpg.add_text("π: 0.000", tag="prior_precision_text")
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 3: Estimated Pose
                     with dpg.group():
@@ -272,7 +272,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("Y: 0.000 m", tag="est_y_text")
                         dpg.add_text("θ: 0.0°", tag="est_theta_text")
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 4: Ground Truth
                     with dpg.group():
@@ -281,7 +281,7 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("Y: 0.000 m", tag="gt_y_text")
                         dpg.add_text("θ: 0.0°", tag="gt_theta_text")
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 5: Errors
                     with dpg.group():
@@ -296,7 +296,7 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("SDF:", color=(200, 200, 200))
                             dpg.add_text("0.000 m", tag="sdf_error_text")
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 5b: Free Energy Components
                     with dpg.group():
@@ -311,7 +311,7 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("VFE:", color=(200, 200, 200))
                             dpg.add_text("0.000", tag="vfe_text", color=(255, 255, 100))
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 6: Legend + Control
                     with dpg.group():
@@ -319,18 +319,18 @@ class RoomViewerDPG(RoomObserver):
                         dpg.add_text("● Estimated", color=(100, 150, 255))
                         dpg.add_text("● Ground Truth", color=(100, 255, 100))
                         dpg.add_text("· LIDAR points", color=(255, 200, 100))
-                        dpg.add_spacer(height=5)
+                        dpg.add_spacer(height=3)
                         dpg.add_text("Plan:", color=(200, 200, 200))
                         dpg.add_combo(self.plan_names, tag="plan_combo",
                                       default_value=self.plan_names[0],
                                       callback=self._on_plan_combo_changed,
-                                      width=140)
-                        dpg.add_spacer(height=3)
+                                      width=110)
+                        dpg.add_spacer(height=2)
                         dpg.add_button(label="Start Plan", tag="plan_button",
                                        callback=self._on_plan_button_clicked,
-                                       width=100)
+                                       width=80)
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 7: CPU/Performance Stats
                     with dpg.group():
@@ -354,7 +354,7 @@ class RoomViewerDPG(RoomObserver):
                             dpg.add_text("Speed:", color=(200, 200, 200))
                             dpg.add_text("100%", tag="speed_factor_text", color=(100, 255, 100))
 
-                    dpg.add_spacer(width=30)
+                    dpg.add_spacer(width=8)
 
                     # Column 8: Velocity-Adaptive Weights
                     with dpg.group():
