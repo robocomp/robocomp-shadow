@@ -342,6 +342,8 @@ def transform_object_to_room_frame(obj_mu_robot: torch.Tensor,
 
     return result
 
+    return result
+
 
 def compute_jacobian_room_to_robot(point_room: np.ndarray,
                                     robot_pose: np.ndarray) -> np.ndarray:

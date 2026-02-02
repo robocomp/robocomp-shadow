@@ -72,6 +72,10 @@ class TableManager(BeliefManager):
         height_error = est_table_height - gt_table_height
         theta_error = np.degrees(est_theta - gt_theta)
 
+        # Historical points info
+        num_hist = belief_dict.get('num_historical_points', 0)
+        hist_rfe = belief_dict.get('historical_rfe_stats', {})
+
         print(f"\n{'='*60}")
         print(f"TABLE BELIEF vs GT ({gt_w}x{gt_h}, h={gt_table_height}m at ({gt_cx},{gt_cy}))")
         print(f"{'='*60}")
@@ -81,6 +85,18 @@ class TableManager(BeliefManager):
         print(f"TableHeight:  Est={est_table_height:.3f}m  GT={gt_table_height:.3f}m  Error={height_error:+.4f}m")
         print(f"LegLength:    Est={est_leg_length:.3f}m")
         print(f"Angle:        Est={np.degrees(est_theta):.1f}°  GT={np.degrees(gt_theta):.1f}°  Error={theta_error:+.1f}°")
+
+        # Historical points trust info
+        if num_hist > 0:
+            trusted = hist_rfe.get('trusted', 0)
+            good = hist_rfe.get('good', 0)
+            moderate = hist_rfe.get('moderate', 0)
+            unreliable = hist_rfe.get('unreliable', 0)
+            mean_rfe = hist_rfe.get('mean', 0)
+            print(f"Hist pts:     N={num_hist}, RFE_mean={mean_rfe:.4f}")
+            print(f"  Trust:      Trusted={trusted}, Good={good}, Moderate={moderate}, Unreliable={unreliable}")
+        else:
+            print(f"Hist pts:     N=0")
         print(f"{'='*60}\n")
 
     def update_dsr(self):

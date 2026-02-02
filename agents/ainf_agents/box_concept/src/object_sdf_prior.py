@@ -51,7 +51,7 @@ SDF_SMOOTH_K = 0.02
 
 # Scale factor for internal points (0-1)
 # Reduces influence of internal points which are less reliable
-SDF_INSIDE_SCALE = 0.5
+SDF_INSIDE_SCALE = 0.3
 
 # Table fixed dimensions
 TABLE_TOP_THICKNESS = 0.03  # 3cm
@@ -302,14 +302,28 @@ def compute_table_sdf(points_xyz: torch.Tensor, table_params: torch.Tensor) -> t
     dy_top = torch.abs(local_y) - half_h
     dz_top = torch.abs(top_local_z) - half_t
 
-    qmax_top = torch.maximum(dx_top, torch.maximum(dy_top, dz_top))
+    # Outside: standard Euclidean distance
     outside_top = torch.linalg.norm(torch.stack([
         torch.clamp(dx_top, min=0),
         torch.clamp(dy_top, min=0),
         torch.clamp(dz_top, min=0)
     ], dim=-1), dim=-1)
 
-    sdf_top = outside_top + torch.minimum(qmax_top, torch.zeros_like(qmax_top))
+    # Inside: use smooth minimum like box SDF
+    k = SDF_SMOOTH_K
+    inside_scale = SDF_INSIDE_SCALE
+
+    is_inside_top = (dx_top < 0) & (dy_top < 0) & (dz_top < 0)
+    inside_top = torch.zeros_like(dx_top)
+    if is_inside_top.any():
+        dx_in = dx_top[is_inside_top]
+        dy_in = dy_top[is_inside_top]
+        dz_in = dz_top[is_inside_top]
+        stacked = torch.stack([dx_in / k, dy_in / k, dz_in / k], dim=-1)
+        smooth_min = k * torch.logsumexp(-stacked, dim=-1) * (-1)
+        inside_top[is_inside_top] = inside_scale * smooth_min
+
+    sdf_top = outside_top + inside_top
 
     # LEGS (4 cylinders at corners)
     leg_inset = LEG_RADIUS + 0.02

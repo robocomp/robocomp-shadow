@@ -98,12 +98,13 @@ class SpecificWorker(GenericWorker):
         detected_tables = self.table_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
 
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
+        # GT: table 0.7 x 0.9 x 0.5 (height)
         debug_every_n_frames = 100
         if debug_every_n_frames > 0 and len(detected_tables) > 0 and self.table_manager.frame_count % debug_every_n_frames == 0:
             TableManager.debug_belief_vs_gt(detected_tables[0].to_dict(),
                                             gt_cx=0.0, gt_cy=0.0,
-                                            gt_w=1.0, gt_h=0.6,
-                                            gt_table_height=0.75,
+                                            gt_w=0.7, gt_h=0.9,
+                                            gt_table_height=0.5,
                                             gt_theta=0.0)
 
         # Update visualizer

@@ -236,12 +236,73 @@ class TableBelief(Belief):
         rfe = torch.zeros(n, dtype=DTYPE, device=self.mu.device)
         self._add_to_bins(pts, covs, rfe)
 
+    def _compute_edge_score(self, points: torch.Tensor) -> torch.Tensor:
+        """
+        Compute edge/corner score for points based on proximity to multiple faces.
+
+        Points near edges/corners have high geometric information content.
+
+        Returns:
+            [N] scores in [0, 1], higher = more edge/corner-like
+        """
+        # Transform points to table-local frame
+        cx, cy = self.mu[0], self.mu[1]
+        w, h = self.mu[2], self.mu[3]
+        table_height = self.mu[4]
+        theta = self.mu[6]
+
+        cos_t = torch.cos(-theta)
+        sin_t = torch.sin(-theta)
+
+        px = points[:, 0] - cx
+        py = points[:, 1] - cy
+
+        local_x = px * cos_t - py * sin_t
+        local_y = px * sin_t + py * cos_t
+        local_z = points[:, 2]
+
+        # Distance to each face of table top
+        half_w, half_h = w / 2, h / 2
+        half_t = TABLE_TOP_THICKNESS / 2
+        top_center_z = table_height - half_t
+
+        dist_x = torch.abs(torch.abs(local_x) - half_w)
+        dist_y = torch.abs(torch.abs(local_y) - half_h)
+        dist_z = torch.abs(local_z - top_center_z)
+
+        # Threshold for "close to face"
+        threshold = self.config.edge_proximity_threshold
+
+        close_x = (dist_x < threshold).float()
+        close_y = (dist_y < threshold).float()
+        close_z = (dist_z < half_t + threshold).float()  # Near top surface
+
+        faces_close = close_x + close_y + close_z
+
+        # Score: 0 = flat face, 0.5 = edge (2 faces), 1.0 = corner (3 faces)
+        edge_score = (faces_close - 1).clamp(0, 2) / 2.0
+
+        # Proximity bonus for being very close to edges
+        min_dist = torch.minimum(dist_x, dist_y)
+        proximity_bonus = torch.exp(-min_dist / 0.02) * 0.2
+
+        return (edge_score + proximity_bonus).clamp(0, 1)
+
     def _add_to_bins(self, pts, covs, rfe):
-        """Add points to bins for uniform surface coverage."""
+        """
+        Add points to angular/height bins for uniform surface coverage.
+
+        Points are sorted by quality = trace(Σ) + RFE - edge_bonus
+        Edge/corner points get priority (lower quality score = better).
+        """
         cx, cy = self.mu[0].item(), self.mu[1].item()
         na = self.config.num_angle_bins
         nz = self.config.num_z_bins
         mpb = self.config.max_historical_points // (na * nz) + 1
+
+        # Compute edge scores for new points (edge/corner priority)
+        edge_scores = self._compute_edge_score(pts)
+        edge_bonus_weight = self.config.edge_bonus_weight
 
         dx, dy = pts[:, 0] - cx, pts[:, 1] - cy
         angles = torch.atan2(dy, dx)
@@ -250,8 +311,9 @@ class TableBelief(Belief):
         bidx = ab * nz + zb
         bins = {}
 
-        # Add existing historical points
+        # Add existing historical points (with their edge scores)
         if len(self.historical_points) > 0:
+            existing_edge_scores = self._compute_edge_score(self.historical_points)
             for i in range(len(self.historical_points)):
                 p, c, r = self.historical_points[i], self.historical_capture_covs[i], self.historical_rfe[i].item()
                 dxh, dyh = p[0] - cx, p[1] - cy
@@ -261,15 +323,18 @@ class TableBelief(Belief):
                 idx = abi * nz + zbi
                 if idx not in bins:
                     bins[idx] = []
-                quality = torch.trace(c).item() + r
+                # Quality: lower is better. Edge bonus REDUCES quality score (priority)
+                edge_bonus = edge_bonus_weight * existing_edge_scores[i].item()
+                quality = torch.trace(c).item() + r - edge_bonus
                 bins[idx].append((p, c, r, quality))
 
-        # Add new points
+        # Add new points (with edge scores)
         for i in range(len(pts)):
             idx = bidx[i].item()
             if idx not in bins:
                 bins[idx] = []
-            quality = torch.trace(covs[i]).item() + rfe[i].item()
+            edge_bonus = edge_bonus_weight * edge_scores[i].item()
+            quality = torch.trace(covs[i]).item() + rfe[i].item() - edge_bonus
             bins[idx].append((pts[i], covs[i], rfe[i].item(), quality))
 
         # Keep best points per bin
@@ -337,6 +402,21 @@ class TableBelief(Belief):
     def to_dict(self):
         """Convert belief to dictionary for visualization."""
         d = super().to_dict()
+
+        # Compute RFE statistics for historical points
+        rfe_stats = {}
+        if len(self.historical_points) > 0:
+            rfe = self.historical_rfe
+            rfe_stats = {
+                'mean': rfe.mean().item(),
+                'min': rfe.min().item(),
+                'max': rfe.max().item(),
+                'trusted': (rfe < self.config.rfe_trusted_threshold).sum().item(),
+                'good': ((rfe >= self.config.rfe_trusted_threshold) & (rfe < self.config.rfe_good_threshold)).sum().item(),
+                'moderate': ((rfe >= self.config.rfe_good_threshold) & (rfe < self.config.rfe_moderate_threshold)).sum().item(),
+                'unreliable': (rfe >= self.config.rfe_moderate_threshold).sum().item(),
+            }
+
         d.update({
             'type': 'table',
             'cx': self.cx,
@@ -347,6 +427,8 @@ class TableBelief(Belief):
             'leg_length': self.leg_length,
             'angle': self.angle,
             'top_thickness': TABLE_TOP_THICKNESS,
-            'leg_radius': TABLE_LEG_RADIUS
+            'leg_radius': TABLE_LEG_RADIUS,
+            'num_historical_points': len(self.historical_points),
+            'historical_rfe_stats': rfe_stats
         })
         return d
