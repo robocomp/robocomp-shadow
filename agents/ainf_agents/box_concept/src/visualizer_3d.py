@@ -450,10 +450,131 @@ class BoxConceptVisualizer3D:
 
             if belief_type == 'table':
                 geoms = self._create_table_geometry(belief)
+            elif belief_type == 'chair':
+                geoms = self._create_chair_geometry(belief)
             else:  # Default to box
                 geoms = self._create_box_geometry(belief)
 
             geometries.extend(geoms)
+
+        return geometries
+
+    def _create_chair_geometry(self, belief: dict) -> List[o3d.geometry.Geometry]:
+        """Create 3D chair geometry (seat box + backrest box)."""
+        geometries = []
+
+        cx = belief.get('cx', 0)
+        cy = belief.get('cy', 0)
+        seat_w = belief.get('seat_width', 0.45)
+        seat_d = belief.get('seat_depth', 0.45)
+        seat_h = belief.get('seat_height', 0.45)
+        back_h = belief.get('back_height', 0.40)
+        back_t = belief.get('back_thickness', 0.05)
+        seat_thickness = belief.get('seat_thickness', 0.05)
+        angle = belief.get('angle', 0)
+        confidence = belief.get('confidence', 0.5)
+
+        cos_a, sin_a = np.cos(angle), np.sin(angle)
+
+        # Chair color (dark wood / plastic)
+        seat_color = [0.4, 0.3, 0.2]
+        back_color = [0.35, 0.25, 0.15]
+
+        # =========================================================
+        # SEAT (box)
+        # =========================================================
+        half_w, half_d = seat_w / 2, seat_d / 2
+        half_t = seat_thickness / 2
+        seat_z_bottom = seat_h - seat_thickness
+        seat_z_top = seat_h
+
+        local_corners_seat = np.array([
+            [-half_w, -half_d, seat_z_bottom],
+            [half_w, -half_d, seat_z_bottom],
+            [half_w, half_d, seat_z_bottom],
+            [-half_w, half_d, seat_z_bottom],
+            [-half_w, -half_d, seat_z_top],
+            [half_w, -half_d, seat_z_top],
+            [half_w, half_d, seat_z_top],
+            [-half_w, half_d, seat_z_top],
+        ])
+
+        # Transform seat corners
+        seat_corners = []
+        for corner in local_corners_seat:
+            rx = corner[0] * cos_a - corner[1] * sin_a + cx
+            ry = corner[0] * sin_a + corner[1] * cos_a + cy
+            seat_corners.append([rx, ry, corner[2]])
+        seat_corners = np.array(seat_corners)
+
+        # Seat wireframe
+        edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7],
+        ]
+        wireframe = o3d.geometry.LineSet()
+        wireframe.points = o3d.utility.Vector3dVector(seat_corners)
+        wireframe.lines = o3d.utility.Vector2iVector(edges)
+        wireframe.colors = o3d.utility.Vector3dVector([seat_color] * len(edges))
+        geometries.append(wireframe)
+
+        # Seat surface
+        if confidence > 0.2:
+            seat_mesh = o3d.geometry.TriangleMesh()
+            seat_mesh.vertices = o3d.utility.Vector3dVector(seat_corners[4:8])
+            seat_mesh.triangles = o3d.utility.Vector3iVector([[0, 1, 2], [0, 2, 3]])
+            seat_mesh.compute_vertex_normals()
+            alpha = 0.3 + 0.3 * confidence
+            seat_mesh.paint_uniform_color([seat_color[0] * alpha, seat_color[1] * alpha, seat_color[2] * alpha])
+            geometries.append(seat_mesh)
+
+        # =========================================================
+        # BACKREST (box at back of seat)
+        # =========================================================
+        back_z_bottom = seat_h
+        back_z_top = seat_h + back_h
+        half_back_t = back_t / 2
+
+        # Backrest is at the back of the seat (positive local Y)
+        back_y_center = half_d - half_back_t
+
+        local_corners_back = np.array([
+            [-half_w, back_y_center - half_back_t, back_z_bottom],
+            [half_w, back_y_center - half_back_t, back_z_bottom],
+            [half_w, back_y_center + half_back_t, back_z_bottom],
+            [-half_w, back_y_center + half_back_t, back_z_bottom],
+            [-half_w, back_y_center - half_back_t, back_z_top],
+            [half_w, back_y_center - half_back_t, back_z_top],
+            [half_w, back_y_center + half_back_t, back_z_top],
+            [-half_w, back_y_center + half_back_t, back_z_top],
+        ])
+
+        # Transform backrest corners
+        back_corners = []
+        for corner in local_corners_back:
+            rx = corner[0] * cos_a - corner[1] * sin_a + cx
+            ry = corner[0] * sin_a + corner[1] * cos_a + cy
+            back_corners.append([rx, ry, corner[2]])
+        back_corners = np.array(back_corners)
+
+        # Backrest wireframe
+        back_wireframe = o3d.geometry.LineSet()
+        back_wireframe.points = o3d.utility.Vector3dVector(back_corners)
+        back_wireframe.lines = o3d.utility.Vector2iVector(edges)
+        back_wireframe.colors = o3d.utility.Vector3dVector([back_color] * len(edges))
+        geometries.append(back_wireframe)
+
+        # Backrest front face
+        if confidence > 0.2:
+            back_mesh = o3d.geometry.TriangleMesh()
+            # Front face of backrest (indices 0,1,5,4)
+            back_mesh.vertices = o3d.utility.Vector3dVector(back_corners[[0, 1, 5, 4]])
+            back_mesh.triangles = o3d.utility.Vector3iVector([[0, 1, 2], [0, 2, 3]])
+            back_mesh.compute_vertex_normals()
+            alpha = 0.3 + 0.3 * confidence
+            back_mesh.paint_uniform_color([back_color[0] * alpha, back_color[1] * alpha, back_color[2] * alpha])
+            geometries.append(back_mesh)
 
         return geometries
 

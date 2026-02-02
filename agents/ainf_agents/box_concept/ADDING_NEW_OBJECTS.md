@@ -6,16 +6,33 @@ This guide explains how to add a new object type (e.g., table, chair) to the Act
 
 ```
 src/
-├── belief_core.py       # Abstract base class for beliefs
-├── belief_manager.py    # Generic belief lifecycle management
-├── box_belief.py        # Box-specific belief
-├── box_manager.py       # Box-specific manager
-├── table_belief.py      # Table-specific belief (example of new object)
-├── table_manager.py     # Table-specific manager
-├── object_sdf_prior.py  # ALL SDF and prior functions for all objects
-├── transforms.py        # Coordinate transformations
-├── visualizer_3d.py     # Open3D visualization (supports box + table)
-└── specificworker.py    # Main entry point
+├── belief_core.py           # Abstract base class for beliefs
+├── belief_manager.py        # Generic belief lifecycle management
+├── object_sdf_prior.py      # Compatibility layer (re-exports from objects/)
+├── transforms.py            # Coordinate transformations
+├── visualizer_3d.py         # Open3D visualization
+├── specificworker.py        # Main entry point
+└── objects/                 # Each object type in its own folder
+    ├── __init__.py          # Central registry + exports
+    ├── sdf_constants.py     # Shared SDF constants
+    ├── box/
+    │   ├── __init__.py      # Package exports
+    │   ├── sdf.py           # Box SDF and priors
+    │   ├── belief.py        # BoxBelief class
+    │   └── manager.py       # BoxManager class
+    ├── table/
+    │   ├── __init__.py
+    │   ├── sdf.py           # Table SDF and priors
+    │   ├── belief.py        # TableBelief class
+    │   └── manager.py       # TableManager class
+    ├── chair/
+    │   ├── __init__.py
+    │   ├── sdf.py           # Chair SDF and priors
+    │   ├── belief.py        # ChairBelief class
+    │   └── manager.py       # ChairManager class
+    └── cylinder/
+        ├── __init__.py
+        └── sdf.py           # Cylinder SDF (primitive, no belief/manager)
 ```
 
 ---
@@ -39,32 +56,46 @@ Fixed constants (in object_sdf_prior.py):
 - TABLE_LEG_RADIUS = 0.025m
 ```
 
-### Step 2: Add SDF Function to `object_sdf_prior.py`
+### Step 2: Create SDF File in `src/sdf/`
 
-The SDF function computes the signed distance from points to the object surface.
+Create a new file `src/sdf/myobject_sdf.py` with the SDF and prior functions.
 
 ```python
-def compute_table_sdf(points_xyz: torch.Tensor, table_params: torch.Tensor) -> torch.Tensor:
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""
+MyObject SDF and Prior Functions
+
+State: [cx, cy, ...] (N parameters)
+"""
+
+import torch
+import numpy as np
+
+from .sdf_constants import SDF_SMOOTH_K, SDF_INSIDE_SCALE
+
+# Parameters
+MYOBJECT_PARAM_COUNT = 7
+MYOBJECT_PARAM_NAMES = ['cx', 'cy', ...]
+
+# Fixed constants (if any)
+MYOBJECT_THICKNESS = 0.05
+
+
+def compute_myobject_sdf(points_xyz: torch.Tensor, params: torch.Tensor) -> torch.Tensor:
     """
-    Compute Signed Distance Function for a table.
+    Compute Signed Distance Function for MyObject.
     
     Args:
         points_xyz: [N, 3] points (x, y, z)
-        table_params: [7] tensor [cx, cy, w, h, table_height, leg_length, theta]
+        params: [N] tensor
     
     Returns:
         [N] SDF values (positive=outside, negative=inside)
     """
     # Extract parameters
-    cx, cy = table_params[0], table_params[1]
-    w, h = table_params[2], table_params[3]
-    table_height = table_params[4]
-    leg_length = table_params[5]
-    theta = table_params[6]
-    
-    # Use module constants
-    TOP_THICKNESS = TABLE_TOP_THICKNESS
-    LEG_RADIUS = TABLE_LEG_RADIUS
+    cx, cy = params[0], params[1]
+    # ... your SDF implementation
     
     # Transform points to local frame
     cos_t = torch.cos(-theta)

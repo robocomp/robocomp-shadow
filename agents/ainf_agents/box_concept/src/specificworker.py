@@ -31,10 +31,36 @@ sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
 
 from pydsr import *
-from src.table_manager import TableManager
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
 # Choose visualizer: '2d' for DearPyGui, '3d' for Open3D
 VISUALIZER_MODE = '3d'
+
+# Choose object model: 'box', 'table', or 'chair'
+OBJECT_MODEL = 'table'
+
+# Ground truth for debug (adjust based on scene)
+GT_CONFIG = {
+    'box': {'cx': 0.0, 'cy': 0.0, 'w': 0.5, 'h': 0.5, 'd': 0.25, 'theta': 0.0},
+    'table': {'cx': 0.0, 'cy': 0.0, 'w': 0.7, 'h': 0.9, 'table_height': 0.5, 'theta': 0.0},
+    'chair': {'cx': 0.0, 'cy': 0.0, 'seat_w': 0.45, 'seat_d': 0.45, 'seat_h': 0.45, 'back_h': 0.40, 'theta': 0.0},
+}
+
+# =============================================================================
+# IMPORTS based on model selection
+# =============================================================================
+
+if OBJECT_MODEL == 'box':
+    from src.objects.box import BoxManager as ObjectManager
+elif OBJECT_MODEL == 'table':
+    from src.objects.table import TableManager as ObjectManager
+elif OBJECT_MODEL == 'chair':
+    from src.objects.chair import ChairManager as ObjectManager
+else:
+    raise ValueError(f"Unknown OBJECT_MODEL: {OBJECT_MODEL}. Choose 'box', 'table', or 'chair'.")
 
 if VISUALIZER_MODE == '3d':
     from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
@@ -58,8 +84,9 @@ class SpecificWorker(GenericWorker):
         except RuntimeError as e:
             print(e)
 
-        # Initialize table manager
-        self.table_manager = TableManager(self.g, self.g.get_agent_id())
+        # Initialize object manager (box, table, or chair based on OBJECT_MODEL)
+        self.object_manager = ObjectManager(self.g, self.g.get_agent_id())
+        console.print(f"[green]Using object model: {OBJECT_MODEL}")
 
         # Initialize visualizer
         self.visualizer = BoxConceptVisualizer()
@@ -94,32 +121,28 @@ class SpecificWorker(GenericWorker):
         if robot_pose is None:
             return True
 
-        # Call table manager to process the data
-        detected_tables = self.table_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
+        # Call object manager to process the data
+        detected_objects = self.object_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
 
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
-        # GT: table 0.7 x 0.9 x 0.5 (height)
         debug_every_n_frames = 100
-        if debug_every_n_frames > 0 and len(detected_tables) > 0 and self.table_manager.frame_count % debug_every_n_frames == 0:
-            TableManager.debug_belief_vs_gt(detected_tables[0].to_dict(),
-                                            gt_cx=0.0, gt_cy=0.0,
-                                            gt_w=0.7, gt_h=0.9,
-                                            gt_table_height=0.5,
-                                            gt_theta=0.0)
+        if debug_every_n_frames > 0 and len(detected_objects) > 0 and self.object_manager.frame_count % debug_every_n_frames == 0:
+            gt = GT_CONFIG.get(OBJECT_MODEL, {})
+            ObjectManager.debug_belief_vs_gt(detected_objects[0].to_dict(), **gt)
 
         # Update visualizer
         self.visualizer.update(
             room_dims=room_dims,
             robot_pose=robot_pose,
-            lidar_points_raw=self.table_manager.viz_data['lidar_points_raw'],
-            lidar_points_filtered=self.table_manager.viz_data['lidar_points_filtered'],
-            clusters=self.table_manager.viz_data['clusters'],
-            beliefs=self.table_manager.get_beliefs_as_dicts(),
-            historical_points=self.table_manager.get_historical_points_for_viz()
+            lidar_points_raw=self.object_manager.viz_data['lidar_points_raw'],
+            lidar_points_filtered=self.object_manager.viz_data['lidar_points_filtered'],
+            clusters=self.object_manager.viz_data['clusters'],
+            beliefs=self.object_manager.get_beliefs_as_dicts(),
+            historical_points=self.object_manager.get_historical_points_for_viz()
         )
 
-        if len(detected_tables) > 0:
-            pass  # console.print(f"[cyan]Tracking {len(detected_tables)} tables")
+        if len(detected_objects) > 0:
+            pass  # console.print(f"[cyan]Tracking {len(detected_objects)} {OBJECT_MODEL}s")
 
         return True
 

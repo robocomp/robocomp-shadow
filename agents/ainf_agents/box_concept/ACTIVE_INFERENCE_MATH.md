@@ -337,31 +337,55 @@ $$
 ### 5.6 RFE Integration with Uniform Surface Coverage
 
 Historical points are organized in spatial bins for uniform surface coverage:
-- **24 angular bins** around the box (XY plane)
-- **8 height bins** (Z axis, 10cm each)
-- **Maximum points per bin**: `max_historical / 192`
+- **24 angular bins** around the object (XY plane)
+- **10 height bins** (Z axis, 10cm each)
+- **Maximum points per bin**: `max_historical / (24 × 10)`
+
+This ensures that points are distributed uniformly across the visible surface, preventing over-representation of frequently observed areas.
 
 #### Quality Metric for Bin Selection
 
-Within each bin, points compete based on a **quality score** that includes geometric information content:
+Within each bin, points compete based on a **quality score** that prioritizes geometric information content:
 
 $$
 Q_i = \text{tr}(\Sigma_{\text{capture},i}) + \text{RFE}_i - \gamma \cdot E_i
 $$
 
-where $E_i \in [0, 1]$ is the **edge/corner score** and $\gamma$ is the edge bonus weight.
-
-**Edge/Corner Detection:**
-
-A point's edge score is computed by checking proximity to multiple box faces:
-
-$$
-E = \frac{\text{faces\_close} - 1}{2} + \epsilon_{\text{proximity}}
-$$
-
 where:
-- `faces_close` = number of faces within threshold distance (0.05m)
-- $\epsilon_{\text{proximity}}$ = exponential proximity bonus
+- $\text{tr}(\Sigma_{\text{capture},i})$: trace of capture covariance (uncertainty)
+- $\text{RFE}_i$: Remembered Free Energy (historical consistency)
+- $E_i \in [0, 1]$: **edge/corner score** (geometric value)
+- $\gamma$: edge bonus weight (default 0.3)
+
+**Key insight:** Lower $Q$ = better point. The edge bonus $\gamma \cdot E_i$ is **subtracted**, giving priority to edge/corner points.
+
+#### Edge/Corner Detection Algorithm
+
+A point's edge score is computed by checking proximity to multiple object faces:
+
+```python
+def _compute_edge_score(points):
+    # Transform to object-local frame
+    # Compute distance to each face
+    dist_x = |local_x| - half_w  # Distance to X faces
+    dist_y = |local_y| - half_h  # Distance to Y faces  
+    dist_z = |local_z| - half_d  # Distance to Z faces
+    
+    # Count faces within threshold (0.05m)
+    close_x = dist_x < threshold
+    close_y = dist_y < threshold
+    close_z = dist_z < threshold
+    faces_close = close_x + close_y + close_z
+    
+    # Base score: 0=flat, 0.5=edge, 1.0=corner
+    edge_score = (faces_close - 1) / 2
+    
+    # Proximity bonus for being very close
+    min_dist = min(dist_x, dist_y, dist_z)
+    proximity_bonus = exp(-min_dist / 0.02) × 0.2
+    
+    return clamp(edge_score + proximity_bonus, 0, 1)
+```
 
 | Location | Faces Close | Edge Score E | Geometric Value |
 |----------|-------------|--------------|-----------------|
@@ -369,10 +393,7 @@ where:
 | Edge | 2 | 0.5 | Medium - constrains 2 dimensions |
 | Corner | 3 | 1.0 | **High** - constrains all dimensions |
 
-**Rationale:** Corner and edge points provide stronger constraints on box dimensions because they simultaneously touch multiple faces. A single corner observation constrains width, height, and depth, whereas a flat face point only confirms one dimension.
-
-- **Lower Q = better point** (low uncertainty + low error + high geometric value)
-- When a bin is full, new points replace existing points with higher Q
+**Rationale:** Corner and edge points provide stronger constraints on object dimensions because they simultaneously touch multiple faces. A single corner observation constrains width, height, and depth, whereas a flat face point only confirms one dimension.
 
 #### Effect of Quality Factors on Point Retention
 
@@ -387,7 +408,8 @@ where:
 This ensures:
 1. **Spatial uniformity**: Points cover all visible faces
 2. **Temporal consistency**: Reliable points accumulate, noisy points are forgotten
-3. **Capture quality**: Well-localized measurements are preferred
+3. **Geometric priority**: Edge/corner points are preserved over flat-face points
+4. **Capture quality**: Well-localized measurements are preferred
 
 ---
 
@@ -559,9 +581,9 @@ The framework supports multiple object types, each with its own SDF and prior fu
 
 **Files:** `table_belief.py`, `table_manager.py`
 
-### 11.3 Chair (8 parameters)
+### 11.3 Chair (7 parameters)
 
-**State:** $\mathbf{s} = (c_x, c_y, w_s, d_s, h_s, h_b, t_b, \theta)$
+**State:** $\mathbf{s} = (c_x, c_y, w_s, d_s, h_s, h_b, \theta)$
 
 | Parameter | Description |
 |-----------|-------------|
@@ -569,10 +591,15 @@ The framework supports multiple object types, each with its own SDF and prior fu
 | $w_s, d_s$ | Seat width and depth |
 | $h_s$ | Seat height from floor |
 | $h_b$ | Backrest height above seat |
-| $t_b$ | Backrest thickness |
 | $\theta$ | Rotation angle |
 
+**Fixed constants:**
+- Seat thickness: 0.05 m
+- Backrest thickness: 0.05 m
+
 **SDF:** Union of box (seat) and box (backrest)
+
+**Files:** `chair_belief.py`, `chair_manager.py`
 
 ### 11.4 Cylinder (4 parameters)
 
@@ -620,6 +647,19 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 | SDF smooth parameter | $k$ | 0.02 m |
 | Inside point scale | $\alpha_{\text{inside}}$ | 0.5 |
 
+### 12.4 Historical Points Configuration
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `max_historical_points` | Maximum stored points per belief | 600 |
+| `num_angle_bins` | Angular bins for uniform coverage | 24 |
+| `num_z_bins` | Height bins | 10 |
+| `edge_proximity_threshold` | Distance to consider "near face" | 0.05 m |
+| `edge_bonus_weight` | Weight for edge/corner priority | 0.3 |
+| `rfe_alpha` | RFE temporal decay | 0.98 |
+| `rfe_max_threshold` | Max RFE before point removal | 2.0 |
+| `sdf_threshold_for_storage` | Max SDF to store point | 0.08 m |
+
 ---
 
 ## 13. References
@@ -630,5 +670,5 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 
 ---
 
-*Document version: 1.1*
+*Document version: 1.2*
 *Last updated: February 2026*
