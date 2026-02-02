@@ -112,8 +112,6 @@ class Belief(ABC):
         self.historical_points = torch.empty((0, 3), dtype=DTYPE, device=device)
         self.historical_capture_covs = torch.empty((0, 2, 2), dtype=DTYPE, device=device)
         self.historical_rfe = torch.empty(0, dtype=DTYPE, device=device)
-        self.max_historical_points = 500
-        self.beta_sdf = 1.0  # β in Σ_capture = Σ_robot + β * SDF² * I
 
     @property
     @abstractmethod

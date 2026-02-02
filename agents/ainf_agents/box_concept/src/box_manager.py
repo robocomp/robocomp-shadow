@@ -12,7 +12,7 @@ from pydsr import Node, Attribute
 from src.belief_core import DEVICE, DTYPE
 from src.belief_manager import BeliefManager
 from src.box_belief import BoxBelief, BoxBeliefConfig
-from src.sdf_functions import compute_box_sdf
+from src.object_sdf_prior import compute_box_sdf
 
 
 class BoxManager(BeliefManager):

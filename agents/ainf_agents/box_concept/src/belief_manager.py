@@ -59,6 +59,13 @@ class BeliefManager:
         self.robot_pose = np.array([0.0, 0.0, 0.0])
         self.robot_cov = np.eye(3) * 0.01
 
+        # Optimization parameters (moved from hardcoded values)
+        self.lambda_prior = 0.3  # Weight for state prior term in VFE. Loww
+        self.optimization_iters = 10  # Number of gradient descent iterations
+        self.optimization_lr = 0.05  # Learning rate for gradient descent
+        self.grad_clip = 2.0  # Gradient clipping value
+        self.merge_belief_dist = 0.3  # Distance threshold for merging beliefs
+
         # Visualization data
         self.viz_data = {
             'lidar_points_raw': np.array([]),
@@ -329,14 +336,17 @@ class BeliefManager:
             current_sdf = belief.sdf(pts_room)
             belief.add_historical_points(pts_room, current_sdf, self.robot_cov)
 
+            # Update Remembered Free Energy for historical points
+            # This accumulates SDF error weighted by robot certainty
+            belief.update_rfe(self.robot_cov)
+
             # Update lifecycle
             belief.update_lifecycle(self.frame_count, was_observed=True)
 
     def _optimize_belief(self, points: torch.Tensor, weights: Optional[torch.Tensor],
                          box_mu: torch.Tensor, box_Sigma: torch.Tensor,
                          prior_mu: torch.Tensor, prior_Sigma: torch.Tensor,
-                         config: BeliefConfig,
-                         num_iters: int = 10, lr: float = 0.05) -> Tuple[torch.Tensor, float]:
+                         config: BeliefConfig) -> Tuple[torch.Tensor, float]:
         """Optimize belief parameters via VFE minimization."""
         if len(points) < 3:
             return box_mu, 0.0
@@ -347,26 +357,28 @@ class BeliefManager:
         mu = box_mu.clone().detach().requires_grad_(True)
         final_sdf_mean = 0.0
 
-        for _ in range(num_iters):
-            # Compute SDF - need to get from belief class
-            from src.sdf_functions import compute_box_sdf
+        for _ in range(self.optimization_iters):
+            # Compute SDF using the centralized module
+            from src.object_sdf_prior import compute_box_sdf, compute_box_priors
             sdf = compute_box_sdf(points, mu)
 
             final_sdf_mean = torch.mean(torch.abs(sdf)).item()
 
-            # Asymmetric weighting
-            sdf_weights = torch.where(sdf > 0, torch.ones_like(sdf),
-                                      torch.full_like(sdf, 0.3))
+            # Symmetric weighting: all points contribute equally
+            weighted_likelihood = torch.sum(weights * sdf**2) / len(points)
 
-            weighted_likelihood = torch.sum(weights * sdf_weights * sdf**2) / len(points)
-
-            # Prior term
+            # Prior term for state parameters (position, size)
             prior_mu_robot = transform_box_to_robot_frame(prior_mu, self.robot_pose)
             delta = mu - prior_mu_robot
             prior_precision = 1.0 / (torch.diag(box_Sigma) + 1e-6)
             prior_term = 0.5 * torch.sum(prior_precision * delta**2)
 
-            loss = weighted_likelihood + 0.3 * prior_term
+            # Object-specific priors (angle alignment, etc.)
+            # Uses centralized prior function from object_sdf_prior module
+            object_prior_term = compute_box_priors(mu, config, self.robot_pose)
+
+            # Total VFE = Likelihood + State Prior + Object-specific Priors
+            loss = weighted_likelihood + self.lambda_prior * prior_term + object_prior_term
 
             if mu.grad is not None:
                 mu.grad.zero_()
@@ -374,8 +386,10 @@ class BeliefManager:
 
             with torch.no_grad():
                 if mu.grad is not None and not torch.isnan(mu.grad).any():
-                    grad = torch.clamp(mu.grad, -2.0, 2.0)
-                    mu -= lr * grad
+                    grad = torch.clamp(mu.grad, -self.grad_clip, self.grad_clip)
+
+
+                    mu -= self.optimization_lr * grad
 
                     # Clamp dimensions
                     mu[2] = torch.clamp(mu[2], config.min_size, config.max_size)
@@ -389,10 +403,8 @@ class BeliefManager:
             mu.requires_grad_(True)
 
         opt_mu = mu.detach()
-        if opt_mu[3] > opt_mu[2]:
-            opt_mu[2], opt_mu[3] = opt_mu[3].clone(), opt_mu[2].clone()
-            opt_mu[5] = opt_mu[5] + np.pi/2
-            while opt_mu[5] > np.pi/2: opt_mu[5] -= np.pi
+        # Note: We no longer swap w/h to force w >= h, as this prevents
+        # width from shrinking below height during optimization
 
         return opt_mu, final_sdf_mean
 
@@ -427,7 +439,6 @@ class BeliefManager:
         if len(self.beliefs) <= 1:
             return
 
-        merge_dist = 0.3
         belief_ids = list(self.beliefs.keys())
         to_remove = set()
 
@@ -446,7 +457,7 @@ class BeliefManager:
                 x2, y2 = b2.position
                 dist = np.sqrt((x1-x2)**2 + (y1-y2)**2)
 
-                if dist < merge_dist:
+                if dist < self.merge_belief_dist:
                     if b1.confidence >= b2.confidence:
                         to_remove.add(id2)
                     else:

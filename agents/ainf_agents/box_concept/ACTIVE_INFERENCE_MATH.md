@@ -107,6 +107,40 @@ $$
 
 with $\mu_{\text{size}} = 0.5$ m (typical box size).
 
+### 3.5 Prior for Angle Alignment
+
+Boxes in indoor environments tend to align with room axes (walls). We model this with a **mixture of Gaussians prior** centered at aligned angles:
+
+$$
+p(\theta) \propto \sum_{k \in \{0, \pm\pi/2\}} \exp\left( -\frac{(\theta - \mu_k)^2}{2\sigma_\theta^2} \right)
+$$
+
+where:
+- $\mu_k \in \{0, \pi/2, -\pi/2\}$: aligned angles (0°, 90°, -90°)
+- $\sigma_\theta$: standard deviation (default 0.1 rad ≈ 6°)
+- $\lambda_\theta = 1/\sigma_\theta^2$: precision
+
+**Prior Energy Term:**
+
+$$
+E_\theta(\theta) = \frac{\lambda_\theta}{2} \min_k (\theta - \mu_k)^2
+$$
+
+This term:
+- **Equals zero** when $\theta$ is aligned (0° or 90°)
+- **Increases quadratically** as $\theta$ deviates from alignment
+- Acts as a **soft constraint** that biases boxes toward room-aligned orientations
+
+**Effect on VFE:**
+
+The total VFE becomes:
+
+$$
+F = F_{\text{likelihood}} + F_{\text{state prior}} + \gamma \cdot E_\theta(\theta)
+$$
+
+where $\gamma$ is the weight for the angle alignment prior (default 0.5).
+
 ---
 
 ## 4. Variational Free Energy
@@ -269,6 +303,61 @@ $$
 $$
 
 **Key insight:** Memory in Active Inference is not passive storage, but **evidence weighted by historical consistency and certainty**. Points with low RFE are "trusted memories" that anchor the belief, while points with high RFE are "unreliable memories" that are downweighted or forgotten.
+
+### 5.6 RFE Integration with Uniform Surface Coverage
+
+Historical points are organized in spatial bins for uniform surface coverage:
+- **24 angular bins** around the box (XY plane)
+- **8 height bins** (Z axis, 10cm each)
+- **Maximum points per bin**: `max_historical / 192`
+
+#### Quality Metric for Bin Selection
+
+Within each bin, points compete based on a **quality score** that includes geometric information content:
+
+$$
+Q_i = \text{tr}(\Sigma_{\text{capture},i}) + \text{RFE}_i - \gamma \cdot E_i
+$$
+
+where $E_i \in [0, 1]$ is the **edge/corner score** and $\gamma$ is the edge bonus weight.
+
+**Edge/Corner Detection:**
+
+A point's edge score is computed by checking proximity to multiple box faces:
+
+$$
+E = \frac{\text{faces\_close} - 1}{2} + \epsilon_{\text{proximity}}
+$$
+
+where:
+- `faces_close` = number of faces within threshold distance (0.05m)
+- $\epsilon_{\text{proximity}}$ = exponential proximity bonus
+
+| Location | Faces Close | Edge Score E | Geometric Value |
+|----------|-------------|--------------|-----------------|
+| Flat face | 1 | 0.0 | Low - redundant |
+| Edge | 2 | 0.5 | Medium - constrains 2 dimensions |
+| Corner | 3 | 1.0 | **High** - constrains all dimensions |
+
+**Rationale:** Corner and edge points provide stronger constraints on box dimensions because they simultaneously touch multiple faces. A single corner observation constrains width, height, and depth, whereas a flat face point only confirms one dimension.
+
+- **Lower Q = better point** (low uncertainty + low error + high geometric value)
+- When a bin is full, new points replace existing points with higher Q
+
+#### Effect of Quality Factors on Point Retention
+
+| Σ_capture | RFE | Edge Score | Q | Outcome |
+|-----------|-----|------------|---|---------|
+| Low | Low | High (corner) | **Very Low** | **Kept** - best anchor |
+| Low | Low | Low (flat) | Low | Kept - trusted |
+| Low | High | High | Medium | May be replaced |
+| High | Low | High | Medium | May be replaced |
+| High | High | Low | **High** | **Replaced first** |
+
+This ensures:
+1. **Spatial uniformity**: Points cover all visible faces
+2. **Temporal consistency**: Reliable points accumulate, noisy points are forgotten
+3. **Capture quality**: Well-localized measurements are preferred
 
 ---
 
