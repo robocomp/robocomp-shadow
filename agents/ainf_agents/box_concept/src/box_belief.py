@@ -369,7 +369,15 @@ class BoxBelief(Belief):
         return pts, w
     def to_dict(self):
         d = super().to_dict()
-        d.update({'cx': self.cx, 'cy': self.cy, 'width': self.width, 'height': self.height, 'depth': self.depth, 'angle': self.angle})
+        d.update({
+            'type': 'box',
+            'cx': self.cx,
+            'cy': self.cy,
+            'width': self.width,
+            'height': self.height,
+            'depth': self.depth,
+            'angle': self.angle
+        })
         return d
     @staticmethod
     def debug_vs_gt(belief, gt_cx=0., gt_cy=0., gt_w=0.5, gt_h=0.5, gt_d=0.5, gt_theta=0.):

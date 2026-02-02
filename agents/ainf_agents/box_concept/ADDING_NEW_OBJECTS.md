@@ -8,11 +8,13 @@ This guide explains how to add a new object type (e.g., table, chair) to the Act
 src/
 ├── belief_core.py       # Abstract base class for beliefs
 ├── belief_manager.py    # Generic belief lifecycle management
-├── box_belief.py        # Box-specific belief (example)
-├── box_manager.py       # Box-specific manager (thin wrapper)
+├── box_belief.py        # Box-specific belief
+├── box_manager.py       # Box-specific manager
+├── table_belief.py      # Table-specific belief (example of new object)
+├── table_manager.py     # Table-specific manager
 ├── object_sdf_prior.py  # ALL SDF and prior functions for all objects
 ├── transforms.py        # Coordinate transformations
-├── visualizer_3d.py     # Open3D visualization
+├── visualizer_3d.py     # Open3D visualization (supports box + table)
 └── specificworker.py    # Main entry point
 ```
 

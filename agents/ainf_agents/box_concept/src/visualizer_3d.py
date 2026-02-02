@@ -336,16 +336,124 @@ class BoxConceptVisualizer3D:
 
         return geometries
 
+    def _create_table_geometry(self, belief: dict) -> List[o3d.geometry.Geometry]:
+        """Create 3D table geometry for a table belief."""
+        geometries = []
+
+        cx = belief.get('cx', 0)
+        cy = belief.get('cy', 0)
+        w = belief.get('width', 1.0)
+        h = belief.get('depth', 0.6)
+        table_height = belief.get('table_height', 0.75)
+        leg_length = belief.get('leg_length', 0.72)
+        angle = belief.get('angle', 0)
+        confidence = belief.get('confidence', 0.5)
+        top_thickness = belief.get('top_thickness', 0.03)
+        leg_radius = belief.get('leg_radius', 0.025)
+
+        cos_a, sin_a = np.cos(angle), np.sin(angle)
+
+        # Table color (brown-ish)
+        table_color = [0.6, 0.4, 0.2]
+        leg_color = [0.5, 0.35, 0.15]
+
+        # =========================================================
+        # TABLE TOP (box)
+        # =========================================================
+        half_w, half_h = w / 2, h / 2
+        top_z_bottom = table_height - top_thickness
+        top_z_top = table_height
+
+        # 8 corners of the table top
+        local_corners_top = np.array([
+            [-half_w, -half_h, top_z_bottom],
+            [half_w, -half_h, top_z_bottom],
+            [half_w, half_h, top_z_bottom],
+            [-half_w, half_h, top_z_bottom],
+            [-half_w, -half_h, top_z_top],
+            [half_w, -half_h, top_z_top],
+            [half_w, half_h, top_z_top],
+            [-half_w, half_h, top_z_top],
+        ])
+
+        # Rotate and translate
+        world_corners = []
+        for corner in local_corners_top:
+            rx = corner[0] * cos_a - corner[1] * sin_a + cx
+            ry = corner[0] * sin_a + corner[1] * cos_a + cy
+            rz = corner[2]
+            world_corners.append([rx, ry, rz])
+        world_corners = np.array(world_corners)
+
+        # Table top wireframe
+        edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7],
+        ]
+        wireframe = o3d.geometry.LineSet()
+        wireframe.points = o3d.utility.Vector3dVector(world_corners)
+        wireframe.lines = o3d.utility.Vector2iVector(edges)
+        wireframe.colors = o3d.utility.Vector3dVector([table_color] * len(edges))
+        geometries.append(wireframe)
+
+        # Table top surface (top face)
+        if confidence > 0.2:
+            top_mesh = o3d.geometry.TriangleMesh()
+            top_mesh.vertices = o3d.utility.Vector3dVector(world_corners[4:8])
+            top_mesh.triangles = o3d.utility.Vector3iVector([[0, 1, 2], [0, 2, 3]])
+            top_mesh.compute_vertex_normals()
+            alpha = 0.3 + 0.3 * confidence
+            top_mesh.paint_uniform_color([table_color[0] * alpha, table_color[1] * alpha, table_color[2] * alpha])
+            geometries.append(top_mesh)
+
+        # =========================================================
+        # TABLE LEGS (4 cylinders at corners)
+        # =========================================================
+        leg_inset = leg_radius + 0.02
+        leg_positions_local = [
+            (half_w - leg_inset, half_h - leg_inset),
+            (-half_w + leg_inset, half_h - leg_inset),
+            (-half_w + leg_inset, -half_h + leg_inset),
+            (half_w - leg_inset, -half_h + leg_inset),
+        ]
+
+        for lx_local, ly_local in leg_positions_local:
+            # Transform leg position to world
+            lx = lx_local * cos_a - ly_local * sin_a + cx
+            ly = lx_local * sin_a + ly_local * cos_a + cy
+
+            # Create cylinder for leg
+            leg = o3d.geometry.TriangleMesh.create_cylinder(
+                radius=leg_radius, height=leg_length, resolution=8, split=1
+            )
+            # Cylinder is created along Z axis, centered at origin
+            # Move it so bottom is at z=0
+            leg.translate([0, 0, leg_length / 2])
+            # Move to leg position
+            leg.translate([lx, ly, 0])
+            leg.paint_uniform_color(leg_color)
+            leg.compute_vertex_normals()
+            geometries.append(leg)
+
+        return geometries
+
     def _create_belief_geometries(self) -> List[o3d.geometry.Geometry]:
-        """Create geometries for all beliefs."""
+        """Create geometries for all beliefs (boxes, tables, etc.)."""
         geometries = []
 
         if not self.data.beliefs:
             return geometries
 
         for belief in self.data.beliefs:
-            box_geoms = self._create_box_geometry(belief)
-            geometries.extend(box_geoms)
+            belief_type = belief.get('type', 'box')
+
+            if belief_type == 'table':
+                geoms = self._create_table_geometry(belief)
+            else:  # Default to box
+                geoms = self._create_box_geometry(belief)
+
+            geometries.extend(geoms)
 
         return geometries
 

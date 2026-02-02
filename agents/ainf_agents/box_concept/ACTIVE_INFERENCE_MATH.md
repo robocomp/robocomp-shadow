@@ -77,12 +77,42 @@ $$
 \mathbf{q} = |\mathbf{p}_{\text{local}}| - \frac{1}{2}\begin{pmatrix} w \\ h \\ d \end{pmatrix}
 $$
 
-3. **SDF value:**
+3. **SDF value (standard formulation):**
 $$
 \text{SDF}(\mathbf{p}, \mathbf{s}) = \|\max(\mathbf{q}, 0)\| + \min(\max(q_x, q_y, q_z), 0)
 $$
 
 The first term handles points outside the box, the second handles points inside.
+
+### 3.2.1 Smooth Minimum for Internal Points
+
+**Problem:** The standard SDF uses a hard minimum for internal points: $\min(\max(q_x, q_y, q_z), 0)$. This means gradients only flow to the dimension with the smallest (most negative) distance. When LIDAR only sees some faces of the box, dimensions corresponding to unseen faces receive zero gradient and cannot be optimized.
+
+**Solution:** We replace the hard minimum with a **smooth minimum** using log-sum-exp:
+
+$$
+\text{smooth\_min}(q_x, q_y, q_z) \approx -k \cdot \log\left( e^{-q_x/k} + e^{-q_y/k} + e^{-q_z/k} \right)
+$$
+
+where $k$ is a smoothness parameter (default $k = 0.02$ m).
+
+**Properties:**
+- As $k \to 0$: approaches hard minimum
+- Larger $k$: smoother gradients, all dimensions receive gradient updates
+- Preserves correct SDF behavior at the surface
+
+**Additionally:** Internal points are scaled by a factor $\alpha_{\text{inside}} = 0.5$ to reduce their influence, as they are less reliable than surface points.
+
+**Final SDF for internal points:**
+$$
+\text{SDF}_{\text{inside}} = \alpha_{\text{inside}} \cdot \text{smooth\_min}(q_x, q_y, q_z)
+$$
+
+**Configuration constants (in `object_sdf_prior.py`):**
+| Constant | Description | Default |
+|----------|-------------|---------|
+| `SDF_SMOOTH_K` | Smoothness parameter $k$ | 0.02 m |
+| `SDF_INSIDE_SCALE` | Internal point scale $\alpha_{\text{inside}}$ | 0.5 |
 
 ### 3.3 Prior Model (Temporal Dynamics)
 
