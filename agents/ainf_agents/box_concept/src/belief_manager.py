@@ -357,34 +357,43 @@ class BeliefManager:
         mu = box_mu.clone().detach().requires_grad_(True)
         final_sdf_mean = 0.0
 
-        for _ in range(self.optimization_iters):
-            # Compute SDF using the belief's own SDF method
-            # Temporarily update belief's mu to compute SDF
-            old_mu = belief.mu.clone()
-            belief.mu = mu
-            sdf = belief.sdf(points)
-            belief.mu = old_mu
+        # Store initial angle for debug
+        initial_angle = mu[-1].item()
+
+        for iter_idx in range(self.optimization_iters):
+            # Compute SDF directly using mu (not belief.mu) to preserve gradient
+            from src.object_sdf_prior import get_sdf_function
+            belief_type = belief.to_dict().get('type', 'box')
+            sdf_func = get_sdf_function(belief_type)
+            sdf = sdf_func(points, mu)
 
             final_sdf_mean = torch.mean(torch.abs(sdf)).item()
 
-            # Symmetric weighting: all points contribute equally
+            # Debug: print gradient info for chair occasionally
+            if belief_type == 'chair' and self.frame_count % 50 == 0 and iter_idx == 0:
+                z_values = points[:, 2]
+                seat_h = mu[4].item()
+                backrest_pts = (z_values > seat_h).sum().item()
+                seat_pts = (z_values <= seat_h).sum().item()
+                print(f"[DEBUG] Frame {self.frame_count}: pts={len(points)} (seat={seat_pts}, back={backrest_pts}), SDF={final_sdf_mean:.4f}")
+
+            # =================================================================
+            # LIKELIHOOD TERM (prediction error from observations)
+            # From ACTIVE_INFERENCE_MATH.md Section 4.3:
+            # F_likelihood = (1/2σ²) × Σ SDF(p_i, s)²
+            # =================================================================
             weighted_likelihood = torch.sum(weights * sdf**2) / len(points)
 
-            # Prior term for state parameters (position, size)
-            prior_mu_robot = transform_object_to_robot_frame(prior_mu, self.robot_pose)
-            delta = mu - prior_mu_robot
-            prior_precision = 1.0 / (torch.diag(box_Sigma) + 1e-6)
-            prior_term = 0.5 * torch.sum(prior_precision * delta**2)
+            # =================================================================
+            # PRIOR TERMS - delegated to model-specific implementations
+            # Each belief class implements compute_prior_term() with its own priors
+            # =================================================================
+            object_prior_term = belief.compute_prior_term(mu, self.robot_pose)
 
-            # Object-specific priors (angle alignment, etc.)
-            # Get the appropriate prior function based on belief type
-            from src.object_sdf_prior import get_prior_function
-            belief_type = belief.to_dict().get('type', 'box')
-            prior_func = get_prior_function(belief_type)
-            object_prior_term = prior_func(mu, config, self.robot_pose)
-
-            # Total VFE = Likelihood + State Prior + Object-specific Priors
-            loss = weighted_likelihood + self.lambda_prior * prior_term + object_prior_term
+            # =================================================================
+            # TOTAL VFE = Likelihood + Model-specific Prior
+            # =================================================================
+            loss = weighted_likelihood + object_prior_term
 
             if mu.grad is not None:
                 mu.grad.zero_()
@@ -392,7 +401,24 @@ class BeliefManager:
 
             with torch.no_grad():
                 if mu.grad is not None and not torch.isnan(mu.grad).any():
-                    grad = torch.clamp(mu.grad, -self.grad_clip, self.grad_clip)
+                    grad = mu.grad.clone()
+
+                    # Debug: print ORIGINAL angle gradient for chair (before any processing)
+                    if belief_type == 'chair' and self.frame_count % 50 == 0 and iter_idx == 0:
+                        print(f"[GRAD] raw_angle_grad={grad[-1].item():.6f}, loss={loss.item():.6f}")
+
+                    # Clip all gradients
+                    grad = torch.clamp(grad, -self.grad_clip, self.grad_clip)
+
+                    # Boost angle gradient only for chair (near-square seat makes gradient very small)
+                    # But cap the final angle gradient to prevent wild jumps
+                    if belief_type == 'chair':
+                        angle_lr_multiplier = 100.0  # Reduced from 500
+                        grad[-1] = grad[-1] * angle_lr_multiplier
+                        # Cap the boosted angle gradient
+                        max_angle_grad = 0.5  # Max ~28 degrees per iteration
+                        grad[-1] = torch.clamp(grad[-1], -max_angle_grad, max_angle_grad)
+
                     mu -= self.optimization_lr * grad
 
                     # Clamp size dimensions (indices 2 to state_dim-2)
@@ -400,15 +426,26 @@ class BeliefManager:
                     for i in range(2, state_dim - 1):
                         mu[i] = torch.clamp(mu[i], config.min_size, config.max_size)
 
-                    # Normalize angle (last element)
-                    while mu[-1] > np.pi/2: mu[-1] -= np.pi
-                    while mu[-1] < -np.pi/2: mu[-1] += np.pi
+                    # Normalize angle to [-pi, pi] (preserves direction)
+                    mu[-1] = torch.atan2(torch.sin(mu[-1]), torch.cos(mu[-1]))
 
             mu.requires_grad_(True)
 
+        # Debug: print if angle changed significantly
+        final_angle = mu[-1].item()
+        # Handle wrap-around: compute shortest angular distance
+        angle_diff = final_angle - initial_angle
+        # Normalize to [-pi, pi]
+        while angle_diff > np.pi: angle_diff -= 2*np.pi
+        while angle_diff < -np.pi: angle_diff += 2*np.pi
+        angle_change_deg = np.degrees(angle_diff)
+
+        if abs(angle_change_deg) > 1.0:  # More than 1 degree change
+            print(f"[ANGLE DEBUG] Belief {belief.id}: angle changed {angle_change_deg:.1f}° "
+                  f"({np.degrees(initial_angle):.1f}° -> {np.degrees(final_angle):.1f}°), "
+                  f"SDF={final_sdf_mean:.4f}")
+
         opt_mu = mu.detach()
-        # Note: We no longer swap w/h to force w >= h, as this prevents
-        # width from shrinking below height during optimization
 
         return opt_mu, final_sdf_mean
 

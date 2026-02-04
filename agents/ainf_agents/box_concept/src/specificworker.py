@@ -40,13 +40,14 @@ from pydsr import *
 VISUALIZER_MODE = '3d'
 
 # Choose object model: 'box', 'table', or 'chair'
-OBJECT_MODEL = 'table'
+OBJECT_MODEL = 'chair'
 
 # Ground truth for debug (adjust based on scene)
+# Parameter names must match the debug_belief_vs_gt method signatures in each manager
 GT_CONFIG = {
-    'box': {'cx': 0.0, 'cy': 0.0, 'w': 0.5, 'h': 0.5, 'd': 0.25, 'theta': 0.0},
-    'table': {'cx': 0.0, 'cy': 0.0, 'w': 0.7, 'h': 0.9, 'table_height': 0.5, 'theta': 0.0},
-    'chair': {'cx': 0.0, 'cy': 0.0, 'seat_w': 0.45, 'seat_d': 0.45, 'seat_h': 0.45, 'back_h': 0.40, 'theta': 0.0},
+    'box': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.5, 'gt_h': 0.5, 'gt_d': 0.25, 'gt_theta': 0.0},
+    'table': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.7, 'gt_h': 0.9, 'gt_table_height': 0.5, 'gt_theta': 0.0},
+    'chair': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_seat_w': 0.45, 'gt_seat_d': 0.45, 'gt_seat_h': 0.45, 'gt_back_h': 0.40, 'gt_theta': 0.0},
 }
 
 # =============================================================================
@@ -62,10 +63,7 @@ elif OBJECT_MODEL == 'chair':
 else:
     raise ValueError(f"Unknown OBJECT_MODEL: {OBJECT_MODEL}. Choose 'box', 'table', or 'chair'.")
 
-if VISUALIZER_MODE == '3d':
-    from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
-else:
-    from src.visualizer import BoxConceptVisualizer
+from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
 
 
 class SpecificWorker(GenericWorker):
@@ -125,7 +123,7 @@ class SpecificWorker(GenericWorker):
         detected_objects = self.object_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
 
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
-        debug_every_n_frames = 100
+        debug_every_n_frames = 20
         if debug_every_n_frames > 0 and len(detected_objects) > 0 and self.object_manager.frame_count % debug_every_n_frames == 0:
             gt = GT_CONFIG.get(OBJECT_MODEL, {})
             ObjectManager.debug_belief_vs_gt(detected_objects[0].to_dict(), **gt)

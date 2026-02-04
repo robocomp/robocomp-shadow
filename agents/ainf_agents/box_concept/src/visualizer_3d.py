@@ -72,7 +72,7 @@ class BoxConceptVisualizer3D:
         [1.0, 0.2, 0.6],      # Rose
     ]
 
-    def __init__(self, width: int = 640, height: int = 400):
+    def __init__(self, width: int = 800, height: int = 600):
         """Initialize the 3D visualizer."""
         self.width = width
         self.height = height
@@ -460,7 +460,7 @@ class BoxConceptVisualizer3D:
         return geometries
 
     def _create_chair_geometry(self, belief: dict) -> List[o3d.geometry.Geometry]:
-        """Create 3D chair geometry (seat box + backrest box)."""
+        """Create 3D chair geometry (seat box + backrest box + legs)."""
         geometries = []
 
         cx = belief.get('cx', 0)
@@ -473,6 +473,9 @@ class BoxConceptVisualizer3D:
         seat_thickness = belief.get('seat_thickness', 0.05)
         angle = belief.get('angle', 0)
         confidence = belief.get('confidence', 0.5)
+
+        # Debug: print chair parameters occasionally
+        # print(f"[VIZ] Chair: cx={cx:.2f}, cy={cy:.2f}, angle={np.degrees(angle):.1f}°, size=({seat_w:.2f}x{seat_d:.2f})")
 
         cos_a, sin_a = np.cos(angle), np.sin(angle)
 
@@ -531,6 +534,7 @@ class BoxConceptVisualizer3D:
 
         # =========================================================
         # BACKREST (box at back of seat)
+        # Backrest is at +Y in local frame (when angle=0, faces +Y)
         # =========================================================
         back_z_bottom = seat_h
         back_z_top = seat_h + back_h
@@ -575,6 +579,40 @@ class BoxConceptVisualizer3D:
             alpha = 0.3 + 0.3 * confidence
             back_mesh.paint_uniform_color([back_color[0] * alpha, back_color[1] * alpha, back_color[2] * alpha])
             geometries.append(back_mesh)
+
+        # =========================================================
+        # CHAIR LEGS (4 cylinders at corners of seat)
+        # =========================================================
+        leg_radius = 0.02  # Fixed leg radius
+        leg_length = seat_h - seat_thickness  # Leg height goes from floor to bottom of seat
+        leg_color = [0.3, 0.2, 0.1]  # Dark wood color
+
+        # Legs are inset slightly from seat corners
+        leg_inset = leg_radius + 0.02
+        leg_positions_local = [
+            (half_w - leg_inset, half_d - leg_inset),   # Front-right
+            (-half_w + leg_inset, half_d - leg_inset),  # Front-left
+            (-half_w + leg_inset, -half_d + leg_inset), # Back-left
+            (half_w - leg_inset, -half_d + leg_inset),  # Back-right
+        ]
+
+        for lx_local, ly_local in leg_positions_local:
+            # Transform leg position to world frame
+            lx = lx_local * cos_a - ly_local * sin_a + cx
+            ly = lx_local * sin_a + ly_local * cos_a + cy
+
+            # Create cylinder for leg
+            leg = o3d.geometry.TriangleMesh.create_cylinder(
+                radius=leg_radius, height=leg_length, resolution=8, split=1
+            )
+            # Cylinder is created along Z axis, centered at origin
+            # Move it so bottom is at z=0
+            leg.translate([0, 0, leg_length / 2])
+            # Move to leg position
+            leg.translate([lx, ly, 0])
+            leg.paint_uniform_color(leg_color)
+            leg.compute_vertex_normals()
+            geometries.append(leg)
 
         return geometries
 
@@ -702,8 +740,8 @@ class BoxConceptVisualizer3D:
         # Set mouse mode to rotate around the scene center (like Webots)
         # This makes rotation orbit around the lookat point
         ctr = self.vis.get_view_control()
-        ctr.set_constant_z_near(0.01)
-        ctr.set_constant_z_far(100.0)
+        ctr.set_constant_z_near(0.001)   # Very close near plane
+        ctr.set_constant_z_far(1000.0)   # Very far clipping plane to allow zoom out
 
         # Initial geometry
         self.current_geometries = self._rebuild_scene()
@@ -721,9 +759,9 @@ class BoxConceptVisualizer3D:
             print("Loaded saved camera settings")
         else:
             ctr = self.vis.get_view_control()
-            # Default camera: rotate to look from above
+            # Default camera: rotate to look from above and zoom out further
             ctr.rotate(0.0, -300.0)
-            ctr.scale(15.0)
+            ctr.scale(25.0)  # Larger scale = more zoomed out initially
 
         # Main loop
         frame_count = 0
@@ -779,7 +817,7 @@ class BoxConceptVisualizer3D:
         self.vis.reset_view_point(True)
         ctr = self.vis.get_view_control()
         ctr.rotate(0.0, -300.0)
-        ctr.scale(15.0)
+        ctr.scale(25.0)  # Match the initial zoom scale
         print("View reset")
         return False
 

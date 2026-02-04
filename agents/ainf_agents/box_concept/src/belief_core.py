@@ -183,6 +183,24 @@ class Belief(ABC):
 
         return prior_mu, prior_Sigma
 
+    def compute_prior_term(self, mu: torch.Tensor, robot_pose: np.ndarray = None) -> torch.Tensor:
+        """
+        Compute the prior energy term for this belief.
+
+        This method should be overridden by subclasses to add model-specific priors
+        (e.g., angle alignment for indoor objects).
+
+        Default implementation returns 0 (no additional prior).
+
+        Args:
+            mu: Current state estimate (in robot frame)
+            robot_pose: Robot pose [x, y, theta] for frame transformation
+
+        Returns:
+            Prior energy term (scalar tensor)
+        """
+        return torch.tensor(0.0, dtype=DTYPE, device=mu.device)
+
     @abstractmethod
     def _get_process_noise_variances(self) -> list:
         """Return list of process noise variances for each state dimension."""
