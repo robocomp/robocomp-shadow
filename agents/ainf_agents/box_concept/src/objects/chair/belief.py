@@ -165,7 +165,7 @@ class ChairBelief(Belief):
         # =================================================================
         lambda_pos = 0.05     # Position regularization
         lambda_size = 0.02    # Size regularization
-        lambda_angle = 0.0    # Angle: disabled for now (causes issues)
+        lambda_angle = 0.01   # Angle regularization (very weak)
 
         # Position difference (cx, cy)
         diff_pos = mu[:2] - mu_prev_robot[:2]
@@ -176,11 +176,9 @@ class ChairBelief(Belief):
         prior_size = lambda_size * torch.sum(diff_size ** 2)
 
         # Angle difference (normalized to [-pi, pi])
-        # DISABLED: angle prior was causing 90° flips
-        # diff_angle = mu[6] - mu_prev_robot[6]
-        # diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
-        # prior_angle = lambda_angle * (diff_angle ** 2)
-        prior_angle = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+        diff_angle = mu[6] - mu_prev_robot[6]
+        diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
+        prior_angle = lambda_angle * (diff_angle ** 2)
 
         total_prior = prior_pos + prior_size + prior_angle
 

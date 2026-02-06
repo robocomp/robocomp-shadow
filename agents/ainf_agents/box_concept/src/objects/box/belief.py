@@ -155,7 +155,7 @@ class BoxBelief(Belief):
         # =================================================================
         lambda_pos = 0.05     # Position regularization
         lambda_size = 0.02    # Size regularization
-        lambda_angle = 0.0    # Angle: disabled for now
+        lambda_angle = 0.01   # Angle regularization (very weak)
 
         # Position difference (cx, cy)
         diff_pos = mu[:2] - mu_prev_robot[:2]
@@ -165,8 +165,10 @@ class BoxBelief(Belief):
         diff_size = mu[2:5] - mu_prev_robot[2:5]
         prior_size = lambda_size * torch.sum(diff_size ** 2)
 
-        # Angle difference (disabled)
-        prior_angle = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+        # Angle difference (normalized to [-pi, pi])
+        diff_angle = mu[5] - mu_prev_robot[5]
+        diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
+        prior_angle = lambda_angle * (diff_angle ** 2)
 
         total_prior = prior_pos + prior_size + prior_angle
 

@@ -127,6 +127,46 @@ $$
 \Sigma_{\text{process}} = \text{diag}(\sigma_{xy}^2, \sigma_{xy}^2, \sigma_{\text{size}}^2, \sigma_{\text{size}}^2, \sigma_{\text{size}}^2, \sigma_{\theta}^2)
 $$
 
+### 3.3.1 State Prior as Regularizer
+
+For **static objects**, the prior acts as a soft regularizer penalizing state changes:
+
+$$
+F_{\text{prior}} = \frac{\lambda_{\text{pos}}}{2} \|\mathbf{s}_{xy} - \mathbf{s}_{xy}^{\text{prev}}\|^2 + \frac{\lambda_{\text{size}}}{2} \|\mathbf{s}_{\text{dim}} - \mathbf{s}_{\text{dim}}^{\text{prev}}\|^2
+$$
+
+**Current implementation values:**
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| $\lambda_{\text{pos}}$ | 0.05 | Weak position regularization |
+| $\lambda_{\text{size}}$ | 0.02 | Very weak size regularization |
+| $\lambda_{\theta}$ | 0.01 | Very weak angle regularization |
+
+### 3.3.2 Frame Transformation for Prior
+
+**Critical:** The optimization operates in the **robot frame**, but the previous state $\mathbf{s}^{\text{prev}}$ is stored in the **room frame**. 
+
+To compare correctly, we transform the previous state to robot frame:
+
+$$
+\mathbf{s}^{\text{prev}}_{\text{robot}} = T_{\text{room} \to \text{robot}}(\mathbf{s}^{\text{prev}}_{\text{room}}, \mathbf{r}_t)
+$$
+
+where $T_{\text{room} \to \text{robot}}$ transforms:
+- **Position:** $\mathbf{c}^{\text{robot}} = R(-r_\theta) (\mathbf{c}^{\text{room}} - \mathbf{r}_{xy})$
+- **Dimensions:** unchanged
+- **Angle:** $\theta^{\text{robot}} = \theta^{\text{room}} - r_\theta$
+
+**Implementation (in `belief.compute_prior_term()`):**
+```python
+# Transform self.mu (room) to robot frame
+mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+
+# Compare with mu (robot frame)
+diff_pos = mu[:2] - mu_prev_robot[:2]
+prior_pos = lambda_pos * torch.sum(diff_pos ** 2)
+```
+
 ### 3.4 Prior for Box Dimensions
 
 New boxes are initialized with a prior favoring typical box dimensions:
@@ -420,12 +460,23 @@ This ensures:
 $$
 F(\mathbf{s}) = \underbrace{\frac{1}{2\sigma_o^2} \sum_{i=1}^{N_{\text{current}}} \text{SDF}(\mathbf{p}_i^{\text{curr}}, \mathbf{s})^2}_{\text{Current observations}}
 + \underbrace{\frac{1}{2} \sum_{j=1}^{N_{\text{hist}}} w_j \cdot \text{SDF}(\mathbf{p}_j^{\text{hist}}, \mathbf{s})^2}_{\text{Historical evidence}}
-+ \underbrace{\frac{\lambda}{2} (\mathbf{s} - \bold{\mu}_{\text{prior}})^\top \Sigma_{\text{prior}}^{-1} (\mathbf{s} - \mathbf{\mu}_{\text{prior}})}_{\text{Prior regularization}}
++ \underbrace{F_{\text{prior}}(\mathbf{s}, \mathbf{s}^{\text{prev}})}_{\text{State regularization}}
 $$
 
 where:
 - $w_j = 1 / (1 + \text{tr}(\Sigma_{\text{total},j}) + \text{RFE}_j)$: weight for historical point $j$
-- $\lambda$: precision parameter balancing prior vs. likelihood
+
+**State Prior Term (for static objects):**
+
+$$
+F_{\text{prior}} = \frac{\lambda_{\text{pos}}}{2} \|\mathbf{s}_{xy} - \mathbf{s}_{xy}^{\text{prev}}\|^2 + \frac{\lambda_{\text{size}}}{2} \|\mathbf{s}_{\text{dim}} - \mathbf{s}_{\text{dim}}^{\text{prev}}\|^2
+$$
+
+**Important:** Both $\mathbf{s}$ and $\mathbf{s}^{\text{prev}}$ must be in the same frame (robot frame) for the comparison. The previous state is transformed from room frame using:
+
+$$
+\mathbf{s}^{\text{prev}}_{\text{robot}} = T_{\text{room} \to \text{robot}}(\mathbf{s}^{\text{prev}}_{\text{room}}, \mathbf{r}_t)
+$$
 
 ### 6.2 Gradient-Based Optimization
 
@@ -535,11 +586,13 @@ $$
 |---------|----------|
 | State vector | $\mathbf{s} = (c_x, c_y, w, h, d, \theta)^\top$ |
 | SDF likelihood | $p(\mathbf{p} \mid \mathbf{s}) = \mathcal{N}(\text{SDF}(\mathbf{p}, \mathbf{s}) \mid 0, \sigma_o^2)$ |
-| Free Energy | $F = -\ln p(\mathbf{o}, \mathbf{s}) = \text{likelihood} + \text{prior}$ |
+| Free Energy | $F = \text{likelihood} + \text{historical} + \text{prior}$ |
+| State prior | $F_{\text{prior}} = \frac{\lambda_{\text{pos}}}{2}\|\Delta\mathbf{c}\|^2 + \frac{\lambda_{\text{size}}}{2}\|\Delta\mathbf{d}\|^2$ |
 | Capture covariance | $\Sigma_{\text{capture}} = \Sigma_{\text{robot}}(t_0) + \beta \cdot \text{SDF}^2 \cdot \mathbf{I}$ |
 | Propagated covariance | $\Sigma_{\text{total}} = \Sigma_{\text{capture}} + J \Sigma_{\text{robot}}(t) J^\top$ |
 | Point weight | $w = 1 / (1 + \text{tr}(\Sigma_{\text{total}}) + \text{RFE})$ |
 | RFE | $\text{RFE} = \sum_\tau \alpha^{t-\tau} w_\tau \text{SDF}^2$ |
+| Frame transform | $\mathbf{s}^{\text{prev}}_{\text{robot}} = T(\mathbf{s}^{\text{prev}}_{\text{room}}, \mathbf{r}_t)$ |
 
 ---
 
@@ -643,9 +696,15 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 | Prior size mean | $\mu_{\text{size}}$ | 0.5 m |
 | Prior size std | $\sigma_{\text{size}}$ | 0.2 m |
 | Confidence decay | $\gamma$ | 0.85 |
-| Prior precision | $\lambda$ | 0.3 |
+| Prior precision (position) | $\lambda_{\text{pos}}$ | 0.05 |
+| Prior precision (size) | $\lambda_{\text{size}}$ | 0.02 |
+| Prior precision (angle) | $\lambda_{\theta}$ | 0.01 |
 | SDF smooth parameter | $k$ | 0.02 m |
 | Inside point scale | $\alpha_{\text{inside}}$ | 0.5 |
+| Optimization iterations | - | 10 |
+| Learning rate | $\eta$ | 0.05 |
+| Gradient clip | - | 2.0 |
+| Angle gradient multiplier (chair) | - | 100.0 |
 
 ### 12.4 Historical Points Configuration
 
@@ -670,5 +729,6 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 
 ---
 
-*Document version: 1.2*
-*Last updated: February 2026*
+*Document version: 1.3*
+*Last updated: February 6, 2026*
+*Changes: Added frame transformation for prior, updated lambda values*

@@ -64,7 +64,7 @@ max_angle_grad = 0.5          # Cap for chair angle
 # In each belief's compute_prior_term():
 lambda_pos = 0.05
 lambda_size = 0.02
-lambda_angle = 0.0  # Disabled
+lambda_angle = 0.01  # Enabled (very weak)
 ```
 
 ### Math Reference (from ACTIVE_INFERENCE_MATH.md)
