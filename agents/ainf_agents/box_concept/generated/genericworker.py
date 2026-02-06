@@ -24,7 +24,15 @@ from pydsr import DSRGraph
 
 
 
-class GenericWorker(QtCore.QObject):
+try:
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from src.ui_mainUI import *
+except:
+    print("Can't import UI file. Did you run 'make'?")
+    sys.exit(-1)
+
+class GenericWorker(QtWidgets.QMainWindow):
 
     kill = QtCore.Signal()
 
@@ -35,6 +43,10 @@ class GenericWorker(QtCore.QObject):
         self.lidar3d1_proxy = mprx["Lidar3D1"]
         self.lidar3d_proxy = mprx["Lidar3D"]
         self.lidar3d1_proxy = mprx["Lidar3D1"]
+
+        self.ui = Ui_guiDlg()
+        self.ui.setupUi(self)
+        self.show()
 
         self.configData = configData
 

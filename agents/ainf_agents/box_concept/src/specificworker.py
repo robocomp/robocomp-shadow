@@ -39,6 +39,9 @@ from pydsr import *
 # Choose object model: 'box', 'table', 'chair', or 'multi' (table+chair with BMS)
 OBJECT_MODEL = 'multi'
 
+# Use DSRViewer with Qt3D tab (True) or standalone Open3D visualizer (False)
+USE_DSR_VIEWER = True
+
 # Ground truth for debug (adjust based on scene)
 # Parameter names must match the debug_belief_vs_gt method signatures in each manager
 GT_CONFIG = {
@@ -68,7 +71,12 @@ elif OBJECT_MODEL == 'multi':
 else:
     raise ValueError(f"Unknown OBJECT_MODEL: {OBJECT_MODEL}. Choose 'box', 'table', 'chair', or 'multi'.")
 
-from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
+# Visualizer imports based on configuration
+if USE_DSR_VIEWER:
+    from src.qt3d_viewer import Qt3DObjectVisualizer
+    from src.dsr_gui import DSRViewer, View
+else:
+    from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
 
 
 class SpecificWorker(GenericWorker):
@@ -110,15 +118,28 @@ class SpecificWorker(GenericWorker):
             console.print(f"[green]Using single object model: {OBJECT_MODEL}")
 
         # Initialize visualizer
-        self.visualizer = BoxConceptVisualizer()
-        self.visualizer.start_async()
+        if USE_DSR_VIEWER:
+            # Use self (QMainWindow from GenericWorker) as the main window for DSRViewer
+            self.setWindowTitle("Object Concept Agent - DSR Viewer")
+            self.resize(1200, 800)
+
+            # Create DSRViewer with graph view as main widget
+            self.dsr_viewer = DSRViewer(self, self.g, View.graph, View.graph)
+
+            # Create Qt3D visualizer and add as custom tab
+            self.visualizer = Qt3DObjectVisualizer()
+            self.dsr_viewer.add_custom_widget_to_dock("Objects 3D", self.visualizer)
+
+            console.print("[green]DSRViewer initialized with Qt3D Objects tab")
+        else:
+            # Standalone Open3D visualizer
+            self.visualizer = BoxConceptVisualizer()
+            self.visualizer.start_async()
+            console.print("[green]Open3D visualizer started")
 
         if startup_check:
             self.startup_check()
         else:
-
-
-
             self.timer.timeout.connect(self.compute)
             self.timer.start(self.Period)
 

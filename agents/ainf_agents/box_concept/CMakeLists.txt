@@ -38,6 +38,7 @@ MACRO( WRAP_PYTHON_UI )
   ENDFOREACH( input_file )
 ENDMACRO( WRAP_PYTHON_UI )
 
+WRAP_PYTHON_UI( mainUI )
 
 #Add symbolic link bin
 add_custom_target(create_symlink ALL

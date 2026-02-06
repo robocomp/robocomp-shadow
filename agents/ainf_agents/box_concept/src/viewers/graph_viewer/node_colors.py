@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Node colors for DSR graph visualization."""
+
+node_colors = {
+    "world": "DarkOrange",
+    "transform": "SteelBlue",
+    "root": "Red",
+    "room": "SeaGreen",
+    "robot": "CornflowerBlue",
+    "shadow": "DodgerBlue",
+    "differentialrobot": "Blue",
+    "omnirobot": "Blue",
+    "rgbd": "Gray",
+    "pose": "Gray",
+    "laser": "GreenYellow",
+    "camera": "Gray",
+    "imu": "LightSalmon",
+    "slam_device": "Gray",
+    "object": "Gray",
+    "affordance_space": "Gray",
+    "person": "Violet",
+    "personal_space": "Gray",
+    "plane": "Khaki",
+    "box": "Orange",
+    "cylinder": "Gray",
+    "ball": "Gray",
+    "mesh": "LightBlue",
+    "face": "Gray",
+    "body": "Gray",
+    "table": "SaddleBrown",
+    "chair": "SteelBlue",
+    "shelve": "Gray",
+    "glass": "Gray",
+    "plant": "Green",
+    "microwave": "Gray",
+    "oven": "Gray",
+    "vase": "Gray",
+    "refrigerator": "Gray",
+    "grid": "Gray",
+    "agent": "Gray"
+}

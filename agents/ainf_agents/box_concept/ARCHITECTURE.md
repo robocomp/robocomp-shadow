@@ -15,7 +15,14 @@ object_concept/
 │   ├── multi_model_manager.py   # Manager using BMS for multiple object types
 │   ├── transforms.py            # Coordinate frame transformations
 │   ├── object_sdf_prior.py      # Re-exports SDFs (compatibility layer)
-│   ├── visualizer_3d.py         # 3D visualizer (Open3D)
+│   ├── visualizer_3d.py         # 3D visualizer (Open3D) - standalone mode
+│   ├── qt3d_viewer.py           # Qt3D visualizer (integrates with DSRViewer)
+│   ├── dsr_gui.py               # DSRViewer for PySide6 (graph view + custom tabs)
+│   │
+│   └── cpp/                     # C++ components (reference implementations)
+│       ├── dsr_gui.py           # Original DSRViewer (PySide2)
+│       ├── qt3d_visualizer.cpp  # C++ Qt3D reference implementation
+│       └── qt3d_visualizer.h
 │   │
 │   └── objects/                 # Object-specific implementations
 │       ├── __init__.py          # OBJECT_REGISTRY, get_sdf_function()
