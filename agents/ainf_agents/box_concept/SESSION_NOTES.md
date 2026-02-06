@@ -42,6 +42,46 @@ lambda_angle = 0.0    # Angle: disabled (causes 90° flips)
 - `src/objects/table/belief.py` - Prior enabled with frame transform
 - `src/objects/box/belief.py` - Prior enabled with frame transform
 - `src/belief_manager.py` - Already passes `robot_pose` to `compute_prior_term()`
+- `src/model_selector.py` - **NEW**: Bayesian Model Selection for object types
+
+### Model Selection (NEW - 2026-02-06)
+Implemented Bayesian Model Selection for inferring object type as discrete latent variable.
+
+**New files:**
+- `src/model_selector.py` - Core BMS algorithm
+- `src/multi_model_manager.py` - Manager that uses BMS
+
+**Key classes in `model_selector.py`:**
+- `MultiModelBelief` - Maintains parallel hypotheses (table, chair, etc.)
+- `ModelHypothesis` - Single model with VFE tracking
+- `ModelSelector` - Factory for creating multi-model beliefs
+
+**Math:**
+```
+q(m) ∝ p(m) · exp(-F_m)   # Posterior over model type
+H[q(m)] = -Σ q(m) log q(m)  # Entropy for commitment check
+```
+
+**Commitment criteria:**
+1. Posterior concentration: max q(m) > 0.85
+2. Entropy threshold: H[q(m)] < 0.3 nats
+3. Hysteresis: 10 consecutive frames with same winner
+
+**Usage in specificworker.py:**
+```python
+OBJECT_MODEL = 'multi'  # Enables BMS between table and chair
+```
+
+**Configuration:**
+```python
+ModelSelectorConfig(
+    model_priors={'table': 0.5, 'chair': 0.5},
+    entropy_threshold=0.3,
+    concentration_threshold=0.85,
+    hysteresis_frames=10,
+    min_frames_before_commit=20
+)
+```
 
 ### Architecture
 ```
@@ -67,10 +107,12 @@ lambda_size = 0.02
 lambda_angle = 0.01  # Enabled (very weak)
 ```
 
-### Math Reference (from ACTIVE_INFERENCE_MATH.md)
-- VFE = Likelihood + Prior
-- Likelihood = (1/2σ²) × Σ SDF(p_i, s)²
-- Prior = (λ/2) × ||s - s_prev||² (for static objects)
+### Math Reference (from OBJECT_INFERENCE_MATH.md)
+- VFE = F_present + F_past + F_prior
+- F_present = (1/N) × Σ SDF(p_i^now, s)² (current LIDAR points)
+- F_past = Σ w_j × SDF(p_j^hist, s)² (historical points, weighted by TCE)
+- F_prior = (λ/2) × ||s - s_prev||² (for static objects)
+- TCE (Temporal Consistency Error) = accumulated SDF² over time (code uses `rfe_` prefix)
 
 ### Known Issues
 - **90° angle error** - Initialization sometimes picks wrong angle due to chair symmetry

@@ -36,11 +36,8 @@ from pydsr import *
 # CONFIGURATION
 # =============================================================================
 
-# Choose visualizer: '2d' for DearPyGui, '3d' for Open3D
-VISUALIZER_MODE = '3d'
-
-# Choose object model: 'box', 'table', or 'chair'
-OBJECT_MODEL = 'chair'
+# Choose object model: 'box', 'table', 'chair', or 'multi' (table+chair with BMS)
+OBJECT_MODEL = 'multi'
 
 # Ground truth for debug (adjust based on scene)
 # Parameter names must match the debug_belief_vs_gt method signatures in each manager
@@ -48,6 +45,7 @@ GT_CONFIG = {
     'box': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.5, 'gt_h': 0.5, 'gt_d': 0.25, 'gt_theta': 0.0},
     'table': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.7, 'gt_h': 0.9, 'gt_table_height': 0.5, 'gt_theta': 0.0},
     'chair': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_seat_w': 0.45, 'gt_seat_d': 0.45, 'gt_seat_h': 0.45, 'gt_back_h': 0.40, 'gt_theta': 0.0},
+    'multi': None,  # No single GT for multi-model
 }
 
 # =============================================================================
@@ -60,8 +58,15 @@ elif OBJECT_MODEL == 'table':
     from src.objects.table import TableManager as ObjectManager
 elif OBJECT_MODEL == 'chair':
     from src.objects.chair import ChairManager as ObjectManager
+elif OBJECT_MODEL == 'multi':
+    # Multi-model: Bayesian Model Selection between table and chair
+    from src.multi_model_manager import MultiModelManager
+    from src.objects.table import TableBelief, TableBeliefConfig
+    from src.objects.chair import ChairBelief, ChairBeliefConfig
+    from src.model_selector import ModelSelectorConfig
+    ObjectManager = None  # Will be created in __init__
 else:
-    raise ValueError(f"Unknown OBJECT_MODEL: {OBJECT_MODEL}. Choose 'box', 'table', or 'chair'.")
+    raise ValueError(f"Unknown OBJECT_MODEL: {OBJECT_MODEL}. Choose 'box', 'table', 'chair', or 'multi'.")
 
 from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
 
@@ -82,9 +87,27 @@ class SpecificWorker(GenericWorker):
         except RuntimeError as e:
             print(e)
 
-        # Initialize object manager (box, table, or chair based on OBJECT_MODEL)
-        self.object_manager = ObjectManager(self.g, self.g.get_agent_id())
-        console.print(f"[green]Using object model: {OBJECT_MODEL}")
+        # Initialize object manager based on OBJECT_MODEL
+        if OBJECT_MODEL == 'multi':
+            # Multi-model: Bayesian Model Selection between table and chair
+            self.object_manager = MultiModelManager(
+                model_classes={
+                    'table': (TableBelief, TableBeliefConfig()),
+                    'chair': (ChairBelief, ChairBeliefConfig())
+                },
+                selector_config=ModelSelectorConfig(
+                    model_priors={'table': 0.5, 'chair': 0.5},
+                    entropy_threshold=0.3,
+                    concentration_threshold=0.85,
+                    hysteresis_frames=10,
+                    min_frames_before_commit=20,
+                    debug_interval=20
+                )
+            )
+            console.print(f"[green]Using MULTI-MODEL mode: table + chair with Bayesian Model Selection")
+        else:
+            self.object_manager = ObjectManager(self.g, self.g.get_agent_id())
+            console.print(f"[green]Using single object model: {OBJECT_MODEL}")
 
         # Initialize visualizer
         self.visualizer = BoxConceptVisualizer()
@@ -125,8 +148,14 @@ class SpecificWorker(GenericWorker):
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
         debug_every_n_frames = 20
         if debug_every_n_frames > 0 and len(detected_objects) > 0 and self.object_manager.frame_count % debug_every_n_frames == 0:
-            gt = GT_CONFIG.get(OBJECT_MODEL, {})
-            ObjectManager.debug_belief_vs_gt(detected_objects[0].to_dict(), **gt)
+            if OBJECT_MODEL == 'multi':
+                # For multi-model, print model selection status
+                for obj in detected_objects:
+                    obj.debug_print()
+            else:
+                gt = GT_CONFIG.get(OBJECT_MODEL, {})
+                if gt:
+                    ObjectManager.debug_belief_vs_gt(detected_objects[0].to_dict(), **gt)
 
         # Update visualizer
         self.visualizer.update(

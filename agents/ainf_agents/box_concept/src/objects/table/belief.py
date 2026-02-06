@@ -25,16 +25,20 @@ from src.transforms import compute_jacobian_room_to_robot
 class TableBeliefConfig(BeliefConfig):
     """Configuration for table beliefs."""
 
-    # Size priors
-    prior_table_width: float = 1.0  # Standard table width
-    prior_table_depth: float = 0.6  # Standard table depth
-    prior_table_height: float = 0.75  # Standard table height from floor
-    prior_size_std: float = 0.2
-    min_aspect_ratio: float = 0.3
+    # Size priors - tables are larger than chairs
+    prior_table_width: float = 1.0   # Standard table width
+    prior_table_depth: float = 0.6   # Standard table depth
+    prior_table_height: float = 0.75 # Standard table height from floor
+    prior_size_std: float = 0.15     # Reduced variance (tighter prior)
+    min_aspect_ratio: float = 0.3    # Tables can be more elongated
+
+    # Size limits for tables (override base class)
+    min_size: float = 0.50           # Tables are at least 50cm (smaller is likely a chair)
+    max_size: float = 2.5            # Tables can be up to 2.5m
 
     # Clustering
-    cluster_eps: float = 0.30
-    min_cluster_points: int = 15
+    cluster_eps: float = 0.30        # Larger clustering for bigger objects
+    min_cluster_points: int = 20     # More points expected for larger objects
 
     # Association
     max_association_cost: float = 5.0
@@ -45,6 +49,11 @@ class TableBeliefConfig(BeliefConfig):
     max_historical_points: int = 600
     sdf_threshold_for_storage: float = 0.08
     beta_sdf: float = 1.0
+
+    # Slow accumulation of historical points (same as chair)
+    max_new_points_per_frame: int = 5      # Max points to add per frame
+    min_frames_before_historical: int = 10  # Wait N frames before adding historical points
+    historical_warmup_frames: int = 50      # Gradually increase allowed points over this period
 
     # Binning for uniform surface coverage
     num_angle_bins: int = 24
@@ -122,7 +131,7 @@ class TableBelief(Belief):
         Since the table is static, the prior is simply that the state should not
         change much from the previous estimate. This acts as a soft regularizer.
 
-        From ACTIVE_INFERENCE_MATH.md:
+        From OBJECT_INFERENCE_MATH.md:
         F_prior = (λ/2) × ||s - s_prev||²
 
         Args:
@@ -165,6 +174,23 @@ class TableBelief(Belief):
         total_prior = prior_pos + prior_size + prior_angle
 
         return total_prior
+
+    def apply_constraints(self, mu: torch.Tensor) -> torch.Tensor:
+        """
+        Apply table-specific physical constraints to the state vector.
+
+        CRITICAL: leg_length (index 5) must not exceed table_height (index 4) - TOP_THICKNESS.
+        Legs go from floor (z=0) up to the bottom of the table top.
+
+        State: [cx, cy, w, h, table_height, leg_length, theta]
+        """
+        table_height = mu[4]
+        max_leg_length = table_height - TABLE_TOP_THICKNESS
+
+        # Ensure leg_length is in valid range [0.05, table_height - TOP_THICKNESS]
+        mu[5] = torch.clamp(mu[5], min=0.05, max=max_leg_length.item())
+
+        return mu
 
     def _get_process_noise_variances(self) -> list:
         cfg = self.config
@@ -266,7 +292,22 @@ class TableBelief(Belief):
         return centroid[0], centroid[1], w, h, angle
 
     def add_historical_points(self, points_room, sdf_values, robot_cov):
-        """Add points with low SDF to historical storage."""
+        """Add points with low SDF to historical storage.
+
+        Points are added slowly to allow the pose to converge first:
+        - Wait min_frames_before_historical frames before adding any
+        - Gradually increase max points per frame during warmup period
+        - Limit total points added per frame
+        """
+        # Don't add points until we have enough observations
+        if self.observation_count < self.config.min_frames_before_historical:
+            return
+
+        # Calculate how many points we can add this frame (gradual warmup)
+        warmup_progress = min(1.0, (self.observation_count - self.config.min_frames_before_historical)
+                              / self.config.historical_warmup_frames)
+        max_points_this_frame = max(1, int(warmup_progress * self.config.max_new_points_per_frame))
+
         sdf_threshold = self.config.sdf_threshold_for_storage
         mask = torch.abs(sdf_values) < sdf_threshold
         if not mask.any():
@@ -274,6 +315,13 @@ class TableBelief(Belief):
 
         pts = points_room[mask]
         sdf = torch.abs(sdf_values[mask])
+
+        # Limit number of new points
+        if len(pts) > max_points_this_frame:
+            # Select points with lowest SDF (best quality)
+            _, indices = torch.topk(sdf, max_points_this_frame, largest=False)
+            pts = pts[indices]
+            sdf = sdf[indices]
 
         if pts.shape[1] == 2:
             pts = torch.cat([pts, torch.zeros(len(pts), 1, dtype=DTYPE, device=pts.device)], dim=1)

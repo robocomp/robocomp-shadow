@@ -379,7 +379,7 @@ class BeliefManager:
 
             # =================================================================
             # LIKELIHOOD TERM (prediction error from observations)
-            # From ACTIVE_INFERENCE_MATH.md Section 4.3:
+            # From OBJECT_INFERENCE_MATH.md Section 4.3:
             # F_likelihood = (1/2σ²) × Σ SDF(p_i, s)²
             # =================================================================
             weighted_likelihood = torch.sum(weights * sdf**2) / len(points)
@@ -428,6 +428,9 @@ class BeliefManager:
 
                     # Normalize angle to [-pi, pi] (preserves direction)
                     mu[-1] = torch.atan2(torch.sin(mu[-1]), torch.cos(mu[-1]))
+
+                    # Apply model-specific constraints (e.g., table leg_length <= table_height)
+                    mu = belief.apply_constraints(mu)
 
             mu.requires_grad_(True)
 

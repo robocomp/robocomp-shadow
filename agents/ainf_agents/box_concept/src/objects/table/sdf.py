@@ -46,8 +46,13 @@ def compute_table_sdf(points_xyz: torch.Tensor, table_params: torch.Tensor) -> t
     cx, cy = table_params[0], table_params[1]
     w, h = table_params[2], table_params[3]
     table_height = table_params[4]
-    leg_length = table_params[5]
+    leg_length_raw = table_params[5]
     theta = table_params[6]
+
+    # CONSTRAINT: leg_length cannot exceed table_height - TOP_THICKNESS
+    # Legs go from floor (z=0) up to the bottom of the table top
+    max_leg_length = table_height - TOP_THICKNESS
+    leg_length = torch.clamp(leg_length_raw, min=torch.tensor(0.05, device=leg_length_raw.device), max=max_leg_length)
 
     # Transform to local frame
     cos_t = torch.cos(-theta)

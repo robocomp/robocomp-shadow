@@ -201,6 +201,23 @@ class Belief(ABC):
         """
         return torch.tensor(0.0, dtype=DTYPE, device=mu.device)
 
+    def apply_constraints(self, mu: torch.Tensor) -> torch.Tensor:
+        """
+        Apply model-specific constraints to the state vector.
+
+        Called after each optimization step to enforce physical constraints
+        that cannot be expressed as soft priors (e.g., leg_length <= table_height).
+
+        Default implementation returns mu unchanged. Subclasses should override.
+
+        Args:
+            mu: Current state estimate
+
+        Returns:
+            Constrained state estimate
+        """
+        return mu
+
     @abstractmethod
     def _get_process_noise_variances(self) -> list:
         """Return list of process noise variances for each state dimension."""

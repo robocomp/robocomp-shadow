@@ -30,17 +30,21 @@ from src.transforms import compute_jacobian_room_to_robot
 class ChairBeliefConfig(BeliefConfig):
     """Configuration for chair beliefs."""
 
-    # Size priors
-    prior_seat_width: float = 0.45
-    prior_seat_depth: float = 0.45
-    prior_seat_height: float = 0.45
-    prior_back_height: float = 0.40
-    prior_size_std: float = 0.1
-    min_aspect_ratio: float = 0.5
+    # Size priors - typical chair dimensions (smaller than table)
+    prior_seat_width: float = 0.42    # Typical chair seat width
+    prior_seat_depth: float = 0.42    # Typical chair seat depth
+    prior_seat_height: float = 0.45   # Typical chair seat height
+    prior_back_height: float = 0.35   # Typical backrest height
+    prior_size_std: float = 0.05      # Reduced variance (tighter prior)
+    min_aspect_ratio: float = 0.7     # Chairs are more square than tables
+
+    # Size limits for chairs (override base class)
+    min_size: float = 0.30            # Chairs are at least 30cm
+    max_size: float = 0.60            # Chairs are at most 60cm (larger is likely a table)
 
     # Clustering
-    cluster_eps: float = 0.25
-    min_cluster_points: int = 20
+    cluster_eps: float = 0.20         # Tighter clustering for smaller objects
+    min_cluster_points: int = 15      # Reduced for smaller objects
 
     # Association
     max_association_cost: float = 5.0
@@ -140,7 +144,7 @@ class ChairBelief(Belief):
         Since the chair is static, the prior is simply that the state should not
         change much from the previous estimate. This acts as a soft regularizer.
 
-        From ACTIVE_INFERENCE_MATH.md:
+        From OBJECT_INFERENCE_MATH.md:
         F_prior = (λ/2) × ||s - s_prev||²
 
         Args:
@@ -229,9 +233,9 @@ class ChairBelief(Belief):
         back_h = max(max_z - seat_h, 0.2)
         back_h = np.clip(back_h, 0.2, 0.6)
 
-        # Use priors for seat dimensions
-        seat_w = np.clip(w, 0.3, 0.6)
-        seat_d = np.clip(d, 0.3, 0.6)
+        # Use cluster dimensions for seat (soft-clipped to reasonable range)
+        seat_w = np.clip(w, 0.25, 0.8)
+        seat_d = np.clip(d, 0.25, 0.8)
 
         # =================================================================
         # TEST MULTIPLE ANGLES AND PICK THE ONE WITH LOWEST SDF

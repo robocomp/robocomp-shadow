@@ -130,7 +130,7 @@ class BoxBelief(Belief):
         Since the box is static, the prior is simply that the state should not
         change much from the previous estimate. This acts as a soft regularizer.
 
-        From ACTIVE_INFERENCE_MATH.md:
+        From OBJECT_INFERENCE_MATH.md:
         F_prior = (λ/2) × ||s - s_prev||²
 
         Args:
