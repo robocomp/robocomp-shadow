@@ -140,18 +140,51 @@ class ChairBelief(Belief):
         Since the chair is static, the prior is simply that the state should not
         change much from the previous estimate. This acts as a soft regularizer.
 
-        NOTE: Currently disabled to debug 90° flip issue.
-        The problem is that mu is in robot frame but self.mu is in room frame.
+        From ACTIVE_INFERENCE_MATH.md:
+        F_prior = (λ/2) × ||s - s_prev||²
 
         Args:
-            mu: Current state estimate (in robot frame)
+            mu: Current state estimate [7] in robot frame
             robot_pose: Robot pose [x, y, theta] for frame transformation
 
         Returns:
             Prior energy term (scalar tensor)
         """
-        # DISABLED - frame mismatch between mu (robot) and self.mu (room) causes 90° flip
-        return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+        if self.mu is None or robot_pose is None:
+            return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+
+        # Import here to avoid circular imports
+        from src.transforms import transform_object_to_robot_frame
+
+        # Transform self.mu (room frame) to robot frame for comparison
+        mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+
+        # =================================================================
+        # STATE PRIOR: penalize deviation from previous state (static object)
+        # Increased from 0.01/0.005 to 0.05/0.02 (2026-02-06)
+        # =================================================================
+        lambda_pos = 0.05     # Position regularization
+        lambda_size = 0.02    # Size regularization
+        lambda_angle = 0.0    # Angle: disabled for now (causes issues)
+
+        # Position difference (cx, cy)
+        diff_pos = mu[:2] - mu_prev_robot[:2]
+        prior_pos = lambda_pos * torch.sum(diff_pos ** 2)
+
+        # Size differences (seat_w, seat_d, seat_h, back_h)
+        diff_size = mu[2:6] - mu_prev_robot[2:6]
+        prior_size = lambda_size * torch.sum(diff_size ** 2)
+
+        # Angle difference (normalized to [-pi, pi])
+        # DISABLED: angle prior was causing 90° flips
+        # diff_angle = mu[6] - mu_prev_robot[6]
+        # diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
+        # prior_angle = lambda_angle * (diff_angle ** 2)
+        prior_angle = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+
+        total_prior = prior_pos + prior_size + prior_angle
+
+        return total_prior
 
     def _get_process_noise_variances(self) -> list:
         cfg = self.config

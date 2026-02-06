@@ -127,17 +127,50 @@ class BoxBelief(Belief):
         """
         Compute box-specific prior energy term.
 
-        NOTE: Currently disabled - frame mismatch issue.
+        Since the box is static, the prior is simply that the state should not
+        change much from the previous estimate. This acts as a soft regularizer.
+
+        From ACTIVE_INFERENCE_MATH.md:
+        F_prior = (λ/2) × ||s - s_prev||²
 
         Args:
-            mu: Current state estimate (in robot frame)
+            mu: Current state estimate [6] in robot frame
             robot_pose: Robot pose [x, y, theta] for frame transformation
 
         Returns:
             Prior energy term (scalar tensor)
         """
-        # DISABLED - frame mismatch between mu (robot) and self.mu (room)
-        return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+        if self.mu is None or robot_pose is None:
+            return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+
+        # Import here to avoid circular imports
+        from src.transforms import transform_object_to_robot_frame
+
+        # Transform self.mu (room frame) to robot frame for comparison
+        mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+
+        # =================================================================
+        # STATE PRIOR: penalize deviation from previous state (static object)
+        # Increased from 0.01/0.005 to 0.05/0.02 (2026-02-06)
+        # =================================================================
+        lambda_pos = 0.05     # Position regularization
+        lambda_size = 0.02    # Size regularization
+        lambda_angle = 0.0    # Angle: disabled for now
+
+        # Position difference (cx, cy)
+        diff_pos = mu[:2] - mu_prev_robot[:2]
+        prior_pos = lambda_pos * torch.sum(diff_pos ** 2)
+
+        # Size differences (w, h, d)
+        diff_size = mu[2:5] - mu_prev_robot[2:5]
+        prior_size = lambda_size * torch.sum(diff_size ** 2)
+
+        # Angle difference (disabled)
+        prior_angle = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
+
+        total_prior = prior_pos + prior_size + prior_angle
+
+        return total_prior
 
     def _get_process_noise_variances(self) -> list:
         cfg = self.config
