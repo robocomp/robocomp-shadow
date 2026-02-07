@@ -278,7 +278,9 @@ INITIALIZATION PHASE:
    - Small advance: 15cm (different distance to walls)
    - Second rotation sweep: ±29° (more viewpoints)
    - Return to start position
-3. Estimate room dimensions using OBB (Oriented Bounding Box)
+3. **Continuous convergence check**: At each step, if SDF error drops below threshold,
+   remaining exploration movements are skipped and tracking begins immediately
+4. Estimate room dimensions using OBB (Oriented Bounding Box)
 4. HIERARCHICAL POSE SEARCH:
    a. Level 1 (Coarse): 5×5 grid × 16 angles → Top-10 candidates
    b. Level 2 (Medium): ±0.2m × ±15° around Top-10 → Top-5 candidates

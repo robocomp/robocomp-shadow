@@ -187,6 +187,14 @@ class SpecificWorker(GenericWorker):
             self._adaptive_lidar_enabled = True  # Enable adaptive subsampling
             self._last_vfe = 0.0  # Last VFE for adaptive decimation
 
+            # Prediction-based early exit (CPU optimization)
+            # When enabled, skips optimization if motion model prediction is good enough
+            self._early_exit_enabled = True  # Enable/disable early exit
+
+            # Apply early exit setting to estimator
+            self.room_estimator.prediction_early_exit = self._early_exit_enabled
+            print(f"[EarlyExit] Prediction-based early exit: {'ENABLED' if self._early_exit_enabled else 'DISABLED'}")
+
             # Simulated velocity error for testing auto-calibration
             # Set to 1.0 for no error, <1.0 if robot moves slower than commanded,
             # >1.0 if robot moves faster than commanded
@@ -1127,6 +1135,22 @@ class SpecificWorker(GenericWorker):
 
         # Get current action
         action_type, value = self._trajectory[self._current_action_idx]
+
+        # Check if we've converged to tracking during exploration movements
+        # If so, skip remaining exploration and go to hold_for_tracking
+        if action_type not in ('hold_for_tracking', 'statistics') and self.room_estimator.phase == 'tracking':
+            print(f"[Explorer] Room converged during exploration! Skipping remaining movements.")
+            # Find hold_for_tracking action or end
+            for i, (act, _) in enumerate(self._trajectory):
+                if act == 'hold_for_tracking':
+                    self._current_action_idx = i
+                    self._action_step = 0
+                    break
+            else:
+                # No hold_for_tracking found, complete trajectory
+                self._trajectory_complete = True
+            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+            return (0, 0, 0)
 
         # Handle special action: hold_for_tracking
         if action_type == 'hold_for_tracking':
