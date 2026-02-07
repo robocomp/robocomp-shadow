@@ -183,6 +183,7 @@ class SpecificWorker(GenericWorker):
             # 1 = no subsampling, 2 = one of two, 4 = one of four, etc.
             self._lidar_subsample_factor = 4  # Default value
             self._adaptive_lidar_enabled = True  # Enable adaptive subsampling
+            self._last_vfe = 0.0  # Last VFE for adaptive decimation
 
             # CPU monitoring
             self._process = psutil.Process(os.getpid())
@@ -374,6 +375,12 @@ class SpecificWorker(GenericWorker):
             if skipped > 0:
                 print(f"   Frames skipped: {skipped} (when stable & static)")
 
+        # Show prediction early exit stats
+        if hasattr(self.room_estimator, 'stats') and 'prediction_early_exits' in self.room_estimator.stats:
+            early_exits = self.room_estimator.stats['prediction_early_exits']
+            if early_exits > 0:
+                print(f"   Prediction early exits: {early_exits} (optimizer skipped)")
+
         # Show CPU usage
         if len(self._timing_stats['cpu_percent']) > 0:
             avg_cpu = np.mean(self._timing_stats['cpu_percent'])
@@ -490,6 +497,9 @@ class SpecificWorker(GenericWorker):
             f_likelihood = result.get('f_likelihood', 0.0)
             f_prior = result.get('f_prior', 0.0)
             vfe = result.get('vfe', 0.0)
+
+            # Store VFE for adaptive LIDAR decimation
+            self._last_vfe = vfe
 
             # Get last compute time from timing stats
             last_compute_time = self._timing_stats['total'][-1] * 1000 if len(self._timing_stats['total']) > 0 else 0.0
@@ -630,24 +640,72 @@ class SpecificWorker(GenericWorker):
             main.tex Sec. 5.4.1: LIDAR Observations in the Room Frame
         """
         try:
-            # Determine adaptive subsampling factor based on SDF error stability
-            # Lower SDF error = more stable = can use more subsampling
+            # Adaptive LIDAR subsampling based on estimation quality
+            # When quality degrades (high VFE, SDF, or covariance), reduce subsampling
+            # to get more points and improve estimation
             if self._adaptive_lidar_enabled and hasattr(self, 'room_estimator'):
-                last_sdf = getattr(self.room_estimator, '_last_sdf_error', float('inf'))
-                stability_threshold = getattr(self.room_estimator, 'stability_threshold', 0.05)
+                estimator = self.room_estimator
 
-                if last_sdf < stability_threshold:
-                    # Very stable (SDF < 0.05) - use high subsampling
-                    self._lidar_subsample_factor = 4
-                elif last_sdf < stability_threshold * 1.5:
-                    # Stable (SDF < 0.075) - moderate subsampling
-                    self._lidar_subsample_factor = 3
-                elif last_sdf < stability_threshold * 2.5:
-                    # Slightly unstable (SDF < 0.125)
-                    self._lidar_subsample_factor = 2
+                # Get quality metrics
+                last_sdf = getattr(estimator, '_last_sdf_error', float('inf'))
+                stability_threshold = getattr(estimator, 'stability_threshold', 0.05)
+
+                # Get covariance if available
+                pose_uncertainty = 0.0
+                if estimator.belief is not None:
+                    pose_cov = estimator.belief.pose_cov
+                    pose_uncertainty = np.trace(pose_cov[:2, :2])  # x, y uncertainty
+
+                # Get last VFE if available (stored from previous update)
+                last_vfe = getattr(self, '_last_vfe', 0.0)
+
+                # Thresholds for quality assessment
+                sdf_good = stability_threshold          # 0.05
+                sdf_medium = stability_threshold * 1.5  # 0.075
+                sdf_bad = stability_threshold * 2.5     # 0.125
+
+                cov_good = 0.02    # Low uncertainty
+                cov_medium = 0.05  # Medium uncertainty
+                cov_bad = 0.1      # High uncertainty
+
+                vfe_good = 0.1     # Low VFE
+                vfe_medium = 0.3   # Medium VFE
+                vfe_bad = 0.5      # High VFE
+
+                # Compute quality score (0 = bad, 1 = good) for each metric
+                sdf_score = 1.0 if last_sdf < sdf_good else (0.5 if last_sdf < sdf_medium else (0.25 if last_sdf < sdf_bad else 0.0))
+                cov_score = 1.0 if pose_uncertainty < cov_good else (0.5 if pose_uncertainty < cov_medium else (0.25 if pose_uncertainty < cov_bad else 0.0))
+                vfe_score = 1.0 if last_vfe < vfe_good else (0.5 if last_vfe < vfe_medium else (0.25 if last_vfe < vfe_bad else 0.0))
+
+                # Combined quality: minimum of all scores (worst metric dominates)
+                quality = min(sdf_score, cov_score, vfe_score)
+
+                # Map quality to subsampling factor (responsive to degradation)
+                if quality >= 0.75:
+                    # Excellent quality - can use high subsampling
+                    target_factor = 4
+                elif quality >= 0.5:
+                    # Good quality - moderate subsampling
+                    target_factor = 3
+                elif quality >= 0.25:
+                    # Degraded quality - minimal subsampling
+                    target_factor = 2
                 else:
-                    # Unstable - use all points
-                    self._lidar_subsample_factor = 1
+                    # Poor quality - use all points
+                    target_factor = 1
+
+                # Immediate response to quality degradation (no smoothing when reducing)
+                # But smooth when increasing subsampling to avoid oscillation
+                if target_factor < self._lidar_subsample_factor:
+                    # Quality degraded - immediately reduce subsampling
+                    self._lidar_subsample_factor = target_factor
+                elif target_factor > self._lidar_subsample_factor:
+                    # Quality improved - gradually increase subsampling
+                    # Only increase if quality has been stable
+                    self._lidar_subsample_factor = min(
+                        self._lidar_subsample_factor + 1,
+                        target_factor
+                    )
 
             # Get 2D LIDAR data with adaptive subsampling
             # decimationDegreeFactor: 1 = no subsampling, 2 = one of two, etc.

@@ -143,7 +143,7 @@ class RoomViewerDPG(RoomObserver):
         self._on_plan_toggle = None  # External callback
         self._on_plan_selected = None  # Callback for plan selection
         self.plan_names = ["Basic (Static)", "Circle (0.75m + 360°)", "Ocho (Figure-8)", "Circle Center (r=1.5m)"]  # Available plans
-        
+
 
         # Current data
         self.data: ViewerData = ViewerData()

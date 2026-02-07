@@ -79,6 +79,37 @@ The OBB provides:
 **Robot pose from OBB**:
 $$x = -c_x, \quad y = -c_y, \quad \theta = -\phi_{OBB}$$
 
+#### Hierarchical Pose Search
+
+After OBB estimation, a **multi-scale hierarchical search** refines the pose to handle ambiguities (especially the 180° symmetry in rectangular rooms):
+
+##### Level 1 - Coarse Grid Search
+- **Spatial grid**: 5×5 positions around OBB estimate (±0.8m)
+- **Angular grid**: 16 angles covering full circle (every 22.5°)
+- **Candidates evaluated**: ~400 (25 positions × 16 angles)
+- **Selection**: Top-10 candidates by combined score
+
+##### Level 2 - Medium Grid Refinement
+- **Spatial grid**: 5×5 positions around each top candidate (±0.2m)
+- **Angular grid**: 5 angles around each candidate (±15°)
+- **Candidates evaluated**: ~1250 (10 × 125 per candidate)
+- **Selection**: Top-5 candidates by combined score
+
+##### Level 3 - Fine Local Optimization
+- **Method**: Adam optimizer with lr=0.05
+- **Iterations**: Up to 30 with early stopping (1e-6 tolerance)
+- **Input**: Each of top-5 candidates from Level 2
+- **Output**: Best optimized pose
+
+##### Combined Score Function
+$$\text{Score}(\mathbf{s}) = \bar{d}_{SDF} \cdot (1 + 0.5 \cdot (1 - r_{inlier}))$$
+
+Where:
+- $\bar{d}_{SDF} = \frac{1}{N}\sum_i \text{SDF}(\mathbf{p}_i)$ is mean SDF error
+- $r_{inlier} = \frac{|\{i : \text{SDF}(\mathbf{p}_i) < 0.15\}|}{N}$ is inlier ratio
+
+This penalizes poses with many points far from walls (low inlier ratio).
+
 #### Prior Distribution (Regularization)
 Gaussian priors on room dimensions:
 $$p(W) = \mathcal{N}(\mu_W = 6, \sigma_W^2 = 1)$$
@@ -91,11 +122,11 @@ $$\hat{W} = \frac{\sigma_{OBB}^2 \mu_W + \sigma_{prior}^2 W_{OBB}}{\sigma_{prior
 #### Likelihood (SDF Error)
 $$p(\mathbf{z} | \mathbf{s}) \propto \exp\left( -\frac{1}{2\sigma_{sdf}^2} \sum_{i=1}^{N} \text{SDF}(\mathbf{p}_i^{room})^2 \right)$$
 
-#### Optimization
-Minimize negative log-posterior:
+#### Final Optimization
+After hierarchical search, minimize negative log-posterior:
 $$\mathcal{L}_{init} = \underbrace{\frac{1}{N}\sum_{i=1}^{N} \text{SDF}^2}_{\text{Likelihood}} + \underbrace{\lambda_{reg} \|\mathbf{s} - \mathbf{s}_0\|^2}_{\text{Regularization}}$$
 
-Solved via gradient descent using PyTorch autograd, initialized with GT-free OBB estimates.
+Solved via gradient descent using PyTorch autograd, initialized with the best pose from hierarchical search.
 
 ---
 
@@ -209,45 +240,125 @@ $$\begin{pmatrix} v_x^{world} \\ v_y^{world} \end{pmatrix} = \begin{pmatrix} \co
 ```
 INITIALIZATION PHASE:
 1. Collect LIDAR points while robot is static
-2. Estimate initial state using OBB (Oriented Bounding Box)
-3. Optimize s = (x, y, θ, W, L) minimizing SDF error
-4. When SDF error < threshold, freeze (W, L) and switch to tracking
+2. Estimate room dimensions using OBB (Oriented Bounding Box)
+3. HIERARCHICAL POSE SEARCH:
+   a. Level 1 (Coarse): 5×5 grid × 16 angles → Top-10 candidates
+   b. Level 2 (Medium): ±0.2m × ±15° around Top-10 → Top-5 candidates
+   c. Level 3 (Fine): Local optimization from Top-5 → Best pose
+4. Optimize s = (x, y, θ, W, L) starting from hierarchical best
+5. When SDF error < threshold, freeze (W, L) and switch to tracking
 
 TRACKING PHASE (each timestep):
 1. PREDICT:
    - s_pred = f(s_prev, u)           # Motion model prediction
    - Σ_pred = F @ Σ_prev @ F^T + Q   # Covariance propagation
 
-2. CORRECT (Free Energy Minimization):
+2. PREDICTION-BASED EARLY EXIT (CPU optimization):
+   - Compute SDF at predicted pose: SDF_pred = SDF(s_pred)
+   - If mean(SDF_pred) < σ_sdf × trust_factor:
+     - Accept s_pred as estimate (skip optimization)
+     - Return immediately with 0 iterations
+   - Else: proceed to correction step
+
+3. CORRECT (Free Energy Minimization):
    - F_likelihood = Σ SDF² / (2σ²N)  # Normalized likelihood
    - F_prior = ½(s - s_pred)ᵀ Σ⁻¹ (s - s_pred)  # Mahalanobis distance
    - Minimize: F = F_likelihood + F_prior  # No additional weighting!
 
-3. UPDATE COVARIANCE:
+4. UPDATE COVARIANCE:
    - Compute Hessian H of likelihood at optimum
    - Σ_post = σ² × H⁻¹
 
-4. DIAGNOSTICS:
+5. DIAGNOSTICS:
    - Innovation ε = s* - s_pred
    - π_diag = exp(-‖ε‖_Mahal / 2)  # Monitor motion model quality
 
-5. OUTPUT:
+6. OUTPUT:
    - Pose estimate (x, y, θ)
    - Covariance matrix Σ
    - Free energy components for UI
 ```
+
+### Prediction-Based Early Exit
+
+When the motion model prediction already explains observations well (low SDF error), optimization is unnecessary. This implements **trusting the prior** in Active Inference:
+
+$$\text{Skip optimization if: } \bar{d}_{SDF}(\mathbf{s}_{pred}) < \sigma_{sdf} \cdot \tau_{trust} \text{ AND } \text{tr}(\Sigma_{xy}) < \sigma_{max}^2$$
+
+Where:
+- $\bar{d}_{SDF}(\mathbf{s}_{pred}) = \frac{1}{N}\sum_i \text{SDF}(\mathbf{p}_i | \mathbf{s}_{pred})$ is mean SDF at predicted pose
+- $\tau_{trust} = 0.5$ is the trust factor (default)
+- $\text{tr}(\Sigma_{xy})$ is the trace of position covariance (uncertainty in x, y)
+- $\sigma_{max}^2 = 0.1$ is the maximum allowed uncertainty for early exit
+
+**Covariance constraint**: Even if SDF is low, if the pose uncertainty grows too large (due to repeated early exits propagating covariance without correction), the system forces a full optimization step to reduce uncertainty.
+
+**Stabilization requirement**: Early exit is only enabled after a minimum number of tracking steps (default: 50) to ensure the room estimation has stabilized before trusting predictions.
+
+**Benefits**:
+- Significant CPU savings when robot moves smoothly
+- Prior (motion model) is trusted when it's already accurate
+- Bounded uncertainty growth through covariance check
+- Consistent with Free Energy minimization: if VFE is already low, no correction needed
 
 ### Key Parameters
 
 | Parameter | Symbol | Value | Description |
 |-----------|--------|-------|-------------|
 | SDF noise std | $\sigma_{sdf}$ | 0.15 m | Sensor noise + dynamic effects |
-| Process noise | $Q$ | diag(0.01, 0.01, 0.05) | Motion model uncertainty |
+| Process noise | $Q$ | diag(0.002, 0.002, 0.001) | Motion model uncertainty (base) |
 | Init threshold | - | 0.15 m | SDF error to switch to tracking |
+| Adam lr (tracking) | - | 0.01 | Optimizer learning rate |
+| Min iterations | - | 25 | Minimum optimizer iterations |
+| Inlier threshold | - | 0.15 m | SDF threshold for inlier counting |
+| Trust factor | $\tau_{trust}$ | 0.5 | Prediction early exit threshold factor |
+| Min tracking steps | - | 50 | Steps before enabling early exit |
+| Max uncertainty | $\sigma_{max}^2$ | 0.1 | Max position covariance for early exit |
 
 ---
 
-## 8. Velocity-Adaptive Precision Weighting
+## 8. Adaptive LIDAR Decimation
+
+LIDAR point density is dynamically adjusted based on estimation quality to balance CPU usage and accuracy.
+
+### Quality-Based Decimation
+
+The decimation factor $d$ (1 = all points, 4 = 1 of 4 points) is computed from three quality metrics:
+
+$$d = f(\text{SDF}, \text{Cov}, \text{VFE})$$
+
+**Quality Scores** (0 = poor, 1 = excellent):
+- SDF score: Based on mean SDF error vs thresholds (0.05, 0.075, 0.125 m)
+- Covariance score: Based on $\text{tr}(\Sigma_{xy})$ vs thresholds (0.02, 0.05, 0.1)
+- VFE score: Based on VFE vs thresholds (0.1, 0.3, 0.5)
+
+**Combined Quality**: $q = \min(\text{SDF}_{score}, \text{Cov}_{score}, \text{VFE}_{score})$
+
+The worst metric dominates (conservative approach).
+
+### Decimation Mapping
+
+| Quality $q$ | Decimation $d$ | Description |
+|-------------|----------------|-------------|
+| $q \geq 0.75$ | 4 | Excellent - high subsampling |
+| $q \geq 0.5$ | 3 | Good - moderate subsampling |
+| $q \geq 0.25$ | 2 | Degraded - minimal subsampling |
+| $q < 0.25$ | 1 | Poor - use all points |
+
+### Asymmetric Response
+
+- **Quality degradation**: Immediate reduction in decimation (responsive)
+- **Quality improvement**: Gradual increase in decimation (stable)
+
+This asymmetry ensures fast response to problems (e.g., during rotation) while avoiding oscillation when quality improves.
+
+### Active Inference Interpretation
+
+This implements **precision-weighted sensing**: when prediction errors are high (high VFE), the agent allocates more sensory resources (more LIDAR points) to reduce uncertainty. This is consistent with the Free Energy Principle where precision modulates the influence of prediction errors.
+
+---
+
+## 9. Velocity-Adaptive Precision Weighting
 
 In Active Inference, **precision** represents the confidence or inverse variance of predictions. We extend the standard precision-weighting to incorporate **velocity-dependent precision** for each state variable, enabling the system to focus optimization effort on parameters most likely to change given the current motion profile.
 

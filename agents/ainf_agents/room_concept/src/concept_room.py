@@ -140,7 +140,12 @@ class RoomPoseEstimatorV2:
         # This includes sensor noise + dynamic effects (motion, rotation, timing)
         # Needs to be large enough that prior (motion model) remains influential
         self.sigma_sdf = 0.15  # 15cm - accounts for dynamic uncertainty during motion
-        self.Q_pose = np.diag([0.015, 0.015, 0.01])  # Process noise in meters
+
+        # Process noise Q_pose: controls how fast uncertainty grows during prediction
+        # These are BASE values that get scaled by dt and speed
+        # Lower values = slower covariance growth, more trust in motion model
+        # For dt=0.1s and stationary robot, effective Q ≈ Q_pose * 0.1 * 0.1 = Q_pose * 0.01
+        self.Q_pose = np.diag([0.002, 0.002, 0.001])  # Reduced from [0.015, 0.015, 0.01]
 
         # Velocity-adaptive precision weighting parameters
         # These weights adjust which parameters (x, y, theta) get more optimization effort
@@ -172,12 +177,20 @@ class RoomPoseEstimatorV2:
         self.adaptive_subsampling = False  # DISABLED - subsampling now done at LIDAR proxy level
         self.min_lidar_points = 100  # Minimum LIDAR points to keep
 
+        # Prediction-based early exit: if prediction SDF < threshold, skip optimization
+        # This saves CPU when motion model is accurate (smooth motion)
+        self.prediction_early_exit = True  # Enable prediction-based early exit
+        self.prediction_trust_factor = 0.5  # Trust threshold = sigma_sdf * factor
+        self.min_tracking_steps_for_early_exit = 50  # Wait for room to stabilize
+        self._tracking_step_count = 0  # Counter for tracking steps
+
         # Statistics
         self.stats = {
             'init_steps': 0,
             'sdf_error_history': [],
             'pose_error_history': [],
             'iterations_used': [],  # Track actual iterations per step
+            'prediction_early_exits': 0,  # Track prediction-based early exits
             'frames_skipped': 0     # Track skipped frames
         }
 
@@ -444,24 +457,19 @@ class RoomPoseEstimatorV2:
         """
         Estimate room dimensions and robot pose from LIDAR points WITHOUT ground truth.
 
-        Uses the PointcloudCenterEstimator which implements:
-        1. Boundary point extraction (farthest point per angular sector)
-        2. Statistical outlier removal
-        3. Convex hull computation
-        4. Minimum-area Oriented Bounding Box (OBB) via rotating calipers
+        Uses a HIERARCHICAL SEARCH approach for robust initialization:
 
-        The OBB provides:
-        - center: Room center in robot frame → robot position = -center
-        - width, height: Room dimensions
-        - rotation: Room orientation → robot theta = -rotation
+        Level 1 (Coarse): OBB-based estimation for room dimensions and initial pose candidates
+        Level 2 (Medium): Grid search around top candidates with multiple angles
+        Level 3 (Fine): Local optimization from best candidates
 
         This method is GT-free: robot_pose_gt parameter is kept for API compatibility
         but is NOT used in the estimation.
 
         Mathematical basis (main.tex Sec. 5.2.1):
-            The room geometry defines the generative model. By finding the OBB
-            that best fits the wall points, we infer the latent room state
-            (W, L) and robot pose (x, y, θ) simultaneously.
+            The room geometry defines the generative model. By finding the configuration
+            that minimizes SDF error across multiple hypotheses, we robustly infer
+            the latent room state (W, L) and robot pose (x, y, θ).
 
         Args:
             all_points: [N, 2] LIDAR points in robot frame (torch tensor)
@@ -472,7 +480,9 @@ class RoomPoseEstimatorV2:
         """
         points_np = all_points.cpu().numpy()
 
-        # Use PointcloudCenterEstimator for robust, GT-free estimation
+        # =====================================================================
+        # LEVEL 1: Coarse estimation using OBB
+        # =====================================================================
         estimator = PointcloudCenterEstimator(EstimatorConfig(
             min_range=0.3,
             max_range=10.0,
@@ -484,74 +494,260 @@ class RoomPoseEstimatorV2:
         obb = estimator.estimate(points_np)
 
         if obb is not None:
-            # OBB gives room center in robot frame
-            # Robot position in room frame is the negative of this
-            est_pos_x = -obb.center[0]
-            est_pos_y = -obb.center[1]
-
-            # Room dimensions from OBB (width >= height by convention)
-            est_width = obb.width
-            est_length = obb.height
-
-            # Robot orientation: negative of OBB rotation
-            # (OBB rotation aligns room axes with world, robot theta is inverse)
-            est_theta = -obb.rotation
-
-            # Normalize theta to [-π, π]
-            est_theta = np.arctan2(np.sin(est_theta), np.cos(est_theta))
-
-            # Variance estimates based on point density and spread
-            # More points = lower variance, larger spread = higher confidence
-            n_points = len(points_np)
-            base_var = 1.0 / np.sqrt(n_points) if n_points > 0 else 1.0
-
-            width_var = base_var * 0.5   # Dimension variance
-            length_var = base_var * 0.5
-            theta_var = base_var * 0.3   # Orientation variance
-
+            # Initial estimates from OBB
+            init_pos_x = -obb.center[0]
+            init_pos_y = -obb.center[1]
+            init_width = obb.width
+            init_length = obb.height
+            init_theta = -obb.rotation
+            init_theta = np.arctan2(np.sin(init_theta), np.cos(init_theta))
         else:
-            # Fallback: use simple statistics if OBB estimation failed
-            print("[RoomEstimator] OBB estimation failed, using fallback")
-
-            # Simple centroid-based estimation
+            # Fallback: simple statistics
+            print("[RoomEstimator] OBB failed, using statistical fallback")
             centroid = np.median(points_np, axis=0)
-            est_pos_x = -centroid[0]
-            est_pos_y = -centroid[1]
-
-            # Dimensions from point spread
-            est_width = np.max(points_np[:, 0]) - np.min(points_np[:, 0])
-            est_length = np.max(points_np[:, 1]) - np.min(points_np[:, 1])
-
-            # Ensure width >= length
-            if est_width < est_length:
-                est_width, est_length = est_length, est_width
-                est_theta = np.pi / 2
+            init_pos_x = -centroid[0]
+            init_pos_y = -centroid[1]
+            init_width = np.max(points_np[:, 0]) - np.min(points_np[:, 0])
+            init_length = np.max(points_np[:, 1]) - np.min(points_np[:, 1])
+            if init_width < init_length:
+                init_width, init_length = init_length, init_width
+                init_theta = np.pi / 2
             else:
-                est_theta = 0.0
+                init_theta = 0.0
 
-            # High variance for fallback
-            width_var = 1.0
-            length_var = 1.0
-            theta_var = 0.5
-
-        # Apply Gaussian priors for regularization (soft constraints)
+        # Apply Gaussian priors for room dimensions
         prior_width = 6.0
         prior_length = 4.0
         prior_dim_var = 1.0
+        n_points = len(points_np)
+        base_var = 1.0 / np.sqrt(n_points) if n_points > 0 else 1.0
+        width_var = base_var * 0.5
+        length_var = base_var * 0.5
 
         # Bayesian fusion with priors
-        est_width = (prior_dim_var * est_width + width_var * prior_width) / (prior_dim_var + width_var)
-        est_length = (prior_dim_var * est_length + length_var * prior_length) / (prior_dim_var + length_var)
-
-        # Clamp to reasonable bounds
+        est_width = (prior_dim_var * init_width + width_var * prior_width) / (prior_dim_var + width_var)
+        est_length = (prior_dim_var * init_length + length_var * prior_length) / (prior_dim_var + length_var)
         est_width = np.clip(est_width, 3.0, 12.0)
         est_length = np.clip(est_length, 2.0, 8.0)
 
-        # Update variances after fusion
+        # =====================================================================
+        # LEVEL 2: Hierarchical grid search for pose
+        # =====================================================================
+        est_pos_x, est_pos_y, est_theta, best_score = self._hierarchical_pose_search(
+            all_points, est_width, est_length, init_pos_x, init_pos_y, init_theta
+        )
+
+        # Variance estimates based on search quality
+        theta_var = base_var * 0.3
         width_var = (prior_dim_var * width_var) / (prior_dim_var + width_var)
         length_var = (prior_dim_var * length_var) / (prior_dim_var + length_var)
 
+        print(f"[Hierarchical Init] Best pose: ({est_pos_x:.2f}, {est_pos_y:.2f}, {np.degrees(est_theta):.1f}°), score: {best_score:.4f}")
+
         return est_width, est_length, width_var, length_var, est_theta, theta_var, est_pos_x, est_pos_y
+
+    def _hierarchical_pose_search(self,
+                                   all_points: torch.Tensor,
+                                   width: float,
+                                   length: float,
+                                   init_x: float,
+                                   init_y: float,
+                                   init_theta: float) -> Tuple[float, float, float, float]:
+        """
+        Hierarchical multi-scale search for optimal robot pose.
+
+        Three-level search:
+        - Level 1 (Coarse): Wide grid with many angles (finds general region)
+        - Level 2 (Medium): Refined grid around top candidates
+        - Level 3 (Fine): Local optimization from best candidates
+
+        Uses combined score: mean SDF + inlier ratio penalty
+
+        Args:
+            all_points: LIDAR points [N, 2] in robot frame
+            width, length: Estimated room dimensions
+            init_x, init_y, init_theta: Initial pose estimates from OBB
+
+        Returns:
+            (best_x, best_y, best_theta, best_score)
+        """
+        width_t = torch.tensor(width, dtype=DTYPE, device=DEVICE)
+        length_t = torch.tensor(length, dtype=DTYPE, device=DEVICE)
+
+        print(f"\n[Hierarchical Search] Starting with OBB estimate: ({init_x:.2f}, {init_y:.2f}, {np.degrees(init_theta):.1f}°)")
+        print(f"[Hierarchical Search] Room dimensions: {width:.2f} x {length:.2f}m")
+
+        # =====================================================================
+        # LEVEL 1: Coarse grid search
+        # =====================================================================
+        # Define search bounds based on room dimensions
+        # Robot must be inside the room
+        max_x = width / 2 - 0.3   # Keep 30cm from walls
+        max_y = length / 2 - 0.3
+
+        # Coarse grid: 5x5 positions, 16 angles
+        coarse_positions = []
+        for dx in np.linspace(-0.8, 0.8, 5):  # ±0.8m around initial estimate
+            for dy in np.linspace(-0.8, 0.8, 5):
+                px = np.clip(init_x + dx, -max_x, max_x)
+                py = np.clip(init_y + dy, -max_y, max_y)
+                coarse_positions.append((px, py))
+
+        # 16 angles covering full circle
+        coarse_angles = np.linspace(-np.pi, np.pi, 16, endpoint=False)
+
+        # Evaluate all coarse candidates
+        coarse_candidates = []
+        for (px, py) in coarse_positions:
+            for theta in coarse_angles:
+                score, inlier_ratio = self._evaluate_pose_candidate(
+                    all_points, px, py, theta, width_t, length_t
+                )
+                # Combined score: lower is better
+                # Penalize low inlier ratio (many points far from walls)
+                combined_score = score * (1.0 + 0.5 * (1.0 - inlier_ratio))
+                coarse_candidates.append((px, py, theta, combined_score, inlier_ratio))
+
+        # Sort by score and keep top-K
+        coarse_candidates.sort(key=lambda x: x[3])
+        top_k = min(10, len(coarse_candidates))
+        top_coarse = coarse_candidates[:top_k]
+
+        print(f"[Level 1 - Coarse] Evaluated {len(coarse_candidates)} candidates")
+        print(f"[Level 1 - Coarse] Best: ({top_coarse[0][0]:.2f}, {top_coarse[0][1]:.2f}, {np.degrees(top_coarse[0][2]):.1f}°) score={top_coarse[0][3]:.4f}")
+
+        # =====================================================================
+        # LEVEL 2: Medium grid search around top candidates
+        # =====================================================================
+        medium_candidates = []
+        for (cx, cy, ct, _, _) in top_coarse:
+            # Finer grid: ±0.2m, ±15° around each top candidate
+            for dx in np.linspace(-0.2, 0.2, 5):
+                for dy in np.linspace(-0.2, 0.2, 5):
+                    for dtheta in np.linspace(-0.26, 0.26, 5):  # ±15°
+                        px = np.clip(cx + dx, -max_x, max_x)
+                        py = np.clip(cy + dy, -max_y, max_y)
+                        theta = ct + dtheta
+                        theta = np.arctan2(np.sin(theta), np.cos(theta))
+
+                        score, inlier_ratio = self._evaluate_pose_candidate(
+                            all_points, px, py, theta, width_t, length_t
+                        )
+                        combined_score = score * (1.0 + 0.5 * (1.0 - inlier_ratio))
+                        medium_candidates.append((px, py, theta, combined_score, inlier_ratio))
+
+        # Sort and keep top-M
+        medium_candidates.sort(key=lambda x: x[3])
+        top_m = min(5, len(medium_candidates))
+        top_medium = medium_candidates[:top_m]
+
+        print(f"[Level 2 - Medium] Evaluated {len(medium_candidates)} candidates")
+        print(f"[Level 2 - Medium] Best: ({top_medium[0][0]:.2f}, {top_medium[0][1]:.2f}, {np.degrees(top_medium[0][2]):.1f}°) score={top_medium[0][3]:.4f}")
+
+        # =====================================================================
+        # LEVEL 3: Fine local optimization from best candidates
+        # =====================================================================
+        final_candidates = []
+        for (mx, my, mt, _, _) in top_medium:
+            # Local optimization using gradient descent
+            opt_x, opt_y, opt_theta, opt_score = self._local_pose_optimization(
+                all_points, mx, my, mt, width_t, length_t, max_iters=30
+            )
+            final_candidates.append((opt_x, opt_y, opt_theta, opt_score))
+
+        # Select best final candidate
+        final_candidates.sort(key=lambda x: x[3])
+        best = final_candidates[0]
+
+        print(f"[Level 3 - Fine] Optimized {len(final_candidates)} candidates")
+        print(f"[Level 3 - Fine] Best: ({best[0]:.2f}, {best[1]:.2f}, {np.degrees(best[2]):.1f}°) score={best[3]:.4f}")
+
+        return best[0], best[1], best[2], best[3]
+
+    def _evaluate_pose_candidate(self,
+                                  points: torch.Tensor,
+                                  x: float,
+                                  y: float,
+                                  theta: float,
+                                  width: torch.Tensor,
+                                  length: torch.Tensor) -> Tuple[float, float]:
+        """
+        Evaluate a pose candidate using SDF and inlier ratio.
+
+        Args:
+            points: LIDAR points [N, 2]
+            x, y, theta: Candidate pose
+            width, length: Room dimensions
+
+        Returns:
+            (mean_sdf_error, inlier_ratio)
+        """
+        x_t = torch.tensor(x, dtype=DTYPE, device=DEVICE)
+        y_t = torch.tensor(y, dtype=DTYPE, device=DEVICE)
+        theta_t = torch.tensor(theta, dtype=DTYPE, device=DEVICE)
+
+        with torch.no_grad():
+            sdf_values = self.sdf_rect(points, x_t, y_t, theta_t, width, length)
+            mean_sdf = torch.mean(sdf_values).item()
+
+            # Inlier ratio: points within 15cm of walls
+            inliers = (sdf_values < 0.15).float()
+            inlier_ratio = torch.mean(inliers).item()
+
+        return mean_sdf, inlier_ratio
+
+    def _local_pose_optimization(self,
+                                  points: torch.Tensor,
+                                  init_x: float,
+                                  init_y: float,
+                                  init_theta: float,
+                                  width: torch.Tensor,
+                                  length: torch.Tensor,
+                                  max_iters: int = 30) -> Tuple[float, float, float, float]:
+        """
+        Local gradient-based optimization of pose.
+
+        Uses Adam optimizer with early stopping.
+
+        Args:
+            points: LIDAR points [N, 2]
+            init_x, init_y, init_theta: Initial pose
+            width, length: Room dimensions (fixed)
+            max_iters: Maximum optimization iterations
+
+        Returns:
+            (opt_x, opt_y, opt_theta, final_score)
+        """
+        # Create optimizable pose parameters
+        pose = torch.tensor([init_x, init_y, init_theta],
+                           dtype=DTYPE, device=DEVICE, requires_grad=True)
+
+        optimizer = torch.optim.Adam([pose], lr=0.05)
+
+        prev_loss = float('inf')
+        for _ in range(max_iters):
+            optimizer.zero_grad()
+
+            sdf_values = self.sdf_rect(points, pose[0], pose[1], pose[2], width, length)
+            loss = torch.mean(sdf_values ** 2)
+
+            loss_val = loss.item()
+            if abs(prev_loss - loss_val) < 1e-6:
+                break  # Converged
+            prev_loss = loss_val
+
+            loss.backward()
+            optimizer.step()
+
+            # Normalize theta
+            with torch.no_grad():
+                pose[2] = torch.atan2(torch.sin(pose[2]), torch.cos(pose[2]))
+
+        with torch.no_grad():
+            final_sdf = self.sdf_rect(points, pose[0], pose[1], pose[2], width, length)
+            final_score = torch.mean(final_sdf).item()
+
+        return pose[0].item(), pose[1].item(), pose[2].item(), final_score
 
     def _initialization_phase(self,
                               lidar_points: torch.Tensor,
@@ -797,6 +993,9 @@ class RoomPoseEstimatorV2:
             self._last_pose = self.belief.pose[:2].copy()
             self._last_theta = self.belief.theta
 
+            # Reset tracking step counter for early exit feature
+            self._tracking_step_count = 0
+
             print(f"\n[ROOM ESTIMATION] Initialization complete")
             print(f"  Iterations: {self.init_iterations}")
             print(f"  Mean SDF error: {mean_sdf_error:.4f}m")
@@ -825,6 +1024,10 @@ class RoomPoseEstimatorV2:
         Phase 2: Room fixed, update pose by minimizing Free Energy.
 
         NO GROUND TRUTH USED. Uses dead reckoning + LIDAR correction.
+
+        Implements PREDICTION-BASED EARLY EXIT: if the motion model prediction
+        already has low SDF error, we trust it and skip optimization entirely.
+        This saves significant CPU when the robot moves smoothly.
         """
         if len(lidar_points) == 0:
             return {
@@ -860,22 +1063,23 @@ class RoomPoseEstimatorV2:
         F_t[0, 2] = -vy_world * dt
         F_t[1, 2] = vx_world * dt
 
-        # Process noise (increases with motion)
+        # Process noise (increases with motion, but bounded)
+        # Q_scale ranges from 0.1 (stationary) to ~2.0 (fast motion)
+        # This reflects that faster motion has more odometry uncertainty
         speed = np.linalg.norm(robot_velocity)
-        Q_scale = max(0.1, speed / 0.2)  # Scale with speed
+        Q_scale = max(0.1, min(2.0, speed / 0.3))  # Capped scaling, slower growth
         Q = self.Q_pose * dt * Q_scale
 
         # Predicted covariance
         Sigma_pred = F_t @ Sigma_prev @ F_t.T + Q
 
         # =====================================================================
-        # CORRECTION STEP: SDF optimization with prior
-        # Free Energy F = F_likelihood + F_prior
-        # F_likelihood = sum(SDF²) / (2 * σ_sdf²)
-        # F_prior = 0.5 * (s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
+        # PREDICTION-BASED EARLY EXIT
+        # If the predicted pose already has low SDF error, skip optimization.
+        # This implements "trusting the prior" when it's already good.
         # =====================================================================
 
-        # OPTIMIZED: Cache room dimensions as tensors (they don't change in tracking)
+        # Cache room dimensions as tensors
         if not hasattr(self, '_cached_width_t') or self._cached_width != self.belief.width:
             self._cached_width = self.belief.width
             self._cached_width_t = torch.tensor(self.belief.width, dtype=DTYPE, device=DEVICE)
@@ -884,6 +1088,72 @@ class RoomPoseEstimatorV2:
             self._cached_length_t = torch.tensor(self.belief.length, dtype=DTYPE, device=DEVICE)
         width = self._cached_width_t
         length = self._cached_length_t
+
+        # Evaluate SDF at predicted pose (no gradients needed)
+        with torch.no_grad():
+            s_pred_t = torch.tensor(s_pred.astype(np.float32), dtype=DTYPE, device=DEVICE)
+            sdf_pred = self.sdf_rect(lidar_points, s_pred_t[0], s_pred_t[1],
+                                     s_pred_t[2], width, length)
+            mean_sdf_pred = torch.mean(sdf_pred).item()
+
+        # Early exit threshold: if prediction SDF is very good, trust it
+        # Use a configurable factor of sigma_sdf (default 0.5 → ~7.5cm)
+        prediction_trust_threshold = self.sigma_sdf * self.prediction_trust_factor
+
+        # Increment tracking step counter
+        self._tracking_step_count += 1
+
+        # Compute current pose uncertainty (trace of position covariance)
+        pose_uncertainty = np.trace(Sigma_pred[:2, :2])  # Only x, y uncertainty
+        max_uncertainty_for_early_exit = 0.1  # If uncertainty > 0.1, force optimization
+
+        # Only allow early exit after room estimation has stabilized
+        # AND uncertainty is below threshold (to prevent unbounded covariance growth)
+        early_exit_allowed = (self.prediction_early_exit and
+                              self.adaptive_cpu and
+                              self._tracking_step_count > self.min_tracking_steps_for_early_exit and
+                              pose_uncertainty < max_uncertainty_for_early_exit)
+
+        if early_exit_allowed and mean_sdf_pred < prediction_trust_threshold:
+            # Prediction is good enough - skip optimization entirely
+            self.belief.x = s_pred[0]
+            self.belief.y = s_pred[1]
+            self.belief.theta = s_pred[2]
+            self.belief.cov[:3, :3] = Sigma_pred
+
+            self._last_sdf_error = mean_sdf_pred
+            self.stats['iterations_used'].append(0)  # No iterations used
+            self.stats['sdf_error_history'].append(mean_sdf_pred)
+
+            # Track early exits for statistics
+            if 'prediction_early_exits' not in self.stats:
+                self.stats['prediction_early_exits'] = 0
+            self.stats['prediction_early_exits'] += 1
+
+            # Compute Free Energy at predicted pose (for UI consistency)
+            f_likelihood_early = mean_sdf_pred ** 2 / (2 * self.sigma_sdf ** 2)
+
+            return {
+                'phase': 'tracking',
+                'pose': self.belief.pose.copy(),
+                'pose_cov': self.belief.pose_cov,
+                'sdf_error': mean_sdf_pred,
+                'belief_uncertainty': self.belief.uncertainty(),
+                'innovation': np.zeros(3),  # No correction applied
+                'prior_precision': 1.0,  # Perfect trust in prediction
+                'f_likelihood': f_likelihood_early,  # Accuracy term
+                'f_prior': 0.0,                      # No deviation from prior
+                'vfe': f_likelihood_early,           # Total VFE
+                'iterations_used': 0,
+                'early_exit': True
+            }
+
+        # =====================================================================
+        # CORRECTION STEP: SDF optimization with prior
+        # Free Energy F = F_likelihood + F_prior
+        # F_likelihood = sum(SDF²) / (2 * σ_sdf²)
+        # F_prior = 0.5 * (s - s_pred)ᵀ Σ_pred⁻¹ (s - s_pred)
+        # =====================================================================
 
         # Compute velocity-adaptive weights for [x, y, theta]
         velocity_weights = self._compute_velocity_adaptive_weights(robot_velocity, angular_velocity)
