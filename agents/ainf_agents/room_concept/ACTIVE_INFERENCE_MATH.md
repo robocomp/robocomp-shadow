@@ -54,6 +54,39 @@ $$\mathbf{s}_{t+1}^{pred} = f(\mathbf{s}_t, \mathbf{u}_t) = \begin{pmatrix} x_t 
 Where world velocities are transformed from robot frame:
 $$\begin{pmatrix} v_x^{world} \\ v_y^{world} \end{pmatrix} = R(\theta_t) \cdot \begin{pmatrix} v_x^{robot} \\ v_y^{robot} \end{pmatrix}$$
 
+### Velocity Auto-Calibration
+
+The commanded velocities may not match actual robot motion due to wheel slip, calibration errors, or mechanical issues. We learn a **velocity scale factor** $k$ online:
+
+$$\mathbf{v}_{calibrated} = k \cdot \mathbf{v}_{commanded}$$
+
+**Learning from Innovation**: The innovation $\boldsymbol{\epsilon} = \mathbf{s}_{optimized} - \mathbf{s}_{predicted}$ tells us how much the LIDAR-corrected pose differs from the motion model prediction.
+
+**Accumulation**: Over a window of $N$ samples with significant motion:
+$$\Delta_{innov} = \sum_{i=1}^{N} \boldsymbol{\epsilon}_i, \quad \Delta_{cmd} = \sum_{i=1}^{N} \mathbf{v}_{cmd,i} \cdot \Delta t$$
+
+**Scale Factor Update**: Project innovation onto motion direction and compute correction:
+$$k_{correction} = \frac{\Delta_{innov} \cdot \hat{d}_{motion}}{|\Delta_{cmd}|}$$
+
+Where $\hat{d}_{motion}$ is the unit vector in the direction of commanded motion.
+
+**Exponential Moving Average Update**:
+$$k_{new} = (1 - \alpha) \cdot k_{old} + \alpha \cdot (k_{old} + k_{correction})$$
+
+With $\alpha = 0.1$ (learning rate) and $k$ clamped to $[0.5, 1.5]$.
+
+**Interpretation**: If the robot consistently moves less than commanded ($\epsilon < 0$ along motion), $k$ decreases. If it moves more ($\epsilon > 0$), $k$ increases.
+
+### Testing Auto-Calibration
+
+A **simulated velocity error** can be enabled for testing:
+```python
+self._simulated_velocity_error = 0.85  # Robot moves at 85% of commanded speed
+self._velocity_error_enabled = True
+```
+
+This applies a scaling factor to the actual velocity sent to the robot, while the estimator receives the original commanded velocity. The auto-calibration should learn to compensate by adjusting $k$ toward 0.85.
+
 ---
 
 ## 3. Two-Phase Estimation
@@ -239,14 +272,20 @@ $$\begin{pmatrix} v_x^{world} \\ v_y^{world} \end{pmatrix} = \begin{pmatrix} \co
 
 ```
 INITIALIZATION PHASE:
-1. Collect LIDAR points while robot is static
-2. Estimate room dimensions using OBB (Oriented Bounding Box)
-3. HIERARCHICAL POSE SEARCH:
+1. Collect LIDAR points while robot performs small exploration movements
+2. Exploration sequence helps escape local minima:
+   - First rotation sweep: ±23° (different wall angles)
+   - Small advance: 15cm (different distance to walls)
+   - Second rotation sweep: ±29° (more viewpoints)
+   - Return to start position
+3. Estimate room dimensions using OBB (Oriented Bounding Box)
+4. HIERARCHICAL POSE SEARCH:
    a. Level 1 (Coarse): 5×5 grid × 16 angles → Top-10 candidates
    b. Level 2 (Medium): ±0.2m × ±15° around Top-10 → Top-5 candidates
    c. Level 3 (Fine): Local optimization from Top-5 → Best pose
-4. Optimize s = (x, y, θ, W, L) starting from hierarchical best
-5. When SDF error < threshold, freeze (W, L) and switch to tracking
+5. Optimize s = (x, y, θ, W, L) starting from hierarchical best
+6. If SDF error > 0.2 after max iterations, restart search (up to 3 times)
+7. When SDF error < 0.10 AND uncertainty < 0.1, switch to tracking
 
 TRACKING PHASE (each timestep):
 1. PREDICT:
@@ -307,7 +346,8 @@ Where:
 |-----------|--------|-------|-------------|
 | SDF noise std | $\sigma_{sdf}$ | 0.15 m | Sensor noise + dynamic effects |
 | Process noise | $Q$ | diag(0.002, 0.002, 0.001) | Motion model uncertainty (base) |
-| Init threshold | - | 0.15 m | SDF error to switch to tracking |
+| Init threshold | - | 0.10 m | SDF error to switch to tracking (stricter) |
+| Max init restarts | - | 3 | Maximum restarts if init fails |
 | Adam lr (tracking) | - | 0.01 | Optimizer learning rate |
 | Min iterations | - | 25 | Minimum optimizer iterations |
 | Inlier threshold | - | 0.15 m | SDF threshold for inlier counting |
@@ -481,9 +521,11 @@ $$\sigma_{pos} = \sqrt{\sigma_x^2 + \sigma_y^2}$$
 $$f_{speed} = f_{min} + (1 - f_{min}) \cdot \exp(-\lambda \cdot \max(0, \sigma_{pos} - \tau))$$
 
 Where:
-- $f_{min} = 0.2$: Minimum speed factor (20% of commanded speed)
-- $\lambda = 10$: Uncertainty sensitivity
-- $\tau = 0.02$ m: Threshold below which no reduction occurs
+- $f_{min} = 0.3$: Minimum speed factor (30% of commanded speed)
+- $\lambda = 1.0$: Uncertainty sensitivity (reduced to avoid over-reaction)
+- $\tau = 0.2$ m: High threshold - only reduces speed when uncertainty > 20cm
+
+**Note**: The threshold is set high to avoid interfering with normal operation. The covariance naturally grows during prediction and shrinks during correction. Speed modulation should only activate when there's a genuine localization problem.
 
 ### Application to Velocity Commands
 

@@ -131,8 +131,8 @@ class RoomPoseEstimatorV2:
         # Initialization parameters
         self.init_buffer = []  # Collected LIDAR points
         self.min_points_for_init = 500  # Need more points for robust estimation
-        self.init_convergence_threshold = 0.15  # 15cm threshold - more permissive for static detection
-        self.max_init_iterations = 100  # Reduced for faster convergence with static robot
+        self.init_convergence_threshold = 0.10  # 10cm threshold - stricter for good initialization
+        self.max_init_iterations = 100  # Max iterations per search attempt
         self.init_iterations = 0
 
         # Tracking parameters - adjusted for meters
@@ -184,6 +184,21 @@ class RoomPoseEstimatorV2:
         self.min_tracking_steps_for_early_exit = 50  # Wait for room to stabilize
         self._tracking_step_count = 0  # Counter for tracking steps
 
+        # Velocity auto-calibration based on innovation
+        # If motion model consistently under/over-predicts, learn correction factor
+        self.velocity_calibration_enabled = True
+        self.velocity_scale_factor = 1.0  # Multiplicative correction: v_real = k * v_commanded
+        self._innovation_accumulator = np.zeros(3)  # Accumulated innovation [x, y, theta]
+        self._velocity_accumulator = np.zeros(3)    # Accumulated velocity * dt [vx*dt, vy*dt, omega*dt]
+        self._calibration_samples = 0               # Number of samples collected
+        self._calibration_window = 50               # Samples before updating calibration (reduced from 100)
+        self._calibration_learning_rate = 0.2       # How fast to adapt (increased from 0.1)
+        self._min_motion_for_calibration = 0.005    # Min displacement to count sample (m) (reduced from 0.01)
+
+        # Initialization state
+        self._hierarchical_search_done = False  # Track if hierarchical search has been performed
+        self._init_restart_count = 0  # Track number of restarts
+
         # Statistics
         self.stats = {
             'init_steps': 0,
@@ -191,7 +206,8 @@ class RoomPoseEstimatorV2:
             'pose_error_history': [],
             'iterations_used': [],  # Track actual iterations per step
             'prediction_early_exits': 0,  # Track prediction-based early exits
-            'frames_skipped': 0     # Track skipped frames
+            'frames_skipped': 0,     # Track skipped frames
+            'velocity_scale_history': []  # Track velocity calibration factor
         }
 
     def _subsample_lidar(self, points: torch.Tensor) -> torch.Tensor:
@@ -318,6 +334,86 @@ class RoomPoseEstimatorV2:
         self._current_velocity_weights = (1 - alpha) * self._current_velocity_weights + alpha * weights
 
         return self._current_velocity_weights.copy()
+
+    def _update_velocity_calibration(self, innovation: np.ndarray, commanded_displacement: np.ndarray):
+        """
+        Update velocity calibration factor based on accumulated innovation.
+
+        The innovation tells us how much the LIDAR-corrected pose differs from
+        the motion model prediction. If the robot consistently moves more/less
+        than predicted, we adjust the velocity scale factor.
+
+        Method:
+        - Accumulate innovation and commanded displacement over a window
+        - Compute ratio: actual_motion / predicted_motion
+        - Update scale factor with learning rate
+
+        Args:
+            innovation: [dx, dy, dtheta] difference between optimized and predicted pose
+            commanded_displacement: [dx, dy, dtheta] predicted displacement from velocity * dt
+        """
+        # Only calibrate when there's significant motion
+        displacement_magnitude = np.linalg.norm(commanded_displacement[:2])
+
+        # Debug: only print when there IS motion (to avoid spam when robot is static)
+        if displacement_magnitude >= self._min_motion_for_calibration:
+            if self._calibration_samples % 20 == 0:
+                print(f"[VelCal] Accumulating: disp={displacement_magnitude:.4f}m, "
+                      f"samples={self._calibration_samples}/{self._calibration_window}")
+
+        if displacement_magnitude < self._min_motion_for_calibration:
+            return
+            return
+            return
+
+        # Accumulate innovation and commanded motion
+        self._innovation_accumulator += innovation
+        self._velocity_accumulator += commanded_displacement
+        self._calibration_samples += 1
+
+        # Update calibration when window is full
+        if self._calibration_samples >= self._calibration_window:
+            # The innovation tells us: actual - predicted
+            # predicted = k_old * commanded
+            # actual = k_true * commanded
+            # innovation = (k_true - k_old) * commanded
+            # Therefore: k_true = k_old + innovation / commanded
+
+            accumulated_cmd_magnitude = np.linalg.norm(self._velocity_accumulator[:2])
+
+            if accumulated_cmd_magnitude > 0.05:  # Need significant motion to calibrate
+                # Project innovation onto direction of motion
+                motion_direction = self._velocity_accumulator[:2] / accumulated_cmd_magnitude
+                innovation_along_motion = np.dot(self._innovation_accumulator[:2], motion_direction)
+
+                # k_correction = innovation / commanded (both in same direction)
+                k_correction = innovation_along_motion / accumulated_cmd_magnitude
+
+                # New estimate of true scale factor
+                k_estimated = self.velocity_scale_factor + k_correction
+
+                # Clamp to reasonable range [0.5, 1.5]
+                k_estimated = np.clip(k_estimated, 0.5, 1.5)
+
+                # Update with learning rate (exponential moving average)
+                old_k = self.velocity_scale_factor
+                self.velocity_scale_factor = (
+                    (1 - self._calibration_learning_rate) * self.velocity_scale_factor +
+                    self._calibration_learning_rate * k_estimated
+                )
+
+                # Track history
+                self.stats['velocity_scale_history'].append(self.velocity_scale_factor)
+
+                # Print calibration update
+                print(f"[Velocity Calibration] k: {old_k:.3f} → {self.velocity_scale_factor:.3f} "
+                      f"(innov={innovation_along_motion:.4f}m, cmd={accumulated_cmd_magnitude:.4f}m, "
+                      f"corr={k_correction:+.3f})")
+
+            # Reset accumulators
+            self._innovation_accumulator = np.zeros(3)
+            self._velocity_accumulator = np.zeros(3)
+            self._calibration_samples = 0
 
 
     def sdf_rect(self,
@@ -974,12 +1070,50 @@ class RoomPoseEstimatorV2:
         self._last_sdf_error = mean_sdf_error  # Update for adaptive CPU
 
         # Check convergence (no ground truth available!)
-        # We can only check SDF error and iteration count
+        # We need GOOD SDF error to converge, not just iteration count
         room_error = (abs(self.belief.width - self.true_width) +
                       abs(self.belief.length - self.true_height)) / 2  # For reporting only
 
-        converged = (mean_sdf_error < self.init_convergence_threshold or
-                     self.init_iterations >= self.max_init_iterations)
+        # Compute pose uncertainty for convergence check
+        pose_uncertainty = self.belief.uncertainty()
+
+        # STRICT convergence criteria:
+        # 1. SDF error must be below threshold (good fit)
+        # 2. Pose uncertainty should be reasonable
+        sdf_good = mean_sdf_error < self.init_convergence_threshold  # < 0.15m
+        uncertainty_ok = pose_uncertainty < 0.1  # Reasonable uncertainty
+
+        # Only converge if quality is good enough
+        converged = sdf_good and uncertainty_ok
+
+        # If we've hit max iterations but haven't converged, try harder
+        if self.init_iterations >= self.max_init_iterations and not converged:
+            if mean_sdf_error > 0.2 and self._init_restart_count < 3:  # Very poor fit, allow up to 3 restarts
+                print(f"\n[ROOM ESTIMATION] WARNING: Max iterations reached with poor fit!")
+                print(f"  SDF error: {mean_sdf_error:.4f}m (threshold: {self.init_convergence_threshold}m)")
+                print(f"  Uncertainty: {pose_uncertainty:.4f}")
+                print(f"  Restart {self._init_restart_count + 1}/3: Restarting hierarchical search...")
+
+                # Reset and try again with fresh search
+                self.init_iterations = 0
+                self._hierarchical_search_done = False
+                self._init_restart_count += 1
+                return {
+                    'phase': 'init',
+                    'status': 'restarting',
+                    'iteration': self.init_iterations,
+                    'sdf_error': mean_sdf_error,
+                    'pose': self.belief.pose.copy(),
+                    'room_params': self.belief.room_params.copy(),
+                    'room_error': room_error,
+                    'belief_uncertainty': pose_uncertainty
+                }
+            else:
+                # Mediocre fit or max restarts reached - accept with warning
+                print(f"\n[ROOM ESTIMATION] WARNING: Converging with suboptimal fit")
+                print(f"  SDF error: {mean_sdf_error:.4f}m (threshold {self.init_convergence_threshold}m)")
+                print(f"  Restarts used: {self._init_restart_count}")
+                converged = True  # Accept anyway after max iterations/restarts
 
         if converged:
             self.phase = 'tracking'
@@ -1039,22 +1173,38 @@ class RoomPoseEstimatorV2:
             }
 
         # =====================================================================
-        # PREDICTION STEP: Motion model
+        # PREDICTION STEP: Motion model with velocity calibration
         # =====================================================================
         s_prev = np.array([self.belief.x, self.belief.y, self.belief.theta])
         Sigma_prev = self.belief.cov[:3, :3].copy()
 
+        # Apply velocity calibration factor (learned from innovation)
+        # v_calibrated = k * v_commanded
+        calibrated_velocity = robot_velocity * self.velocity_scale_factor
+        calibrated_angular = angular_velocity * self.velocity_scale_factor
+
         # Transform velocity from robot frame to world frame
         cos_theta = np.cos(s_prev[2])
         sin_theta = np.sin(s_prev[2])
-        vx_world = robot_velocity[0] * cos_theta - robot_velocity[1] * sin_theta
-        vy_world = robot_velocity[0] * sin_theta + robot_velocity[1] * cos_theta
+        vx_world = calibrated_velocity[0] * cos_theta - calibrated_velocity[1] * sin_theta
+        vy_world = calibrated_velocity[0] * sin_theta + calibrated_velocity[1] * cos_theta
+
+        # Store RAW commanded motion for calibration (without factor)
+        # This is what we COMMANDED, innovation tells us the error
+        # commanded_displacement = v_raw * dt (in world frame)
+        raw_vx_world = robot_velocity[0] * cos_theta - robot_velocity[1] * sin_theta
+        raw_vy_world = robot_velocity[0] * sin_theta + robot_velocity[1] * cos_theta
+        commanded_displacement = np.array([
+            raw_vx_world * dt,
+            raw_vy_world * dt,
+            angular_velocity * dt
+        ])
 
         # Predicted state from motion model
         s_pred = np.array([
             s_prev[0] + vx_world * dt,
             s_prev[1] + vy_world * dt,
-            s_prev[2] + angular_velocity * dt
+            s_prev[2] + calibrated_angular * dt
         ])
         s_pred[2] = np.arctan2(np.sin(s_pred[2]), np.cos(s_pred[2]))
 
@@ -1265,7 +1415,17 @@ class RoomPoseEstimatorV2:
         innovation = optimized_pose - s_pred
         innovation[2] = np.arctan2(np.sin(innovation[2]), np.cos(innovation[2]))
 
+        # =====================================================================
+        # VELOCITY AUTO-CALIBRATION
+        # If motion model consistently under/over-predicts, learn correction
+        # Innovation tells us: actual_displacement - predicted_displacement
+        # If innovation > 0 consistently → we're under-predicting → k should increase
+        # =====================================================================
+        if self.velocity_calibration_enabled:
+            self._update_velocity_calibration(innovation, commanded_displacement)
+
         # Mahalanobis distance of innovation (diagnostic: how many sigmas off was prediction)
+        innovation_mahal = np.sqrt(innovation @ np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)) @ innovation)
         innovation_mahal = np.sqrt(innovation @ np.linalg.inv(Sigma_pred + 1e-6 * np.eye(3)) @ innovation)
 
         # Diagnostic precision: indicates how well motion model predicted
@@ -1374,6 +1534,7 @@ class RoomPoseEstimatorV2:
             'iterations_used': iterations_used,
             'lidar_points_used': len(lidar_points),
             'velocity_weights': velocity_weights,  # [w_x, w_y, w_theta] velocity-adaptive weights
+            'velocity_scale': self.velocity_scale_factor,  # Calibrated velocity factor
             # Free Energy components
             'f_likelihood': final_f_likelihood,  # Accuracy term (SDF²)
             'f_prior': final_f_prior,            # Complexity term (motion model deviation)

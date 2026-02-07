@@ -172,18 +172,28 @@ class SpecificWorker(GenericWorker):
 
             # Uncertainty-based speed modulation parameters
             # Speed is reduced when pose uncertainty is high (precision-weighted action)
+            # NOTE: Only activate for VERY high uncertainty to avoid interfering with
+            # normal operation. The covariance naturally grows/shrinks during motion.
             self._speed_modulation_enabled = True
             self._min_speed_factor = 0.3       # Minimum speed factor (30% of commanded)
-            self._uncertainty_scale = 3.0      # Sensitivity to uncertainty (lower = less aggressive)
-            self._uncertainty_threshold = 0.05 # Below this, no reduction (meters)
+            self._uncertainty_scale = 1.0      # Reduced sensitivity (was 3.0)
+            self._uncertainty_threshold = 0.2  # Increased threshold (was 0.05) - only reduce if σ > 20cm
             self._current_speed_factor = 1.0   # Current speed modulation factor
-            self._speed_factor_smoothing = 0.2 # EMA smoothing factor (lower = smoother)
+            self._speed_factor_smoothing = 0.1 # Slower smoothing (was 0.2) for stability
 
             # Adaptive LIDAR subsampling (passed to proxy call)
             # 1 = no subsampling, 2 = one of two, 4 = one of four, etc.
             self._lidar_subsample_factor = 4  # Default value
             self._adaptive_lidar_enabled = True  # Enable adaptive subsampling
             self._last_vfe = 0.0  # Last VFE for adaptive decimation
+
+            # Simulated velocity error for testing auto-calibration
+            # Set to 1.0 for no error, <1.0 if robot moves slower than commanded,
+            # >1.0 if robot moves faster than commanded
+            # Example: 0.8 means robot moves at 80% of commanded speed
+            self._simulated_velocity_error = 0.85  # Robot moves at 85% of commanded speed
+            self._velocity_error_enabled = True   # Enable/disable simulated error
+            print(f"[VelError] Simulated velocity error ENABLED: robot moves at {self._simulated_velocity_error*100:.0f}% of commanded speed")
 
             # CPU monitoring
             self._process = psutil.Process(os.getpid())
@@ -498,6 +508,9 @@ class SpecificWorker(GenericWorker):
             f_prior = result.get('f_prior', 0.0)
             vfe = result.get('vfe', 0.0)
 
+            # Velocity calibration factor
+            velocity_scale = result.get('velocity_scale', self.room_estimator.velocity_scale_factor)
+
             # Store VFE for adaptive LIDAR decimation
             self._last_vfe = vfe
 
@@ -520,6 +533,7 @@ class SpecificWorker(GenericWorker):
                 f_prior=f_prior,
                 vfe=vfe,
                 speed_factor=self._current_speed_factor,
+                velocity_scale=velocity_scale,
                 cmd_vel=tuple(self.last_cmd)
             )
             self.viewer_subject.notify(viewer_data)
@@ -845,6 +859,42 @@ class SpecificWorker(GenericWorker):
         advx, advz, rot = cmd
         return (advx * factor, advz * factor, rot * factor)
 
+    def _apply_velocity_error(self, cmd: tuple) -> tuple:
+        """
+        Apply simulated velocity error to test auto-calibration.
+
+        This simulates a robot that moves slower/faster than commanded,
+        as if there were wheel slip or calibration errors.
+
+        The estimator receives the ORIGINAL commanded velocity but the
+        robot actually moves at a different speed. The auto-calibration
+        should learn to compensate for this difference.
+
+        Args:
+            cmd: (advx, advz, rot) velocity command
+
+        Returns:
+            (advx, advz, rot) with simulated error applied
+        """
+        if not self._velocity_error_enabled:
+            return cmd
+
+        advx, advz, rot = cmd
+        error_factor = self._simulated_velocity_error
+        return (advx * error_factor, advz * error_factor, rot * error_factor)
+
+    def _send_velocity_command(self, cmd: tuple):
+        """
+        Send velocity command to robot with simulated error.
+
+        This is the single point where commands are sent to the robot.
+        The simulated error is applied here so the estimator sees the
+        original commanded velocity but the robot moves differently.
+        """
+        # Apply simulated velocity error (robot moves at error_factor% of commanded)
+        cmd_with_error = self._apply_velocity_error(cmd)
+        self.omnirobot_proxy.setSpeedBase(*cmd_with_error)
+
     def _get_current_action_description(self) -> str:
         """Get a human-readable description of the current action being executed"""
         if not self._trajectory_initialized:
@@ -864,6 +914,10 @@ class SpecificWorker(GenericWorker):
         elif action_type == 'turn':
             direction = "left" if value > 0 else "right"
             return f"Turn {abs(value):.0f}° {direction} {progress}"
+        elif action_type == 'rotate':
+            direction = "left" if value > 0 else "right"
+            degrees = np.degrees(abs(value))
+            return f"Rotate {degrees:.0f}° {direction} {progress}"
         elif action_type == 'arc':
             return f"Arc {value:.1f}s {progress}"
         elif action_type == 'arc_right':
@@ -908,12 +962,31 @@ class SpecificWorker(GenericWorker):
         self.period_sec = self.Period / 1000.0
 
         if self.selected_plan == 0:
-            # Plan 0: Basic - Wait without moving for room detection
+            # Plan 0: Basic - Small exploration movements for better room detection
+            # Combines rotation and small translation to escape local minima
+            self.rotation_speed = 0.2  # Slow rotation for init
+            self.advance_speed = 100.0  # Slow advance for init (mm/s)
             self._trajectory = [
-                ('wait', 10.0),          # Wait 10 seconds for room detection
-                ('hold_for_tracking', 0),  # Wait until tracking mode, then hold
+                ('wait', 2.0),             # Initial wait for LIDAR data
+                ('rotate', 0.4),           # Small rotation left (~23°)
+                ('wait', 1.0),
+                ('rotate', -0.8),          # Rotation right (~46°, now 23° right of start)
+                ('wait', 1.0),
+                ('rotate', 0.4),           # Back to center
+                ('wait', 1.5),
+                ('forward', 0.15),         # Small advance (15cm)
+                ('wait', 1.0),
+                ('rotate', 0.5),           # Another small rotation left (~29°)
+                ('wait', 1.0),
+                ('rotate', -1.0),          # Rotation right (~57°)
+                ('wait', 1.0),
+                ('rotate', 0.5),           # Back to center
+                ('wait', 1.0),
+                ('backward', 0.15),        # Return to start position
+                ('wait', 2.0),             # Wait for convergence
+                ('hold_for_tracking', 0),  # Wait until tracking mode
             ]
-            print("[Explorer] Using Plan 0: Basic (Static detection)")
+            print("[Explorer] Using Plan 0: Basic (rotation + small advance for init)")
 
         elif self.selected_plan == 1:
             # Plan 1: Circle - Advance 0.75m, then complete circle
@@ -1085,6 +1158,10 @@ class SpecificWorker(GenericWorker):
             # Positive angle = left (positive rotation), negative = right
             rot_dir = 1 if value > 0 else -1
             cmd = (0, 0, rot_dir * self.rotation_speed)
+        elif action_type == 'rotate':
+            # Rotate by value radians (positive = left/CCW, negative = right/CW)
+            rot_dir = 1 if value > 0 else -1
+            cmd = (0, 0, rot_dir * self.rotation_speed)
         elif action_type == 'arc':
             # Circular arc: forward + rotation simultaneously (default left/CCW)
             cmd = (0, self.advance_speed, self.rotation_speed)
@@ -1117,7 +1194,8 @@ class SpecificWorker(GenericWorker):
         # Apply uncertainty-based speed modulation
         cmd = self._apply_speed_modulation(cmd)
 
-        self.omnirobot_proxy.setSpeedBase(*cmd)
+        # Send command with simulated velocity error
+        self._send_velocity_command(cmd)
         self._action_step += 1
 
         # Check if action complete
@@ -1137,6 +1215,10 @@ class SpecificWorker(GenericWorker):
             # value is angle in degrees
             angle_rad = abs(value) * np.pi / 180.0
             time_needed = angle_rad / self.rotation_speed
+            return int(time_needed / self.period_sec)
+        elif action_type == 'rotate':
+            # value is angle in radians
+            time_needed = abs(value) / self.rotation_speed
             return int(time_needed / self.period_sec)
         elif action_type in ('arc', 'arc_right', 'arc_left'):
             # value is duration in seconds
@@ -1198,7 +1280,7 @@ class SpecificWorker(GenericWorker):
                 rot = np.clip(angle_to_center * 1.5, -self.rotation_speed, self.rotation_speed)
                 cmd = (0, 0, rot)
                 cmd = self._apply_speed_modulation(cmd)
-                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._send_velocity_command(cmd)
                 self._action_step += 1
                 return cmd
             else:
@@ -1217,7 +1299,7 @@ class SpecificWorker(GenericWorker):
 
                 cmd = (0, speed, 0)
                 cmd = self._apply_speed_modulation(cmd)
-                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._send_velocity_command(cmd)
                 self._action_step += 1
                 return cmd
             else:
@@ -1253,7 +1335,7 @@ class SpecificWorker(GenericWorker):
 
                 cmd = (0, 0, rot)
                 cmd = self._apply_speed_modulation(cmd)
-                self.omnirobot_proxy.setSpeedBase(*cmd)
+                self._send_velocity_command(cmd)
                 self._action_step += 1
                 return cmd
             else:
@@ -1329,7 +1411,7 @@ class SpecificWorker(GenericWorker):
 
             cmd = (advx, advz, rot)
             cmd = self._apply_speed_modulation(cmd)
-            self.omnirobot_proxy.setSpeedBase(*cmd)
+            self._send_velocity_command(cmd)
             self._action_step += 1
             return cmd
 

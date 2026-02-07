@@ -69,6 +69,8 @@ class ViewerData:
     velocity_weights: np.ndarray = None  # [w_x, w_y, w_theta] velocity-based optimization weights
     # Uncertainty-based speed modulation
     speed_factor: float = 1.0          # Speed modulation factor based on uncertainty
+    # Velocity calibration
+    velocity_scale: float = 1.0        # Learned velocity calibration factor (k)
     # Commanded velocities
     cmd_adv_x: float = 0.0             # Commanded forward velocity (mm/s)
     cmd_adv_y: float = 0.0             # Commanded lateral velocity (mm/s)
@@ -370,6 +372,9 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("Speed:", color=(200, 200, 200))
                             dpg.add_text("100%", tag="speed_factor_text", color=(100, 255, 100))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Vel Cal:", color=(200, 200, 200))
+                            dpg.add_text("1.000", tag="velocity_scale_text", color=(100, 200, 255))
 
                     dpg.add_spacer(width=20)
 
@@ -775,6 +780,18 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("speed_factor_text", f"{speed_pct:.0f}%")
         dpg.configure_item("speed_factor_text", color=speed_color)
 
+        # Velocity calibration factor
+        # Green if close to 1.0 (0.95-1.05), yellow if moderate (0.8-1.2), orange if significant
+        vel_scale = data.velocity_scale
+        if 0.95 <= vel_scale <= 1.05:
+            vel_scale_color = (100, 255, 100)  # Good calibration
+        elif 0.8 <= vel_scale <= 1.2:
+            vel_scale_color = (255, 255, 100)  # Moderate correction
+        else:
+            vel_scale_color = (255, 150, 100)  # Significant correction needed
+        dpg.set_value("velocity_scale_text", f"{vel_scale:.3f}")
+        dpg.configure_item("velocity_scale_text", color=vel_scale_color)
+
         # Velocity-adaptive weights
         if data.velocity_weights is not None and len(data.velocity_weights) >= 3:
             w_x, w_y, w_theta = data.velocity_weights[:3]
@@ -878,6 +895,7 @@ def create_viewer_data(room_estimator,
                        f_prior: float = 0.0,
                        vfe: float = 0.0,
                        speed_factor: float = 1.0,
+                       velocity_scale: float = 1.0,
                        cmd_vel: tuple = (0.0, 0.0, 0.0)) -> ViewerData:
     """
     Create ViewerData from room estimator and ground truth.
@@ -898,6 +916,7 @@ def create_viewer_data(room_estimator,
         f_prior: F_prior term (motion model deviation = complexity)
         vfe: Variational Free Energy after optimization
         speed_factor: Uncertainty-based speed modulation factor
+        velocity_scale: Learned velocity calibration factor (k)
 
     Returns:
         ViewerData instance ready for the viewer
@@ -980,6 +999,9 @@ def create_viewer_data(room_estimator,
 
     # Speed modulation factor
     data.speed_factor = speed_factor
+
+    # Velocity calibration factor
+    data.velocity_scale = velocity_scale
 
     # Commanded velocities
     data.cmd_adv_x = cmd_vel[0]  # Forward velocity (mm/s)
