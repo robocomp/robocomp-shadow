@@ -401,7 +401,7 @@ class SpecificWorker(GenericWorker):
             y_mm = float(cy * 1000.0)
 
             # Find free position for visualization in graph canvas
-            pos_x, pos_y = self._find_free_canvas_position(belief_id)
+            pos_x, pos_y = self._find_free_canvas_position(belief_id, obj_type)
 
             # Create new node
             new_node = Node(self.g.get_agent_id(), obj_type, node_name)
@@ -473,22 +473,30 @@ class SpecificWorker(GenericWorker):
         except Exception as e:
             console.print(f"[red]Error updating DSR node pose: {e}")
 
-    def _find_free_canvas_position(self, belief_id: int) -> Tuple[float, float]:
-        """Find a free position in the graph canvas for a new node."""
-        # Place nodes in different quadrants based on belief_id
-        base_offset = 300
-        quadrants = [
-            (base_offset, base_offset),      # Q1: +x, +y
-            (-base_offset, base_offset),     # Q2: -x, +y
-            (-base_offset, -base_offset),    # Q3: -x, -y
-            (base_offset, -base_offset),     # Q4: +x, -y
-        ]
+    def _find_free_canvas_position(self, belief_id: int, obj_type: str) -> Tuple[float, float]:
+        """Find a free position in the graph canvas for a new node.
 
-        quadrant_idx = belief_id % 4
-        offset_multiplier = (belief_id // 4) + 1
+        Places detected objects (chair, table) in quadrants different from robot.
+        Robot is typically near center/room, so we place objects further away.
+        """
+        # Base offset - reduced to half for closer positioning
+        base_offset = 200
 
-        base_x, base_y = quadrants[quadrant_idx]
-        return (base_x * offset_multiplier, base_y * offset_multiplier)
+        # Different positions based on object type to avoid overlap
+        # Robot is typically near (0,0) or connected to room
+        # Place chairs and tables in different quadrants
+        type_offsets = {
+            'chair': (base_offset, -base_offset),      # Q4: +x, -y (bottom-right)
+            'table': (-base_offset, -base_offset),     # Q3: -x, -y (bottom-left)
+        }
+
+        # Get base position for this type, default to Q2 if unknown
+        base_x, base_y = type_offsets.get(obj_type, (-base_offset, base_offset))
+
+        # Add small offset based on belief_id to avoid stacking same-type objects
+        id_offset = belief_id * 40
+
+        return (base_x + id_offset, base_y)
 
     def startup_check(self):
         print(f"Testing RoboCompLidar3D.TPoint from ifaces.RoboCompLidar3D")

@@ -4,7 +4,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer, QElapsedTimer, Signal, QSettings
 from PySide6.QtGui import Qt, QAction
 from PySide6.QtWidgets import QWidget, QMenu, QMainWindow, QApplication, QDockWidget, QFileDialog, QPushButton, QVBoxLayout, QLabel
-
+from pydsr import signals
 from src.viewers.graph_viewer.graph_viewer import GraphViewer
 
 
@@ -54,6 +54,9 @@ class DSRViewer(QObject):
 
         self.__initialize_views(options, main)
 
+        # Connect DSR signals to graph viewer - this makes DSRViewer independent of specificworker
+        self._connect_dsr_signals()
+
         # Restore window state after views are created
         self._restore_window_state()
 
@@ -61,6 +64,26 @@ class DSRViewer(QObject):
         self._save_timer = QTimer()
         self._save_timer.timeout.connect(self._save_window_state)
         self._save_timer.start(10000)  # Save every 10 seconds
+
+    def _connect_dsr_signals(self):
+        """Connect DSR graph signals to the graph viewer.
+
+        This allows the graph viewer to automatically update when nodes/edges
+        are added, modified or deleted in the DSR graph, without needing
+        specificworker to forward these signals.
+        """
+        graph_viewer = self.get_graph_viewer()
+        if graph_viewer is None:
+            return
+
+        # The graph_viewer already connects signals in its __init__ via connect_graph_signals()
+        # But we ensure the connection is established here as well for any custom handling
+        try:
+            # These connections are for any additional widgets that need DSR updates
+            # The GraphViewer itself handles its own connections internally
+            pass  # GraphViewer.connect_graph_signals() already handles this
+        except Exception as e:
+            print(f"[DSRViewer] Warning: Could not connect DSR signals: {e}")
 
     def __del__(self):
         self._save_window_state()

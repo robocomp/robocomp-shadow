@@ -49,6 +49,14 @@ from src.objects.chair.sdf import (
     CHAIR_BACK_THICKNESS,
 )
 
+# Shared priors (inter-object and temporal smoothness)
+from src.objects.shared_priors import (
+    SharedPriorConfig,
+    DEFAULT_SHARED_PRIOR_CONFIG,
+    compute_overlap_prior,
+    compute_smoothness_prior,
+)
+
 # Shared constants
 SDF_SMOOTH_K = 0.02
 SDF_INSIDE_SCALE = 0.3

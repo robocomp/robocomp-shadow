@@ -20,6 +20,7 @@ Usage:
 
 import numpy as np
 import torch
+from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Type
 from scipy.optimize import linear_sum_assignment
 from rich.console import Console
@@ -36,8 +37,43 @@ from src.transforms import (
     transform_box_with_covariance
 )
 from src.object_sdf_prior import get_sdf_function
+from src.objects.shared_priors import (
+    SharedPriorConfig,
+    compute_overlap_prior,
+    compute_smoothness_prior
+)
 
 console = Console(highlight=False)
+
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+@dataclass
+class MultiModelManagerConfig:
+    """Configuration for MultiModelManager."""
+
+    # Clustering parameters
+    cluster_eps: float = 0.15                # DBSCAN eps parameter
+    min_cluster_points: int = 15             # Minimum points per cluster
+    wall_margin: float = 0.25                # Margin from walls to filter points
+    max_association_distance: float = 0.8    # Max distance for belief-cluster association
+
+    # Optimization parameters
+    optimization_iters: int = 10             # Number of optimization iterations
+    optimization_lr: float = 0.05            # Learning rate for gradient descent
+    grad_clip: float = 2.0                   # Gradient clipping value
+
+    # Early exit threshold
+    early_exit_sdf_threshold: float = 0.05   # Skip optimization if SDF error below this
+
+    # Shared prior configuration
+    shared_prior_config: SharedPriorConfig = field(default_factory=SharedPriorConfig)
+
+
+# Default configuration
+DEFAULT_MULTI_MODEL_CONFIG = MultiModelManagerConfig()
 
 
 class MultiModelManager:
@@ -81,20 +117,21 @@ class MultiModelManager:
         self.robot_pose = np.array([0.0, 0.0, 0.0])
         self.robot_cov = np.eye(3) * 0.01
 
-        # Clustering parameters (use from first model's config)
+        # Clustering parameters (use from first model's config or defaults)
         first_config = list(model_classes.values())[0][1]
-        self.cluster_eps = getattr(first_config, 'cluster_eps', 0.15)
-        self.min_cluster_points = getattr(first_config, 'min_cluster_points', 15)
-        self.wall_margin = getattr(first_config, 'wall_margin', 0.25)
-        self.max_association_distance = getattr(first_config, 'max_association_distance', 0.8)
+        self.cluster_eps = getattr(first_config, 'cluster_eps', DEFAULT_MULTI_MODEL_CONFIG.cluster_eps)
+        self.min_cluster_points = getattr(first_config, 'min_cluster_points', DEFAULT_MULTI_MODEL_CONFIG.min_cluster_points)
+        self.wall_margin = getattr(first_config, 'wall_margin', DEFAULT_MULTI_MODEL_CONFIG.wall_margin)
+        self.max_association_distance = getattr(first_config, 'max_association_distance', DEFAULT_MULTI_MODEL_CONFIG.max_association_distance)
 
-        # Optimization parameters
-        self.optimization_iters = 10  # Reduced for better performance
-        self.optimization_lr = 0.05
-        self.grad_clip = 2.0
+        # Optimization parameters (from default config)
+        self.optimization_iters = DEFAULT_MULTI_MODEL_CONFIG.optimization_iters
+        self.optimization_lr = DEFAULT_MULTI_MODEL_CONFIG.optimization_lr
+        self.grad_clip = DEFAULT_MULTI_MODEL_CONFIG.grad_clip
+        self.early_exit_sdf_threshold = DEFAULT_MULTI_MODEL_CONFIG.early_exit_sdf_threshold
 
-        # Early exit threshold - skip optimization if SDF error is below this
-        self.early_exit_sdf_threshold = 0.05  # Higher threshold for more early exits when stable
+        # Shared prior configuration (overlap + smoothness)
+        self.shared_prior_config = DEFAULT_MULTI_MODEL_CONFIG.shared_prior_config
 
         # Debug counters
         self._early_exits = 0
@@ -387,7 +424,7 @@ class MultiModelManager:
                 # Optimize this hypothesis
                 opt_mu, vfe = self._optimize_hypothesis(
                     all_pts, all_weights, belief_mu_robot, belief,
-                    model_type)
+                    model_type, belief_id=belief_id)
 
                 # Transform back to room frame and update
                 belief.mu = transform_object_to_room_frame(opt_mu, self.robot_pose)
@@ -410,9 +447,30 @@ class MultiModelManager:
                 vfe_info = ", ".join([f"{m}={h.current_vfe:.4f}" for m, h in multi_belief.hypotheses.items()])
                 console.print(f"[dim][VFE Debug] Belief {belief_id}: {vfe_info}[/dim]")
 
+    def _compute_overlap_prior(self, mu: torch.Tensor, current_belief_id: int) -> torch.Tensor:
+        """Compute non-overlap prior using shared module."""
+        return compute_overlap_prior(
+            mu=mu,
+            current_belief_id=current_belief_id,
+            beliefs=self.beliefs,
+            robot_pose=self.robot_pose,
+            robot_cov=self.robot_cov,
+            config=self.shared_prior_config
+        )
+
+    def _compute_smoothness_prior(self, mu: torch.Tensor, belief: Belief) -> torch.Tensor:
+        """Compute temporal smoothness prior using shared module."""
+        return compute_smoothness_prior(
+            mu=mu,
+            belief=belief,
+            robot_pose=self.robot_pose,
+            robot_cov=self.robot_cov,
+            config=self.shared_prior_config
+        )
+
     def _optimize_hypothesis(self, points: torch.Tensor, weights: Optional[torch.Tensor],
                              mu_robot: torch.Tensor, belief: Belief,
-                             model_type: str) -> Tuple[torch.Tensor, float]:
+                             model_type: str, belief_id: int = -1) -> Tuple[torch.Tensor, float]:
         """Optimize a single hypothesis and return (optimized_mu, VFE)."""
         if len(points) < 3:
             return mu_robot, float('inf')
@@ -432,11 +490,17 @@ class MultiModelManager:
             # Likelihood term
             weighted_likelihood = torch.sum(weights * sdf**2) / len(points)
 
-            # Prior term
+            # Model-specific prior term (size priors, angle alignment, etc.)
             prior_term = belief.compute_prior_term(mu, self.robot_pose)
 
-            # Total VFE
-            loss = weighted_likelihood + prior_term
+            # Non-overlap prior: objects should not occupy the same space
+            overlap_prior = self._compute_overlap_prior(mu, belief_id)
+
+            # Temporal smoothness prior: prevent large sudden changes
+            smoothness_prior = self._compute_smoothness_prior(mu, belief)
+
+            # Total VFE = likelihood + priors
+            loss = weighted_likelihood + prior_term + overlap_prior + smoothness_prior
             final_vfe = loss.item()
 
             if mu.grad is not None:

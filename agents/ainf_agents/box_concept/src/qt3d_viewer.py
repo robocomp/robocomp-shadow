@@ -765,6 +765,7 @@ class Qt3DObjectVisualizerWidget(QWidget):
         top_entity.addComponent(top_material)
 
         # ==================== BACKREST ====================
+        # Backrest is at POSITIVE Y (back of chair) - matches SDF convention
         back_mesh = Qt3DExtras.QCuboidMesh()
         back_mesh.setXExtent(seat_width)
         back_mesh.setYExtent(0.05)
@@ -772,7 +773,7 @@ class Qt3DObjectVisualizerWidget(QWidget):
 
         back_entity = Qt3DCore.QEntity(chair_entity)
         back_transform = Qt3DCore.QTransform()
-        back_transform.setTranslation(QVector3D(0, -seat_depth/2, seat_height + back_height/2))
+        back_transform.setTranslation(QVector3D(0, seat_depth/2, seat_height + back_height/2))
         back_entity.addComponent(back_mesh)
         back_entity.addComponent(back_transform)
         back_entity.addComponent(top_material)  # Same material as seat
@@ -853,10 +854,10 @@ class Qt3DObjectVisualizerWidget(QWidget):
         chair['seat_mesh'].setYExtent(seat_depth)
         chair['seat_transform'].setTranslation(QVector3D(0, 0, seat_height))
 
-        # Update backrest
+        # Update backrest - at POSITIVE Y (back of chair) - matches SDF convention
         chair['back_mesh'].setXExtent(seat_width)
         chair['back_mesh'].setZExtent(back_height)
-        chair['back_transform'].setTranslation(QVector3D(0, -seat_depth/2 + back_thickness/2,
+        chair['back_transform'].setTranslation(QVector3D(0, seat_depth/2 - back_thickness/2,
                                                           seat_height + seat_thickness/2 + back_height/2))
 
         # Update leg positions and sizes
@@ -1056,6 +1057,171 @@ class Qt3DObjectVisualizerWidget(QWidget):
     def get_widget(self):
         return self
 
+    # ==================== POINT CLOUD METHODS ====================
+
+    def _create_point_cloud(self, name: str, points: list, color: QColor, point_size: float = 0.02):
+        """Create or update a point cloud visualization using small spheres.
+
+        Args:
+            name: Unique name for this point cloud (e.g., 'cluster_points', 'historical_points')
+            points: List of (x, y, z) tuples or numpy array [N, 3]
+            color: Color for the points
+            point_size: Radius of each point sphere
+        """
+        if not self._initialized or len(points) == 0:
+            # Remove existing if no points
+            if name in self.scene_objects:
+                self.scene_objects[name]['entity'].setParent(None)
+                del self.scene_objects[name]
+            return
+
+        # Limit points for performance (max 500 points)
+        max_points = 500
+        if len(points) > max_points:
+            # Sample uniformly
+            import numpy as np
+            indices = np.linspace(0, len(points)-1, max_points, dtype=int)
+            points = [points[i] for i in indices]
+
+        key = name
+
+        if key not in self.scene_objects:
+            # Create parent entity for all points
+            parent_entity = Qt3DCore.QEntity(self.root_entity)
+
+            # Create shared material
+            material = Qt3DExtras.QPhongMaterial()
+            material.setDiffuse(color)
+            material.setAmbient(color.darker(150))
+
+            # Create individual sphere for each point
+            point_entities = []
+            for i, pt in enumerate(points):
+                sphere_entity = Qt3DCore.QEntity(parent_entity)
+
+                # Mesh
+                mesh = Qt3DExtras.QSphereMesh()
+                mesh.setRadius(point_size)
+                mesh.setRings(6)
+                mesh.setSlices(6)
+
+                # Transform
+                transform = Qt3DCore.QTransform()
+                transform.setTranslation(QVector3D(float(pt[0]), float(pt[1]), float(pt[2])))
+
+                sphere_entity.addComponent(mesh)
+                sphere_entity.addComponent(transform)
+                sphere_entity.addComponent(material)
+
+                point_entities.append({
+                    'entity': sphere_entity,
+                    'mesh': mesh,
+                    'transform': transform
+                })
+
+            self.scene_objects[key] = {
+                'entity': parent_entity,
+                'material': material,
+                'point_entities': point_entities,
+                'point_size': point_size
+            }
+        else:
+            # Update existing point cloud
+            obj = self.scene_objects[key]
+            parent_entity = obj['entity']
+            material = obj['material']
+            point_entities = obj['point_entities']
+
+            # Update material color if different
+            if material.diffuse() != color:
+                material.setDiffuse(color)
+                material.setAmbient(color.darker(150))
+
+            # Update or create point entities
+            for i, pt in enumerate(points):
+                if i < len(point_entities):
+                    # Update existing
+                    point_entities[i]['transform'].setTranslation(
+                        QVector3D(float(pt[0]), float(pt[1]), float(pt[2])))
+                    point_entities[i]['entity'].setEnabled(True)
+                else:
+                    # Create new
+                    sphere_entity = Qt3DCore.QEntity(parent_entity)
+
+                    mesh = Qt3DExtras.QSphereMesh()
+                    mesh.setRadius(point_size)
+                    mesh.setRings(6)
+                    mesh.setSlices(6)
+
+                    transform = Qt3DCore.QTransform()
+                    transform.setTranslation(QVector3D(float(pt[0]), float(pt[1]), float(pt[2])))
+
+                    sphere_entity.addComponent(mesh)
+                    sphere_entity.addComponent(transform)
+                    sphere_entity.addComponent(material)
+
+                    point_entities.append({
+                        'entity': sphere_entity,
+                        'mesh': mesh,
+                        'transform': transform
+                    })
+
+            # Disable extra entities
+            for i in range(len(points), len(point_entities)):
+                point_entities[i]['entity'].setEnabled(False)
+
+    def update_cluster_points(self, clusters: list):
+        """Update visualization of cluster points (current lidar points assigned to objects).
+
+        Args:
+            clusters: List of numpy arrays, each [N, 3] points for a cluster
+        """
+        if not self._initialized:
+            return
+
+        # Combine all cluster points
+        all_points = []
+        for cluster in clusters:
+            if cluster is not None and len(cluster) > 0:
+                for pt in cluster:
+                    all_points.append((float(pt[0]), float(pt[1]), float(pt[2])))
+
+        # Draw cluster points in green (reduced size: 0.025 -> 0.017)
+        self._create_point_cloud('cluster_points', all_points,
+                                  QColor(0, 255, 100), point_size=0.017)
+
+    def update_historical_points(self, historical_points):
+        """Update visualization of historical points.
+
+        Args:
+            historical_points: Dict[int, np.ndarray] where each value is [N, 3] or [N, 4] array
+                              OR list of dicts with 'points' key
+        """
+        if not self._initialized:
+            return
+
+        # Combine all historical points
+        all_points = []
+
+        if isinstance(historical_points, dict):
+            # Format: {belief_id: np.ndarray}
+            for bid, pts in historical_points.items():
+                if pts is not None and len(pts) > 0:
+                    for pt in pts:
+                        # Handle both [N, 3] and [N, 4] arrays
+                        all_points.append((float(pt[0]), float(pt[1]), float(pt[2])))
+        elif isinstance(historical_points, list):
+            # Format: list of dicts with 'points' key
+            for hp in historical_points:
+                pts = hp.get('points', [])
+                if len(pts) > 0:
+                    for pt in pts:
+                        all_points.append((float(pt[0]), float(pt[1]), float(pt[2])))
+
+        # Draw historical points in orange/yellow (reduced size: 0.02 -> 0.013)
+        self._create_point_cloud('historical_points', all_points,
+                                  QColor(255, 180, 50), point_size=0.013)
+
     def update(self, robot_pose=None, room_dims=None, beliefs=None, **kwargs):
         """Update visualization with new data."""
         if robot_pose is not None:
@@ -1067,6 +1233,15 @@ class Qt3DObjectVisualizerWidget(QWidget):
                 self.room_dims = new_dims
                 self._update_floor_size(new_dims[0], new_dims[1])
                 self._update_walls(new_dims[0], new_dims[1])
+
+        # Update point clouds
+        clusters = kwargs.get('clusters', None)
+        if clusters is not None and self._initialized:
+            self.update_cluster_points(clusters)
+
+        historical_points = kwargs.get('historical_points', None)
+        if historical_points is not None and self._initialized:
+            self.update_historical_points(historical_points)
 
         if beliefs is not None and self._initialized:
             # Track which IDs are active and their types/states

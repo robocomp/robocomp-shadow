@@ -74,7 +74,6 @@ class GraphViewer(AbstractGraphicViewer):
             py = random.uniform(-300, 300)
         gnode.setPos(float(px), float(py))
         # Try to add any edges from this node that aren't already in the viewer
-        print(f"Graph viewer: Node {node.name} has {len(node.edges)} edges")
         for edge in node.edges:
             key = (node.id, edge[0], edge[1])
             if key not in self.gmap_edges:
@@ -95,23 +94,17 @@ class GraphViewer(AbstractGraphicViewer):
                         # Save as pending edge to be added when nodes are available
                         if key not in self.pending_edges:
                             self.pending_edges.append(key)
-                            print(f"Graph viewer: Pending edge {mtype} added from {fr} to {to} (fr_in_gmap={fr_in_gmap}, to_in_gmap={to_in_gmap})")
                         return
                     source_node = self.gmap[fr]
                     destination_node = self.gmap[to]
                     item = GraphicsEdge(source_node, destination_node, mtype)
                     self.gmap_edges[key] = item
                     self.scene.addItem(item)
-                    print(f"Graph viewer: Edge {mtype} added successfully from {fr} to {to}")
-            else:
-                print(f"Graph viewer: Edge {mtype} from {fr} to {to} not found in DSR")
         except Exception as e:
             print("Graph viewer: Exception in add_or_assign_edge", fr, to, mtype, e)
 
     def _process_pending_edges(self):
         """Try to add pending edges that were waiting for nodes to be created."""
-        if self.pending_edges:
-            print(f"Graph viewer: Processing {len(self.pending_edges)} pending edges")
         still_pending = []
         for key in self.pending_edges:
             fr, to, mtype = key
@@ -128,15 +121,10 @@ class GraphViewer(AbstractGraphicViewer):
                             item = GraphicsEdge(source_node, destination_node, mtype)
                             self.gmap_edges[key] = item
                             self.scene.addItem(item)
-                            print(f"Graph viewer: *** RESOLVED pending edge {mtype} from {fr} to {to} ***")
-                        else:
-                            print(f"Graph viewer: Pending edge {mtype} from {fr} to {to} - edge not found in DSR anymore")
-                            # Don't keep it pending if it's gone from DSR
                     except Exception as e:
                         print(f"Graph viewer: Exception adding pending edge: {e}")
             else:
                 # Still waiting for nodes
-                print(f"Graph viewer: Edge {mtype} still pending (fr={fr} in_gmap={fr_in_gmap}, to={to} in_gmap={to_in_gmap})")
                 still_pending.append(key)
         self.pending_edges = still_pending
     def del_node_slot(self, id: int):
