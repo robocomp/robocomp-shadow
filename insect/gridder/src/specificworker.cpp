@@ -429,7 +429,7 @@ RoboCompGridder::Result SpecificWorker::Gridder_setLocationAndGetPath(RoboCompGr
     }
 
     //get paths
-    auto result = Gridder_getPaths_unlocked(source, target, 1, true, true);
+    auto result = Gridder_getPaths(source, target, 1, true, true);
     
     //restore submap
     grid.paste_submap(submap_copy);
