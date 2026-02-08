@@ -128,6 +128,7 @@ class SpecificWorker(GenericWorker):
             # DSR graph state
             self.room_node_inserted = False  # True once room node is in the graph
             self.room_node_id = 100          # ID for the room node
+            self.wall_node_ids = {}          # Dictionary of wall node IDs
 
             # Create room viewer with observer pattern
             self.viewer_subject = RoomSubject()
@@ -172,14 +173,14 @@ class SpecificWorker(GenericWorker):
 
             # Uncertainty-based speed modulation parameters
             # Speed is reduced when pose uncertainty is high (precision-weighted action)
-            # NOTE: Only activate for VERY high uncertainty to avoid interfering with
-            # normal operation. The covariance naturally grows/shrinks during motion.
-            self._speed_modulation_enabled = True
+            # NOTE: DISABLED by default - can cause robot to move too slowly
+            # Enable only if you need uncertainty-based speed reduction
+            self._speed_modulation_enabled = False  # DISABLED - was causing 51% speed issue
             self._min_speed_factor = 0.3       # Minimum speed factor (30% of commanded)
             self._uncertainty_scale = 1.0      # Reduced sensitivity (was 3.0)
             self._uncertainty_threshold = 0.2  # Increased threshold (was 0.05) - only reduce if σ > 20cm
             self._current_speed_factor = 1.0   # Current speed modulation factor
-            self._speed_factor_smoothing = 0.1 # Slower smoothing (was 0.2) for stability
+            self._speed_factor_smoothing = 0.3 # Faster smoothing for quicker recovery (was 0.1)
 
             # Adaptive LIDAR subsampling (passed to proxy call)
             # 1 = no subsampling, 2 = one of two, 4 = one of four, etc.
@@ -199,9 +200,10 @@ class SpecificWorker(GenericWorker):
             # Set to 1.0 for no error, <1.0 if robot moves slower than commanded,
             # >1.0 if robot moves faster than commanded
             # Example: 0.8 means robot moves at 80% of commanded speed
-            self._simulated_velocity_error = 0.85  # Robot moves at 85% of commanded speed
-            self._velocity_error_enabled = True   # Enable/disable simulated error
-            print(f"[VelError] Simulated velocity error ENABLED: robot moves at {self._simulated_velocity_error*100:.0f}% of commanded speed")
+            self._simulated_velocity_error = 1.0  # No error by default (was 0.85 for testing)
+            self._velocity_error_enabled = False  # Disabled by default
+            if self._velocity_error_enabled:
+                print(f"[VelError] Simulated velocity error ENABLED: robot moves at {self._simulated_velocity_error*100:.0f}% of commanded speed")
 
             # CPU monitoring
             self._process = psutil.Process(os.getpid())
@@ -1090,6 +1092,11 @@ class SpecificWorker(GenericWorker):
                 direction = "left" if value > 0 else "right"
                 print(f"  {i+1}. Turn {abs(value):.0f}° {direction}")
                 total_rotation += abs(value)
+            elif action_type == 'rotate':
+                direction = "left" if value > 0 else "right"
+                degrees = np.degrees(abs(value))
+                print(f"  {i+1}. Rotate {degrees:.0f}° {direction}")
+                total_rotation += degrees
             elif action_type == 'arc':
                 # Estimate rotation during arc (value is duration in seconds)
                 arc_rotation = np.degrees(self.rotation_speed * value)
@@ -1137,20 +1144,22 @@ class SpecificWorker(GenericWorker):
         action_type, value = self._trajectory[self._current_action_idx]
 
         # Check if we've converged to tracking during exploration movements
-        # If so, skip remaining exploration and go to hold_for_tracking
-        if action_type not in ('hold_for_tracking', 'statistics') and self.room_estimator.phase == 'tracking':
-            print(f"[Explorer] Room converged during exploration! Skipping remaining movements.")
-            # Find hold_for_tracking action or end
-            for i, (act, _) in enumerate(self._trajectory):
-                if act == 'hold_for_tracking':
-                    self._current_action_idx = i
-                    self._action_step = 0
-                    break
-            else:
-                # No hold_for_tracking found, complete trajectory
-                self._trajectory_complete = True
-            self.omnirobot_proxy.setSpeedBase(0, 0, 0)
-            return (0, 0, 0)
+        # ONLY for Plan 0 (Basic): skip remaining exploration and go to hold_for_tracking
+        # Other plans should continue executing to collect statistics
+        if self.selected_plan == 0:  # Only Plan 0 (Basic) skips on convergence
+            if action_type not in ('hold_for_tracking', 'statistics') and self.room_estimator.phase == 'tracking':
+                print(f"[Explorer] Room converged during exploration! Skipping remaining movements.")
+                # Find hold_for_tracking action or end
+                for i, (act, _) in enumerate(self._trajectory):
+                    if act == 'hold_for_tracking':
+                        self._current_action_idx = i
+                        self._action_step = 0
+                        break
+                else:
+                    # No hold_for_tracking found, complete trajectory
+                    self._trajectory_complete = True
+                self.omnirobot_proxy.setSpeedBase(0, 0, 0)
+                return (0, 0, 0)
 
         # Handle special action: hold_for_tracking
         if action_type == 'hold_for_tracking':
@@ -1581,6 +1590,9 @@ class SpecificWorker(GenericWorker):
             print(f"[DSR] Room node inserted with id={new_id}, "
                   f"size={belief.width:.2f}x{belief.length:.2f}m")
 
+            # Insert wall nodes (4 walls)
+            self._insert_wall_nodes(belief)
+
             # Update robot node: set parent to room
             robot_node = self.g.get_node("robot")
             if robot_node:
@@ -1592,6 +1604,122 @@ class SpecificWorker(GenericWorker):
             self._update_rt_edge(belief)
         else:
             print("[DSR] ERROR: Failed to insert room node")
+
+    def _insert_wall_nodes(self, belief):
+        """
+        Insert the four wall nodes into the DSR graph.
+
+        Each wall has its own reference frame:
+        - Y+ axis: Points outward (perpendicular to wall, away from room center)
+        - X+ axis: Along the wall, pointing to the next wall (counter-clockwise order)
+        - Origin: At the center of the wall
+
+        Wall layout (looking down at room, Y+ is forward, X+ is right):
+
+                    Wall 1 (front, Y+)
+                    ┌─────────────────┐
+                    │                 │
+            Wall 4  │     Room        │  Wall 2
+            (left)  │     Center      │  (right)
+                    │        ○        │
+                    │                 │
+                    └─────────────────┘
+                    Wall 3 (back, Y-)
+
+        Wall positions and orientations (in room frame):
+        - Wall 1: At y = +length/2, facing Y+ (outward), X+ points to +X (right)
+        - Wall 2: At x = +width/2, facing X+ (outward), X+ points to -Y (down)
+        - Wall 3: At y = -length/2, facing Y- (outward), X+ points to -X (left)
+        - Wall 4: At x = -width/2, facing X- (outward), X+ points to +Y (up)
+
+        RT edges: room → wall_i with translation and rotation
+        """
+        width_mm = belief.width * 1000   # Convert to mm
+        length_mm = belief.length * 1000  # Convert to mm
+
+        # Store wall node IDs
+        self.wall_node_ids = {}
+
+        # Wall definitions: (name, tx, ty, tz, rotation_z_rad)
+        # rotation_z is the angle from room frame to wall frame
+        # Wall frame: Y+ outward, X+ along wall toward next wall (CCW order: 1→2→3→4→1)
+        walls = [
+            # Wall 1: Front wall (Y+), at y=+length/2
+            # Y+ of wall = +Y of room (outward), X+ of wall = +X of room (right)
+            # Rotation: 0° from room frame
+            ("wall_1_front", 0, length_mm / 2, 0, 0.0),
+
+            # Wall 2: Right wall (X+), at x=+width/2
+            # Y+ of wall = +X of room (outward), X+ of wall = -Y of room (down)
+            # Rotation: -90° from room frame
+            ("wall_2_right", width_mm / 2, 0, 0, -np.pi / 2),
+
+            # Wall 3: Back wall (Y-), at y=-length/2
+            # Y+ of wall = -Y of room (outward), X+ of wall = -X of room (left)
+            # Rotation: 180° from room frame
+            ("wall_3_back", 0, -length_mm / 2, 0, np.pi),
+
+            # Wall 4: Left wall (X-), at x=-width/2
+            # Y+ of wall = -X of room (outward), X+ of wall = +Y of room (up)
+            # Rotation: +90° from room frame
+            ("wall_4_left", -width_mm / 2, 0, 0, np.pi / 2),
+        ]
+
+        # Wall dimensions (length along wall)
+        wall_lengths = [width_mm, length_mm, width_mm, length_mm]
+
+        # Visual positions for DSR canvas (fixed values for ~500x500 canvas)
+        # Walls are positioned at ±400 from center
+        visual_positions = [
+            (0, 400),      # Wall 1 (front): top
+            (400, 0),      # Wall 2 (right): right
+            (0, -400),     # Wall 3 (back): bottom
+            (-400, 0),     # Wall 4 (left): left
+        ]
+
+        for i, (wall_name, tx, ty, tz, rot_z) in enumerate(walls):
+            vis_x, vis_y = visual_positions[i]
+            # Create wall node
+            wall_node = Node(agent_id=self.agent_id, type="plane", name=wall_name)
+            wall_node.attrs["color"] = Attribute("LightBlue", self.agent_id)
+            wall_node.attrs["level"] = Attribute(1, self.agent_id)
+            # Visual position for DSR canvas (fixed values)
+            wall_node.attrs["pos_x"] = Attribute(float(vis_x), self.agent_id)
+            wall_node.attrs["pos_y"] = Attribute(float(vis_y), self.agent_id)
+            wall_node.attrs["parent"] = Attribute(int(self.room_node_id), self.agent_id)
+            # Store wall length as attribute
+            wall_node.attrs["plane_width"] = Attribute(float(wall_lengths[i]), self.agent_id)
+
+            # Insert wall node
+            wall_id = self.g.insert_node(wall_node)
+            if wall_id is not None:
+                self.wall_node_ids[wall_name] = wall_id
+
+                # Create RT edge: room → wall
+                rt_edge = Edge(self.room_node_id, wall_id, "RT", self.agent_id)
+
+                # Translation: position of wall center in room frame (mm)
+                translation = [float(tx), float(ty), float(tz)]
+                rt_edge.attrs["rt_translation"] = Attribute(translation, self.agent_id)
+
+                # Rotation: wall frame orientation relative to room frame
+                # Using Euler angles (rx, ry, rz) - only rz is non-zero for 2D rotation
+                rotation = [0.0, 0.0, float(rot_z)]
+                rt_edge.attrs["rt_rotation_euler_xyz"] = Attribute(rotation, self.agent_id)
+
+                # Very low covariance for walls (they are fixed relative to room)
+                # Covariance is 3x3 for [x, y, theta] - walls have near-zero uncertainty
+                wall_cov = [0.001, 0.0, 0.0,   # x variance = 1mm², no correlations
+                            0.0, 0.001, 0.0,   # y variance = 1mm²
+                            0.0, 0.0, 0.0001]  # theta variance ≈ 0.01 rad² ≈ 0.6°
+                rt_edge.attrs["rt_se2_covariance"] = Attribute(wall_cov, self.agent_id)
+
+                self.g.insert_or_assign_edge(rt_edge)
+
+                print(f"[DSR] Wall node '{wall_name}' inserted with id={wall_id}, "
+                      f"pos=({tx:.0f}, {ty:.0f})mm, rot={np.degrees(rot_z):.0f}°")
+            else:
+                print(f"[DSR] ERROR: Failed to insert wall node '{wall_name}'")
 
     def _update_rt_edge(self, belief):
         """
@@ -1719,20 +1847,55 @@ class SpecificWorker(GenericWorker):
     # =============== DSR SLOTS  ================
     # =============================================
 
+    def _refresh_dsr_viewer(self):
+        """Force DSR viewer to update after external changes."""
+        if hasattr(self, 'dsr_viewer') and self.dsr_viewer is not None:
+            self.dsr_viewer.last_update_time = 0  # Force immediate update
+
     def update_node_att(self, id: int, attribute_names: [str]):
-        pass
+        """
+        Called when attributes of a node are updated by another agent.
+        """
+        self._refresh_dsr_viewer()
 
     def update_node(self, id: int, type: str):
-        pass
+        """
+        Called when a node is inserted or significantly updated.
+        """
+        self._refresh_dsr_viewer()
 
     def delete_node(self, id: int):
-        pass
+        """
+        Called when a node is deleted from the graph.
+        """
+        # Check if our room node was deleted
+        if id == self.room_node_id:
+            print(f"[DSR] WARNING: Room node was deleted externally!")
+            self.room_node_inserted = False
+            self.room_node_id = 100
+
+        # Check if a wall node was deleted
+        for wall_name, wall_id in list(self.wall_node_ids.items()):
+            if id == wall_id:
+                print(f"[DSR] WARNING: Wall node '{wall_name}' was deleted externally!")
+                del self.wall_node_ids[wall_name]
+
+        self._refresh_dsr_viewer()
 
     def update_edge(self, fr: int, to: int, type: str):
-        pass
+        """
+        Called when an edge is inserted or updated.
+        """
+        self._refresh_dsr_viewer()
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
-        pass
+        """
+        Called when edge attributes are updated.
+        """
+        self._refresh_dsr_viewer()
 
     def delete_edge(self, fr: int, to: int, type: str):
-        pass
+        """
+        Called when an edge is deleted.
+        """
+        self._refresh_dsr_viewer()

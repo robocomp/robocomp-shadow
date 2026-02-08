@@ -54,10 +54,12 @@ class RoomBelief:
 
     def __post_init__(self):
         if self.cov is None:
-            # High initial uncertainty reflecting Gaussian prior on room dimensions
-            # Pose uncertainty: [x, y, theta] - in meters and radians
-            # Room uncertainty: [width, length] with std ~0.5m (50cm)
-            self.cov = np.diag([2.0, 2.0, 1.0, 0.25, 0.25])  # 0.5^2 = 0.25
+            # Initial covariance after hierarchical search
+            # Values are VARIANCES (σ²), not standard deviations (σ)
+            # Position: σ² = 0.01 (σ = 10cm)
+            # Theta: σ² = 0.01 (σ ≈ 6°)
+            # Room: σ² = 0.01 (σ = 10cm)
+            self.cov = np.diag([0.01, 0.01, 0.01, 0.01, 0.01])
 
     @property
     def pose(self) -> np.ndarray:
@@ -903,11 +905,17 @@ class RoomPoseEstimatorV2:
                 length=est_height
             )
 
-            # Set covariance reflecting uncertainty
+            # Set covariance reflecting uncertainty from hierarchical search
+            # The hierarchical search already found a good pose, so initial uncertainty
+            # should be moderate (not huge).
+            # σ = 0.1m (10cm) → σ² = 0.01
+            # Note: This will be further refined during the init optimization phase.
+            initial_pos_var = 0.01  # σ² for 10cm std after hierarchical search
+            initial_theta_var = min(theta_var, 0.1)  # Cap theta variance
             self.belief.cov = np.diag([
-                1.0,        # x position uncertainty (1m std)
-                1.0,        # y position uncertainty (1m std)
-                theta_var,  # theta uncertainty
+                initial_pos_var,    # x position variance (σ² = 0.01 → σ = 10cm)
+                initial_pos_var,    # y position variance (σ² = 0.01 → σ = 10cm)
+                initial_theta_var,  # theta variance (capped)
                 width_var,
                 height_var
             ])
@@ -1080,8 +1088,8 @@ class RoomPoseEstimatorV2:
         # STRICT convergence criteria:
         # 1. SDF error must be below threshold (good fit)
         # 2. Pose uncertainty should be reasonable
-        sdf_good = mean_sdf_error < self.init_convergence_threshold  # < 0.15m
-        uncertainty_ok = pose_uncertainty < 0.1  # Reasonable uncertainty
+        sdf_good = mean_sdf_error < self.init_convergence_threshold  # < 0.10m
+        uncertainty_ok = pose_uncertainty < 0.3  # Reasonable uncertainty (trace of 3x3 cov)
 
         # Only converge if quality is good enough
         converged = sdf_good and uncertainty_ok
@@ -1098,13 +1106,15 @@ class RoomPoseEstimatorV2:
                 self.init_iterations = 0
                 self._hierarchical_search_done = False
                 self._init_restart_count += 1
+                self.init_buffer = []  # Clear buffer to get fresh points
+                self.belief = None     # Reset belief to force new initialization
                 return {
                     'phase': 'init',
                     'status': 'restarting',
                     'iteration': self.init_iterations,
                     'sdf_error': mean_sdf_error,
-                    'pose': self.belief.pose.copy(),
-                    'room_params': self.belief.room_params.copy(),
+                    'pose': np.zeros(3),
+                    'room_params': np.array([6.0, 4.0]),
                     'room_error': room_error,
                     'belief_uncertainty': pose_uncertainty
                 }

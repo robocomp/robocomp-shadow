@@ -256,7 +256,7 @@ class DSRGraphViewerDPG:
             nodes = self._get_all_nodes()
             if not nodes:
                 dpg.draw_text((10, 10), "No nodes in graph yet",
-                              parent=self.canvas_tag, color=(255, 255, 255))
+                              parent=self.canvas_tag, color=(255, 255, 0))
                 return
 
             node_map = {}
@@ -332,7 +332,7 @@ class DSRGraphViewerDPG:
                             parent=self.canvas_tag)
             label = f"{node_name}\n({node_type})"
             dpg.draw_text((x - 20, y - 8), label,
-                          parent=self.canvas_tag, color=(255, 255, 255), size=10)
+                          parent=self.canvas_tag, color=(255, 255, 0), size=12)
 
             # Cache node data as plain Python dict (no pydsr references)
             node_data = self._extract_node_data(node)
@@ -365,7 +365,7 @@ class DSRGraphViewerDPG:
             mid_x = (x1 + x2) / 2
             mid_y = (y1 + y2) / 2
             dpg.draw_text((mid_x, mid_y), edge_type,
-                          parent=self.canvas_tag, color=color, size=10)
+                          parent=self.canvas_tag, color=(0, 255, 255), size=12)
 
             # Cache edge data as plain Python dict (no pydsr references)
             edge_data = self._extract_edge_data(edge_obj, origin_name, dest_name)

@@ -23,6 +23,33 @@ Where:
 - **Robot frame**: 
   - $X$-axis: Right
   - $Y$-axis: Forward (direction robot is facing)
+- **Wall frames**: Each wall has its own reference frame
+  - $Y$-axis: Points outward (perpendicular to wall, away from room center)
+  - $X$-axis: Along the wall, pointing to next wall (counter-clockwise order)
+  - Origin: At the center of the wall
+
+### Wall Layout and Reference Frames
+
+```
+              Wall 1 (front, y=+L/2)
+              Y+ outward (up), X+ points right
+              ┌─────────────────┐
+              │        ↑        │
+      Wall 4  │   ↑    │        │  Wall 2
+      (left)  │        ○    ↓   │  (right)
+    x=-W/2    │   room center   │  x=+W/2
+              │                 │
+              └─────────────────┘
+              Wall 3 (back, y=-L/2)
+              Y+ outward (down), X+ points left
+```
+
+| Wall | Position | Y+ Direction | X+ Direction | Rotation (from room) |
+|------|----------|--------------|--------------|---------------------|
+| 1 (front) | y = +L/2 | +Y (outward) | +X (right) | 0° |
+| 2 (right) | x = +W/2 | +X (outward) | -Y (down) | -90° |
+| 3 (back) | y = -L/2 | -Y (outward) | -X (left) | 180° |
+| 4 (left) | x = -W/2 | -X (outward) | +Y (up) | +90° |
 
 ---
 
@@ -503,7 +530,9 @@ This **action-conditional precision** allows the agent to adaptively weight pred
 
 ## 9. Uncertainty-Based Speed Modulation
 
-The robot's velocity is modulated based on pose uncertainty, implementing **precision-weighted action** from Active Inference.
+**Note**: This feature is **disabled by default** (`_speed_modulation_enabled = False`) as the covariance naturally oscillates during normal operation, which can cause unnecessary speed reduction.
+
+The robot's velocity can be modulated based on pose uncertainty, implementing **precision-weighted action** from Active Inference.
 
 ### Motivation
 

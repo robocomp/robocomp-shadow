@@ -60,6 +60,7 @@ class ViewerData:
     gt_room_length: float = 4.0    # GT room length (meters)
     # Pose covariance for uncertainty ellipse (2x2 for x,y)
     pose_covariance: np.ndarray = None  # 2x2 covariance matrix [x,y]
+    pose_covariance_full: np.ndarray = None  # 3x3 covariance matrix [x,y,theta]
     # CPU/Performance stats
     lidar_subsample_factor: int = 1    # Current LIDAR subsampling factor
     optimizer_iterations: int = 0       # Iterations used in optimizer
@@ -85,6 +86,8 @@ class ViewerData:
             self.room = RoomState()
         if self.pose_covariance is None:
             self.pose_covariance = np.eye(2) * 0.01  # Default small covariance
+        if self.pose_covariance_full is None:
+            self.pose_covariance_full = np.eye(3) * 0.01  # Default small covariance 3x3
         if self.velocity_weights is None:
             self.velocity_weights = np.array([1.0, 1.0, 1.0])  # Default uniform weights
 
@@ -302,6 +305,18 @@ class RoomViewerDPG(RoomObserver):
                         with dpg.group(horizontal=True):
                             dpg.add_text("SDF:", color=(200, 200, 200))
                             dpg.add_text("0.000 m", tag="sdf_error_text")
+
+                    dpg.add_spacer(width=20)
+
+                    # Column 6: Pose Covariance
+                    with dpg.group():
+                        dpg.add_text("POSE COV (σ)", color=(255, 180, 100))
+                        dpg.add_text("σx: 0.000 m", tag="pose_cov_x_text")
+                        dpg.add_text("σy: 0.000 m", tag="pose_cov_y_text")
+                        dpg.add_text("σθ: 0.0°", tag="pose_cov_theta_text")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("σpos:", color=(200, 200, 200))
+                            dpg.add_text("0.000 m", tag="pose_cov_total_text")
 
                 dpg.add_separator()
 
@@ -751,6 +766,34 @@ class RoomViewerDPG(RoomObserver):
         dpg.set_value("sdf_error_text", f"{data.sdf_error:.3f} m")
         dpg.configure_item("sdf_error_text", color=sdf_err_color)
 
+        # Pose Covariance (standard deviations)
+        try:
+            if data.pose_covariance is not None:
+                sigma_x = np.sqrt(max(0, data.pose_covariance[0, 0]))
+                sigma_y = np.sqrt(max(0, data.pose_covariance[1, 1]))
+                sigma_pos = np.sqrt(sigma_x**2 + sigma_y**2)
+
+                # Color: green if low (<5cm), yellow if medium (<15cm), orange if high
+                cov_x_color = (100, 255, 100) if sigma_x < 0.05 else (255, 255, 100) if sigma_x < 0.15 else (255, 150, 100)
+                cov_y_color = (100, 255, 100) if sigma_y < 0.05 else (255, 255, 100) if sigma_y < 0.15 else (255, 150, 100)
+                cov_pos_color = (100, 255, 100) if sigma_pos < 0.07 else (255, 255, 100) if sigma_pos < 0.2 else (255, 150, 100)
+
+                dpg.set_value("pose_cov_x_text", f"σx: {sigma_x:.3f} m")
+                dpg.configure_item("pose_cov_x_text", color=cov_x_color)
+                dpg.set_value("pose_cov_y_text", f"σy: {sigma_y:.3f} m")
+                dpg.configure_item("pose_cov_y_text", color=cov_y_color)
+                dpg.set_value("pose_cov_total_text", f"{sigma_pos:.3f} m")
+                dpg.configure_item("pose_cov_total_text", color=cov_pos_color)
+
+            if data.pose_covariance_full is not None:
+                sigma_theta = np.sqrt(max(0, data.pose_covariance_full[2, 2]))
+                sigma_theta_deg = np.degrees(sigma_theta)
+                cov_theta_color = (100, 255, 100) if sigma_theta_deg < 2 else (255, 255, 100) if sigma_theta_deg < 5 else (255, 150, 100)
+                dpg.set_value("pose_cov_theta_text", f"σθ: {sigma_theta_deg:.1f}°")
+                dpg.configure_item("pose_cov_theta_text", color=cov_theta_color)
+        except Exception:
+            pass  # Ignore errors in covariance display
+
         # CPU Stats
         # Subsample factor with color coding (higher = more efficient)
         subsample_color = (100, 255, 100) if data.lidar_subsample_factor >= 4 else (255, 255, 100) if data.lidar_subsample_factor >= 2 else (200, 200, 200)
@@ -948,12 +991,16 @@ def create_viewer_data(room_estimator,
         # Get pose covariance (2x2 submatrix for x,y)
         if hasattr(room_estimator.belief, 'pose_cov'):
             data.pose_covariance = room_estimator.belief.pose_cov[:2, :2].copy()
+            data.pose_covariance_full = room_estimator.belief.pose_cov[:3, :3].copy()
     else:
         data.estimated_pose = RobotState()
         data.room = RoomState(
             width=room_estimator.true_width,
             length=room_estimator.true_height
         )
+        # Default high covariance when no belief yet
+        data.pose_covariance = np.eye(2) * 1.0  # 1m² variance
+        data.pose_covariance_full = np.eye(3) * 1.0
 
     # LIDAR points
     data.lidar_points = lidar_points
