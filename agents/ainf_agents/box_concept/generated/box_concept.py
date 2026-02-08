@@ -88,6 +88,13 @@ from PySide6 import QtWidgets
 
 #SIGNALS handler
 def sigint_handler(*args):
+    global worker
+    print("\n[SIGINT] Shutting down gracefully...")
+    try:
+        if 'worker' in globals() and worker:
+            worker.cleanup()
+    except Exception as e:
+        print(f"[SIGINT] Cleanup error: {e}")
     QtCore.QCoreApplication.quit()
 
 
@@ -101,6 +108,7 @@ if __name__ == '__main__':
     configData = ConfigLoader.load_config(args.configfile)
     interface_manager = interfaces.InterfaceManager(configData)
 
+    worker = None
     if interface_manager.status == 0:
         worker = SpecificWorker(interface_manager.get_proxies_map(), configData, args.startup_check)
         if hasattr(worker, "setParams"): worker.setParams(configData)
@@ -111,4 +119,8 @@ if __name__ == '__main__':
     interface_manager.set_default_hanlder(worker, configData)
     signal.signal(signal.SIGINT, sigint_handler)
     app.exec()
+
+    # Cleanup after event loop ends
+    if worker:
+        worker.cleanup()
     interface_manager.destroy()

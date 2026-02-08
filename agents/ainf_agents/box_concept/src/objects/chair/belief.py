@@ -38,9 +38,9 @@ class ChairBeliefConfig(BeliefConfig):
     prior_size_std: float = 0.05      # Reduced variance (tighter prior)
     min_aspect_ratio: float = 0.7     # Chairs are more square than tables
 
-    # Size limits for chairs (override base class)
-    min_size: float = 0.30            # Chairs are at least 30cm
-    max_size: float = 0.60            # Chairs are at most 60cm (larger is likely a table)
+    # Size limits for chairs - allow overlap with tables, let VFE decide
+    min_size: float = 0.25            # Chairs are at least 25cm
+    max_size: float = 0.85            # Allow larger to let BMS work
 
     # Clustering
     cluster_eps: float = 0.20         # Tighter clustering for smaller objects
@@ -141,11 +141,9 @@ class ChairBelief(Belief):
         """
         Compute chair-specific prior energy term.
 
-        Since the chair is static, the prior is simply that the state should not
-        change much from the previous estimate. This acts as a soft regularizer.
-
-        From OBJECT_INFERENCE_MATH.md:
-        F_prior = (λ/2) × ||s - s_prev||²
+        Includes:
+        1. State transition prior: state should not change much (static object)
+        2. Size prior: dimensions should be close to typical chair size
 
         Args:
             mu: Current state estimate [7] in robot frame
@@ -154,37 +152,54 @@ class ChairBelief(Belief):
         Returns:
             Prior energy term (scalar tensor)
         """
-        if self.mu is None or robot_pose is None:
-            return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
-
-        # Import here to avoid circular imports
-        from src.transforms import transform_object_to_robot_frame
-
-        # Transform self.mu (room frame) to robot frame for comparison
-        mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+        total_prior = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
 
         # =================================================================
-        # STATE PRIOR: penalize deviation from previous state (static object)
-        # Increased from 0.01/0.005 to 0.05/0.02 (2026-02-06)
+        # SIZE PRIOR: penalize deviation from typical chair dimensions
+        # This helps differentiate chairs from tables in model selection
         # =================================================================
-        lambda_pos = 0.05     # Position regularization
-        lambda_size = 0.02    # Size regularization
-        lambda_angle = 0.01   # Angle regularization (very weak)
+        lambda_size_prior = 0.5  # Weight for size prior
 
-        # Position difference (cx, cy)
-        diff_pos = mu[:2] - mu_prev_robot[:2]
-        prior_pos = lambda_pos * torch.sum(diff_pos ** 2)
+        # Typical chair dimensions from config
+        prior_seat_w = self.config.prior_seat_width   # ~0.42m
+        prior_seat_d = self.config.prior_seat_depth   # ~0.42m
+        prior_seat_h = self.config.prior_seat_height  # ~0.45m
+        prior_back_h = self.config.prior_back_height  # ~0.35m
+        size_std = self.config.prior_size_std         # ~0.05m
 
-        # Size differences (seat_w, seat_d, seat_h, back_h)
-        diff_size = mu[2:6] - mu_prev_robot[2:6]
-        prior_size = lambda_size * torch.sum(diff_size ** 2)
+        # mu: [cx, cy, seat_w, seat_d, seat_h, back_h, theta]
+        size_diff = torch.tensor([
+            (mu[2].item() - prior_seat_w) / size_std,  # seat_w
+            (mu[3].item() - prior_seat_d) / size_std,  # seat_d
+            (mu[4].item() - prior_seat_h) / size_std,  # seat_h
+            (mu[5].item() - prior_back_h) / size_std,  # back_h
+        ], dtype=mu.dtype, device=mu.device)
 
-        # Angle difference (normalized to [-pi, pi])
-        diff_angle = mu[6] - mu_prev_robot[6]
-        diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
-        prior_angle = lambda_angle * (diff_angle ** 2)
+        total_prior += lambda_size_prior * torch.sum(size_diff ** 2)
 
-        total_prior = prior_pos + prior_size + prior_angle
+        # =================================================================
+        # STATE TRANSITION PRIOR: penalize deviation from previous state
+        # =================================================================
+        if self.mu is not None and robot_pose is not None:
+            from src.transforms import transform_object_to_robot_frame
+            mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+
+            lambda_pos = 0.05     # Position regularization
+            lambda_state = 0.02   # Size state regularization
+            lambda_angle = 0.01   # Angle regularization
+
+            # Position difference
+            diff_pos = mu[:2] - mu_prev_robot[:2]
+            total_prior += lambda_pos * torch.sum(diff_pos ** 2)
+
+            # Size state differences
+            diff_size = mu[2:6] - mu_prev_robot[2:6]
+            total_prior += lambda_state * torch.sum(diff_size ** 2)
+
+            # Angle difference
+            diff_angle = mu[6] - mu_prev_robot[6]
+            diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
+            total_prior += lambda_angle * (diff_angle ** 2)
 
         return total_prior
 
@@ -261,7 +276,6 @@ class ChairBelief(Belief):
                 best_sdf = mean_sdf_sq
                 best_angle = test_angle
 
-        print(f"[INIT] Tested 8 angles: best={np.degrees(best_angle):.0f}° (SDF²={best_sdf:.6f})")
 
         # Create state vector (7 parameters)
         mu = torch.tensor([cx, cy, seat_w, seat_d, seat_h, back_h, best_angle],

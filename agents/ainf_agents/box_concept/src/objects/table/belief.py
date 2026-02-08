@@ -128,11 +128,9 @@ class TableBelief(Belief):
         """
         Compute table-specific prior energy term.
 
-        Since the table is static, the prior is simply that the state should not
-        change much from the previous estimate. This acts as a soft regularizer.
-
-        From OBJECT_INFERENCE_MATH.md:
-        F_prior = (λ/2) × ||s - s_prev||²
+        Includes:
+        1. State transition prior: state should not change much (static object)
+        2. Size prior: dimensions should be close to typical table size
 
         Args:
             mu: Current state estimate [7] in robot frame
@@ -141,37 +139,52 @@ class TableBelief(Belief):
         Returns:
             Prior energy term (scalar tensor)
         """
-        if self.mu is None or robot_pose is None:
-            return torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
-
-        # Import here to avoid circular imports
-        from src.transforms import transform_object_to_robot_frame
-
-        # Transform self.mu (room frame) to robot frame for comparison
-        mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+        total_prior = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
 
         # =================================================================
-        # STATE PRIOR: penalize deviation from previous state (static object)
-        # Increased from 0.01/0.005 to 0.05/0.02 (2026-02-06)
+        # SIZE PRIOR: penalize deviation from typical table dimensions
+        # This helps differentiate tables from chairs in model selection
         # =================================================================
-        lambda_pos = 0.05     # Position regularization
-        lambda_size = 0.02    # Size regularization
-        lambda_angle = 0.01   # Angle regularization (very weak)
+        lambda_size_prior = 0.5  # Weight for size prior
 
-        # Position difference (cx, cy)
-        diff_pos = mu[:2] - mu_prev_robot[:2]
-        prior_pos = lambda_pos * torch.sum(diff_pos ** 2)
+        # Typical table dimensions from config
+        prior_w = self.config.prior_table_width    # ~1.0m
+        prior_d = self.config.prior_table_depth    # ~0.6m
+        prior_h = self.config.prior_table_height   # ~0.75m
+        size_std = self.config.prior_size_std      # ~0.15m
 
-        # Size differences (w, h, table_height, leg_length)
-        diff_size = mu[2:6] - mu_prev_robot[2:6]
-        prior_size = lambda_size * torch.sum(diff_size ** 2)
+        # mu: [cx, cy, w, h, table_height, leg_length, theta]
+        size_diff = torch.tensor([
+            (mu[2].item() - prior_w) / size_std,   # width
+            (mu[3].item() - prior_d) / size_std,   # depth
+            (mu[4].item() - prior_h) / size_std,   # table_height
+        ], dtype=mu.dtype, device=mu.device)
 
-        # Angle difference (normalized to [-pi, pi])
-        diff_angle = mu[6] - mu_prev_robot[6]
-        diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
-        prior_angle = lambda_angle * (diff_angle ** 2)
+        total_prior += lambda_size_prior * torch.sum(size_diff ** 2)
 
-        total_prior = prior_pos + prior_size + prior_angle
+        # =================================================================
+        # STATE TRANSITION PRIOR: penalize deviation from previous state
+        # =================================================================
+        if self.mu is not None and robot_pose is not None:
+            from src.transforms import transform_object_to_robot_frame
+            mu_prev_robot = transform_object_to_robot_frame(self.mu, robot_pose)
+
+            lambda_pos = 0.05     # Position regularization
+            lambda_state = 0.02   # Size state regularization
+            lambda_angle = 0.01   # Angle regularization
+
+            # Position difference
+            diff_pos = mu[:2] - mu_prev_robot[:2]
+            total_prior += lambda_pos * torch.sum(diff_pos ** 2)
+
+            # Size state differences
+            diff_size = mu[2:6] - mu_prev_robot[2:6]
+            total_prior += lambda_state * torch.sum(diff_size ** 2)
+
+            # Angle difference
+            diff_angle = mu[6] - mu_prev_robot[6]
+            diff_angle = torch.atan2(torch.sin(diff_angle), torch.cos(diff_angle))
+            total_prior += lambda_angle * (diff_angle ** 2)
 
         return total_prior
 
@@ -269,6 +282,7 @@ class TableBelief(Belief):
             evals = np.sort(evals)[::-1]
 
             # Reject if too linear (not enough 2D spread for a table)
+            # This filters out walls and other linear structures
             if evals[0] > 0 and evals[1] / evals[0] < 0.1:
                 return None
 

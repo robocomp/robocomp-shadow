@@ -42,6 +42,8 @@ class DSRViewer(QObject):
         self.docks = {}
         self.widgets = {}
         self.widgets_by_type = {}
+        self.settings = QSettings("RoboComp", "DSR_ObjectConcept")
+
         available_geometry = QApplication.primaryScreen().availableGeometry()
         window.move((available_geometry.width() - window.width()) / 2,
                      (available_geometry.height() - window.height()) / 2)
@@ -52,12 +54,42 @@ class DSRViewer(QObject):
 
         self.__initialize_views(options, main)
 
+        # Restore window state after views are created
+        self._restore_window_state()
+
+        # Periodic save timer (every 10 seconds)
+        self._save_timer = QTimer()
+        self._save_timer.timeout.connect(self._save_window_state)
+        self._save_timer.start(10000)  # Save every 10 seconds
+
     def __del__(self):
-        settings = QSettings("RoboComp", "DSR")
-        settings.beginGroup("MainWindow")
-        settings.setValue("size", self.window.size())
-        settings.setValue("pos", self.window.pos())
-        settings.endGroup()
+        self._save_window_state()
+
+    def _save_window_state(self):
+        """Save window geometry and dock states."""
+        try:
+            self.settings.beginGroup("MainWindow")
+            self.settings.setValue("geometry", self.window.saveGeometry())
+            self.settings.setValue("windowState", self.window.saveState())
+            self.settings.setValue("size", self.window.size())
+            self.settings.setValue("pos", self.window.pos())
+            self.settings.endGroup()
+            self.settings.sync()
+        except Exception as e:
+            pass  # Silently ignore errors during shutdown
+
+    def _restore_window_state(self):
+        """Restore window geometry and dock states."""
+        self.settings.beginGroup("MainWindow")
+        geometry = self.settings.value("geometry")
+        state = self.settings.value("windowState")
+        self.settings.endGroup()
+
+        if geometry:
+            self.window.restoreGeometry(geometry)
+        if state:
+            self.window.restoreState(state)
+        print("[DSRViewer] Window state restored")
 
     def get_widget_by_type(self, widget_type) -> Any | None:
         if widget_type in self.widgets_by_type:

@@ -25,6 +25,8 @@ from rich.console import Console
 from genericworker import *
 import interfaces as ifaces
 import numpy as np
+import time
+import signal
 from typing import Optional, Tuple
 
 sys.path.append('/opt/robocomp/lib')
@@ -73,7 +75,7 @@ else:
 
 # Visualizer imports based on configuration
 if USE_DSR_VIEWER:
-    from src.qt3d_viewer import Qt3DObjectVisualizer
+    from src.qt3d_viewer import Qt3DObjectVisualizerWidget
     from src.dsr_gui import DSRViewer, View
 else:
     from src.visualizer_3d import BoxConceptVisualizer3D as BoxConceptVisualizer
@@ -126,9 +128,9 @@ class SpecificWorker(GenericWorker):
             # Create DSRViewer with graph view as main widget
             self.dsr_viewer = DSRViewer(self, self.g, View.graph, View.graph)
 
-            # Create Qt3D visualizer and add as custom tab
-            self.visualizer = Qt3DObjectVisualizer()
-            self.dsr_viewer.add_custom_widget_to_dock("Objects 3D", self.visualizer)
+            # Create Qt3D visualizer widget (it will initialize in showEvent)
+            self.visualizer = Qt3DObjectVisualizerWidget()
+            self.dsr_viewer.add_custom_widget_to_dock("Objects 3D", self.visualizer.get_widget())
 
             console.print("[green]DSRViewer initialized with Qt3D Objects tab")
         else:
@@ -145,13 +147,39 @@ class SpecificWorker(GenericWorker):
 
     def __del__(self):
         """Destructor"""
+        self.cleanup()
+
+    def cleanup(self):
+        """Clean up resources before exit."""
+        print("[SpecificWorker] Cleaning up...")
+        try:
+            # Stop timer first
+            if hasattr(self, 'timer'):
+                self.timer.stop()
+
+            # Clean up visualizer
+            if hasattr(self, 'visualizer') and self.visualizer:
+                if hasattr(self.visualizer, 'cleanup'):
+                    self.visualizer.cleanup()
+
+            # Save DSR viewer state
+            if hasattr(self, 'dsr_viewer') and self.dsr_viewer:
+                if hasattr(self.dsr_viewer, '_save_window_state'):
+                    self.dsr_viewer._save_window_state()
+
+            print("[SpecificWorker] Cleanup completed")
+        except Exception as e:
+            print(f"[SpecificWorker] Cleanup error: {e}")
 
 
     @QtCore.Slot()
     def compute(self):
+        start_time = time.perf_counter()
+
         # Get lidar data
+        t0 = time.perf_counter()
         lidar_points = self.get_lidar_points() # meters
-        #print(len(lidar_points))
+        t_lidar = (time.perf_counter() - t0) * 1000
 
         # Check if room node exists in G
         room_dims = self.get_room_dimensions()
@@ -164,10 +192,12 @@ class SpecificWorker(GenericWorker):
             return True
 
         # Call object manager to process the data
+        t0 = time.perf_counter()
         detected_objects = self.object_manager.update(lidar_points, robot_pose, robot_cov, room_dims)
+        t_manager = (time.perf_counter() - t0) * 1000
 
         # Debug: compare first belief against GT every N frames (set to 0 to disable)
-        debug_every_n_frames = 20
+        debug_every_n_frames = 50
         if debug_every_n_frames > 0 and len(detected_objects) > 0 and self.object_manager.frame_count % debug_every_n_frames == 0:
             if OBJECT_MODEL == 'multi':
                 # For multi-model, print model selection status
@@ -179,6 +209,7 @@ class SpecificWorker(GenericWorker):
                     ObjectManager.debug_belief_vs_gt(detected_objects[0].to_dict(), **gt)
 
         # Update visualizer
+        t0 = time.perf_counter()
         self.visualizer.update(
             room_dims=room_dims,
             robot_pose=robot_pose,
@@ -188,9 +219,12 @@ class SpecificWorker(GenericWorker):
             beliefs=self.object_manager.get_beliefs_as_dicts(),
             historical_points=self.object_manager.get_historical_points_for_viz()
         )
+        t_viz = (time.perf_counter() - t0) * 1000
 
-        if len(detected_objects) > 0:
-            pass  # console.print(f"[cyan]Tracking {len(detected_objects)} {OBJECT_MODEL}s")
+        # Compute elapsed time
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        if self.object_manager.frame_count % 50 == 0:
+            console.print(f"[dim]Compute: {elapsed_ms:.1f}ms (lidar:{t_lidar:.1f} manager:{t_manager:.1f} viz:{t_viz:.1f})[/dim]")
 
         return True
 

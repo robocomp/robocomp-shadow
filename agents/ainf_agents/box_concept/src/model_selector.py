@@ -285,6 +285,18 @@ class MultiModelBelief:
             winner = max(self.q_m, key=self.q_m.get)
             return self.hypotheses[winner].belief
 
+    def get_active_model_type(self) -> str:
+        """
+        Get the currently active model type.
+
+        If committed: returns the committed model type
+        If uncertain: returns the model type with highest q(m)
+        """
+        if self.state == ModelState.COMMITTED:
+            return self.committed_model
+        else:
+            return max(self.q_m, key=self.q_m.get)
+
     def get_weighted_position(self) -> Tuple[float, float]:
         """
         Get position weighted by model probabilities.
@@ -427,6 +439,8 @@ class ModelSelector:
 
         if not hypotheses:
             return None
+
+        # Create multi-model belief
 
         # Create multi-model belief
         multi_belief = MultiModelBelief(

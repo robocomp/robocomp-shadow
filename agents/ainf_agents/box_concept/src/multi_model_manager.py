@@ -89,9 +89,16 @@ class MultiModelManager:
         self.max_association_distance = getattr(first_config, 'max_association_distance', 0.8)
 
         # Optimization parameters
-        self.optimization_iters = 10
+        self.optimization_iters = 20  # More iterations for better convergence
         self.optimization_lr = 0.05
         self.grad_clip = 2.0
+
+        # Early exit threshold - skip optimization if SDF error is below this
+        self.early_exit_sdf_threshold = 0.02  # Lower threshold to do more full optimizations
+
+        # Debug counters
+        self._early_exits = 0
+        self._full_optimizations = 0
 
         # Visualization data
         self.viz_data = {
@@ -118,6 +125,9 @@ class MultiModelManager:
         Returns:
             List of current MultiModelBelief objects
         """
+        import time
+        t_start = time.perf_counter()
+
         self.frame_count += 1
         self.robot_pose = robot_pose.copy()
         self.robot_cov = robot_cov.copy()
@@ -129,35 +139,47 @@ class MultiModelManager:
             return list(self.beliefs.values())
 
         # Transform to room frame
+        t0 = time.perf_counter()
         world_points = transform_points_robot_to_room(lidar_points, robot_pose)
         self.viz_data['lidar_points_raw'] = world_points.copy()
+        t_transform = (time.perf_counter() - t0) * 1000
 
         # Filter wall points
+        t0 = time.perf_counter()
         filtered_points_room, wall_mask = self._filter_wall_points(world_points, room_dims)
         filtered_points_robot = lidar_points[wall_mask]
         self.viz_data['lidar_points_filtered'] = filtered_points_room.copy()
+        t_filter = (time.perf_counter() - t0) * 1000
 
         if len(filtered_points_robot) < self.min_cluster_points:
             self._decay_unmatched_beliefs(set(self.beliefs.keys()))
             return list(self.beliefs.values())
 
         # Cluster points
+        t0 = time.perf_counter()
         clusters_robot = self._cluster_points(filtered_points_robot)
         clusters_room = [transform_points_robot_to_room(c, robot_pose) for c in clusters_robot]
         self.viz_data['clusters'] = [c.copy() for c in clusters_room]
+        t_cluster = (time.perf_counter() - t0) * 1000
 
         if len(clusters_robot) == 0:
             self._decay_unmatched_beliefs(set(self.beliefs.keys()))
             return list(self.beliefs.values())
 
         # Data association using active belief's SDF
+        t0 = time.perf_counter()
         associations, unmatched_clusters, unmatched_beliefs = self._associate_clusters(clusters_room)
+        t_assoc = (time.perf_counter() - t0) * 1000
 
         # Update matched beliefs (all hypotheses)
+        t0 = time.perf_counter()
         self._update_matched_beliefs(associations, clusters_room, clusters_robot)
+        t_update = (time.perf_counter() - t0) * 1000
 
         # Create new multi-model beliefs for unmatched clusters
+        t0 = time.perf_counter()
         self._create_new_beliefs(unmatched_clusters, clusters_room)
+        t_create = (time.perf_counter() - t0) * 1000
 
         # Decay unmatched beliefs
         self._decay_unmatched_beliefs(unmatched_beliefs)
@@ -165,8 +187,12 @@ class MultiModelManager:
         # Check for model commitment
         self._process_commitments()
 
-        # Debug output
+        # Debug output with timing
         if self.frame_count % self.selector_config.debug_interval == 0:
+            t_total = (time.perf_counter() - t_start) * 1000
+            console.print(f"[dim]Manager: {t_total:.1f}ms (trans:{t_transform:.1f} filt:{t_filter:.1f} clust:{t_cluster:.1f} assoc:{t_assoc:.1f} upd:{t_update:.1f} new:{t_create:.1f}) early:{self._early_exits} full:{self._full_optimizations}[/dim]")
+            self._early_exits = 0
+            self._full_optimizations = 0
             self._debug_print()
 
         return list(self.beliefs.values())
@@ -194,45 +220,28 @@ class MultiModelManager:
         return points[mask], mask
 
     def _cluster_points(self, points: np.ndarray) -> List[np.ndarray]:
-        """DBSCAN-like clustering using XY distance."""
+        """DBSCAN clustering using sklearn (fast C implementation)."""
         if len(points) == 0:
             return []
 
-        eps = self.cluster_eps
-        min_pts = self.min_cluster_points
+        from sklearn.cluster import DBSCAN
+
+        # Use only XY for clustering
+        points_xy = points[:, :2]
+
+        # sklearn DBSCAN - use leaf_size for faster tree queries
+        db = DBSCAN(eps=self.cluster_eps, min_samples=self.min_cluster_points,
+                    algorithm='ball_tree', leaf_size=50)
+        labels = db.fit_predict(points_xy)
 
         clusters = []
-        points_xy = points[:, :2]
-        used = np.zeros(len(points), dtype=bool)
-
-        for i in range(len(points)):
-            if used[i]:
+        unique_labels = set(labels)
+        for label in unique_labels:
+            if label == -1:  # Noise
                 continue
-
-            distances = np.linalg.norm(points_xy - points_xy[i], axis=1)
-            neighbor_mask = (distances < eps) & (~used)
-
-            if np.sum(neighbor_mask) < min_pts:
-                continue
-
-            cluster_idx = set(np.where(neighbor_mask)[0])
-            used[list(cluster_idx)] = True
-
-            # Expand cluster
-            to_check = list(cluster_idx)
-            while to_check:
-                current = to_check.pop(0)
-                distances = np.linalg.norm(points_xy - points_xy[current], axis=1)
-                new_neighbors = np.where((distances < eps) & (~used))[0]
-
-                for n in new_neighbors:
-                    if n not in cluster_idx:
-                        cluster_idx.add(n)
-                        used[n] = True
-                        to_check.append(n)
-
-            cluster = points[list(cluster_idx)]
-            if len(cluster) >= min_pts:
+            mask = labels == label
+            cluster = points[mask]
+            if len(cluster) >= self.min_cluster_points:
                 clusters.append(cluster)
 
         return self._merge_overlapping_clusters(clusters)
@@ -339,6 +348,29 @@ class MultiModelManager:
             for model_type, hypothesis in multi_belief.hypotheses.items():
                 belief = hypothesis.belief
 
+                # Transform belief to robot frame for prediction
+                belief_mu_robot, belief_Sigma_robot = transform_box_with_covariance(
+                    belief.mu, belief.Sigma, self.robot_pose, self.robot_cov)
+
+                # EARLY EXIT: Check if prediction is good enough
+                sdf_func = get_sdf_function(model_type)
+                predicted_sdf = sdf_func(pts_robot, belief_mu_robot)
+                predicted_sdf_mean = torch.mean(torch.abs(predicted_sdf)).item()
+
+                if predicted_sdf_mean < self.early_exit_sdf_threshold:
+                    # Prediction is good, skip optimization
+                    self._early_exits += 1
+                    vfe = predicted_sdf_mean
+                    belief.last_sdf_mean = vfe
+                    self.selector.update_hypothesis_vfe(multi_belief, model_type, vfe)
+                    belief.update_lifecycle(self.frame_count, was_observed=True)
+                    # Still add historical points for good predictions
+                    current_sdf = belief.sdf(pts_room)
+                    belief.add_historical_points(pts_room, current_sdf, self.robot_cov)
+                    continue
+
+                self._full_optimizations += 1
+
                 # Get historical points
                 hist_pts, hist_weights = belief.get_historical_points_in_robot_frame(
                     self.robot_pose, self.robot_cov)
@@ -351,10 +383,6 @@ class MultiModelManager:
                 else:
                     all_pts = pts_robot
                     all_weights = None
-
-                # Transform belief to robot frame
-                belief_mu_robot, belief_Sigma_robot = transform_box_with_covariance(
-                    belief.mu, belief.Sigma, self.robot_pose, self.robot_cov)
 
                 # Optimize this hypothesis
                 opt_mu, vfe = self._optimize_hypothesis(
@@ -376,6 +404,11 @@ class MultiModelManager:
 
             # Update model posterior q(m)
             multi_belief.update_posterior()
+
+            # Debug: Show VFE for each model every N frames
+            if self.frame_count % 50 == 0:
+                vfe_info = ", ".join([f"{m}={h.current_vfe:.4f}" for m, h in multi_belief.hypotheses.items()])
+                console.print(f"[dim][VFE Debug] Belief {belief_id}: {vfe_info}[/dim]")
 
     def _optimize_hypothesis(self, points: torch.Tensor, weights: Optional[torch.Tensor],
                              mu_robot: torch.Tensor, belief: Belief,
