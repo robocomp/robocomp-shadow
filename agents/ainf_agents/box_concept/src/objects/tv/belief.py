@@ -62,7 +62,7 @@ class TVBeliefConfig(BeliefConfig):
 
     # Association
     max_association_cost: float = 5.0
-    max_association_distance: float = 1.0
+    max_association_distance: float = 1.5  # Larger for wall-mounted objects (was 1.0)
     wall_margin: float = 0.30
 
     # Historical points storage

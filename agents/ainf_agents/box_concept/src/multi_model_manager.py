@@ -337,7 +337,10 @@ class MultiModelManager:
                 bx, by = belief.position
 
                 center_dist = np.sqrt((centroid[0] - bx)**2 + (centroid[1] - by)**2)
-                if center_dist > self.max_association_distance:
+
+                # Use belief-specific max_association_distance if available
+                belief_max_dist = getattr(belief.config, 'max_association_distance', self.max_association_distance)
+                if center_dist > belief_max_dist:
                     continue
 
                 sdf = belief.sdf(cluster_t)
@@ -571,13 +574,24 @@ class MultiModelManager:
         for bid in list(self.beliefs.keys()):
             if bid in unmatched_ids:
                 multi_belief = self.beliefs[bid]
+                active = multi_belief.get_active_belief()
+
+                # Debug: log when confirmed beliefs are unmatched
+                if active.is_confirmed and self.frame_count % 20 == 0:
+                    active_type = multi_belief.get_active_model_type()
+                    frames_unseen = self.frame_count - active.last_seen
+                    console.print(f"[yellow][DEBUG] Confirmed {active_type} id={bid} unmatched "
+                                f"for {frames_unseen} frames, conf={active.confidence:.2f}[/yellow]")
+
                 # Decay all hypotheses
                 for hyp in multi_belief.hypotheses.values():
                     hyp.belief.update_lifecycle(self.frame_count, was_observed=False)
 
                 # Check if active belief should be removed
-                active = multi_belief.get_active_belief()
                 if active.should_remove():
+                    active_type = multi_belief.get_active_model_type()
+                    console.print(f"[red]Removing {active_type} belief id={bid}, "
+                                f"conf={active.confidence:.3f} below threshold[/red]")
                     to_remove.append(bid)
 
         for bid in to_remove:

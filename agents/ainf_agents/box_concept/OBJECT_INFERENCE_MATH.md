@@ -82,6 +82,29 @@ $$
 
 **Convention:** The backrest is positioned at $+Y$ in the object's local frame.
 
+#### 2.1.4 TV (6 parameters)
+
+$$
+\mathbf{s}_{\text{tv}} = (c_x, c_y, w, h, z_{\text{base}}, \theta)^\top
+$$
+
+| Parameter | Description | Units |
+|-----------|-------------|-------|
+| $c_x, c_y$ | Center position in room frame (floor projection) | meters |
+| $w$ | Screen width (horizontal extent) | meters |
+| $h$ | Screen height (vertical extent) | meters |
+| $z_{\text{base}}$ | Height from floor to bottom of TV (mount height) | meters |
+| $\theta$ | Orientation angle around Z axis | radians |
+
+**Fixed constants:**
+- Depth (thickness): $d_{\text{tv}} = 0.05$ m (not optimized)
+
+**Key characteristics:**
+- TVs are **thin panels**: $w \gg d_{\text{tv}}$
+- Screen aspect ratio typically $\approx 2:1$ (width/height)
+- Usually **wall-mounted**: $z_{\text{base}} \in [0.5, 1.5]$ m
+- Strong **angle alignment** with walls (0°, 90°, ±180°)
+
 ### 2.2 Robot State
 
 The robot pose in the room frame:
@@ -207,7 +230,46 @@ $$
 \text{SDF}_{\text{chair}}(\mathbf{p}) = \min\left( \text{SDF}_{\text{seat}}(\mathbf{p}), \text{SDF}_{\text{back}}(\mathbf{p}) \right)
 $$
 
-### 3.4 Cylinder SDF (auxiliary)
+### 3.4 TV SDF
+
+A TV is modeled as a **thin rectangular panel** mounted on a wall at height $z_{\text{base}}$.
+
+```
+Side view:                   Front view:
+     │                       ┌─────────────────┐
+     │ ← wall                │                 │
+┌────┤                       │       TV        │  h (screen height)
+│ TV │ ← depth (fixed 5cm)   │                 │
+└────┤                       └─────────────────┘
+     │                              w (screen width)
+     │
+  ───┴─── floor (z=0)         z_base = mount height
+```
+
+**TV SDF:**
+
+1. **Transform to TV-local frame** (same as box):
+$$
+\mathbf{p}_{\text{local}} = R(-\theta)^\top (\mathbf{p} - \mathbf{c})
+$$
+
+2. **Compute distance to panel surface:**
+$$
+\mathbf{q} = \begin{pmatrix}
+|p_x^{\text{local}}| - w/2 \\
+|p_y^{\text{local}}| - d_{\text{tv}}/2 \\
+|p_z - (z_{\text{base}} + h/2)| - h/2
+\end{pmatrix}
+$$
+
+3. **SDF value** (same formula as box):
+$$
+\text{SDF}_{\text{tv}}(\mathbf{p}) = \|\max(\mathbf{q}, 0)\| + \min(\max(q_x, q_y, q_z), 0)
+$$
+
+**Key difference from box:** The depth $d_{\text{tv}} = 0.05$ m is **fixed**, not optimized. This reduces the state dimension from 7 to 6.
+
+### 3.5 Cylinder SDF (auxiliary)
 
 For a vertical cylinder with center $(c_x, c_y)$, radius $r$, and height $h$:
 
@@ -844,31 +906,73 @@ subject to one-to-one matching constraints.
 
 ## 10. Belief Lifecycle
 
-### 8.1 Initialization
+### 10.1 Initialization
 
 New beliefs are created from unmatched clusters:
 - Position: cluster centroid
 - Dimensions: from cluster extent, regularized by prior $\mathcal{N}(0.5, 0.2^2)$
 - Covariance: initial uncertainty values
 
-### 8.2 Update
+### 10.2 Update
 
 Matched beliefs are updated by minimizing VFE with current and historical observations.
 
-### 8.3 Confidence Dynamics
+### 10.3 Confidence Dynamics
+
+The confidence score $\kappa \in [0, 1]$ tracks belief reliability:
 
 $$
 \kappa_{t+1} = \begin{cases}
-\min(\kappa_t + \Delta\kappa, 1) & \text{if matched} \\
-\gamma \cdot \kappa_t & \text{if unmatched}
+\min(\kappa_t + \Delta\kappa, 1) & \text{if matched (observed)} \\
+\gamma_{\text{confirmed}} \cdot \kappa_t & \text{if unmatched AND confirmed AND } (t - t_{\text{last}}) > T_{\text{grace}} \\
+\gamma \cdot \kappa_t & \text{if unmatched AND not confirmed}
 \end{cases}
 $$
 
 where:
-- $\Delta\kappa$: confidence boost on match
-- $\gamma \in (0,1)$: decay factor
+- $\Delta\kappa = 0.15$: confidence boost on observation
+- $\gamma = 0.90$: decay factor for unconfirmed beliefs
+- $\gamma_{\text{confirmed}} = 0.98$: **slower** decay for confirmed beliefs
+- $T_{\text{grace}} = 50$: grace frames before confirmed beliefs start decaying
 
-### 8.4 Removal
+**Confirmation:** A belief becomes **confirmed** when $\kappa \geq \kappa_{\text{confirmed}} = 0.70$
+
+### 10.4 Confirmed vs Unconfirmed Beliefs
+
+| Property | Unconfirmed | Confirmed |
+|----------|-------------|-----------|
+| Decay rate | $\gamma = 0.90$ | $\gamma_{\text{confirmed}} = 0.98$ |
+| Grace period | None | $T_{\text{grace}} = 50$ frames |
+| Removal threshold | $\kappa < 0.20$ | $\kappa < 0.20$ |
+| Typical lifetime (unseen) | ~15 frames | ~200+ frames |
+
+**Rationale:** Confirmed objects (e.g., a TV that has been observed many times) should not disappear immediately when temporarily occluded. The grace period and slower decay allow the robot to pass in front of an object without losing track of it.
+
+### 10.5 Lifecycle Parameters
+
+| Parameter | Symbol | Default | Description |
+|-----------|--------|---------|-------------|
+| Confidence boost | $\Delta\kappa$ | 0.15 | Increase on observation |
+| Decay (unconfirmed) | $\gamma$ | 0.90 | Decay factor when not observed |
+| Decay (confirmed) | $\gamma_{\text{confirmed}}$ | 0.98 | Slower decay for confirmed objects |
+| Removal threshold | $\kappa_{\text{threshold}}$ | 0.20 | Below this, belief is removed |
+| Confirmation threshold | $\kappa_{\text{confirmed}}$ | 0.70 | Above this, belief is confirmed |
+| Grace frames | $T_{\text{grace}}$ | 50 | Frames before confirmed beliefs decay |
+| Initial confidence | $\kappa_0$ | 0.30 | Confidence at creation |
+
+### 10.6 Association Distance
+
+Each object type has a **maximum association distance** that determines how far a cluster can be from a belief's predicted position to be considered a match:
+
+| Object Type | Max Association Distance | Rationale |
+|-------------|-------------------------|-----------|
+| Table | 0.8 m | Standard objects |
+| Chair | 0.8 m | Standard objects |
+| TV | **1.5 m** | Wall-mounted, viewpoint changes more dramatically |
+
+**Why TV has larger association distance:** When the robot moves around a room, wall-mounted objects like TVs can appear to shift significantly due to perspective changes. A larger association radius prevents losing track of the TV during robot motion.
+
+### 10.7 Removal
 
 Beliefs with $\kappa < \kappa_{\text{threshold}}$ are removed from the active set.
 
@@ -901,6 +1005,9 @@ $$
 | Concept | Equation |
 |---------|----------|
 | State vector (box) | $\mathbf{s} = (c_x, c_y, w, h, d, \theta)^\top$ |
+| State vector (table) | $\mathbf{s} = (c_x, c_y, w, h, h_{\text{table}}, l_{\text{leg}}, \theta)^\top$ |
+| State vector (chair) | $\mathbf{s} = (c_x, c_y, w_s, d_s, h_s, h_b, \theta)^\top$ |
+| State vector (TV) | $\mathbf{s} = (c_x, c_y, w, h, z_{\text{base}}, \theta)^\top$ |
 | **Total VFE** | $F = F_{\text{present}} + F_{\text{past}} + F_{\text{prior}}$ |
 | Present (current LIDAR) | $F_{\text{present}} = \frac{1}{N}\sum_{i} \text{SDF}(\mathbf{p}_i^{\text{now}}, \mathbf{s})^2$ |
 | Past (historical points) | $F_{\text{past}} = \sum_{j} w_j \cdot \text{SDF}(\mathbf{p}_j^{\text{hist}}, \mathbf{s})^2$ |
@@ -910,6 +1017,9 @@ $$
 | Propagated covariance | $\Sigma_{\text{total}} = \Sigma_{\text{capture}} + J \Sigma_{\text{robot}}(t) J^\top$ |
 | TCE (temporal consistency) | $\text{TCE}_j = \sum_{\tau} \alpha^{t-\tau} w_\tau \text{SDF}(\mathbf{p}_j, \mathbf{s}_\tau)^2$ |
 | Frame transform | $\mathbf{s}^{\text{prev}}_{\text{robot}} = T(\mathbf{s}^{\text{prev}}_{\text{room}}, \mathbf{r}_t)$ |
+| **Confidence update (observed)** | $\kappa_{t+1} = \min(\kappa_t + \Delta\kappa, 1)$ |
+| **Confidence decay (unconfirmed)** | $\kappa_{t+1} = \gamma \cdot \kappa_t$ |
+| **Confidence decay (confirmed)** | $\kappa_{t+1} = \gamma_{\text{confirmed}} \cdot \kappa_t$ (after $T_{\text{grace}}$) |
 
 **Terminology:**
 - **TCE (Temporal Consistency Error)**: Measures how consistently a historical point has been on the model surface over time. Also known as RFE (Remembered Free Energy) in the code.
@@ -976,7 +1086,30 @@ The framework supports multiple object types, each with its own SDF and prior fu
 
 **Files:** `chair_belief.py`, `chair_manager.py`
 
-### 11.4 Cylinder (4 parameters)
+### 13.4 TV (6 parameters)
+
+**State:** $\mathbf{s} = (c_x, c_y, w, h, z_{\text{base}}, \theta)$
+
+| Parameter | Description |
+|-----------|-------------|
+| $c_x, c_y$ | Center position (floor projection) |
+| $w$ | Screen width |
+| $h$ | Screen height |
+| $z_{\text{base}}$ | Height from floor to bottom of TV |
+| $\theta$ | Rotation angle |
+
+**Fixed constants:**
+- Depth (thickness): 0.05 m
+
+**SDF:** Standard 3D box SDF with fixed depth
+
+**Priors:**
+- Screen aspect ratio: $w/h \approx 2.0$
+- Strong angle alignment with walls
+
+**Files:** `tv/belief.py`, `tv/sdf.py`
+
+### 13.5 Cylinder (4 parameters)
 
 **State:** $\mathbf{s} = (c_x, c_y, r, h)$
 
@@ -988,7 +1121,7 @@ The framework supports multiple object types, each with its own SDF and prior fu
 
 **SDF:** Standard cylinder SDF (no angle prior, rotationally symmetric)
 
-### 11.5 Adding New Object Types
+### 13.6 Adding New Object Types
 
 See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object types.
 
@@ -996,19 +1129,19 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 
 ## 14. Implementation Notes
 
-### 12.1 Numerical Stability
+### 14.1 Numerical Stability
 
 - SDF gradients can be unstable near corners; smoothing helps
 - Covariance matrices must remain positive definite
 - Use Cholesky decomposition for matrix inversions
 
-### 12.2 Computational Efficiency
+### 14.2 Computational Efficiency
 
 - Batch SDF computation on GPU (PyTorch CUDA)
 - Limit historical points per belief (max 500)
 - Uniform surface coverage via angular/height binning
 
-### 12.3 Hyperparameters
+### 14.3 Hyperparameters
 
 | Parameter | Symbol | Typical Value |
 |-----------|--------|---------------|
@@ -1017,7 +1150,12 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 | Process noise (size) | $\sigma_{\text{size}}$ | 0.01 m |
 | Prior size mean | $\mu_{\text{size}}$ | 0.5 m |
 | Prior size std | $\sigma_{\text{size}}$ | 0.2 m |
-| Confidence decay | $\gamma$ | 0.85 |
+| Confidence decay (unconfirmed) | $\gamma$ | 0.90 |
+| Confidence decay (confirmed) | $\gamma_{\text{confirmed}}$ | 0.98 |
+| Confidence boost | $\Delta\kappa$ | 0.15 |
+| Confidence threshold | $\kappa_{\text{threshold}}$ | 0.20 |
+| Confirmation threshold | $\kappa_{\text{confirmed}}$ | 0.70 |
+| Grace frames (confirmed) | $T_{\text{grace}}$ | 50 |
 | Prior precision (position) | $\lambda_{\text{pos}}$ | 0.05 |
 | Prior precision (size) | $\lambda_{\text{size}}$ | 0.02 |
 | Prior precision (angle) | $\lambda_{\theta}$ | 0.01 |
@@ -1028,7 +1166,7 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 | Gradient clip | - | 2.0 |
 | Angle gradient multiplier (chair) | - | 100.0 |
 
-### 12.4 Historical Points Configuration
+### 14.4 Historical Points Configuration
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -1051,9 +1189,19 @@ See `ADDING_NEW_OBJECTS.md` for detailed instructions on implementing new object
 
 ---
 
-*Document version: 2.1*
-*Last updated: February 6, 2026*
+*Document version: 2.2*
+*Last updated: February 8, 2026*
 *Renamed from ACTIVE_INFERENCE_MATH.md to OBJECT_INFERENCE_MATH.md*
+
+**Changes in v2.2:**
+- Added **TV object type** (Section 2.1.4, 3.4, 13.4) with fixed depth parameter
+- **Updated Belief Lifecycle** (Section 10) with new confidence dynamics:
+  - Differentiated decay rates for confirmed vs unconfirmed beliefs
+  - Added grace period ($T_{\text{grace}} = 50$) before confirmed beliefs decay
+  - Slower decay ($\gamma_{\text{confirmed}} = 0.98$) for confirmed objects
+- Added **association distance** per object type (Section 10.6)
+- Updated hyperparameters table (Section 14.3) with new lifecycle values
+- Clarified fixed vs free parameters concept (TV depth example)
 
 **Changes in v2.1:**
 - Added complete State Space section (2) for all three object types (Box, Table, Chair)

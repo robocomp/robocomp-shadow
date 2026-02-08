@@ -52,11 +52,13 @@ class BeliefConfig:
     max_size: float = 2.0   # Maximum dimension (meters)
 
     # Lifecycle parameters
-    confidence_decay: float = 0.85  # γ: decay factor when not observed
+    confidence_decay: float = 0.90  # γ: decay factor when not observed (was 0.85)
+    confidence_decay_confirmed: float = 0.98  # Slower decay for confirmed objects
     confidence_boost: float = 0.15  # Δκ: increase on observation
-    confidence_threshold: float = 0.25  # Below this, remove belief
+    confidence_threshold: float = 0.20  # Below this, remove belief (was 0.25)
     confirmed_threshold: float = 0.70  # Above this, belief is confirmed
     initial_confidence: float = 0.30
+    confirmed_grace_frames: int = 50  # Frames before confirmed beliefs start decaying (was 30)
 
 
 class Belief(ABC):
@@ -241,8 +243,17 @@ class Belief(ABC):
             if self.confidence >= self.config.confirmed_threshold:
                 self.is_confirmed = True
         else:
-            # Apply decay (confirmed beliefs decay slower)
-            if not self.is_confirmed or (frame_count - self.last_seen) > 30:
+            # Apply decay based on confirmation status
+            frames_unseen = frame_count - self.last_seen
+            grace_frames = getattr(self.config, 'confirmed_grace_frames', 50)
+
+            if self.is_confirmed:
+                # Confirmed beliefs: only decay after grace period, and slower
+                if frames_unseen > grace_frames:
+                    decay = getattr(self.config, 'confidence_decay_confirmed', 0.98)
+                    self.confidence *= decay
+            else:
+                # Unconfirmed beliefs: normal decay
                 self.confidence *= self.config.confidence_decay
 
     def should_remove(self) -> bool:
