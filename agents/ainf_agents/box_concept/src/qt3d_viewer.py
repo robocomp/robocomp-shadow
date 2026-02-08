@@ -547,88 +547,81 @@ class Qt3DObjectVisualizerWidget(QWidget):
 
     def _create_uncertain_object(self, obj_id: int, cx: float, cy: float,
                                   width: float, depth: float, height: float):
-        """Create an uncertain object as wireframe - SAME PATTERN AS CHAIR."""
+        """Create an uncertain object as wireframe - using cuboids (pattern that works)."""
         print(f"[Qt3D] CREATING UNCERTAIN {obj_id} at ({cx:.2f}, {cy:.2f})")
 
-        # Create parent entity - SAME AS CHAIR
+        # Create parent entity
         uncertain_entity = Qt3DCore.QEntity(self.root_entity)
 
-        # Global transform - SAME AS CHAIR
+        # Global transform
         uncertain_transform = Qt3DCore.QTransform()
         uncertain_transform.setTranslation(QVector3D(cx, cy, 0))
         uncertain_entity.addComponent(uncertain_transform)
 
-        # Material - Orange
-        edge_material = Qt3DExtras.QPhongMaterial()
-        edge_material.setDiffuse(QColor(255, 180, 0))
-        edge_material.setAmbient(QColor(200, 140, 0))
+        line_thickness = 0.02
+        color = QColor(255, 180, 0)  # Orange
+        hw = width / 2.0
+        hd = depth / 2.0
 
-        line_radius = 0.015
-        hw, hd = width / 2, depth / 2
+        # Define all 12 edges as thin cuboids
+        edges_def = []
 
-        edge_entities = []
+        # 4 vertical edges (along Z)
+        for x, y in [(-hw, -hd), (hw, -hd), (hw, hd), (-hw, hd)]:
+            edges_def.append((x, y, height/2, line_thickness, line_thickness, height))
 
-        # Define all 12 edges as (start, end) tuples
-        edges_def = [
-            # Bottom rectangle (z=0)
-            ((-hw, -hd, 0), (hw, -hd, 0)),
-            ((hw, -hd, 0), (hw, hd, 0)),
-            ((hw, hd, 0), (-hw, hd, 0)),
-            ((-hw, hd, 0), (-hw, -hd, 0)),
-            # Top rectangle (z=height)
-            ((-hw, -hd, height), (hw, -hd, height)),
-            ((hw, -hd, height), (hw, hd, height)),
-            ((hw, hd, height), (-hw, hd, height)),
-            ((-hw, hd, height), (-hw, -hd, height)),
-            # Vertical edges
-            ((-hw, -hd, 0), (-hw, -hd, height)),
-            ((hw, -hd, 0), (hw, -hd, height)),
-            ((hw, hd, 0), (hw, hd, height)),
-            ((-hw, hd, 0), (-hw, hd, height)),
-        ]
+        # 4 bottom horizontal edges along X (at z~0)
+        for y in [-hd, hd]:
+            edges_def.append((0, y, line_thickness/2, width, line_thickness, line_thickness))
 
-        for (x1, y1, z1), (x2, y2, z2) in edges_def:
-            start = QVector3D(x1, y1, z1)
-            end = QVector3D(x2, y2, z2)
-            diff = end - start
-            length = diff.length()
-            center = (start + end) / 2.0
+        # 4 bottom horizontal edges along Y (at z~0)
+        for x in [-hw, hw]:
+            edges_def.append((x, 0, line_thickness/2, line_thickness, depth, line_thickness))
 
-            # Create edge entity as child
+        # 4 top horizontal edges along X (at z~height)
+        for y in [-hd, hd]:
+            edges_def.append((0, y, height - line_thickness/2, width, line_thickness, line_thickness))
+
+        # 4 top horizontal edges along Y (at z~height)
+        for x in [-hw, hw]:
+            edges_def.append((x, 0, height - line_thickness/2, line_thickness, depth, line_thickness))
+
+        # Store ALL references to prevent garbage collection
+        edge_refs = []
+
+        for ex, ey, ez, sx, sy, sz in edges_def:
             edge_entity = Qt3DCore.QEntity(uncertain_entity)
 
-            # Cylinder mesh
-            mesh = Qt3DExtras.QCylinderMesh()
-            mesh.setRadius(line_radius)
-            mesh.setLength(length)
+            mesh = Qt3DExtras.QCuboidMesh()
+            mesh.setXExtent(sx)
+            mesh.setYExtent(sy)
+            mesh.setZExtent(sz)
 
-            # Transform with rotation
+            # NEW material for each edge
+            material = Qt3DExtras.QPhongMaterial()
+            material.setDiffuse(color)
+            material.setAmbient(color.darker(120))
+
             transform = Qt3DCore.QTransform()
-            transform.setTranslation(center)
+            transform.setTranslation(QVector3D(ex, ey, ez))
 
-            if length > 0.001:
-                direction = diff.normalized()
-                default_dir = QVector3D(0, 1, 0)
-                axis = QVector3D.crossProduct(default_dir, direction)
-                dot = max(-1.0, min(1.0, QVector3D.dotProduct(default_dir, direction)))
-                angle = math.degrees(math.acos(dot))
-                if axis.length() > 0.001:
-                    transform.setRotation(QQuaternion.fromAxisAndAngle(axis.normalized(), angle))
-                elif angle > 90.0:
-                    transform.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(1, 0, 0), 180))
-
-            # Add components - ORDER: mesh, transform, material (like chair)
             edge_entity.addComponent(mesh)
+            edge_entity.addComponent(material)
             edge_entity.addComponent(transform)
-            edge_entity.addComponent(edge_material)
 
-            edge_entities.append({'entity': edge_entity})
+            # Store ALL references
+            edge_refs.append({
+                'entity': edge_entity,
+                'mesh': mesh,
+                'material': material,
+                'transform': transform
+            })
 
-        # Store references
+        # Store everything
         self.scene_objects[f'uncertain_{obj_id}'] = {
             'entity': uncertain_entity,
             'transform': uncertain_transform,
-            'edge_entities': edge_entities,
+            'edges': edge_refs,
             'width': width,
             'depth': depth,
             'height': height,
