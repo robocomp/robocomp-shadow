@@ -38,6 +38,10 @@ class ChairBeliefConfig(BeliefConfig):
     prior_size_std: float = 0.05      # Reduced variance (tighter prior)
     min_aspect_ratio: float = 0.7     # Chairs are more square than tables
 
+    # Square seat prior - chairs should be nearly square (soft constraint)
+    lambda_square_prior: float = 0.5  # Reduced weight for square prior
+    square_tolerance_std: float = 0.10  # Larger tolerance (~10cm)
+
     # Size limits for chairs - allow overlap with tables, let VFE decide
     min_size: float = 0.25            # Chairs are at least 25cm
     max_size: float = 0.85            # Allow larger to let BMS work
@@ -152,30 +156,31 @@ class ChairBelief(Belief):
         Returns:
             Prior energy term (scalar tensor)
         """
-        total_prior = torch.tensor(0.0, dtype=mu.dtype, device=mu.device)
-
         # =================================================================
         # SIZE PRIOR: penalize deviation from typical chair dimensions
         # This helps differentiate chairs from tables in model selection
+        # Optimized: avoid creating intermediate tensors
         # =================================================================
-        lambda_size_prior = 0.5  # Weight for size prior
+        lambda_size_prior = 0.5
+        size_std = self.config.prior_size_std
+        inv_std_sq = 1.0 / (size_std * size_std)
 
-        # Typical chair dimensions from config
-        prior_seat_w = self.config.prior_seat_width   # ~0.42m
-        prior_seat_d = self.config.prior_seat_depth   # ~0.42m
-        prior_seat_h = self.config.prior_seat_height  # ~0.45m
-        prior_back_h = self.config.prior_back_height  # ~0.35m
-        size_std = self.config.prior_size_std         # ~0.05m
+        # Compute squared differences directly without creating tensor
+        size_prior = lambda_size_prior * inv_std_sq * (
+            (mu[2] - self.config.prior_seat_width) ** 2 +
+            (mu[3] - self.config.prior_seat_depth) ** 2 +
+            (mu[4] - self.config.prior_seat_height) ** 2 +
+            (mu[5] - self.config.prior_back_height) ** 2
+        )
+        total_prior = size_prior
 
-        # mu: [cx, cy, seat_w, seat_d, seat_h, back_h, theta]
-        size_diff = torch.tensor([
-            (mu[2].item() - prior_seat_w) / size_std,  # seat_w
-            (mu[3].item() - prior_seat_d) / size_std,  # seat_d
-            (mu[4].item() - prior_seat_h) / size_std,  # seat_h
-            (mu[5].item() - prior_back_h) / size_std,  # back_h
-        ], dtype=mu.dtype, device=mu.device)
-
-        total_prior += lambda_size_prior * torch.sum(size_diff ** 2)
+        # =================================================================
+        # SQUARE SEAT PRIOR: chairs should have nearly square seats
+        # Penalize when seat_width differs from seat_depth
+        # =================================================================
+        lambda_square = self.config.lambda_square_prior
+        inv_square_std_sq = 1.0 / (self.config.square_tolerance_std ** 2)
+        total_prior = total_prior + lambda_square * inv_square_std_sq * ((mu[2] - mu[3]) ** 2)
 
         # =================================================================
         # STATE TRANSITION PRIOR: penalize deviation from previous state
@@ -385,6 +390,7 @@ class ChairBelief(Belief):
     def _compute_edge_score(self, points: torch.Tensor) -> torch.Tensor:
         """
         Compute edge/corner score for points.
+        Optimized: Uses cached cos/sin values when angle hasn't changed.
 
         Returns:
             [N] scores in [0, 1], higher = more edge/corner-like
@@ -394,8 +400,15 @@ class ChairBelief(Belief):
         seat_h = self.mu[4]
         theta = self.mu[6]
 
-        cos_t = torch.cos(-theta)
-        sin_t = torch.sin(-theta)
+        # Cache cos/sin values (check if angle changed)
+        theta_val = theta.item()
+        if not hasattr(self, '_cached_theta') or self._cached_theta != theta_val:
+            self._cached_theta = theta_val
+            self._cached_cos_neg_theta = torch.cos(-theta)
+            self._cached_sin_neg_theta = torch.sin(-theta)
+
+        cos_t = self._cached_cos_neg_theta
+        sin_t = self._cached_sin_neg_theta
 
         px = points[:, 0] - cx
         py = points[:, 1] - cy
@@ -445,19 +458,20 @@ class ChairBelief(Belief):
         max_points_this_frame = max(1, int(warmup_progress * self.config.max_new_points_per_frame))
 
         sdf_threshold = self.config.sdf_threshold_for_storage
-        mask = torch.abs(sdf_values) < sdf_threshold
+        abs_sdf = torch.abs(sdf_values)
+        mask = abs_sdf < sdf_threshold
         if not mask.any():
             return
 
         pts = points_room[mask]
-        sdf = torch.abs(sdf_values[mask])
+        sdf = abs_sdf[mask]
 
-        # Limit number of new points
+        # Limit number of new points - simple slice instead of expensive topk
         if len(pts) > max_points_this_frame:
-            # Select points with lowest SDF (best quality)
-            _, indices = torch.topk(sdf, max_points_this_frame, largest=False)
-            pts = pts[indices]
-            sdf = sdf[indices]
+            # Sort by SDF and take best (ascending order, lowest first)
+            sorted_indices = torch.argsort(sdf)[:max_points_this_frame]
+            pts = pts[sorted_indices]
+            sdf = sdf[sorted_indices]
 
         if pts.shape[1] == 2:
             pts = torch.cat([pts, torch.zeros(len(pts), 1, dtype=DTYPE, device=pts.device)], dim=1)
@@ -472,46 +486,60 @@ class ChairBelief(Belief):
         self._add_to_bins(pts, covs, rfe)
 
     def _add_to_bins(self, pts, covs, rfe):
-        """Add points to angular/height bins for uniform surface coverage."""
+        """Add points to angular/height bins for uniform surface coverage.
+
+        Optimized: Pre-compute all values vectorially before binning.
+        """
         cx, cy = self.mu[0].item(), self.mu[1].item()
         na = self.config.num_angle_bins
         nz = self.config.num_z_bins
         mpb = self.config.max_historical_points // (na * nz) + 1
-
-        edge_scores = self._compute_edge_score(pts)
         edge_bonus_weight = self.config.edge_bonus_weight
+        device = pts.device
 
+        # Pre-compute for new points (vectorized)
+        edge_scores = self._compute_edge_score(pts)
         dx, dy = pts[:, 0] - cx, pts[:, 1] - cy
         angles = torch.atan2(dy, dx)
         zb = (pts[:, 2] / 0.1).long().clamp(0, nz - 1)
         ab = ((angles + np.pi) / (2 * np.pi) * na).long() % na
-        bidx = ab * nz + zb
+        bidx_new = (ab * nz + zb).tolist()
+
+        # Pre-compute quality for new points (vectorized trace) - keep on same device
+        cov_traces_new = torch.stack([torch.trace(c) for c in covs])
+        quality_new = (cov_traces_new + rfe - edge_bonus_weight * edge_scores).tolist()
+
         bins = {}
 
         # Add existing historical points
         if len(self.historical_points) > 0:
+            # Pre-compute for historical points (vectorized)
             existing_edge_scores = self._compute_edge_score(self.historical_points)
+            dxh = self.historical_points[:, 0] - cx
+            dyh = self.historical_points[:, 1] - cy
+            angles_h = torch.atan2(dyh, dxh)
+            zb_h = (self.historical_points[:, 2] / 0.1).long().clamp(0, nz - 1)
+            ab_h = ((angles_h + np.pi) / (2 * np.pi) * na).long() % na
+            bidx_hist = (ab_h * nz + zb_h).tolist()
+
+            # Pre-compute quality for historical (vectorized trace) - keep on same device
+            cov_traces_hist = torch.stack([torch.trace(c) for c in self.historical_capture_covs])
+            quality_hist = (cov_traces_hist + self.historical_rfe - edge_bonus_weight * existing_edge_scores).tolist()
+
+            # Add to bins (minimal loop work)
             for i in range(len(self.historical_points)):
-                p, c, r = self.historical_points[i], self.historical_capture_covs[i], self.historical_rfe[i].item()
-                dxh, dyh = p[0] - cx, p[1] - cy
-                ah = torch.atan2(dyh, dxh)
-                zbi = int((p[2] / 0.1).clamp(0, nz - 1).item())
-                abi = int(((ah + np.pi) / (2 * np.pi) * na).clamp(0, na - 1).item())
-                idx = abi * nz + zbi
+                idx = bidx_hist[i]
                 if idx not in bins:
                     bins[idx] = []
-                edge_bonus = edge_bonus_weight * existing_edge_scores[i].item()
-                quality = torch.trace(c).item() + r - edge_bonus
-                bins[idx].append((p, c, r, quality))
+                bins[idx].append((self.historical_points[i], self.historical_capture_covs[i],
+                                  self.historical_rfe[i].item(), quality_hist[i]))
 
-        # Add new points
+        # Add new points to bins (minimal loop work)
         for i in range(len(pts)):
-            idx = bidx[i].item()
+            idx = bidx_new[i]
             if idx not in bins:
                 bins[idx] = []
-            edge_bonus = edge_bonus_weight * edge_scores[i].item()
-            quality = torch.trace(covs[i]).item() + rfe[i].item() - edge_bonus
-            bins[idx].append((pts[i], covs[i], rfe[i].item(), quality))
+            bins[idx].append((pts[i], covs[i], rfe[i].item(), quality_new[i]))
 
         # Keep best points per bin
         fp, fc, fr = [], [], []
@@ -524,7 +552,9 @@ class ChairBelief(Belief):
         if fp:
             self.historical_points = torch.stack(fp)
             self.historical_capture_covs = torch.stack(fc)
-            self.historical_rfe = torch.tensor(fr, dtype=DTYPE, device=self.mu.device)
+            self.historical_rfe = torch.tensor(fr, dtype=DTYPE, device=device)
+
+
 
     def update_rfe(self, robot_cov: np.ndarray):
         """Update Remembered Free Energy for historical points."""

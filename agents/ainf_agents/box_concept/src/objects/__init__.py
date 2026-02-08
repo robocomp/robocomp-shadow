@@ -49,6 +49,14 @@ from src.objects.chair.sdf import (
     CHAIR_BACK_THICKNESS,
 )
 
+from src.objects.tv.sdf import (
+    compute_tv_sdf,
+    compute_tv_priors,
+    TV_PARAM_COUNT,
+    TV_PARAM_NAMES,
+    TV_TYPICAL_ASPECT,
+)
+
 # Shared priors (inter-object and temporal smoothness)
 from src.objects.shared_priors import (
     SharedPriorConfig,
@@ -94,6 +102,13 @@ OBJECT_REGISTRY: Dict[str, Dict[str, Any]] = {
         'param_count': CHAIR_PARAM_COUNT,
         'param_names': CHAIR_PARAM_NAMES,
         'description': 'Chair with seat and backrest',
+    },
+    'tv': {
+        'sdf': compute_tv_sdf,
+        'prior': compute_tv_priors,
+        'param_count': TV_PARAM_COUNT,
+        'param_names': TV_PARAM_NAMES,
+        'description': 'Thin TV panel with stand',
     },
 }
 

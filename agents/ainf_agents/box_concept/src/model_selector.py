@@ -436,6 +436,11 @@ class ModelSelector:
                     model_type=model_type,
                     belief=belief
                 )
+                # Debug: Show dimensions for TV
+                if model_type == 'tv':
+                    print(f"[ModelSelector] TV hypothesis created: "
+                          f"size=({belief.width:.2f} x {belief.height:.2f}), "
+                          f"z_base={belief.z_base:.2f}, cluster={len(cluster)} pts")
 
         if not hypotheses:
             return None

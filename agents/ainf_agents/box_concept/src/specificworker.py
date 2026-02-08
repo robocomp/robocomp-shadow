@@ -50,6 +50,7 @@ GT_CONFIG = {
     'box': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.5, 'gt_h': 0.5, 'gt_d': 0.25, 'gt_theta': 0.0},
     'table': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 0.7, 'gt_h': 0.9, 'gt_table_height': 0.5, 'gt_theta': 0.0},
     'chair': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_seat_w': 0.45, 'gt_seat_d': 0.45, 'gt_seat_h': 0.45, 'gt_back_h': 0.40, 'gt_theta': 0.0},
+    'tv': {'gt_cx': 0.0, 'gt_cy': 0.0, 'gt_w': 1.0, 'gt_h': 0.1, 'gt_d': 0.6, 'gt_theta': 0.0},
     'multi': None,  # No single GT for multi-model
 }
 
@@ -64,10 +65,11 @@ elif OBJECT_MODEL == 'table':
 elif OBJECT_MODEL == 'chair':
     from src.objects.chair import ChairManager as ObjectManager
 elif OBJECT_MODEL == 'multi':
-    # Multi-model: Bayesian Model Selection between table and chair
+    # Multi-model: Bayesian Model Selection between table, chair, and tv
     from src.multi_model_manager import MultiModelManager
     from src.objects.table import TableBelief, TableBeliefConfig
     from src.objects.chair import ChairBelief, ChairBeliefConfig
+    from src.objects.tv import TVBelief, TVBeliefConfig
     from src.model_selector import ModelSelectorConfig
     ObjectManager = None  # Will be created in __init__
 else:
@@ -99,14 +101,15 @@ class SpecificWorker(GenericWorker):
 
         # Initialize object manager based on OBJECT_MODEL
         if OBJECT_MODEL == 'multi':
-            # Multi-model: Bayesian Model Selection between table and chair
+            # Multi-model: Bayesian Model Selection between table, chair, and tv
             self.object_manager = MultiModelManager(
                 model_classes={
                     'table': (TableBelief, TableBeliefConfig()),
-                    'chair': (ChairBelief, ChairBeliefConfig())
+                    'chair': (ChairBelief, ChairBeliefConfig()),
+                    'tv': (TVBelief, TVBeliefConfig())
                 },
                 selector_config=ModelSelectorConfig(
-                    model_priors={'table': 0.5, 'chair': 0.5},
+                    model_priors={'table': 0.33, 'chair': 0.33, 'tv': 0.34},
                     entropy_threshold=0.3,
                     concentration_threshold=0.85,
                     hysteresis_frames=10,
@@ -114,7 +117,7 @@ class SpecificWorker(GenericWorker):
                     debug_interval=20
                 )
             )
-            console.print(f"[green]Using MULTI-MODEL mode: table + chair with Bayesian Model Selection")
+            console.print(f"[green]Using MULTI-MODEL mode: table + chair + tv with Bayesian Model Selection")
 
             # Clean up any existing table/chair nodes from previous runs
             self._cleanup_dsr_objects()
@@ -312,7 +315,7 @@ class SpecificWorker(GenericWorker):
             helios = self.lidar3d1_proxy.getLidarDataWithThreshold2d("helios", 8000, 1)
             # LIDAR points in robot frame: p.x = right, p.y = forward, p.z = up
             bpearl_np = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in bpearl.points])
-            helios_np = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in helios.points if p.z < 1000])
+            helios_np = np.array([[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in helios.points if p.z < 1500])
             lidar_points = np.vstack((bpearl_np, helios_np))
 
         except Ice.Exception as e:
@@ -327,9 +330,10 @@ class SpecificWorker(GenericWorker):
     # ===================================================
 
     def _cleanup_dsr_objects(self):
-        """Remove any existing table/chair nodes from previous runs."""
+        """Remove any existing table/chair/tv nodes from previous runs."""
         try:
-            for node_type in ['table', 'chair']:
+            # Note: 'tv' objects are stored as 'container' type in DSR
+            for node_type in ['table', 'chair', 'container']:
                 nodes = self.g.get_nodes_by_type(node_type)
                 for node in nodes:
                     console.print(f"[yellow]Removing old {node_type} node: {node.name}")
@@ -384,6 +388,16 @@ class SpecificWorker(GenericWorker):
             room_node = room_nodes[0]
             node_name = f"{obj_type}_{belief_id}"
 
+            # Map object types to valid DSR node types
+            # 'tv' is not a valid DSR type, use 'container' instead
+            DSR_TYPE_MAP = {
+                'table': 'table',
+                'chair': 'chair',
+                'tv': 'container',  # TV mapped to container
+                'box': 'box',
+            }
+            dsr_node_type = DSR_TYPE_MAP.get(obj_type, 'container')
+
             # Check if node already exists
             existing = self.g.get_node(node_name)
             if existing:
@@ -403,8 +417,8 @@ class SpecificWorker(GenericWorker):
             # Find free position for visualization in graph canvas
             pos_x, pos_y = self._find_free_canvas_position(belief_id, obj_type)
 
-            # Create new node
-            new_node = Node(self.g.get_agent_id(), obj_type, node_name)
+            # Create new node with mapped DSR type
+            new_node = Node(self.g.get_agent_id(), dsr_node_type, node_name)
             new_node.attrs["pos_x"] = Attribute(float(pos_x), self.g.get_agent_id())
             new_node.attrs["pos_y"] = Attribute(float(pos_y), self.g.get_agent_id())
 
@@ -476,7 +490,7 @@ class SpecificWorker(GenericWorker):
     def _find_free_canvas_position(self, belief_id: int, obj_type: str) -> Tuple[float, float]:
         """Find a free position in the graph canvas for a new node.
 
-        Places detected objects (chair, table) in quadrants different from robot.
+        Places detected objects (chair, table, tv) in quadrants different from robot.
         Robot is typically near center/room, so we place objects further away.
         """
         # Base offset - reduced to half for closer positioning
@@ -484,10 +498,11 @@ class SpecificWorker(GenericWorker):
 
         # Different positions based on object type to avoid overlap
         # Robot is typically near (0,0) or connected to room
-        # Place chairs and tables in different quadrants
+        # Place chairs, tables, and TVs in different quadrants
         type_offsets = {
             'chair': (base_offset, -base_offset),      # Q4: +x, -y (bottom-right)
             'table': (-base_offset, -base_offset),     # Q3: -x, -y (bottom-left)
+            'tv': (base_offset, base_offset),          # Q1: +x, +y (top-right)
         }
 
         # Get base position for this type, default to Q2 if unknown

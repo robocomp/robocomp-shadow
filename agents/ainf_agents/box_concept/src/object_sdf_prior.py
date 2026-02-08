@@ -46,6 +46,10 @@ from src.objects import (
     # Chair
     compute_chair_sdf,
     compute_chair_priors,
+
+    # TV
+    compute_tv_sdf,
+    compute_tv_priors,
 )
 
 # For IDE autocompletion
@@ -69,5 +73,7 @@ __all__ = [
     'compute_table_priors',
     'compute_chair_sdf',
     'compute_chair_priors',
+    'compute_tv_sdf',
+    'compute_tv_priors',
 ]
 

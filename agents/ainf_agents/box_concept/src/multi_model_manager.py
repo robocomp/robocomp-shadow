@@ -447,6 +447,17 @@ class MultiModelManager:
                 vfe_info = ", ".join([f"{m}={h.current_vfe:.4f}" for m, h in multi_belief.hypotheses.items()])
                 console.print(f"[dim][VFE Debug] Belief {belief_id}: {vfe_info}[/dim]")
 
+                # Extra debug for TV if VFE is high
+                if 'tv' in multi_belief.hypotheses:
+                    tv_hyp = multi_belief.hypotheses['tv']
+                    tv_belief = tv_hyp.belief
+                    if tv_hyp.current_vfe > 0.5:
+                        console.print(f"[yellow][TV Debug] id={belief_id}: "
+                                    f"size=({tv_belief.width:.2f} x {tv_belief.height:.2f}), "
+                                    f"z_base={tv_belief.z_base:.2f}, "
+                                    f"pos=({tv_belief.cx:.2f}, {tv_belief.cy:.2f}), "
+                                    f"θ={np.degrees(tv_belief.angle):.1f}°, VFE={tv_hyp.current_vfe:.4f}[/yellow]")
+
     def _compute_overlap_prior(self, mu: torch.Tensor, current_belief_id: int) -> torch.Tensor:
         """Compute non-overlap prior using shared module."""
         return compute_overlap_prior(
@@ -517,11 +528,20 @@ class MultiModelManager:
 
                     mu -= self.optimization_lr * grad
 
-                    # Clamp sizes
+                    # Clamp sizes using model-specific limits
                     config = belief.config
-                    state_dim = len(mu)
-                    for i in range(2, state_dim - 1):
-                        mu[i] = torch.clamp(mu[i], config.min_size, config.max_size)
+
+                    if model_type == 'tv':
+                        # TV: [cx, cy, width, height, z_base, theta]
+                        # TV has specific dimension limits (depth is fixed, not in state)
+                        mu[2] = torch.clamp(mu[2], config.min_width, config.max_width)
+                        mu[3] = torch.clamp(mu[3], config.min_height, config.max_height)
+                        mu[4] = torch.clamp(mu[4], config.min_z_base, config.max_z_base)
+                    else:
+                        # Table, Chair, and others use generic min_size/max_size
+                        state_dim = len(mu)
+                        for i in range(2, state_dim - 1):
+                            mu[i] = torch.clamp(mu[i], config.min_size, config.max_size)
 
                     # Normalize angle
                     mu[-1] = torch.atan2(torch.sin(mu[-1]), torch.cos(mu[-1]))

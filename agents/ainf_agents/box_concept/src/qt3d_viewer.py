@@ -894,35 +894,42 @@ class Qt3DObjectVisualizerWidget(QWidget):
 
         active_objects: dict of id -> (type, state)
 
-        If current type is 'chair', remove any 'table' or 'uncertain' with same ID.
-        If current type is 'table', remove any 'chair' or 'uncertain' with same ID.
-        If state is 'uncertain', remove any 'table' or 'chair' with same ID.
+        If current type is 'chair', remove any 'table', 'tv', or 'uncertain' with same ID.
+        If current type is 'table', remove any 'chair', 'tv', or 'uncertain' with same ID.
+        If current type is 'tv', remove any 'table', 'chair', or 'uncertain' with same ID.
+        If state is 'uncertain', remove any 'table', 'chair', or 'tv' with same ID.
         """
         for obj_id, (obj_type, state) in active_objects.items():
             table_key = f'table_{obj_id}'
             chair_key = f'chair_{obj_id}'
+            tv_key = f'tv_{obj_id}'
             uncertain_key = f'uncertain_{obj_id}'
 
             if state == 'uncertain':
                 # Remove committed objects, keep uncertain
-                if table_key in self.scene_objects:
-                    self.scene_objects[table_key]['entity'].setParent(None)
-                    del self.scene_objects[table_key]
-                if chair_key in self.scene_objects:
-                    self.scene_objects[chair_key]['entity'].setParent(None)
-                    del self.scene_objects[chair_key]
+                for key in [table_key, chair_key, tv_key]:
+                    if key in self.scene_objects:
+                        self.scene_objects[key]['entity'].setParent(None)
+                        del self.scene_objects[key]
             else:
-                # state == 'committed' - remove uncertain and opposite type
+                # state == 'committed' - remove uncertain and other types
                 if uncertain_key in self.scene_objects:
                     self.scene_objects[uncertain_key]['entity'].setParent(None)
                     del self.scene_objects[uncertain_key]
 
-                if obj_type == 'chair' and table_key in self.scene_objects:
-                    self.scene_objects[table_key]['entity'].setParent(None)
-                    del self.scene_objects[table_key]
-                elif obj_type == 'table' and chair_key in self.scene_objects:
-                    self.scene_objects[chair_key]['entity'].setParent(None)
-                    del self.scene_objects[chair_key]
+                # Remove other committed types
+                other_keys = []
+                if obj_type != 'table':
+                    other_keys.append(table_key)
+                if obj_type != 'chair':
+                    other_keys.append(chair_key)
+                if obj_type != 'tv':
+                    other_keys.append(tv_key)
+
+                for key in other_keys:
+                    if key in self.scene_objects:
+                        self.scene_objects[key]['entity'].setParent(None)
+                        del self.scene_objects[key]
 
     def update_chairs(self, beliefs: list):
         """Update chair visualizations from belief list."""
@@ -952,6 +959,125 @@ class Qt3DObjectVisualizerWidget(QWidget):
             self._update_chair(chair_id, cx, cy, seat_width, seat_depth, seat_height, back_height, theta)
 
         self._remove_unused_chairs(active_ids)
+
+    # ==================== TV METHODS ====================
+
+    def _create_tv(self, tv_id: int, cx: float, cy: float, width: float, depth: float,
+                   height: float, z_base: float, theta: float):
+        """Create a TV entity - thin panel (screen) mounted on wall at z_base height."""
+        print(f"[Qt3D] CREATING TV {tv_id} at ({cx:.2f}, {cy:.2f}), z_base={z_base:.2f}")
+
+        # TV parameters - thin screen panel
+        screen_thickness = 0.05  # Thin screen
+
+        # Create parent entity for the TV
+        tv_entity = Qt3DCore.QEntity(self.root_entity)
+
+        # Global transform for the TV
+        tv_transform = Qt3DCore.QTransform()
+        tv_transform.setTranslation(QVector3D(cx, cy, 0))
+        tv_transform.setRotationZ(math.degrees(theta))
+        tv_entity.addComponent(tv_transform)
+
+        # Material - dark gray/black for screen
+        screen_material = Qt3DExtras.QPhongMaterial()
+        screen_material.setDiffuse(QColor(20, 20, 25))
+        screen_material.setAmbient(QColor(10, 10, 15))
+        screen_material.setSpecular(QColor(100, 100, 100))
+        screen_material.setShininess(80.0)
+
+        # ==================== SCREEN (main panel) ====================
+        screen_mesh = Qt3DExtras.QCuboidMesh()
+        screen_mesh.setXExtent(width)
+        screen_mesh.setYExtent(screen_thickness)  # Thin in Y
+        screen_mesh.setZExtent(height)
+
+        screen_entity = Qt3DCore.QEntity(tv_entity)
+        screen_transform = Qt3DCore.QTransform()
+        # Position screen at z_base + height/2 (center of screen)
+        screen_transform.setTranslation(QVector3D(0, 0, z_base + height / 2))
+        screen_entity.addComponent(screen_mesh)
+        screen_entity.addComponent(screen_transform)
+        screen_entity.addComponent(screen_material)
+
+        # Store references
+        self.scene_objects[f'tv_{tv_id}'] = {
+            'entity': tv_entity,
+            'transform': tv_transform,
+            'screen_entity': screen_entity,
+            'screen_mesh': screen_mesh,
+            'screen_transform': screen_transform,
+            'screen_material': screen_material,
+        }
+
+        print(f"[Qt3D] TV {tv_id} created successfully")
+        return tv_entity
+
+    def _update_tv(self, tv_id: int, cx: float, cy: float, width: float, depth: float,
+                   height: float, z_base: float, theta: float):
+        """Update an existing TV's position and size."""
+        key = f'tv_{tv_id}'
+
+        if key not in self.scene_objects:
+            self._create_tv(tv_id, cx, cy, width, depth, height, z_base, theta)
+            return
+
+        tv = self.scene_objects[key]
+        screen_thickness = 0.05
+
+        # Update main transform
+        tv['transform'].setTranslation(QVector3D(cx, cy, 0))
+        tv['transform'].setRotationZ(math.degrees(theta))
+
+        # Update screen
+        tv['screen_mesh'].setXExtent(width)
+        tv['screen_mesh'].setYExtent(screen_thickness)
+        tv['screen_mesh'].setZExtent(height)
+        # Screen at z_base + height/2
+        tv['screen_transform'].setTranslation(QVector3D(0, 0, z_base + height / 2))
+
+    def _remove_unused_tvs(self, active_ids: set):
+        """Remove TV entities that are no longer tracked."""
+        to_remove = []
+        for key in self.scene_objects:
+            if key.startswith('tv_'):
+                tv_id = int(key.split('_')[1])
+                if tv_id not in active_ids:
+                    to_remove.append(key)
+
+        for key in to_remove:
+            entity = self.scene_objects[key]['entity']
+            entity.setParent(None)
+            del self.scene_objects[key]
+
+    def update_tvs(self, beliefs: list):
+        """Update TV visualizations from belief list."""
+        active_ids = set()
+
+        for belief_dict in beliefs:
+            # Only process committed TVs
+            model_sel = belief_dict.get('model_selection', {})
+            state = model_sel.get('state', 'committed')
+            if state != 'committed':
+                continue
+
+            if belief_dict.get('type') != 'tv':
+                continue
+
+            tv_id = belief_dict.get('id', 0)
+            active_ids.add(tv_id)
+
+            cx = belief_dict.get('cx', 0)
+            cy = belief_dict.get('cy', 0)
+            width = belief_dict.get('width', 1.0)  # TV width (screen)
+            depth = belief_dict.get('depth', 0.1)  # TV depth (thin)
+            height = belief_dict.get('height', 0.5)  # TV height (screen)
+            z_base = belief_dict.get('z_base', 1.0)  # Height from floor
+            theta = belief_dict.get('angle', 0)
+
+            self._update_tv(tv_id, cx, cy, width, depth, height, z_base, theta)
+
+        self._remove_unused_tvs(active_ids)
 
     # ==================== VFE LABEL METHODS ====================
 
@@ -1032,6 +1158,10 @@ class Qt3DObjectVisualizerWidget(QWidget):
                 height = belief_dict.get('table_height', 0.75)
             elif obj_type == 'chair':
                 height = belief_dict.get('seat_height', 0.45) + belief_dict.get('back_height', 0.4)
+            elif obj_type == 'tv':
+                # TV: z_base + screen height
+                z_base = belief_dict.get('z_base', 1.0)
+                height = z_base + belief_dict.get('height', 0.5)
             else:
                 height = belief_dict.get('table_height', belief_dict.get('seat_height', 0.5))
 
@@ -1256,10 +1386,11 @@ class Qt3DObjectVisualizerWidget(QWidget):
             # Remove objects whose type has changed
             self._cleanup_type_changes(active_objects)
 
-            # Update uncertain objects, tables and chairs
+            # Update uncertain objects, tables, chairs and TVs
             self.update_uncertain_objects(beliefs)
             self.update_tables(beliefs)
             self.update_chairs(beliefs)
+            self.update_tvs(beliefs)
 
             # Update VFE labels
             self.update_vfe_labels(beliefs)
