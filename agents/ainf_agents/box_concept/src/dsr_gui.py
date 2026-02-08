@@ -101,6 +101,12 @@ class DSRViewer(QObject):
             return self.widgets[name].widget
         else: return None
 
+    def get_graph_viewer(self):
+        """Get the graph viewer widget if it exists."""
+        if View.graph in self.widgets_by_type:
+            return self.widgets_by_type[View.graph].widget
+        return None
+
     def add_custom_widget_to_dock(self, name, custom_view):
         widget_c = WidgetContainer()
         widget_c.name = name

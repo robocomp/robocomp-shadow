@@ -15,6 +15,7 @@ class GraphViewer(AbstractGraphicViewer):
         self.g = g
         self.gmap = {}  # node_id: GraphicsNode
         self.gmap_edges = {}  # (fr, to, type): GraphicsEdge
+        self.pending_edges = []  # Edges waiting for nodes to be created
         self.type_id_map = {}
         self._internal_update = False
         self.create_graph()
@@ -72,10 +73,13 @@ class GraphViewer(AbstractGraphicViewer):
         else:
             py = random.uniform(-300, 300)
         gnode.setPos(float(px), float(py))
+        # Try to add any edges from this node that aren't already in the viewer
         for edge in node.edges:
             key = (node.id, edge[0], edge[1])
-            if key in self.gmap_edges and self.gmap_edges[key] is None:
+            if key not in self.gmap_edges:
                 self.add_or_assign_edge_slot(node.id, edge[0], edge[1])
+        # Process pending edges that may now be drawable
+        self._process_pending_edges()
     def add_or_assign_edge_slot(self, fr: int, to: int, mtype: str):
         key = (fr, to, mtype)
         if key in self.gmap_edges.keys():
@@ -84,14 +88,41 @@ class GraphViewer(AbstractGraphicViewer):
             if self.g.get_edge(fr, to, mtype):
                 if key not in self.gmap_edges.keys():
                     if fr not in self.gmap or to not in self.gmap:
+                        # Save as pending edge to be added when nodes are available
+                        if key not in self.pending_edges:
+                            self.pending_edges.append(key)
                         return
                     source_node = self.gmap[fr]
                     destination_node = self.gmap[to]
                     item = GraphicsEdge(source_node, destination_node, mtype)
                     self.gmap_edges[key] = item
                     self.scene.addItem(item)
+                    print(f"Graph viewer: Edge {mtype} added successfully from {fr} to {to}")
         except Exception as e:
             print("Graph viewer: Exception in add_or_assign_edge", fr, to, mtype, e)
+
+    def _process_pending_edges(self):
+        """Try to add pending edges that were waiting for nodes to be created."""
+        still_pending = []
+        for key in self.pending_edges:
+            fr, to, mtype = key
+            if fr in self.gmap and to in self.gmap:
+                # Both nodes exist now, try to add the edge
+                if key not in self.gmap_edges:
+                    try:
+                        if self.g.get_edge(fr, to, mtype):
+                            source_node = self.gmap[fr]
+                            destination_node = self.gmap[to]
+                            item = GraphicsEdge(source_node, destination_node, mtype)
+                            self.gmap_edges[key] = item
+                            self.scene.addItem(item)
+                            print(f"Graph viewer: Pending edge {mtype} added from {fr} to {to}")
+                    except Exception as e:
+                        print(f"Graph viewer: Exception adding pending edge: {e}")
+            else:
+                # Still waiting for nodes
+                still_pending.append(key)
+        self.pending_edges = still_pending
     def del_node_slot(self, id: int):
         try:
             while id in self.gmap:
