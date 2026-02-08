@@ -56,9 +56,9 @@ class SpecificWorker : public GenericWorker
         RoboCompGridder::Result Gridder_getPaths_unlocked(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths,
         bool tryClosestFreePoint, bool targetIsHuman);
 
-	bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
+		bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 	
-	RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints);
+		RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints);
     public slots:
         void compute();
         int startup_check();
@@ -112,8 +112,7 @@ class SpecificWorker : public GenericWorker
         int hz = 0;
 
 		// DSR
-		void insert_path_node(Eigen::Vector2f target, std::vector<Eigen::Vector2f> points);
-
+		//void insert_path_node(Eigen::Vector2f target);
 
         // Draw
         void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);

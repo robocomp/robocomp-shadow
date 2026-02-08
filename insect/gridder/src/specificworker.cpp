@@ -97,7 +97,7 @@ void SpecificWorker::initialize(int period)
                 {
                     qInfo() << paths.size() << "paths found";
                     draw_path(paths.front(), &viewer->scene);
-					insert_path_node(paths.front());
+					//insert_path_node(Eigen::Vector2f(paths.front()));
                     // this->lcdNumber_length->display((int) paths.front().size());
                 }
 
@@ -168,49 +168,49 @@ void SpecificWorker::read_lidar()
 
 //////////////////////////////// DSR ///////////////////////////////////////////////////////
 
-void SpecificWorker::insert_path_node(Eigen::Vector2f target, std::vector<Eigen::Vector2f> points)
-{
-	std::vector<float> x_values, y_values;
-    x_values.reserve(path.size());
-    y_values.reserve(path.size());
-    for (auto &&p : path)
-    {
-        x_values.push_back(p.x());
-        y_values.push_back(p.y());
-    }
-    if (auto path = G->get_node(current_path_name); path.has_value())
-    {
-        auto path_to_target_node = path.value();
-        G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
-        G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
-        G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
-        G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
-        G->update_node(path_to_target_node);
-    }
-    else // create path_to_target_node with the solution path
-    {
-		auto robot_node_ = G->get_node("Shadow");
-		if(not robot_node_.has_value()){qInfo() << "Robot node not found"; return;}
-		auto robot_node = robot_node_.value();
-
-		auto robot_node_level_ = G->get_node_level(robot_node);
-		if(not robot_node_level_.has_value()){qInfo() << "Robot node level not found"; return;}
-		auto robot_node_level = robot_node_level_.value();
-
-        auto path_to_target_node = DSR::Node::create<path_to_target_node_type>(current_path_name);
-        G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
-        G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
-        G->add_or_modify_attrib_local<pos_x_att>(path_to_target_node, (float) -542);
-        G->add_or_modify_attrib_local<pos_y_att>(path_to_target_node, (float) 106);
-        G->add_or_modify_attrib_local<parent_att>(path_to_target_node, robot_node.id());
-        G->add_or_modify_attrib_local<level_att>(path_to_target_node, robot_node_level + 1);
-        G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
-        G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
-        auto id = G->insert_node(path_to_target_node);
-        DSR::Edge edge_to_path = DSR::Edge::create<has_edge_type>(robot_node.value(), path_to_target_node.value().id());
-        G->insert_or_assign_edge(edge_to_path);
-    }
-}
+// void SpecificWorker::insert_path_node(Eigen::Vector2f target)
+// {
+// 	std::vector<float> x_values, y_values;
+//     x_values.reserve(path.size());
+//     y_values.reserve(path.size());
+//     for (auto &&p : path)
+//     {
+//         x_values.push_back(p.x());
+//         y_values.push_back(p.y());
+//     }
+//     if (auto path = G->get_node(current_path_name); path.has_value())
+//     {
+//         auto path_to_target_node = path.value();
+//         G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
+//         G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
+//         G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
+//         G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
+//         G->update_node(path_to_target_node);
+//     }
+//     else // create path_to_target_node with the solution path
+//     {
+// 		auto robot_node_ = G->get_node("Shadow");
+// 		if(not robot_node_.has_value()){qInfo() << "Robot node not found"; return;}
+// 		auto robot_node = robot_node_.value();
+//
+// 		auto robot_node_level_ = G->get_node_level(robot_node);
+// 		if(not robot_node_level_.has_value()){qInfo() << "Robot node level not found"; return;}
+// 		auto robot_node_level = robot_node_level_.value();
+//
+//         auto path_to_target_node = DSR::Node::create<path_to_target_node_type>(current_path_name);
+//         G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
+//         G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
+//         G->add_or_modify_attrib_local<pos_x_att>(path_to_target_node, (float) -542);
+//         G->add_or_modify_attrib_local<pos_y_att>(path_to_target_node, (float) 106);
+//         G->add_or_modify_attrib_local<parent_att>(path_to_target_node, robot_node.id());
+//         G->add_or_modify_attrib_local<level_att>(path_to_target_node, robot_node_level + 1);
+//         G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
+//         G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
+//         auto id = G->insert_node(path_to_target_node);
+//         DSR::Edge edge_to_path = DSR::Edge::create<has_edge_type>(robot_node.value(), path_to_target_node.value().id());
+//         G->insert_or_assign_edge(edge_to_path);
+//     }
+// }
 
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)

@@ -6,6 +6,7 @@
 #include <cppitertools/chunked.hpp>
 #include <cppitertools/filterfalse.hpp>
 #include <cppitertools/count.hpp>
+#include <set>
 
 void Grid::initialize(  QRectF dim_,
                         int tile_size,
