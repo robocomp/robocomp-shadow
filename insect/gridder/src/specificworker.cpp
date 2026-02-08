@@ -166,52 +166,6 @@ void SpecificWorker::read_lidar()
     }
 } // Thread to read the lidar
 
-//////////////////////////////// DSR ///////////////////////////////////////////////////////
-
-// void SpecificWorker::insert_path_node(Eigen::Vector2f target)
-// {
-// 	std::vector<float> x_values, y_values;
-//     x_values.reserve(path.size());
-//     y_values.reserve(path.size());
-//     for (auto &&p : path)
-//     {
-//         x_values.push_back(p.x());
-//         y_values.push_back(p.y());
-//     }
-//     if (auto path = G->get_node(current_path_name); path.has_value())
-//     {
-//         auto path_to_target_node = path.value();
-//         G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
-//         G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
-//         G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
-//         G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
-//         G->update_node(path_to_target_node);
-//     }
-//     else // create path_to_target_node with the solution path
-//     {
-// 		auto robot_node_ = G->get_node("Shadow");
-// 		if(not robot_node_.has_value()){qInfo() << "Robot node not found"; return;}
-// 		auto robot_node = robot_node_.value();
-//
-// 		auto robot_node_level_ = G->get_node_level(robot_node);
-// 		if(not robot_node_level_.has_value()){qInfo() << "Robot node level not found"; return;}
-// 		auto robot_node_level = robot_node_level_.value();
-//
-//         auto path_to_target_node = DSR::Node::create<path_to_target_node_type>(current_path_name);
-//         G->add_or_modify_attrib_local<path_x_values_att>(path_to_target_node, x_values);
-//         G->add_or_modify_attrib_local<path_y_values_att>(path_to_target_node, y_values);
-//         G->add_or_modify_attrib_local<pos_x_att>(path_to_target_node, (float) -542);
-//         G->add_or_modify_attrib_local<pos_y_att>(path_to_target_node, (float) 106);
-//         G->add_or_modify_attrib_local<parent_att>(path_to_target_node, robot_node.id());
-//         G->add_or_modify_attrib_local<level_att>(path_to_target_node, robot_node_level + 1);
-//         G->add_or_modify_attrib_local<path_target_x_att>(path_to_target_node, (float) target.x());
-//         G->add_or_modify_attrib_local<path_target_y_att>(path_to_target_node, (float) target.y());
-//         auto id = G->insert_node(path_to_target_node);
-//         DSR::Edge edge_to_path = DSR::Edge::create<has_edge_type>(robot_node.value(), path_to_target_node.value().id());
-//         G->insert_or_assign_edge(edge_to_path);
-//     }
-// }
-
 //////////////////////////////// Draw ///////////////////////////////////////////////////////
 void SpecificWorker::draw_path(const std::vector<Eigen::Vector2f> &path, QGraphicsScene *scene, bool erase_only)
 {
@@ -256,76 +210,76 @@ void SpecificWorker::draw_paths(const std::vector<std::vector<Eigen::Vector2f>> 
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
-RoboCompGridder::Result SpecificWorker::Gridder_getPaths_unlocked(RoboCompGridder::TPoint source,
-                                                         RoboCompGridder::TPoint target,
-                                                         int max_paths,
-                                                         bool tryClosestFreePoint,
-                                                         bool targetIsHuman)
-{
-    //TODO: improve this method to try to find a path even if the target is not free by using the closest free point
-    //TODO: if target is human, set safe area around as free
-    RoboCompGridder::Result result;
-    std::vector<std::vector<Eigen::Vector2f>> paths;
-
-    auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]"
-                            << " max_paths: " << max_paths;
-
-    auto [success, msg, source_key, target_key] =
-            grid.validate_source_target(Eigen::Vector2f{source.x, source.y},
-                                        source.radius,
-                                        Eigen::Vector2f{target.x, target.y},
-                                        source.radius);
-    if (success)
-    {    //check if is line of sight to target free
-        if (grid.is_line_of_sigth_to_target_free(source_key, target_key, params.ROBOT_SEMI_WIDTH))
-        {
-            paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
-            if(paths.empty())
-            {
-                msg = "VLOS path not found";
-                result.valid = false;
-            }
-            else
-                msg = "VLOS path";
-        }
-        else
-        {
-            paths = grid.compute_k_paths(source_key, target_key, std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH), params.MIN_DISTANCE_BETWEEN_PATHS, tryClosestFreePoint, targetIsHuman);
-            if(paths.empty())
-            {
-                msg = "Djikstra path not found";
-                result.valid = false;
-            }
-            else
-                msg = "Djikstra path";
-        }
-    }
-    result.errorMsg = msg;
-    result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
-    // If not success return result with empty paths, error message and timestamp
-    if (not success)
-        return result;
-    else
-    {
-        // fill Result with data
-        result.paths.resize(paths.size());
-        for (const auto &[i, path]: paths | iter::enumerate)
-        {
-            result.paths[i].resize(path.size());
-            for (const auto &[j, point]: path | iter::enumerate)
-            {
-                result.paths[i][j].x = point.x();
-                result.paths[i][j].y = point.y();
-            }
-        }
-        qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " <<
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms" << "Status:" << msg.c_str();
-        return result;
-    }
-}
+// RoboCompGridder::Result SpecificWorker::Gridder_getPaths_unlocked(RoboCompGridder::TPoint source,
+//                                                          RoboCompGridder::TPoint target,
+//                                                          int max_paths,
+//                                                          bool tryClosestFreePoint,
+//                                                          bool targetIsHuman)
+// {
+//     //TODO: improve this method to try to find a path even if the target is not free by using the closest free point
+//     //TODO: if target is human, set safe area around as free
+//     RoboCompGridder::Result result;
+//     std::vector<std::vector<Eigen::Vector2f>> paths;
+//
+//     auto begin = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+//     qInfo() << __FUNCTION__ << " New plan request: source [" << source.x << source.y << "], target [" << target.x << target.y << "]"
+//                             << " max_paths: " << max_paths;
+//
+//     auto [success, msg, source_key, target_key] =
+//             grid.validate_source_target(Eigen::Vector2f{source.x, source.y},
+//                                         source.radius,
+//                                         Eigen::Vector2f{target.x, target.y},
+//                                         source.radius);
+//     if (success)
+//     {    //check if is line of sight to target free
+//         if (grid.is_line_of_sigth_to_target_free(source_key, target_key, params.ROBOT_SEMI_WIDTH))
+//         {
+//             paths.emplace_back(grid.compute_path_line_of_sight(source_key, target_key, params.ROBOT_SEMI_LENGTH));
+//             if(paths.empty())
+//             {
+//                 msg = "VLOS path not found";
+//                 result.valid = false;
+//             }
+//             else
+//                 msg = "VLOS path";
+//         }
+//         else
+//         {
+//             paths = grid.compute_k_paths(source_key, target_key, std::clamp(max_paths, 1, params.NUM_PATHS_TO_SEARCH), params.MIN_DISTANCE_BETWEEN_PATHS, tryClosestFreePoint, targetIsHuman);
+//             if(paths.empty())
+//             {
+//                 msg = "Djikstra path not found";
+//                 result.valid = false;
+//             }
+//             else
+//                 msg = "Djikstra path";
+//         }
+//     }
+//     result.errorMsg = msg;
+//     result.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+//
+//     // If not success return result with empty paths, error message and timestamp
+//     if (not success)
+//         return result;
+//     else
+//     {
+//         // fill Result with data
+//         result.paths.resize(paths.size());
+//         for (const auto &[i, path]: paths | iter::enumerate)
+//         {
+//             result.paths[i].resize(path.size());
+//             for (const auto &[j, point]: path | iter::enumerate)
+//             {
+//                 result.paths[i][j].x = point.x();
+//                 result.paths[i][j].y = point.y();
+//             }
+//         }
+//         qInfo() << __FUNCTION__ << " " << paths.size() << " paths computed in " <<
+//                 std::chrono::duration_cast<std::chrono::milliseconds>(
+//                         std::chrono::system_clock::now().time_since_epoch()).count() - begin << " ms" << "Status:" << msg.c_str();
+//         return result;
+//     }
+// }
 RoboCompGridder::Result SpecificWorker::Gridder_getPaths(RoboCompGridder::TPoint source,
                                                          RoboCompGridder::TPoint target,
                                                          int max_paths,

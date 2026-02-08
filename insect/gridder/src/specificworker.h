@@ -22,8 +22,6 @@
 	@author authorname
 */
 
-
-
 #ifndef SPECIFICWORKER_H
 #define SPECIFICWORKER_H
 
@@ -44,18 +42,57 @@ class SpecificWorker : public GenericWorker
         ~SpecificWorker();
         bool setParams(RoboCompCommonBehavior::ParameterList params);
 
+    /**
+         * @brief Checks if the given path is blocked by any obstacle in the grid
+         * @param path
+         * @return
+         */
         bool Gridder_IsPathBlocked(RoboCompGridder::TPath path);
+
+    /**
+         * @brief Checks if there is a line of sight from source to target point without any obstacle in the grid, considering the robot radius
+         * @param source
+         * @param target
+         * @param robotRadius
+         * @return
+         */
         bool Gridder_LineOfSightToTarget(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, float robotRadius);
+
+    /**
+         * @brief Finds the closest free point in the grid to the given source point, if the source point is blocked by an obstacle
+         * @param source
+         * @return
+         */
         RoboCompGridder::TPoint Gridder_getClosestFreePoint(RoboCompGridder::TPoint source);
+
+    /**
+         * @brief Returns the dimensions of the grid
+         * @return
+         */
         RoboCompGridder::TDimensions Gridder_getDimensions();
+
+        /**
+         * @brief Computes multiple paths from source to target point
+         * @param source Starting point coordinates
+         * @param target Destination point coordinates
+         * @param max_paths Maximum number of alternative paths to compute
+         * @param tryClosestFreePoint If true, finds closest free point when target is blocked
+         * @param targetIsHuman Whether the target is a human (affects pathfinding behavior)
+         * @return Result containing computed paths and status information
+         */
         RoboCompGridder::Result Gridder_getPaths(RoboCompGridder::TPoint source,
                                                  RoboCompGridder::TPoint target,
                                                  int max_paths,
                                                  bool tryClosestFreePoint,
                                                  bool targetIsHuman);
-        RoboCompGridder::Result Gridder_getPaths_unlocked(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths,
-        bool tryClosestFreePoint, bool targetIsHuman);
+        //RoboCompGridder::Result Gridder_getPaths_unlocked(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, int max_paths,
+        //bool tryClosestFreePoint, bool targetIsHuman);
 
+    /**
+		 * @brief Sets the dimensions of the grid
+		 * @param dimensions
+		 * @return
+		 */
 		bool Gridder_setGridDimensions(RoboCompGridder::TDimensions dimensions);
 	
 		RoboCompGridder::Result Gridder_setLocationAndGetPath(RoboCompGridder::TPoint source, RoboCompGridder::TPoint target, RoboCompGridder::TPointVector freePoints, RoboCompGridder::TPointVector obstaclePoints);
@@ -110,9 +147,6 @@ class SpecificWorker : public GenericWorker
         // FPS
         FPSCounter fps;
         int hz = 0;
-
-		// DSR
-		//void insert_path_node(Eigen::Vector2f target);
 
         // Draw
         void draw_paths(const vector<std::vector<Eigen::Vector2f>> &paths, QGraphicsScene *scene, bool erase_only=false);
