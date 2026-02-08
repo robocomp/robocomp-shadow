@@ -42,7 +42,7 @@ SET (EXECUTABLE_OUTPUT_PATH ${RC_COMPONENT_DEVEL_PATH}/bin)
 QT_WRAP_UI( UI_HEADERS mainUI.ui )
 
 # no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-fmax-errors=1 -fno-char8_t)
+add_definitions(-O4 -fmax-errors=1 -fno-char8_t)
 
 # Specify construction and link process
 ADD_EXECUTABLE( lidar_odometry ${SOURCES} ${MOC_SOURCES} ${RC_SOURCES} ${UI_HEADERS} )

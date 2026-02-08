@@ -97,12 +97,12 @@ void SpecificWorker::initialize(int period)
 void SpecificWorker::compute()
 {
     /// check idle time
-    if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
-    {
-        fps.print("No requests in the last 5 seconds. Pausing. Reset to continue", 3000);
-        pauseCheck->setChecked(true);
-        return;
-    }
+    //if(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - last_read.load()).count() > MAX_INACTIVE_TIME)
+    //{
+    //    fps.print("No requests in the last 5 seconds. Pausing. Reset to continue", 3000);
+    //    pauseCheck->setChecked(true);
+    //    return;
+    //}
     /// read LiDAR
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud_source;
     if( auto res = read_lidar(); not res.has_value()) return;
