@@ -952,6 +952,107 @@ class Qt3DObjectVisualizerWidget(QWidget):
 
         self._remove_unused_chairs(active_ids)
 
+    # ==================== VFE LABEL METHODS ====================
+
+    def _create_vfe_label(self, obj_id: int, cx: float, cy: float, height: float, vfe_text: str):
+        """Create a 3D text label showing VFE above an object."""
+        # Create entity for the label
+        label_entity = Qt3DCore.QEntity(self.root_entity)
+
+        # Create 3D text mesh
+        text_mesh = Qt3DExtras.QExtrudedTextMesh()
+        text_mesh.setText(vfe_text)
+        text_mesh.setDepth(0.02)
+
+        # Yellow material for text
+        text_material = Qt3DExtras.QPhongMaterial()
+        text_material.setDiffuse(QColor(255, 255, 0))
+        text_material.setAmbient(QColor(200, 200, 0))
+
+        # Transform - position above the object
+        label_transform = Qt3DCore.QTransform()
+        label_transform.setTranslation(QVector3D(cx, cy, height + 0.2))
+        label_transform.setScale3D(QVector3D(-0.1, 0.1, 0.1))  # Negative X for mirror
+        label_transform.setRotationX(90)  # Stand up
+
+        label_entity.addComponent(text_mesh)
+        label_entity.addComponent(text_material)
+        label_entity.addComponent(label_transform)
+
+        # Store ALL references to prevent garbage collection
+        self.scene_objects[f'vfe_label_{obj_id}'] = {
+            'entity': label_entity,
+            'mesh': text_mesh,
+            'material': text_material,
+            'transform': label_transform,
+        }
+
+        return label_entity
+
+    def _update_vfe_label(self, obj_id: int, cx: float, cy: float, height: float, vfe_text: str):
+        """Update an existing VFE label or create a new one."""
+        key = f'vfe_label_{obj_id}'
+
+        if key not in self.scene_objects:
+            self._create_vfe_label(obj_id, cx, cy, height, vfe_text)
+            return
+
+        label = self.scene_objects[key]
+        label['transform'].setTranslation(QVector3D(cx, cy, height + 0.2))
+        label['mesh'].setText(vfe_text)
+
+    def _remove_unused_vfe_labels(self, active_ids: set):
+        """Remove VFE labels that are no longer tracked."""
+        to_remove = []
+        for key in self.scene_objects:
+            if key.startswith('vfe_label_'):
+                obj_id = int(key.split('_')[2])
+                if obj_id not in active_ids:
+                    to_remove.append(key)
+
+        for key in to_remove:
+            self.scene_objects[key]['entity'].setParent(None)
+            del self.scene_objects[key]
+
+    def update_vfe_labels(self, beliefs: list):
+        """Update VFE labels for all objects."""
+        active_ids = set()
+
+        for belief_dict in beliefs:
+            obj_id = belief_dict.get('id', 0)
+            active_ids.add(obj_id)
+
+            cx = belief_dict.get('cx', 0)
+            cy = belief_dict.get('cy', 0)
+
+            # Get object height for label positioning
+            obj_type = belief_dict.get('type', 'unknown')
+            if obj_type == 'table':
+                height = belief_dict.get('table_height', 0.75)
+            elif obj_type == 'chair':
+                height = belief_dict.get('seat_height', 0.45) + belief_dict.get('back_height', 0.4)
+            else:
+                height = belief_dict.get('table_height', belief_dict.get('seat_height', 0.5))
+
+            # Get VFE value
+            model_vfe = belief_dict.get('model_vfe', {})
+            model_sel = belief_dict.get('model_selection', {})
+            state = model_sel.get('state', 'committed')
+
+            if state == 'committed':
+                # Show VFE of committed type
+                committed_type = model_sel.get('committed_model', obj_type)
+                vfe = model_vfe.get(committed_type, 0)
+                vfe_text = f"VFE: {vfe:.3f}"
+            else:
+                # Show VFE of both hypotheses
+                vfe_parts = [f"{m}: {v:.3f}" for m, v in model_vfe.items()]
+                vfe_text = " | ".join(vfe_parts) if vfe_parts else "VFE: ?"
+
+            self._update_vfe_label(obj_id, cx, cy, height, vfe_text)
+
+        self._remove_unused_vfe_labels(active_ids)
+
     def get_widget(self):
         return self
 
@@ -984,6 +1085,9 @@ class Qt3DObjectVisualizerWidget(QWidget):
             self.update_uncertain_objects(beliefs)
             self.update_tables(beliefs)
             self.update_chairs(beliefs)
+
+            # Update VFE labels
+            self.update_vfe_labels(beliefs)
 
         # Periodic save of camera settings
         self._update_counter += 1

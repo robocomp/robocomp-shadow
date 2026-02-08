@@ -68,7 +68,7 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
             return QRectF(self.line().p1(), QSizeF(self.line().p2().x() - self.line().p1().x(),
                                                    self.line().p2().y() - self.line().p1().y())).normalized().adjusted(-extra, -extra, extra, extra)
         else:
-            default_diameter = 20
+            default_diameter = 40
             default_radius = default_diameter * 2
             return QRectF(self.line().p1().x() - default_radius * 2, self.line().p1().y(), default_radius * 2, default_radius * 2)
 
@@ -122,7 +122,7 @@ class GraphicsEdge(QObject, QGraphicsLineItem):
             painter.drawPath(path)
         else:
             painter.setBrush(Qt.NoBrush)
-            default_diameter = 20
+            default_diameter = 40
             default_radius = default_diameter * 2
             painter.drawEllipse(int(self.line().p1().x() - default_radius * 2), int(self.line().p1().y()), default_radius * 2, default_radius * 2)
 

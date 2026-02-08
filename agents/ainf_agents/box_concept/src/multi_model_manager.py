@@ -89,12 +89,12 @@ class MultiModelManager:
         self.max_association_distance = getattr(first_config, 'max_association_distance', 0.8)
 
         # Optimization parameters
-        self.optimization_iters = 20  # More iterations for better convergence
+        self.optimization_iters = 10  # Reduced for better performance
         self.optimization_lr = 0.05
         self.grad_clip = 2.0
 
         # Early exit threshold - skip optimization if SDF error is below this
-        self.early_exit_sdf_threshold = 0.02  # Lower threshold to do more full optimizations
+        self.early_exit_sdf_threshold = 0.05  # Higher threshold for more early exits when stable
 
         # Debug counters
         self._early_exits = 0

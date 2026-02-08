@@ -15,10 +15,10 @@ from .graph_edge import GraphicsEdge
 class GraphicsNode(QObject, QGraphicsEllipseItem):
     def __init__(self, graph_viewer):
         super().__init__()
-        QGraphicsEllipseItem.__init__(self, 0, 0, 20, 20)
+        QGraphicsEllipseItem.__init__(self, 0, 0, 40, 40)
         self.node_widget = None
         self.graph_viewer = graph_viewer
-        self.default_diameter = 20
+        self.default_diameter = 40
         self.default_radius = int(self.default_diameter / 2)
         self.sunken_color = Qt.darkGray
         self.edge_list = []
@@ -41,8 +41,12 @@ class GraphicsNode(QObject, QGraphicsEllipseItem):
 
     def set_tag(self, tag: str):
         text_item = QGraphicsSimpleTextItem(tag, self)
-        text_item.setX(10)
-        text_item.setY(-10)
+        # Set font size to triple (default is ~10pt, now 30pt)
+        font = text_item.font()
+        font.setPointSize(30)
+        text_item.setFont(font)
+        text_item.setX(25)
+        text_item.setY(-15)
 
     def set_type(self, mtype: str):
         if mtype in node_colors.keys():
