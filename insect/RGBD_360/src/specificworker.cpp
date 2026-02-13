@@ -31,22 +31,6 @@ this->startup_check_flag = startup_check;
 			hibernationChecker.start(500);
 		#endif
 
-		// Example statemachine:
-		/***
-		//Your definition for the statesmachine (if you dont want use a execute function, use nullptr)
-		states["CustomState"] = std::make_unique<GRAFCETStep>("CustomState", period, 
-															std::bind(&SpecificWorker::customLoop, this),  // Cyclic function
-															std::bind(&SpecificWorker::customEnter, this), // On-enter function
-															std::bind(&SpecificWorker::customExit, this)); // On-exit function
-
-		//Add your definition of transitions (addTransition(originOfSignal, signal, dstState))
-		states["CustomState"]->addTransition(states["CustomState"].get(), SIGNAL(entered()), states["OtherState"].get());
-		states["Compute"]->addTransition(this, SIGNAL(customSignal()), states["CustomState"].get()); //Define your signal in the .h file under the "Signals" section.
-
-		//Add your custom state
-		statemachine.addState(states["CustomState"].get());
-		***/
-
 		statemachine.setChildMode(QState::ExclusiveStates);
 		statemachine.start();
 
@@ -55,6 +39,7 @@ this->startup_check_flag = startup_check;
 			qWarning() << error;
 			throw error;
 		}
+		
 	}
 }
 
@@ -65,60 +50,101 @@ SpecificWorker::~SpecificWorker()
 
 void SpecificWorker::initialize()
 {
-    //chekpoint robocompUpdater
-	std::cout << "Initialize worker" << std::endl;
+    std::cout << "Initialize worker" << std::endl;
 
-	if(this->startup_check_flag)
-	{
-		this->startup_check();
-	}
-	else
-	{
-        lidarName = this->configLoader.get<std::string>("lidar");
-        params.DISPLAY = this->configLoader.get<bool>("display");
-        // pause variable
-        last_read.store(std::chrono::high_resolution_clock::now());
+    if(this->startup_check_flag)
+    {
+        this->startup_check();
+        return;
+    }
 
-        capture_time = -1;
-        while(!enabled_lidar)
+    // Load configuration parameters
+    lidarName = this->configLoader.get<std::string>("lidar");
+    params.DISPLAY = this->configLoader.get<bool>("display");
+    last_read.store(std::chrono::high_resolution_clock::now());
+    capture_time = -1;
+
+    // Initialize LiDAR connection
+    enabled_lidar = initialize_lidar();
+
+    // Initialize Camera connection
+    enabled_camera = initialize_camera();
+}
+
+bool SpecificWorker::initialize_lidar()
+{
+    std::cout << "Initializing LiDAR connection..." << std::endl;
+    while(true)
+    {
+        try
         {
-            try
-            {
-                RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage(lidarName);
-                enabled_lidar = true;
-            }
-            catch (const std::exception &e){std::cout << " In Initialize getting LiDAR " << e.what() << std::endl;}
+            RoboCompLidar3D::TDataImage lidar_data = this->lidar3d_proxy->getLidarDataArrayProyectedInImage(lidarName);
+            std::cout << "LiDAR connection established successfully" << std::endl;
+            return true;
+        }
+        catch (const std::exception &e)
+        {
+            std::cout << "Waiting for LiDAR connection: " << e.what() << std::endl;
             sleep(1);
         }
-        while(!enabled_camera)
+    }
+}
+
+bool SpecificWorker::initialize_camera()
+{
+    std::cout << "Initializing Camera connection..." << std::endl;
+    while(true)
+    {
+        try
         {
-            try
-            {
-                RoboCompCamera360RGB::TImage cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
-                MAX_WIDTH = cam_data.width;
-                MAX_HEIGHT = cam_data.height;
-                enabled_camera = true;
-                sleep(1);
-            }
-            catch (const std::exception &e){std::cout << " In Initialize getting Camera " <<e.what() << std::endl; }
+            RoboCompCamera360RGB::TImage cam_data = this->camera360rgb_proxy->getROI(-1, -1, -1, -1, -1, -1);
+            MAX_WIDTH = cam_data.width;
+            MAX_HEIGHT = cam_data.height;
+            std::cout << "Camera connection established successfully. Size: " << MAX_WIDTH << "x" << MAX_HEIGHT << std::endl;
+            return true;
+        }
+        catch (const std::exception &e)
+        {
+            std::cout << "Waiting for Camera connection: " << e.what() << std::endl;
             sleep(1);
         }
-		
-	}
+    }
 }
 
 void SpecificWorker::compute()
 {
-    /// check idle time
-
     RoboCompLidar3D::TDataImage lidar_data;
     RoboCompCamera360RGB::TImage cam_data;
     RoboCompLidar3D::TColorCloudData cloud;
-    RoboCompLidar3D::TDataImage chosen_lidar_data{.timestamp=-1};
-    RoboCompCamera360RGB::TImage chosen_rgb_data{.timestamp=-1};
 
+    // Get sensor data
+    if (!get_sensor_data(lidar_data, cam_data))
+        return;
 
+    // Find best timestamp match
+    auto match_result = find_best_timestamp_match();
+    if (!match_result.has_value())
+        return;
 
+    auto [chosen_rgb, chosen_lidar] = match_result.value();
+
+    RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
+    RoboCompCamera360RGB::TImage chosen_rgb_data = b_camera_queue.at(chosen_rgb);
+
+    // Check if already processed
+    if (last_fused_time == chosen_lidar_data.timestamp)
+        return;
+
+    // Process matched data
+    process_matched_data(chosen_lidar_data, chosen_rgb_data, cloud);
+
+    fps.print("Timestamps: Lidar " + std::to_string(chosen_lidar_data.timestamp) +
+              " RGB " + std::to_string(chosen_rgb_data.timestamp) +
+              " diff:" + std::to_string(chosen_lidar_data.timestamp - chosen_rgb_data.timestamp), 3000);
+}
+
+bool SpecificWorker::get_sensor_data(RoboCompLidar3D::TDataImage &lidar_data, RoboCompCamera360RGB::TImage &cam_data)
+{
     // Get lidar data
     try
     {
@@ -127,14 +153,13 @@ void SpecificWorker::compute()
         {
             b_lidar_queue.push_back(lidar_data);
             last_lidar_stamp = lidar_data.timestamp;
-            // qInfo() << "Lidar timestamp" << lidar_data.timestamp;
-        } 
-        else 
-        {
-            // qInfo() << "Lidar data with timestamp" << lidar_data.timestamp << "already exists in buffer. Stopping compute";
         }
     }
-    catch (const Ice::Exception &e){std::cout << " In getting LiDAR data " << e.what() << std::endl; return;}
+    catch (const Ice::Exception &e)
+    {
+        std::cout << "Error getting LiDAR data: " << e.what() << std::endl;
+        return false;
+    }
 
     // Get camera data
     try
@@ -144,156 +169,231 @@ void SpecificWorker::compute()
         {
             b_camera_queue.push_back(cam_data);
             last_camera_stamp = cam_data.timestamp;
-            // qInfo() << "RGB timestamp" << cam_data.timestamp;
-        } 
-        else {
-            // qInfo() << "Camera data with timestamp" << cam_data.timestamp << "already exists in buffer";
         }
     }
-    catch (const Ice::Exception &e){std::cout << " In getting camera data " << e.what() << std::endl; return;}
+    catch (const Ice::Exception &e)
+    {
+        std::cout << "Error getting camera data: " << e.what() << std::endl;
+        return false;
+    }
 
-    // capture_time = duration_cast< milliseconds >(system_clock::now().time_since_epoch()).count();
-    // int timestamp_diff = 999999999;
-    // int chosen_rgb, chosen_lidar;
-    // bool exists_data = false;
-    // for(const auto &[i, rgb] : b_camera_queue | iter::enumerate)
-    // {
-    //     for(const auto &[j, lidar] : b_lidar_queue | iter::enumerate)
-    //     {
-    //         int act_timestamp_diff = abs(rgb.alivetime - lidar.timestamp);
-    //
-    //         //std::cout << "timestamp diff: " << act_timestamp_diff << " Queue sizes:" << b_camera_queue.size() << "," << b_lidar_queue.size() <<  std::endl;
-    //         if(act_timestamp_diff < timestamp_diff and act_timestamp_diff < 300000)
-    //         {
-    //             timestamp_diff = act_timestamp_diff;
-    //             chosen_rgb = i;
-    //             chosen_lidar = j;
-    //             exists_data = true;
-    //             break;
-    //         }
-    //     }
-    //     if(exists_data){break;}
-    // }
+    return true;
+}
 
+std::optional<std::pair<size_t, size_t>> SpecificWorker::find_best_timestamp_match()
+{
     int timestamp_diff = std::numeric_limits<int>::max();
     size_t chosen_rgb = 0, chosen_lidar = 0;
     bool exists_data = false;
     
+    constexpr int MAX_TIMESTAMP_DIFF = 500; // microseconds
 
-    // Iterate through lidar std::queue in reverse
+    // Iterate through lidar queue in reverse
     for (auto it_lidar = b_lidar_queue.rbegin(); it_lidar != b_lidar_queue.rend(); ++it_lidar)
     {
         const auto& lidar = *it_lidar;
-        const auto j = std::distance(it_lidar, b_lidar_queue.rend()) - 1; // Calculate reverse index
-        // qInfo() << "LIDAR Timestamp loop" << lidar.timestamp;
-        // Iterate through camera std::queue in reverse
+        const auto j = std::distance(it_lidar, b_lidar_queue.rend()) - 1;
+
+        // Iterate through camera queue in reverse
         for (auto it_rgb = b_camera_queue.rbegin(); it_rgb != b_camera_queue.rend(); ++it_rgb)
         {
             const auto& rgb = *it_rgb;
-            const auto i = std::distance(it_rgb, b_camera_queue.rend()) - 1; // Calculate reverse index
-            // qInfo() << "RGB Timestamp loop" << rgb.timestamp;
+            const auto i = std::distance(it_rgb, b_camera_queue.rend()) - 1;
+
             int act_timestamp_diff = std::abs(rgb.timestamp - lidar.timestamp);
             
-            if (act_timestamp_diff < timestamp_diff && act_timestamp_diff < 500)
+            if (act_timestamp_diff < timestamp_diff && act_timestamp_diff < MAX_TIMESTAMP_DIFF)
             {
                 timestamp_diff = act_timestamp_diff;
                 chosen_rgb = i;
                 chosen_lidar = j;
                 exists_data = true;
 
-                if(timestamp_diff == 0) break;
+                if (timestamp_diff == 0) break;
             }
         }
-        if(timestamp_diff == 0) break;
+        if (timestamp_diff == 0) break;
     }
 
-    if(exists_data)
-    {        
-        chosen_lidar_data = b_lidar_queue.at(chosen_lidar);
-        chosen_rgb_data = b_camera_queue.at(chosen_rgb);
+    if (exists_data)
+        return std::make_pair(chosen_rgb, chosen_lidar);
 
-       
-        
-        if(last_fused_time == chosen_lidar_data.timestamp) 
-        {
-            // qInfo() << "Same lidar matched. Returning"; 
-            return;
-        }
-        // auto &[chosen_lidar_data, chosen_rgb_data] = opt_tuple.value();
+    return std::nullopt;
+}
 
+void SpecificWorker::process_matched_data(const RoboCompLidar3D::TDataImage &chosen_lidar_data,
+                                           const RoboCompCamera360RGB::TImage &chosen_rgb_data,
+                                           RoboCompLidar3D::TColorCloudData &cloud)
+{
+    // Generate rgb image
+    cv::Mat rgb_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height),
+                      CV_8UC3, const_cast<unsigned char*>(&chosen_rgb_data.image[0]));
 
-        // Generate rgb image
-        cv::Mat rgb_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_8UC3, &chosen_rgb_data.image[0]);
-        // Generate depth image
-        cv::Mat depth_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height), CV_32FC3, cv::Scalar(0,0,0));
-       // get pointer to the image data
-        cv::Vec3f* depth_ptr = depth_image.ptr<cv::Vec3f>();
-        cv::Vec3b* rgb_ptr = rgb_image.ptr<cv::Vec3b>();
+    // Generate depth image
+    cv::Mat depth_image(cv::Size(chosen_rgb_data.width, chosen_rgb_data.height),
+                        CV_32FC3, cv::Scalar(0,0,0));
 
-        
-        cloud.timestamp = chosen_lidar_data.timestamp;
-        cloud.compressed = false;
+    cv::Vec3f* depth_ptr = depth_image.ptr<cv::Vec3f>();
+    cv::Vec3b* rgb_ptr = rgb_image.ptr<cv::Vec3b>();
 
-        const size_t N = chosen_lidar_data.XArray.size();
-        cloud.X.resize(N);
-        cloud.Y.resize(N); 
-        cloud.Z.resize(N);
-        cloud.R.resize(N);
-        cloud.G.resize(N);        // VERSIÓN OPTIMIZADA CON CONTADOR
-        cloud.B.resize(N);
-        constexpr float maxShort = 32767.0f;
+    // Prepare cloud data
+    cloud.timestamp = chosen_lidar_data.timestamp;
+    cloud.compressed = false;
 
-    
-        for(size_t i = 0; i < N; ++i)
-        {
-            const int px = chosen_lidar_data.XPixel[i];
-            const int py = chosen_lidar_data.YPixel[i];
-            const float x = chosen_lidar_data.XArray[i];
-            const float y = chosen_lidar_data.YArray[i]; 
-            const float z = chosen_lidar_data.ZArray[i];
-            
-            const int index = py * chosen_rgb_data.width + px;
-            
-            // Depth image
-            cv::Vec3f& depth_pixel = depth_ptr[index];
-            depth_pixel[0] = x;
-            depth_pixel[1] = y; 
-            depth_pixel[2] = z;
-            
-            // RGB data 
-            const cv::Vec3b& rgb_pixel = rgb_ptr[index];
-            
-            // Cloud data
-            cloud.X[i] = static_cast<int16_t>(std::clamp(x, -maxShort, maxShort));
-            cloud.Y[i] = static_cast<int16_t>(std::clamp(y, -maxShort, maxShort));
-            cloud.Z[i] = static_cast<int16_t>(std::clamp(z, -maxShort, maxShort));
-            cloud.R[i] = rgb_pixel[2];  // uint8_t
-            cloud.G[i] = rgb_pixel[1];  // uint8_t  
-            cloud.B[i] = rgb_pixel[0];  // uint8_t
-        }
-        cloud.numberPoints = N;
+    const size_t N = chosen_lidar_data.XArray.size();
+    cloud.X.resize(N);
+    cloud.Y.resize(N);
+    cloud.Z.resize(N);
+    cloud.R.resize(N);
+    cloud.G.resize(N);
+    cloud.B.resize(N);
 
-        if(params.DISPLAY)
-        {
-            cv::imshow("rgb_image", rgb_image);
-            cv::imshow("depth_image", depth_image);
-            cv::waitKey(1);
-        }
+    constexpr float maxShort = 32767.0f;
 
-        {
-            std::unique_lock<std::shared_mutex> lock(swap_mutex);
-            rgb_image.copyTo(rgb_frame_write);
-            depth_image.copyTo(depth_frame_write);
-            capture_time = chosen_lidar_data.timestamp;
-            last_fused_time = capture_time;
-            pointCloud =std::move(cloud);
-        }
+    // Fill depth image and cloud data
+    for (size_t i = 0; i < N; ++i)
+    {
+        const int px = chosen_lidar_data.XPixel[i];
+        const int py = chosen_lidar_data.YPixel[i];
+        const float x = chosen_lidar_data.XArray[i];
+        const float y = chosen_lidar_data.YArray[i];
+        const float z = chosen_lidar_data.ZArray[i];
 
-        //lidar_queue.clean_old(chosen_lidar);
-        //camera_queue.clean_old(chosen_rgb);
+        const int index = py * chosen_rgb_data.width + px;
+
+        // Depth image
+        cv::Vec3f& depth_pixel = depth_ptr[index];
+        depth_pixel[0] = x;
+        depth_pixel[1] = y;
+        depth_pixel[2] = z;
+
+        // RGB data
+        const cv::Vec3b& rgb_pixel = rgb_ptr[index];
+
+        // Cloud data
+        cloud.X[i] = static_cast<int16_t>(std::clamp(x, -maxShort, maxShort));
+        cloud.Y[i] = static_cast<int16_t>(std::clamp(y, -maxShort, maxShort));
+        cloud.Z[i] = static_cast<int16_t>(std::clamp(z, -maxShort, maxShort));
+        cloud.R[i] = rgb_pixel[2];
+        cloud.G[i] = rgb_pixel[1];
+        cloud.B[i] = rgb_pixel[0];
     }
-    fps.print("Timestamps: Lidar " + std::to_string(chosen_lidar_data.timestamp) + " RGB " + std::to_string(chosen_rgb_data.timestamp) + 
-        " diff:" + std::to_string(chosen_lidar_data.timestamp - chosen_rgb_data.timestamp), 3000);
+    cloud.numberPoints = N;
+
+    // Display if enabled
+    if (params.DISPLAY)
+    {
+        cv::imshow("rgb_image", rgb_image);
+        cv::imshow("depth_image", depth_image);
+        cv::waitKey(1);
+    }
+
+    // Update shared data
+    {
+        std::unique_lock<std::shared_mutex> lock(swap_mutex);
+        rgb_image.copyTo(rgb_frame_write);
+        depth_image.copyTo(depth_frame_write);
+        capture_time = chosen_lidar_data.timestamp;
+        last_fused_time = capture_time;
+        pointCloud = std::move(cloud);
+    }
+}
+
+void SpecificWorker::normalize_roi_parameters(int &cx, int &cy, int &sx, int &sy, int &roiwidth, int &roiheight)
+{
+    if(sx == 0 || sy == 0)
+    {
+        std::cout << "No size. Sending complete image" << std::endl;
+        sx = MAX_WIDTH;
+        sy = MAX_HEIGHT;
+        cx = MAX_WIDTH / 2;
+        cy = MAX_HEIGHT / 2;
+    }
+    if(sx == -1) sx = MAX_WIDTH;
+    if(sy == -1) sy = MAX_HEIGHT;
+    if(cx == -1) cx = MAX_WIDTH / 2;
+    if(cy == -1) cy = MAX_HEIGHT / 2;
+    if(roiwidth == -1) roiwidth = MAX_WIDTH;
+    if(roiheight == -1) roiheight = MAX_HEIGHT;
+}
+
+void SpecificWorker::adjust_roi_for_boundaries(int &cx, int &cy, int &sx, int &sy)
+{
+    // Check if y is out of range. Get max or min values in that case
+    if((cy - sy / 2) < 0)
+    {
+        sx = static_cast<int>(static_cast<float>(sx) / static_cast<float>(sy) * 2 * cy);
+        sy = 2 * cy;
+    }
+    else if((cy + sy / 2) >= MAX_HEIGHT)
+    {
+        sx = static_cast<int>(static_cast<float>(sx) / static_cast<float>(sy) * 2 * (MAX_HEIGHT - cy));
+        sy = 2 * (MAX_HEIGHT - cy);
+    }
+}
+
+void SpecificWorker::extract_roi_images(const cv::Mat &rgb_img, const cv::Mat &depth_img,
+                                        int cx, int cy, int sx, int sy,
+                                        cv::Mat &dst_rgb, cv::Mat &dst_depth)
+{
+    cv::Mat x_out_image_left_rgb, x_out_image_right_rgb;
+    cv::Mat x_out_image_left_depth, x_out_image_right_depth;
+
+    // Check if x is out of range. Add proportional image section in that case
+    if((cx - sx / 2) < 0)
+    {
+        int left_width = std::abs(cx - sx / 2);
+        rgb_img(cv::Rect(MAX_WIDTH - 1 - left_width, cy - sy / 2, left_width, sy)).copyTo(x_out_image_left_rgb);
+        rgb_img(cv::Rect(0, cy - sy / 2, cx + sx / 2, sy)).copyTo(x_out_image_right_rgb);
+        cv::hconcat(x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb);
+
+        depth_img(cv::Rect(MAX_WIDTH - 1 - left_width, cy - sy / 2, left_width, sy)).copyTo(x_out_image_left_depth);
+        depth_img(cv::Rect(0, cy - sy / 2, cx + sx / 2, sy)).copyTo(x_out_image_right_depth);
+        cv::hconcat(x_out_image_left_depth, x_out_image_right_depth, dst_depth);
+    }
+    else if((cx + sx / 2) > MAX_WIDTH)
+    {
+        int right_width = cx + sx / 2 - MAX_WIDTH;
+        rgb_img(cv::Rect(cx - sx / 2 - 1, cy - sy / 2, MAX_WIDTH - cx + sx / 2, sy)).copyTo(x_out_image_left_rgb);
+        rgb_img(cv::Rect(0, cy - sy / 2, right_width, sy)).copyTo(x_out_image_right_rgb);
+        cv::hconcat(x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb);
+
+        depth_img(cv::Rect(cx - sx / 2 - 1, cy - sy / 2, MAX_WIDTH - cx + sx / 2, sy)).copyTo(x_out_image_left_depth);
+        depth_img(cv::Rect(0, cy - sy / 2, right_width, sy)).copyTo(x_out_image_right_depth);
+        cv::hconcat(x_out_image_left_depth, x_out_image_right_depth, dst_depth);
+    }
+    else
+    {
+        sx--;
+        rgb_img(cv::Rect(cx - sx / 2, cy - sy / 2, sx, sy)).copyTo(dst_rgb);
+        depth_img(cv::Rect(cx - sx / 2, cy - sy / 2, sx, sy)).copyTo(dst_depth);
+    }
+}
+
+cv::Mat SpecificWorker::resize_depth_image(const cv::Mat &src_depth, int target_width, int target_height)
+{
+    float x_ratio = static_cast<float>(src_depth.cols) / target_width;
+    float y_ratio = static_cast<float>(src_depth.rows) / target_height;
+
+    cv::Mat dst = cv::Mat::zeros(target_height, target_width, src_depth.type());
+
+    // Scale and assign values
+    for (int y = 0; y < src_depth.rows; ++y)
+    {
+        for (int x = 0; x < src_depth.cols; ++x)
+        {
+            int newX = cvRound(x / x_ratio);
+            int newY = cvRound(y / y_ratio);
+
+            cv::Vec3f value = src_depth.at<cv::Vec3f>(y, x);
+            if (cv::norm(value) != 0)
+            {
+                dst.at<cv::Vec3f>(newY, newX) = value;
+            }
+        }
+    }
+
+    return dst;
 }
 
 
@@ -327,131 +427,53 @@ RoboCompCamera360RGBD::TRGBD SpecificWorker::Camera360RGBD_getROI(int cx, int cy
 {
     RoboCompCamera360RGBD::TRGBD res;
     std::shared_lock<std::shared_mutex> lock(swap_mutex);
-    if (enabled_camera and enabled_lidar)
-    {
-        last_read.store(std::chrono::high_resolution_clock::now());
 
-        if(sx == 0 || sy == 0)
-        {
-            std::cout << "No size. Sending complete image" << std::endl;
-            sx = MAX_WIDTH; sy = MAX_HEIGHT;
-            cx = (int)(MAX_WIDTH/2); cy = int(MAX_HEIGHT/2);
-        }
-        if(sx == -1)
-            sx = MAX_WIDTH;
-        if(sy == -1)
-            sy = MAX_HEIGHT;
-        if(cx == -1)
-            cx = (int)(MAX_WIDTH/2);
-        if(cy == -1)
-            cy = int(MAX_HEIGHT/2);
-        if(roiwidth == -1)
-            roiwidth = MAX_WIDTH;
-        if(roiheight == -1)
-            roiheight = MAX_HEIGHT;
+    if (!enabled_camera || !enabled_lidar)
+        return res;
 
-        // Get image from doublebuffer
-        // auto depth_img = buffer_depth_image.get_idemp();
-        // auto rgb_img = buffer_rgb_image.get_idemp();
+    last_read.store(std::chrono::high_resolution_clock::now());
 
-        auto depth_img = depth_frame_write;
-        auto rgb_img = rgb_frame_write;
+    // Normalize ROI parameters
+    normalize_roi_parameters(cx, cy, sx, sy, roiwidth, roiheight);
 
-        // std::cout << "RGB SIZE " <<  rgb_img.rows << " " << rgb_img.cols << std::endl;
-        // std::cout << "DEPTH SIZE " <<  depth_img.rows << " " << depth_img.cols << std::endl;
+    // Get images from buffer
+    auto depth_img = depth_frame_write;
+    auto rgb_img = rgb_frame_write;
 
-    // Check if y is out of range. Get max or min values in that case
-        if((cy - (int) (sy / 2)) < 0)
-        {
-            sx = (int) ((float) sx / (float) sy * 2 * cy );
-            sy = 2*cy;
-        }
-        else if((cy + (int) (sy / 2)) >= MAX_HEIGHT)
-        {
-            sx = (int) ((float) sx / (float) sy * 2 * (MAX_HEIGHT - cy) );
-            sy = 2 * (MAX_HEIGHT - cy);
-        }
+    // Adjust ROI for boundary conditions
+    adjust_roi_for_boundaries(cx, cy, sx, sy);
 
-        // Check if x is out of range. Add proportional image section in that case
-        cv::Mat x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb, rdst_rgb;
-        cv::Mat x_out_image_left_depth, x_out_image_right_depth, dst_depth, rdst_depth;
-        if((cx - (int) (sx / 2)) < 0)
-        {
-            rgb_img(cv::Rect(MAX_WIDTH - 1 - abs (cx - (int) (sx / 2)), cy - (int) (sy / 2), abs (cx - (int) (sx / 2)), sy)).copyTo(x_out_image_left_rgb);
-            rgb_img(cv::Rect(0, cy - (int) (sy / 2),  cx + (int) (sx / 2), sy)).copyTo(x_out_image_right_rgb);
-            cv::hconcat(x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb);
+    // Extract ROI from images
+    cv::Mat dst_rgb, dst_depth;
+    extract_roi_images(rgb_img, depth_img, cx, cy, sx, sy, dst_rgb, dst_depth);
 
-            depth_img(cv::Rect(MAX_WIDTH - 1 - abs (cx - (int) (sx / 2)), cy - (int) (sy / 2), abs (cx - (int) (sx / 2)), sy)).copyTo(x_out_image_left_depth);
-            depth_img(cv::Rect(0, cy - (int) (sy / 2),  cx + (int) (sx / 2), sy)).copyTo(x_out_image_right_depth);
-            cv::hconcat(x_out_image_left_depth, x_out_image_right_depth, dst_depth);
-        }
+    // Resize RGB image
+    cv::Mat rdst_rgb;
+    cv::resize(dst_rgb, rdst_rgb, cv::Size(roiwidth, roiheight), cv::INTER_LINEAR);
 
-        else if((cx + (int) (sx / 2)) > MAX_WIDTH)
-        {
-            rgb_img(cv::Rect(cx - (int) (sx / 2) - 1, cy - (int) (sy / 2), MAX_WIDTH - cx + (int) (sx / 2), sy)).copyTo(x_out_image_left_rgb);
-            rgb_img(cv::Rect(0, cy - (int) (sy / 2), cx + (int) (sx / 2) - MAX_WIDTH, sy)).copyTo(x_out_image_right_rgb);
-            cv::hconcat(x_out_image_left_rgb, x_out_image_right_rgb, dst_rgb);
-            depth_img(cv::Rect(cx - (int) (sx / 2) - 1, cy - (int) (sy / 2), MAX_WIDTH - cx + (int) (sx / 2), sy)).copyTo(x_out_image_left_depth);
-            depth_img(cv::Rect(0, cy - (int) (sy / 2), cx + (int) (sx / 2) - MAX_WIDTH, sy)).copyTo(x_out_image_right_depth);
-            cv::hconcat(x_out_image_left_depth, x_out_image_right_depth, dst_depth);
-        }
+    // Resize depth image preserving 3D coordinates
+    cv::Mat resized_depth = resize_depth_image(dst_depth, roiwidth, roiheight);
 
-        else
-        {
-            sx--;
-            rgb_img(cv::Rect(cx - (int) (sx / 2), cy - (int) (sy / 2), sx, sy)).copyTo(dst_rgb);
-            depth_img(cv::Rect(cx - (int) (sx / 2), cy - (int) (sy / 2), sx, sy)).copyTo(dst_depth);
-        }
+    // Fill result structure
+    res.rgb.assign(rdst_rgb.data, rdst_rgb.data + (rdst_rgb.total() * rdst_rgb.elemSize()));
+    res.depth.assign(resized_depth.data, resized_depth.data + (resized_depth.total() * resized_depth.elemSize()));
+    res.rgbcompressed = false;
+    res.depthcompressed = false;
+    res.period = fps.get_period();
+    res.alivetime = capture_time;
+    res.rgbchannels = rdst_rgb.channels();
+    res.depthchannels = resized_depth.channels();
+    res.height = rdst_rgb.rows;
+    res.width = rdst_rgb.cols;
+    res.roi = RoboCompCamera360RGBD::TRoi{
+        .xcenter=cx,
+        .ycenter=cy,
+        .xsize=sx,
+        .ysize=sy,
+        .finalxsize=res.width,
+        .finalysize=res.height
+    };
 
-        cv::resize(dst_rgb, rdst_rgb, cv::Size(roiwidth, roiheight), cv::INTER_LINEAR);
-
-        float x_ratio = float(dst_depth.cols) / roiwidth;
-        float y_ratio = float(dst_depth.rows) / roiheight;
-
-        // Crear una imagen de destino con las nuevas dimensiones
-        cv::Mat dst = cv::Mat::zeros(roiheight, roiwidth, dst_depth.type());
-        
-        // Escalar y asignar los valores
-        for (int y = 0; y < dst_depth.rows; ++y) {
-            for (int x = 0; x < dst_depth.cols; ++x) {
-                int newX = cvRound(x / x_ratio);
-                int newY = cvRound(y / y_ratio);
-                
-                // Asumiendo que la imagen es de tres canales (color)
-                cv::Vec3f value = dst_depth.at<cv::Vec3f>(y, x);
-                if (cv::norm(value) != 0) { // Si el std::vector del pixel de la fuente es diferente de cero, copiamos el valor
-                    dst.at<cv::Vec3f>(newY, newX) = value;
-                }
-            }
-        }
-
-       // std::cout << "For time " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_clean).count() << " microseconds" << std::endl<<std::flush;
-
-//        if (pars.compressed)
-//        {
-//            std::vector<uchar> buffer;
-//            cv::imencode(".jpg", rdst, buffer, compression_params);
-//            res.image = buffer;
-//            res.compressed = true;
-//        } else
-//        {
-//            res.image.assign(rdst.data, rdst.data + (rdst.total() * rdst.elemSize()));
-//            res.compressed = false;
-//        }
-        res.rgb.assign(rdst_rgb.data, rdst_rgb.data + (rdst_rgb.total() * rdst_rgb.elemSize()));
-        res.depth.assign(dst.data, dst.data + (dst.total() * dst.elemSize()));
-        res.rgbcompressed = false;
-        res.depthcompressed = false;
-        res.period = fps.get_period();
-        res.alivetime = capture_time;
-
-        res.rgbchannels = rdst_rgb.channels();
-        res.depthchannels = dst.channels();
-        res.height = rdst_rgb.rows;
-        res.width = rdst_rgb.cols;
-        res.roi = RoboCompCamera360RGBD::TRoi{.xcenter=cx, .ycenter=cy, .xsize=sx, .ysize=sy, .finalxsize=res.width, .finalysize=res.height};
-    }
-    
     return res;
 
 }
@@ -504,7 +526,6 @@ RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataWithThreshold2d(std::
 }
 
 
-
 /**************************************/
 // From the RoboCompCamera360RGB you can call this methods:
 // RoboCompCamera360RGB::TImage this->camera360rgb_proxy->getROI(int cx, int cy, int sx, int sy, int roiwidth, int roiheight)
@@ -517,11 +538,11 @@ RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataWithThreshold2d(std::
 /**************************************/
 // From the RoboCompLidar3D you can call this methods:
 // RoboCompLidar3D::TColorCloudData this->lidar3d_proxy->getColorCloudData()
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarData(string name, float start, float len, int decimationDegreeFactor)
-// RoboCompLidar3D::TDataImage this->lidar3d_proxy->getLidarDataArrayProyectedInImage(string name)
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarData(std::string name, float start, float len, int decimationDegreeFactor)
+// RoboCompLidar3D::TDataImage this->lidar3d_proxy->getLidarDataArrayProyectedInImage(std::string name)
 // RoboCompLidar3D::TDataCategory this->lidar3d_proxy->getLidarDataByCategory(TCategories categories, long timestamp)
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataProyectedInImage(string name)
-// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataWithThreshold2d(string name, float distance, int decimationDegreeFactor)
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataProyectedInImage(std::string name)
+// RoboCompLidar3D::TData this->lidar3d_proxy->getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor)
 
 /**************************************/
 // From the RoboCompLidar3D you can use this types:

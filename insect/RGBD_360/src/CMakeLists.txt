@@ -1,7 +1,6 @@
 # Sources set
 LIST(APPEND SOURCES
   ../src/specificworker.cpp
-  ../src/fixedsizedeque.h
 )
 # Headers set
 LIST(APPEND HEADERS

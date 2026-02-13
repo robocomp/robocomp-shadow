@@ -32,12 +32,13 @@
 
 #include <genericworker.h>
 #include <opencv2/core.hpp>
-#include<opencv2/imgproc/imgproc.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
 #include "cppitertools/zip.hpp"
-#include"cppitertools/enumerate.hpp"
-#include<opencv2/highgui/highgui.hpp>
+#include "cppitertools/enumerate.hpp"
 #include "fixedsizedeque.h"
 #include <deque>
+#include <optional>
 #include <doublebuffer/DoubleBuffer.h>
 #include <fps/fps.h>
 #include <boost/circular_buffer.hpp>
@@ -114,6 +115,23 @@ class SpecificWorker : public GenericWorker
                                                                                                       20000.0 /* timeout */};
         boost::circular_buffer<RoboCompCamera360RGB::TImage> b_camera_queue{3};
         boost::circular_buffer<RoboCompLidar3D::TDataImage> b_lidar_queue{1};
+
+        // Helper functions
+        bool initialize_lidar();
+        bool initialize_camera();
+        bool get_sensor_data(RoboCompLidar3D::TDataImage &lidar_data, RoboCompCamera360RGB::TImage &cam_data);
+        std::optional<std::pair<size_t, size_t>> find_best_timestamp_match();
+        void process_matched_data(const RoboCompLidar3D::TDataImage &lidar_data,
+                                  const RoboCompCamera360RGB::TImage &rgb_data,
+                                  RoboCompLidar3D::TColorCloudData &cloud);
+
+        // ROI processing helpers
+        void normalize_roi_parameters(int &cx, int &cy, int &sx, int &sy, int &roiwidth, int &roiheight);
+        void adjust_roi_for_boundaries(int &cx, int &cy, int &sx, int &sy);
+        void extract_roi_images(const cv::Mat &rgb_img, const cv::Mat &depth_img,
+                               int cx, int cy, int sx, int sy,
+                               cv::Mat &dst_rgb, cv::Mat &dst_depth);
+        cv::Mat resize_depth_image(const cv::Mat &src_depth, int target_width, int target_height);
 
         cv::Mat cut_image(cv::Mat image, int cx, int cy, int sx, int sy, int roiwidth, int roiheight);
         /**

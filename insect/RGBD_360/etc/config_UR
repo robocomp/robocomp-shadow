@@ -2,18 +2,14 @@
 Endpoints.Camera360RGBD = "tcp -p 10100"
 Endpoints.Lidar3D = "tcp -p 12001"
 
-
 # Proxies for required interfaces
 Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
 Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11990"
-
 display = false
 lidar = "unfiltered"
-
-Ice.Warn.Connections = "0"
-Ice.Trace.Network = "0"
-Ice.Trace.Protocol = "0"
-Ice.MessageSizeMax = "20004800"
-
+Ice.Warn.Connections = " ""0"
+Ice.Trace.Network = " ""0"
+Ice.Trace.Protocol = " ""0"
+Ice.MessageSizeMax = " ""20004800"
 Period.Compute = 30
 Period.Emergency = 500
