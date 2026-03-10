@@ -57,6 +57,12 @@ class SpecificWorker(GenericWorker):
         self.time_move = time()
 
 
+        self.last_buttons = {
+            "block": 0,
+            "stop": 0,
+            "joystick_control": 0
+        }
+
 
         if startup_check:
             self.startup_check()
@@ -460,27 +466,33 @@ class SpecificWorker(GenericWorker):
         #print(data)
         for b in data.buttons:
             if b.name == "block":
-                if b.step == 1:
-                    if self.driver.get_safety():
-                        self.OmniRobot_stopBase() if self.isOmni else self.DifferentialRobot_stopBase()
-                    else:
-                        self.reset_emergency_stop()
-                    self.joystickControl = False
+                if b.step != self.last_buttons["block"]:
+                    self.last_buttons["block"] = b.step
+                    if b.step == 1:
+                        if self.driver.get_safety():
+                            self.OmniRobot_stopBase() if self.isOmni else self.DifferentialRobot_stopBase()
+                        else:
+                            self.reset_emergency_stop()
+                        self.joystickControl = False
             elif  b.name == "stop":
-                if b.step == 1:
-                    if self.driver.get_enable():
-                        self.time_disble = time()
-                        self.driver.disable_driver()
-                    elif time()-self.time_disble > 1:
-                        self.driver.enable_driver()
-                    self.joystickControl = False
+                if b.step != self.last_buttons["stop"]:
+                    self.last_buttons["stop"] = b.step
+                    if b.step == 1:
+                        if self.driver.get_enable():
+                            self.time_disble = time()
+                            self.driver.disable_driver()
+                        elif time()-self.time_disble > 1:
+                            self.driver.enable_driver()
+                        self.joystickControl = False
             elif b.name == "joystick_control":
-                if b.step == 1:
-                    self.joystickControl = not self.joystickControl
-                    if not self.joystickControl:
-                        self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
+                if b.step != self.last_buttons["joystick_control"]:
+                    self.last_buttons["joystick_control"] = b.step
+                    if b.step == 1:
+                        self.joystickControl = not self.joystickControl
+                        if not self.joystickControl:
+                            self.OmniRobot_setSpeedBase(0, 0, 0) if self.isOmni else self.DifferentialRobot_setSpeedBase(0, 0)
 
-                    print("Joystick control: ", self.joystickControl)
+                        print("Joystick control: ", self.joystickControl)
             else:
                 pass#print(b.name, "PULASDOR NO AJUSTADO")
             
