@@ -104,7 +104,7 @@ class SVD48V:
         rpmMaxSpeed: The maximum speed in RPM.
     """
 
-    def __init__(self, port:str="/dev/ttyUSB0", IDs:list[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6, polePairs:int=10):
+    def __init__(self, port:str="/dev/ttyUSB0", IDs:list[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6, polePairs:int=10, noSafe=False):
         """
         Initializes an instance of the class.
 
@@ -180,27 +180,28 @@ class SVD48V:
         
         ########Security pole pairs identification######
         motorPolePairs = self._get_motor_data(DRIVER_REGISTERS['POLE_PAIRS'])
-        if np.all(motorPolePairs == -np.inf):
+        if not noSafe:
+            if np.all(motorPolePairs == -np.inf):
 
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Input timeout reached")
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Input timeout reached")
 
-            timeout_seconds = 10
-            warning_msg = "\033[93m⚠ WARNING: Pole pairs not found!\033[0m\n"
-            warning_msg += "\033[93mMake sure you calibrate the motors and drivers.\033[0m"
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)  
-            
-            try:
-                response = input("\033[93mDo you want to continue? [y/n] (timeout: 10s): \033[0m")
-                signal.alarm(0)  
-                if response.lower() != "y":
+                timeout_seconds = 10
+                warning_msg = "\033[93m⚠ WARNING: Pole pairs not found!\033[0m\n"
+                warning_msg += "\033[93mMake sure you calibrate the motors and drivers.\033[0m"
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout_seconds)  
+                
+                try:
+                    response = input("\033[93mDo you want to continue? [y/n] (timeout: 10s): \033[0m")
+                    signal.alarm(0)  
+                    if response.lower() != "y":
+                        exit(-1)
+                except TimeoutError:
+                    print("\n\033[91m✖ Timeout reached. Defaulting to 'NO'.\033[0m")
                     exit(-1)
-            except TimeoutError:
-                print("\n\033[91m✖ Timeout reached. Defaulting to 'NO'.\033[0m")
-                exit(-1)
-        else:
-            assert np.all(motorPolePairs == polePairs), f"\033[91mPole pairs don't match {motorPolePairs} != {polePairs}. Make sure that you calibrate the motors and drivers; it could be dangerous.\033[0m"
+            else:
+                assert np.all(motorPolePairs == polePairs), f"\033[91mPole pairs don't match {motorPolePairs} != {polePairs}. Make sure that you calibrate the motors and drivers; it could be dangerous.\033[0m"
 
         
         self._set_motor_data(DRIVER_REGISTERS['MAX_ACCELERATION'], np.array([self.rpm_max_acceleration]*(len(self.ids)*2),dtype=np.int16))
@@ -357,7 +358,7 @@ class SVD48V:
                                 self.accuracy_com["CRC"] += 1
                                 print(f"\033[34msend telegram {list(telegram)}\033[0m")
                                 print(f"\033[36mReply telegram {list(reply)}\033[0m")
-                                break
+                                continue
 
                             #Get data from telegram response
                             if action_code == "READ":

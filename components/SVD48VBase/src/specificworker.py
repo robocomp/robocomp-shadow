@@ -130,7 +130,7 @@ class SpecificWorker(GenericWorker):
             print(self.m_wheels)
 
             self.driver = SVD48V.SVD48V(port=port, IDs=idDrivers, wheelRadius=wheelRadius, maxSpeed=maxWheelSpeed,
-                                        maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent, polePairs=polePairs)  
+                                        maxAcceleration=maxAcceleration, maxDeceleration=maxDeceleration, maxCurrent=maxCurrent, polePairs=polePairs, noSafe=bool(params["noSafe"]))  
 
             assert self.driver.get_enable(), "NO se conecto al driver o fallo uno de ellos , cerrando programa"
             self.oldOdometry = self.driver.get_position().flatten()
@@ -170,6 +170,7 @@ class SpecificWorker(GenericWorker):
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
+        print(flush=True, end="")
         if self.driver.get_enable() and self.driver.get_safety():
             if  not np.array_equal(self.targetSpeed, self.oldTargetSpeed):
                 print(f"\033[32mModificamos velocidades: {np.round(self.oldTargetSpeed, 5).tolist()} a {np.round(self.targetSpeed, 5).tolist()} \033[0m")
@@ -209,8 +210,7 @@ class SpecificWorker(GenericWorker):
                 newOdometry = self.driver.get_position().flatten()
                 velocity = self.driver.get_speed().flatten()
                 diffOdometry = newOdometry-self.oldOdometry
-                print(self.driver.get_angle())
-
+                
                 positive_mask = diffOdometry > self.maxOdometryDiff
                 negative_mask = diffOdometry < -self.maxOdometryDiff
                 if np.any(positive_mask) or np.any(negative_mask):
@@ -228,18 +228,18 @@ class SpecificWorker(GenericWorker):
                 diffOdometry = self.inv_m_wheels@diffOdometry
                 
                 #Fill publish
-                odometry.x = diffOdometry[1] if diffOdometry.shape==3 else 0
+                odometry.x = diffOdometry[1] if diffOdometry.shape[0]==3 else 0
                 odometry.y = diffOdometry[0]
                 odometry.z = 0
                 odometry.rx = 0
                 odometry.ry = 0
-                odometry.rz = diffOdometry[2] if diffOdometry.shape==3 else diffOdometry[1]
-                odometry.vx = velocity[1] if velocity.shape==3 else 0
-                odometry.vy = velocity[0]
+                odometry.rz = diffOdometry[2] if diffOdometry.shape[0]==3 else diffOdometry[1]
+                odometry.vx = velocity[1] if velocity.shape[0]==3 else 0
+                odometry.vy = -velocity[0] if velocity.shape[0]==3 else velocity[0] 
                 odometry.vz = 0
                 odometry.vrx = 0
                 odometry.vry = 0
-                odometry.vrz = velocity[2] if velocity.shape==3 else velocity[1]
+                odometry.vrz = velocity[2] if velocity.shape[0]==3 else velocity[1]
                 odometry.ax = 0
                 odometry.ay = 0
                 odometry.az = 0
@@ -250,6 +250,7 @@ class SpecificWorker(GenericWorker):
                 odometry.side = 0
                 odometry.rot = 0
                 odometry.confidence = 0
+                # print(velocity)
                 # print(odometry)
                 self.fullposeestimationpub_proxy.newFullPose(odometry)
             except Exception as e:

@@ -25,6 +25,8 @@ maxDeceleration=1000   #Deceleracion mm/s
 wheelRadius=100		   #Radio de las ruedas
 axesLength=518.0	   #Longitud entre ejes
 
+noSafe=False
+
 Period.Compute = 100
 Period.Emergency = 500
 
