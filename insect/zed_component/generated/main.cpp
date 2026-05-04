@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -77,6 +77,7 @@
 #include "genericworker.h"
 #include "../src/specificworker.h"
 
+#include <camerargbdsimpleI.h>
 #include <lidar3dI.h>
 
 #include <CameraRGBDSimple.h>
@@ -289,6 +290,9 @@ int zed_component::run(int argc, char* argv[])
 	{
 
 		//Implement code
+		implement<CameraRGBDSimpleI>(communicator(),
+		                    configLoader.get<std::string>("Endpoints.CameraRGBDSimple"), 
+		                    "camerargbdsimple", worker,  0);
 		implement<Lidar3DI>(communicator(),
 		                    configLoader.get<std::string>("Endpoints.Lidar3D"), 
 		                    "lidar3d", worker,  0);

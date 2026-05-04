@@ -14,6 +14,7 @@ CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 10009"
 [Endpoints]
 # Endpoints for implements interfaces
 Lidar3D = "tcp -p 12000"
+CameraRGBDSimple = "tcp -p 12001"
 
 [Config]
 Simulated = true
@@ -23,6 +24,10 @@ Extrinsic = [0.0, -50.0, 1320.0, 0.0, 0.0, 0.0]
 [Period]
 Compute = 20
 Emergency = 500
+
+[Component.Debug]
+Verbose = true
+
 
 [Ice]
 Warn.Connections = "0"

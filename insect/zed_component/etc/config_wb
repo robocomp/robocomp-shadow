@@ -9,6 +9,9 @@ Proxies.IMUPubPrefix = ""
 
 # Proxies for required interfaces
 Proxies.CameraRGBDSimple = "camerargbdsimple:tcp -h localhost -p 10009"
+
+# Endpoints for implements interfaces
+Endpoints.CameraRGBDSimple = "tcp -p 12001"
 Endpoints.Lidar3D = "tcp -p 12000"
 
 Period.Compute = 1
@@ -16,6 +19,8 @@ Period.Emergency = 500
 
 Config.Simulated = True
 Config.Display = True
+
+Component.Debug.Verbose = true
 
 Ice.Warn.Connections = "0"
 Ice.Trace.Network = "0"

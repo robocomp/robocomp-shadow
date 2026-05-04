@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -24,7 +24,9 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
 {
 
 	this->configLoader = configLoader;
-	
+    if (!this->configLoader.get<bool>("Component.Debug.Verbose")) {
+        qInstallMessageHandler([](QtMsgType, const QMessageLogContext&, const QString&) {});
+    }
 	camerargbdsimple_proxy = std::get<0>(tprx);
 	camerargbdsimplepub_pubproxy = std::get<1>(tprx);
 	fullposeestimationpub_pubproxy = std::get<2>(tprx);
@@ -50,8 +52,6 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
 	connect(&hibernationChecker, SIGNAL(timeout()), this, SLOT(hibernationCheck()));
 
 
-
-    
 }
 
 /**
@@ -134,3 +134,6 @@ void GenericWorker::hibernationTick(){
 	hibernation = true;
 }
 
+
+void GenericWorker::initialize(){
+};

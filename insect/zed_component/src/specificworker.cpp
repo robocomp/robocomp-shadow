@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -206,6 +206,7 @@ void SpecificWorker::process_RGBD_data()
     RoboCompLidar3D::TColorCloudData colorCloudPoints;
     std::chrono::duration<double, std::milli> duration;
     int index = 0;
+    cv::Mat cv_depth;
 
 
     if (!simulated){
@@ -213,6 +214,7 @@ void SpecificWorker::process_RGBD_data()
 
         // Retrieve left image
         zed.retrieveImage(image, sl::VIEW::LEFT);
+        zed.retrieveMeasure(depth, sl::MEASURE::DEPTH);
         // Retrieve colored point cloud. Point cloud is aligned on the left image.
 
         // TODO RESEARCH
@@ -224,8 +226,10 @@ void SpecificWorker::process_RGBD_data()
         auto init = std::chrono::high_resolution_clock::now();
 
 
-
         cv::Mat cv_image = cv::Mat(image.getHeight(), image.getWidth(), CV_8UC4, image.getPtr<sl::uchar1>(sl::MEM::CPU));
+        cv::cvtColor(cv_image, cv_image, cv::COLOR_RGBA2RGB);
+
+        cv::Mat cv_depth( depth.getHeight(), depth.getWidth(), CV_32FC1, depth.getPtr<float>(sl::MEM::CPU), cv::Mat::AUTO_STEP);
 
         // Wrap the sl::Mat in a cv::Mat without copying
         cv::Mat pointcloud_mat = cv::Mat(point_cloud.getHeight(),
@@ -236,6 +240,7 @@ void SpecificWorker::process_RGBD_data()
         RoboCompCameraRGBDSimple::TImage rgb_image;
         rgb_image.width = cv_image.cols;
         rgb_image.height = cv_image.rows;
+        rgb_image.depth = cv_image.channels();
         rgb_image.cameraID = 0;
         // rgb_image.focalx = depth_intr.fx;
         // rgb_image.focaly = depth_intr.fy;
@@ -245,20 +250,23 @@ void SpecificWorker::process_RGBD_data()
         rgb_image.image.assign(cv_image.data, cv_image.data + (cv_image.total() * cv_image.elemSize()));
 
         RoboCompCameraRGBDSimple::TDepth depth_image;
-        depth_image.width = pointcloud_mat.cols;
-        depth_image.height = pointcloud_mat.rows;
+        depth_image.width = cv_depth.cols;
+        depth_image.height = cv_depth.rows;
         depth_image.cameraID = 0;
         // depth_image.focalx = depth_intr.fx;
         // depth_image.focaly = depth_intr.fy;
         depth_image.alivetime = rgb_image.alivetime;
     //    depth.period = fps.get_period();
         depth_image.compressed = false;
-        depth_image.depth.assign(pointcloud_mat.data, pointcloud_mat.data + (pointcloud_mat.total() * pointcloud_mat.elemSize()));
-    //    qInfo() << "Publishing";
-        rgbd.image = rgb_image;    
-        rgbd.depth = depth_image;
+         depth_image.depth.assign(cv_depth.data, cv_depth.data + (cv_depth.total() * cv_depth.elemSize()));
 
+        RoboCompCameraRGBDSimple::TPoints points;
+
+    //    qInfo() << "Publishing";
+
+        std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
         int total_points = pointcloud_mat.total()/step;
+        cloud.resize(total_points);
         colorCloudPoints.X.resize(total_points);
         colorCloudPoints.Y.resize(total_points);
         colorCloudPoints.Z.resize(total_points);
@@ -268,6 +276,7 @@ void SpecificWorker::process_RGBD_data()
 
 
         auto inicio = std::chrono::high_resolution_clock::now();
+
         #pragma omp simd
         for (int y = 0; y < pointcloud_mat.rows; y+=step)
         {
@@ -277,7 +286,14 @@ void SpecificWorker::process_RGBD_data()
 
                 if (!std::isfinite(pt[0]) || !std::isfinite(pt[1]) || !std::isfinite(pt[2])) 
                     continue;
+
                 Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(pt[0], pt[1], pt[2]) + extrinsic.translation();
+
+
+                cloud[index].x = lidar_point[0];
+                cloud[index].y = lidar_point[1];
+                cloud[index].z = lidar_point[2];
+
                 colorCloudPoints.X[index] = lidar_point[0];
                 colorCloudPoints.Y[index] = lidar_point[1];
                 colorCloudPoints.Z[index] = lidar_point[2];
@@ -289,11 +305,19 @@ void SpecificWorker::process_RGBD_data()
                 ++index;
             }
         }
-        
+        cloud.resize(index);
+        points.points = std::move(cloud);
+
+        rgbd.image = std::move(rgb_image);
+        rgbd.depth = std::move(depth_image);
+        rgbd.points = std::move(points);
+
         auto fin = std::chrono::high_resolution_clock::now();
         duration = fin - inicio;
-        std::cout<< "aaaaa"<< std::chrono::duration<double, std::milli> (fin- init).count()<< std::endl;
+        std::cout<< std::chrono::duration<double, std::milli> (fin- init).count()<< std::endl;
 
+        std::unique_lock<std::shared_mutex> lock(rgbd_mutex);
+        buffer_rgbd = std::make_shared<RoboCompCameraRGBDSimple::TRGBD>(std::move(rgbd));
     }
     else{
         RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
@@ -389,6 +413,10 @@ void SpecificWorker::process_RGBD_data()
         rgbd.image = std::move(rgb_image);
         rgbd.depth = std::move(depth_image);
         rgbd.points = std::move(points);
+
+        std::unique_lock<std::shared_mutex> lock(rgbd_mutex);
+        buffer_rgbd = std::make_shared<RoboCompCameraRGBDSimple::TRGBD>(std::move(rgbd));
+        
     }
     auto i = std::chrono::high_resolution_clock::now();
 
@@ -441,7 +469,7 @@ void SpecificWorker::process_RGBD_data()
         std::lock_guard<std::shared_mutex> lock(color_point_cloud_mutex);
         buffer_color_point_cloud = std::move(cloud_ptr);
     }
-    std::cout<< "bbbbbb"<< std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now()- i).count()<< std::endl;
+    std::cout<< std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now()- i).count()<< std::endl;
 
     camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
 
@@ -459,17 +487,15 @@ void SpecificWorker::process_RGBD_data()
             
         }
         else{
-            // TODO: Imprimir zed real
-
-            rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC4, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
-
-            // depth_frame = cv::Mat(cv::   Size(rgbd.depth.width, rgbd.depth.height), CV_32FC4, &rgbd.depth.depth[0], cv::Mat::AUTO_STEP);
-    
-            // depth_frame.convertTo(depth_frame, CV_8UC3, 255. / 10, 0);
-            // applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb
+            std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+            rgb_frame = cv::Mat(cv::Size(buffer_rgbd->image.width, buffer_rgbd->image.height), CV_8UC3, &buffer_rgbd->image.image[0], cv::Mat::AUTO_STEP);
+            depth_frame = cv::Mat(cv::Size(buffer_rgbd->depth.width, buffer_rgbd->depth.height), CV_32FC1, &buffer_rgbd->depth.depth[0], cv::Mat::AUTO_STEP);
+            cv::Mat depth_frame2;
+            depth_frame.convertTo(depth_frame, CV_8UC1, 255. / 10000, 0);
+            applyColorMap(depth_frame, depth_frame, cv::COLORMAP_RAINBOW); //COLORMAP_HSV tb
         }
         cv::imshow("rgb", rgb_frame);
-        // cv::imshow("depth", depth_frame);
+        cv::imshow("depth", depth_frame);
         cv::waitKey(1);
 
     }
@@ -675,6 +701,45 @@ void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform)
     pose = pose * transform;
 }
 
+
+
+RoboCompCameraRGBDSimple::TRGBD SpecificWorker::CameraRGBDSimple_getAll(std::string camera)
+{
+    std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+    if (buffer_rgbd)
+        return *buffer_rgbd; 
+    else
+        return RoboCompCameraRGBDSimple::TRGBD();
+}
+
+RoboCompCameraRGBDSimple::TDepth SpecificWorker::CameraRGBDSimple_getDepth(std::string camera)
+{
+	std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+    if (buffer_rgbd)
+        return buffer_rgbd->depth; 
+    else
+        return RoboCompCameraRGBDSimple::TDepth();
+}
+
+RoboCompCameraRGBDSimple::TImage SpecificWorker::CameraRGBDSimple_getImage(std::string camera)
+{
+	std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+    if (buffer_rgbd)
+        return buffer_rgbd->image; 
+    else
+        return RoboCompCameraRGBDSimple::TImage();
+}
+
+RoboCompCameraRGBDSimple::TPoints SpecificWorker::CameraRGBDSimple_getPoints(std::string camera)
+{
+	std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+    if (buffer_rgbd)
+        return buffer_rgbd->points; 
+    else
+        return RoboCompCameraRGBDSimple::TPoints();
+}
+
+
 RoboCompLidar3D::TColorCloudData SpecificWorker::Lidar3D_getColorCloudData()
 {
     std::shared_lock<std::shared_mutex> lock(color_point_cloud_mutex);
@@ -751,6 +816,14 @@ RoboCompLidar3D::TData SpecificWorker::Lidar3D_getLidarDataWithThreshold2d(std::
 /**************************************/
 // From the RoboCompIMUPub you can publish calling this methods:
 // RoboCompIMUPub::void this->imupub_pubproxy->publish(RoboCompIMU::DataImu imu)
+
+/**************************************/
+// From the RoboCompCameraRGBDSimple you can use this types:
+// RoboCompCameraRGBDSimple::Point3D
+// RoboCompCameraRGBDSimple::TPoints
+// RoboCompCameraRGBDSimple::TImage
+// RoboCompCameraRGBDSimple::TDepth
+// RoboCompCameraRGBDSimple::TRGBD
 
 /**************************************/
 // From the RoboCompLidar3D you can use this types:

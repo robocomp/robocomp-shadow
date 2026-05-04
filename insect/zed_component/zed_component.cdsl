@@ -8,7 +8,7 @@ Component zed_component
 {
     Communications
     {
-        implements Lidar3D;
+        implements Lidar3D, CameraRGBDSimple;
         requires CameraRGBDSimple;
         publishes CameraRGBDSimplePub, FullPoseEstimationPub, IMUPub;
     };

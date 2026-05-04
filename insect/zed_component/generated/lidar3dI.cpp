@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -21,118 +21,103 @@
 Lidar3DI::Lidar3DI(GenericWorker *_worker, const size_t id): worker(_worker), id(id)
 {
 	getColorCloudDataHandlers = {
-		[this]() { return worker->Lidar3D_getColorCloudData(); }
+		[this]() -> RoboCompLidar3D::TColorCloudData {if (worker != nullptr) return worker->Lidar3D_getColorCloudData(); else throw std::runtime_error("Worker is null");}
 	};
 
 	getLidarDataHandlers = {
-		[this](auto a, auto b, auto c, auto d) { return worker->Lidar3D_getLidarData(a, b, c, d); }
+		[this](auto &a, auto &b, auto &c, auto &d) -> RoboCompLidar3D::TData {if (worker != nullptr) return worker->Lidar3D_getLidarData(a, b, c, d); else throw std::runtime_error("Worker is null");}
 	};
 
 	getLidarDataArrayProyectedInImageHandlers = {
-		[this](auto a) { return worker->Lidar3D_getLidarDataArrayProyectedInImage(a); }
+		[this](auto &a) -> RoboCompLidar3D::TDataImage {if (worker != nullptr) return worker->Lidar3D_getLidarDataArrayProyectedInImage(a); else throw std::runtime_error("Worker is null");}
 	};
 
 	getLidarDataByCategoryHandlers = {
-		[this](auto a, auto b) { return worker->Lidar3D_getLidarDataByCategory(a, b); }
+		[this](auto &a, auto &b) -> RoboCompLidar3D::TDataCategory {if (worker != nullptr) return worker->Lidar3D_getLidarDataByCategory(a, b); else throw std::runtime_error("Worker is null");}
 	};
 
 	getLidarDataProyectedInImageHandlers = {
-		[this](auto a) { return worker->Lidar3D_getLidarDataProyectedInImage(a); }
+		[this](auto &a) -> RoboCompLidar3D::TData {if (worker != nullptr) return worker->Lidar3D_getLidarDataProyectedInImage(a); else throw std::runtime_error("Worker is null");}
 	};
 
 	getLidarDataWithThreshold2dHandlers = {
-		[this](auto a, auto b, auto c) { return worker->Lidar3D_getLidarDataWithThreshold2d(a, b, c); }
+		[this](auto &a, auto &b, auto &c) -> RoboCompLidar3D::TData {if (worker != nullptr) return worker->Lidar3D_getLidarDataWithThreshold2d(a, b, c); else throw std::runtime_error("Worker is null");}
 	};
 
 }
-
 
 Lidar3DI::~Lidar3DI()
 {
 }
 
-
 RoboCompLidar3D::TColorCloudData Lidar3DI::getColorCloudData(const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getColorCloudDataHandlers.size())
-		return  getColorCloudDataHandlers[id]();
-	else
-		throw std::out_of_range("Invalid getColorCloudData id: " + std::to_string(id));
-
+	return getColorCloudDataHandlers.at(id)();
 }
 
 RoboCompLidar3D::TData Lidar3DI::getLidarData(std::string name, float start, float len, int decimationDegreeFactor, const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getLidarDataHandlers.size())
-		return  getLidarDataHandlers[id](name, start, len, decimationDegreeFactor);
-	else
-		throw std::out_of_range("Invalid getLidarData id: " + std::to_string(id));
-
+	return getLidarDataHandlers.at(id)(name, start, len, decimationDegreeFactor);
 }
 
 RoboCompLidar3D::TDataImage Lidar3DI::getLidarDataArrayProyectedInImage(std::string name, const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getLidarDataArrayProyectedInImageHandlers.size())
-		return  getLidarDataArrayProyectedInImageHandlers[id](name);
-	else
-		throw std::out_of_range("Invalid getLidarDataArrayProyectedInImage id: " + std::to_string(id));
-
+	return getLidarDataArrayProyectedInImageHandlers.at(id)(name);
 }
 
 RoboCompLidar3D::TDataCategory Lidar3DI::getLidarDataByCategory(RoboCompLidar3D::TCategories categories, Ice::Long timestamp, const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getLidarDataByCategoryHandlers.size())
-		return  getLidarDataByCategoryHandlers[id](categories, timestamp);
-	else
-		throw std::out_of_range("Invalid getLidarDataByCategory id: " + std::to_string(id));
-
+	return getLidarDataByCategoryHandlers.at(id)(categories, timestamp);
 }
 
 RoboCompLidar3D::TData Lidar3DI::getLidarDataProyectedInImage(std::string name, const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getLidarDataProyectedInImageHandlers.size())
-		return  getLidarDataProyectedInImageHandlers[id](name);
-	else
-		throw std::out_of_range("Invalid getLidarDataProyectedInImage id: " + std::to_string(id));
-
+	return getLidarDataProyectedInImageHandlers.at(id)(name);
 }
 
 RoboCompLidar3D::TData Lidar3DI::getLidarDataWithThreshold2d(std::string name, float distance, int decimationDegreeFactor, const Ice::Current&)
 {
-
+    if (!worker)
+        throw std::runtime_error("Worker is null");
+        
     #ifdef HIBERNATION_ENABLED
 		worker->hibernationTick();
 	#endif
     
-	if (id < getLidarDataWithThreshold2dHandlers.size())
-		return  getLidarDataWithThreshold2dHandlers[id](name, distance, decimationDegreeFactor);
-	else
-		throw std::out_of_range("Invalid getLidarDataWithThreshold2d id: " + std::to_string(id));
-
+	return getLidarDataWithThreshold2dHandlers.at(id)(name, distance, decimationDegreeFactor);
 }
-

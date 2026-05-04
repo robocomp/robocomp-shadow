@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -65,6 +65,11 @@ public:
 	RoboCompCameraRGBDSimplePub::CameraRGBDSimplePubPrxPtr camerargbdsimplepub_pubproxy;
 	RoboCompFullPoseEstimationPub::FullPoseEstimationPubPrxPtr fullposeestimationpub_pubproxy;
 	RoboCompIMUPub::IMUPubPrxPtr imupub_pubproxy;
+
+	virtual RoboCompCameraRGBDSimple::TRGBD CameraRGBDSimple_getAll(std::string camera) = 0;
+	virtual RoboCompCameraRGBDSimple::TDepth CameraRGBDSimple_getDepth(std::string camera) = 0;
+	virtual RoboCompCameraRGBDSimple::TImage CameraRGBDSimple_getImage(std::string camera) = 0;
+	virtual RoboCompCameraRGBDSimple::TPoints CameraRGBDSimple_getPoints(std::string camera) = 0;
 
 	virtual RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData() = 0;
 	virtual RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor) = 0;

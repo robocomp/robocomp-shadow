@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2025 by YOUR NAME HERE
+ *    Copyright (C) 2026 by YOUR NAME HERE
  *
  *    This file is part of RoboComp
  *
@@ -88,6 +88,11 @@ public:
      */
 	~SpecificWorker();
 
+	RoboCompCameraRGBDSimple::TRGBD CameraRGBDSimple_getAll(std::string camera);
+	RoboCompCameraRGBDSimple::TDepth CameraRGBDSimple_getDepth(std::string camera);
+	RoboCompCameraRGBDSimple::TImage CameraRGBDSimple_getImage(std::string camera);
+	RoboCompCameraRGBDSimple::TPoints CameraRGBDSimple_getPoints(std::string camera);
+
 	RoboCompLidar3D::TColorCloudData Lidar3D_getColorCloudData();
 	RoboCompLidar3D::TData Lidar3D_getLidarData(std::string name, float start, float len, int decimationDegreeFactor);
 	RoboCompLidar3D::TDataImage Lidar3D_getLidarDataArrayProyectedInImage(std::string name);
@@ -163,7 +168,9 @@ private:
      */
 	bool startup_check_flag;
     mutable std::shared_mutex color_point_cloud_mutex;
+    mutable std::shared_mutex rgbd_mutex;
     std::shared_ptr<RoboCompLidar3D::TColorCloudData> buffer_color_point_cloud;
+    std::shared_ptr<RoboCompCameraRGBDSimple::TRGBD> buffer_rgbd;
 
 signals:
 	//void customSignal();
