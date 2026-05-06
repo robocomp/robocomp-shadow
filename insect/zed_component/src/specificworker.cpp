@@ -326,7 +326,7 @@ void SpecificWorker::process_RGBD_data()
         colorCloudPoints.timestamp = depth_image.alivetime;
 
 
-        const static int step = 4;
+        const static int step = 1;
 
 
         cv::Mat depthMat(cv::Size(depth_image.width, depth_image.height), CV_32FC1, &depth_image.depth[0], cv::Mat::AUTO_STEP);
