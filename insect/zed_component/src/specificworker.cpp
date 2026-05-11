@@ -118,6 +118,8 @@ void SpecificWorker::initialize()
         //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
         //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
 
+        
+
         // Abrir cámara
         returned_state = zed.open(init_parameters);
         if (returned_state != sl::ERROR_CODE::SUCCESS) {
@@ -145,7 +147,11 @@ void SpecificWorker::initialize()
         zed.resetPositionalTracking(reset_transform);
 
         // Get the distance between the center of the camera and the left eye
-        translation_left_to_center = zed.getCameraInformation().camera_configuration.calibration_parameters.stereo_transform;
+
+        sl::CameraInformation cam_info = zed.getCameraInformation();
+
+        cam_params = cam_info.camera_configuration.calibration_parameters.left_cam;
+        translation_left_to_center = cam_info.camera_configuration.calibration_parameters.stereo_transform;
         // Lanzar hilo
         running = true;
 
@@ -242,10 +248,10 @@ void SpecificWorker::process_RGBD_data()
         rgb_image.height = cv_image.rows;
         rgb_image.depth = cv_image.channels();
         rgb_image.cameraID = 0;
-        // rgb_image.focalx = depth_intr.fx;
-        // rgb_image.focaly = depth_intr.fy;
+        rgb_image.focalx = cam_params.fx;
+        rgb_image.focaly = cam_params.fy;
         rgb_image.alivetime = image.timestamp.getNanoseconds();
-    //    depth.period = fps.get_period();
+        rgb_image.period = init_parameters.camera_fps;
         rgb_image.compressed = false;
         rgb_image.image.assign(cv_image.data, cv_image.data + (cv_image.total() * cv_image.elemSize()));
 
@@ -253,12 +259,12 @@ void SpecificWorker::process_RGBD_data()
         depth_image.width = cv_depth.cols;
         depth_image.height = cv_depth.rows;
         depth_image.cameraID = 0;
-        // depth_image.focalx = depth_intr.fx;
-        // depth_image.focaly = depth_intr.fy;
+        depth_image.focalx = cam_params.fx;
+        depth_image.focaly = cam_params.fy;
         depth_image.alivetime = rgb_image.alivetime;
-    //    depth.period = fps.get_period();
+        depth_image.period = init_parameters.camera_fps;
         depth_image.compressed = false;
-         depth_image.depth.assign(cv_depth.data, cv_depth.data + (cv_depth.total() * cv_depth.elemSize()));
+        depth_image.depth.assign(cv_depth.data, cv_depth.data + (cv_depth.total() * cv_depth.elemSize()));
 
         RoboCompCameraRGBDSimple::TPoints points;
 
@@ -324,7 +330,6 @@ void SpecificWorker::process_RGBD_data()
         RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
         RoboCompCameraRGBDSimple::TPoints points;
         colorCloudPoints.timestamp = depth_image.alivetime;
-
 
         const static int step = 1;
 

@@ -107,6 +107,8 @@ public:
     // Set configuration parameters
     sl::InitParameters init_parameters;
 
+    sl::CameraParameters cam_params;
+
     bool simulated;
     bool display;
     Eigen::Affine3f extrinsic;
