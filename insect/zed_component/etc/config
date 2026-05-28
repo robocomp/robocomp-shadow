@@ -18,6 +18,7 @@ Period.Emergency = 500
 
 Config.Simulated = False
 Config.Display = False
+Config.Publish = False
 
 Component.Debug.Verbose = true
 

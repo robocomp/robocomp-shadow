@@ -74,6 +74,13 @@ void SpecificWorker::initialize()
 {   
     simulated = configLoader.get<bool>("Config.Simulated");
     display = configLoader.get<bool>("Config.Display");
+    try {
+        publish_rgbd = configLoader.get<bool>("Config.Publish");
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Publish does not found, using default true. " << e.what() << std::endl;
+        publish_rgbd = true;
+    }
     std::vector<double> extrinsicVector;
     try {
         extrinsicVector = configLoader.get<std::vector<double>>("Config.Extrinsic");
@@ -103,7 +110,8 @@ void SpecificWorker::initialize()
     std::cout<<"Extrinsic Matrix:"<<std::endl<<this->extrinsic.matrix()<<std::endl;
 
 
-    if (!simulated){
+    if (!simulated)
+    {
         // INIT PARAMETERS
         init_parameters.camera_resolution = sl::RESOLUTION::HD720; // Use HD720 opr HD1200 video mode, depending on camera type.
         init_parameters.camera_fps = 30; // Set fps at 30
@@ -118,8 +126,7 @@ void SpecificWorker::initialize()
         //init_parameters.async_grab_camera_recovery = false; // Evita bloqueos si hay pérdida temporal de conexión
         //init_parameters.camera_disable_self_calib = false; // Habilitar autocalibración mejora tracking en largo plazo
 
-        
-
+    
         // Abrir cámara
         returned_state = zed.open(init_parameters);
         if (returned_state != sl::ERROR_CODE::SUCCESS) {
@@ -162,15 +169,11 @@ void SpecificWorker::initialize()
 
 void SpecificWorker::compute()
 {
-    if (simulated){
+    if (simulated)
         process_RGBD_data();
-    }
+    
     else{
-        auto start = std::chrono::high_resolution_clock::now();
         returned_state = zed.grab();
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        // std::cout << "Elapsed grab: " << elapsed << " microseconds" << std::endl;
         // A new image is available if grab() returns ERROR_CODE::SUCCESS
         if (returned_state == sl::ERROR_CODE::SUCCESS)
         {
@@ -181,30 +184,7 @@ void SpecificWorker::compute()
 }
 
 
-void SpecificWorker::emergency()
-{
-    std::cout << "Emergency worker" << std::endl;
-    //emergencyCODE
-    //
-    //if (SUCCESSFUL) //The componet is safe for continue
-    //  emmit goToRestore()
-}
-
-//Execute one when exiting to emergencyState
-void SpecificWorker::restore()
-{
-    std::cout << "Restore worker" << std::endl;
-    //restoreCODE
-    //Restore emergency component
-
-}
-
-int SpecificWorker::startup_check()
-{
-	std::cout << "Startup check" << std::endl;
-	QTimer::singleShot(200, QCoreApplication::instance(), SLOT(quit()));
-	return 0;
-}
+///////////////////////////////////////////////////////////////////////
 
 void SpecificWorker::process_RGBD_data()
 {   
@@ -214,8 +194,9 @@ void SpecificWorker::process_RGBD_data()
     int index = 0;
     cv::Mat cv_depth;
 
-
-    if (!simulated){
+    // Procesar datos reales
+    if (not simulated)
+    {
         const static int step = 1;
 
         // Retrieve left image
@@ -267,6 +248,9 @@ void SpecificWorker::process_RGBD_data()
         depth_image.depth.assign(cv_depth.data, cv_depth.data + (cv_depth.total() * cv_depth.elemSize()));
 
         RoboCompCameraRGBDSimple::TPoints points;
+        points.alivetime = rgb_image.alivetime;
+        points.period = init_parameters.camera_fps;
+        points.compressed = false;
 
     //    qInfo() << "Publishing";
 
@@ -283,6 +267,7 @@ void SpecificWorker::process_RGBD_data()
 
         auto inicio = std::chrono::high_resolution_clock::now();
 
+        // Procesar cada punto del point cloud
         #pragma omp simd
         for (int y = 0; y < pointcloud_mat.rows; y+=step)
         {
@@ -325,14 +310,17 @@ void SpecificWorker::process_RGBD_data()
         std::unique_lock<std::shared_mutex> lock(rgbd_mutex);
         buffer_rgbd = std::make_shared<RoboCompCameraRGBDSimple::TRGBD>(std::move(rgbd));
     }
-    else{
+    else // Simulated data processing
+    {
         RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
         RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
         RoboCompCameraRGBDSimple::TPoints points;
+        points.alivetime = depth_image.alivetime;
+        points.period = depth_image.period;
+        points.compressed = false;
         colorCloudPoints.timestamp = depth_image.alivetime;
 
         const static int step = 1;
-
 
         cv::Mat depthMat(cv::Size(depth_image.width, depth_image.height), CV_32FC1, &depth_image.depth[0], cv::Mat::AUTO_STEP);
         cv::Mat cv_image(cv::Size(rgb_image.width, rgb_image.height), CV_8UC3, &rgb_image.image[0], cv::Mat::AUTO_STEP);
@@ -352,13 +340,10 @@ void SpecificWorker::process_RGBD_data()
             yTable.resize(height);
 
             for (int u = 0; u < width; u++)
-            {
                 xTable[u] = (u - cx) / fx;
-            }
+            
             for (int v = 0; v < height; v++)
-            {
                 yTable[v] = (v - cy) / fy;
-            }
         }
 
         std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
@@ -373,9 +358,7 @@ void SpecificWorker::process_RGBD_data()
 
         auto inicio = std::chrono::high_resolution_clock::now();
 
-        int offsetImage = 0;
-        
-
+        // Procesar cada punto del depth
         #pragma omp simd
         for (int v = 0; v < height; v+=step) {
             const float* depth_ptr = depthMat.ptr<float>(v);
@@ -410,7 +393,6 @@ void SpecificWorker::process_RGBD_data()
         auto fin = std::chrono::high_resolution_clock::now();
         duration = fin - inicio;
         
-
         // -------------------- Salida --------------------
         cloud.resize(index);
         points.points = std::move(cloud);
@@ -476,10 +458,11 @@ void SpecificWorker::process_RGBD_data()
     }
     std::cout<< std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now()- i).count()<< std::endl;
 
-    camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
+    if (publish_rgbd)
+        camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
 
-
-    if(display){
+    if(display)
+    {
         cv::Mat rgb_frame, depth_frame;
         if(simulated){
             rgb_frame = cv::Mat(cv::Size(rgbd.image.width, rgbd.image.height), CV_8UC3, &rgbd.image.image[0], cv::Mat::AUTO_STEP);
@@ -531,29 +514,14 @@ void SpecificWorker::process_pose_data()
 
     // 3) Transformación fija cámara?robot
     static const Eigen::Vector3f cam_to_robot_t(60.0f, 76.6f, 0.0f);
-    static const Eigen::Quaternionf cam_to_robot_q = Eigen::Quaternionf::Identity();
 
-    Eigen::Transform<float,3,Eigen::Affine> T_cam_to_robot;
-    T_cam_to_robot = Eigen::Translation3f(cam_to_robot_t) * cam_to_robot_q;
-
-    // 4) Pose del robot en el mundo: T_world_robot = T_world_cam * T_cam_to_robot
-    Eigen::Transform<float,3,Eigen::Affine> T_world_cam(q_cam);
-    T_world_cam.pretranslate(t_cam);
-    Eigen::Transform<float,3,Eigen::Affine> T_world_robot = T_world_cam * T_cam_to_robot;
-    Eigen::Vector3f t_robot = T_world_robot.translation();
-    Eigen::Matrix3f R_robot = T_world_robot.rotation();
-    Eigen::Vector3f euler_robot = R_robot.eulerAngles(0, 1, 2);  // roll, pitch, yaw
-
-    // 5) Velocidades (diferencial)
+    // 4) Velocidades (diferencial)
     long timestamp = zed_pose.timestamp.getNanoseconds();
     float dt = (timestamp - last_timestamp) * 1e-9f;  // segundos
     last_timestamp = timestamp;
-    auto pose_confidence = zed_pose.pose_confidence;
     float* cov = zed_pose.pose_covariance;
-    float* twist = zed_pose.twist;
 
     // Print all values
-    //std::cout << "Pose confidence: " << pose_confidence << std::endl;
     //std::cout << "Pose covariance: ";
     //for (int i = 0; i < 36; ++i) {
     //    std::cout << cov[i] << " ";
@@ -687,10 +655,6 @@ void SpecificWorker::sensorsLoop()
 //        std::cout << "Elapsed time: " << elapsed << " microseconds" << std::endl;
 //        std::cout << "Sleeping for: " << 2500 - elapsed << " microseconds" << std::endl;
         std::this_thread::sleep_for(std::chrono::microseconds(2500 - elapsed));
-        auto end_2 = std::chrono::high_resolution_clock::now();
-        // Calculate elapsed time
-        auto elapsed_2 = std::chrono::duration_cast<std::chrono::microseconds>(end_2 - start).count();
-//        std::cout << "Elapsed 2 time: " << elapsed_2 << " microseconds" << std::endl;
     }
 }
 
@@ -700,13 +664,39 @@ float SpecificWorker::wrapToPi(float angle_rad) {
         angle_rad += 2.0f * M_PI;
     return angle_rad - M_PI;
 }
+
 //**************************************/AUX/**************************************/
 void SpecificWorker::transformPose(sl::Transform &pose, sl::Transform transform) {
     // Pose(new reference frame) = Pose (camera frame) * M, where M is the transform between two frames
     pose = pose * transform;
 }
 
+void SpecificWorker::emergency()
+{
+    std::cout << "Emergency worker" << std::endl;
+    //emergencyCODE
+    //
+    //if (SUCCESSFUL) //The componet is safe for continue
+    //  emmit goToRestore()
+}
 
+//Execute one when exiting to emergencyState
+void SpecificWorker::restore()
+{
+    std::cout << "Restore worker" << std::endl;
+    //restoreCODE
+    //Restore emergency component
+
+}
+
+int SpecificWorker::startup_check()
+{
+	std::cout << "Startup check" << std::endl;
+	QTimer::singleShot(200, QCoreApplication::instance(), SLOT(quit()));
+	return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 RoboCompCameraRGBDSimple::TRGBD SpecificWorker::CameraRGBDSimple_getAll(std::string camera)
 {

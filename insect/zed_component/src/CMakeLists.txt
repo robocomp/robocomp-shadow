@@ -11,8 +11,20 @@ LIST(APPEND HEADERS
 
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
+if(POLICY CMP0146)
+  cmake_policy(SET CMP0146 OLD)
+endif()
+
+if(POLICY CMP0153)
+  cmake_policy(SET CMP0153 OLD)
+endif()
+
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
 # no-char8_t to avoid a problem with ICE Connection lib.
-add_definitions(-O3 -fmax-errors=1 -fno-char8_t)
+add_definitions(-O3 -march=native -fmax-errors=1 -fno-char8_t)
 
 find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
@@ -44,5 +56,5 @@ endif()
 
 LIST(APPEND LIBS ${LIBS} ${ZED_LIBS} )
 
-set(CXX_STANDARD 17)
+set(CXX_STANDARD 23)
 

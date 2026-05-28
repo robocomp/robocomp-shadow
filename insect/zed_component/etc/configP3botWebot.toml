@@ -19,6 +19,7 @@ CameraRGBDSimple = "tcp -p 12001"
 [Config]
 Simulated = true
 Display = true
+Publish = false
 Extrinsic = [0.0, -50.0, 1320.0, 0.0, 0.0, 0.0]
 
 [Period]

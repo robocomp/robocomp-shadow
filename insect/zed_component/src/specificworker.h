@@ -111,6 +111,7 @@ public:
 
     bool simulated;
     bool display;
+    bool publish_rgbd = true;
     Eigen::Affine3f extrinsic;
 
     sl::Mat image, depth, point_cloud;
