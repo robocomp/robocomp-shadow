@@ -1,0 +1,12 @@
+import "IMU.idsl";
+
+Component imu_phidget
+{
+    Communications
+    {
+        implements IMU;
+    };
+    
+    language python;
+};
+
