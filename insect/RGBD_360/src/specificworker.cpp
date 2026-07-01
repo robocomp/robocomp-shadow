@@ -126,6 +126,7 @@ void SpecificWorker::compute()
     if (!match_result.has_value())
         return;
 
+    
     auto [chosen_rgb, chosen_lidar] = match_result.value();
 
     RoboCompLidar3D::TDataImage chosen_lidar_data = b_lidar_queue.at(chosen_lidar);

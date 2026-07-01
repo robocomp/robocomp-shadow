@@ -1,7 +1,7 @@
 
 # Endpoints for implements interfaces
-Endpoints.Camera360RGBD = "tcp -p 10100"
-Endpoints.Lidar3D = "tcp -h localhost -p 12001"
+Endpoints.Camera360RGBD = "tcp -h localhost -p 12003"
+Endpoints.Lidar3D = "tcp -h localhost -p 12011"
 
 # Proxies for required interfaces
 Proxies.Camera360RGB = "camera360rgb:tcp -h localhost -p 10097"
