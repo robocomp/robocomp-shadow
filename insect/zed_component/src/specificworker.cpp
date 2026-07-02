@@ -33,24 +33,6 @@ SpecificWorker::SpecificWorker(const ConfigLoader& configLoader, TuplePrx tprx, 
 		#ifdef HIBERNATION_ENABLED
 			hibernationChecker.start(500);
 		#endif
-		
-		
-		
-		// Example statemachine:
-		/***
-		//Your definition for the statesmachine (if you dont want use a execute function, use nullptr)
-		states["CustomState"] = std::make_unique<GRAFCETStep>("CustomState", period, 
-															std::bind(&SpecificWorker::customLoop, this),  // Cyclic function
-															std::bind(&SpecificWorker::customEnter, this), // On-enter function
-															std::bind(&SpecificWorker::customExit, this)); // On-exit function
-
-		//Add your definition of transitions (addTransition(originOfSignal, signal, dstState))
-		states["CustomState"]->addTransition(states["CustomState"].get(), SIGNAL(entered()), states["OtherState"].get());
-		states["Compute"]->addTransition(this, SIGNAL(customSignal()), states["CustomState"].get()); //Define your signal in the .h file under the "Signals" section.
-
-		//Add your custom state
-		statemachine.addState(states["CustomState"].get());
-		***/
 
 		statemachine.setChildMode(QState::ExclusiveStates);
 		statemachine.start();
@@ -75,11 +57,25 @@ void SpecificWorker::initialize()
     simulated = configLoader.get<bool>("Config.Simulated");
     display = configLoader.get<bool>("Config.Display");
     try {
+        compute_xyz = configLoader.get<bool>("Config.ComputeXYZ");
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "ComputeXYZ does not found, using default true. " << e.what() << std::endl;
+        compute_xyz = true;
+    }
+    try {
         publish_rgbd = configLoader.get<bool>("Config.Publish");
     }
     catch (const std::runtime_error& e) {
         std::cerr << "Publish does not found, using default true. " << e.what() << std::endl;
         publish_rgbd = true;
+    }
+    try {
+        compute_color_cloud = configLoader.get<bool>("Config.ComputeColorCloud");
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "ComputeColorCloud does not found, using default false. " << e.what() << std::endl;
+        compute_color_cloud = false;
     }
     std::vector<double> extrinsicVector;
     try {
@@ -108,6 +104,7 @@ void SpecificWorker::initialize()
 
     this->extrinsic = extrinsic;
     std::cout<<"Extrinsic Matrix:"<<std::endl<<this->extrinsic.matrix()<<std::endl;
+
 
 
     if (!simulated)
@@ -257,17 +254,20 @@ void SpecificWorker::process_RGBD_data()
         std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
         int total_points = pointcloud_mat.total()/step;
         cloud.resize(total_points);
-        colorCloudPoints.X.resize(total_points);
-        colorCloudPoints.Y.resize(total_points);
-        colorCloudPoints.Z.resize(total_points);
-        colorCloudPoints.R.resize(total_points);
-        colorCloudPoints.G.resize(total_points);
-        colorCloudPoints.B.resize(total_points);
-
+        if (compute_color_cloud)
+        {
+            colorCloudPoints.X.resize(total_points);
+            colorCloudPoints.Y.resize(total_points);
+            colorCloudPoints.Z.resize(total_points);
+            colorCloudPoints.R.resize(total_points);
+            colorCloudPoints.G.resize(total_points);
+            colorCloudPoints.B.resize(total_points);
+        }
 
         auto inicio = std::chrono::high_resolution_clock::now();
 
         // Procesar cada punto del point cloud
+      
         #pragma omp simd
         for (int y = 0; y < pointcloud_mat.rows; y+=step)
         {
@@ -285,17 +285,21 @@ void SpecificWorker::process_RGBD_data()
                 cloud[index].y = lidar_point[1];
                 cloud[index].z = lidar_point[2];
 
-                colorCloudPoints.X[index] = lidar_point[0];
-                colorCloudPoints.Y[index] = lidar_point[1];
-                colorCloudPoints.Z[index] = lidar_point[2];
+                if (compute_color_cloud)
+                {
+                    colorCloudPoints.X[index] = lidar_point[0];
+                    colorCloudPoints.Y[index] = lidar_point[1];
+                    colorCloudPoints.Z[index] = lidar_point[2];
 
-                uint32_t color_uint = *reinterpret_cast<uint32_t*>(&pt[3]);
-                colorCloudPoints.R[index] = (color_uint >> 0) & 0xFF;
-                colorCloudPoints.G[index] = (color_uint >> 8) & 0xFF;
-                colorCloudPoints.B[index] = (color_uint >> 16) & 0xFF;
+                    uint32_t color_uint = *reinterpret_cast<uint32_t*>(&pt[3]);
+                    colorCloudPoints.R[index] = (color_uint >> 0) & 0xFF;
+                    colorCloudPoints.G[index] = (color_uint >> 8) & 0xFF;
+                    colorCloudPoints.B[index] = (color_uint >> 16) & 0xFF;
+                }
                 ++index;
             }
         }
+    
         cloud.resize(index);
         points.points = std::move(cloud);
 
@@ -312,9 +316,20 @@ void SpecificWorker::process_RGBD_data()
     }
     else // Simulated data processing
     {
-        RoboCompCameraRGBDSimple::TImage rgb_image = this->camerargbdsimple_proxy->getImage("");
-        RoboCompCameraRGBDSimple::TDepth depth_image = this->camerargbdsimple_proxy->getDepth("");
-        RoboCompCameraRGBDSimple::TPoints points;
+        // Single round-trip to the source (image + depth) instead of two separate calls
+        RoboCompCameraRGBDSimple::TRGBD rgbd_data = this->camerargbdsimple_proxy->getAll("");
+        RoboCompCameraRGBDSimple::TImage rgb_image = std::move(rgbd_data.image);
+        RoboCompCameraRGBDSimple::TDepth depth_image = std::move(rgbd_data.depth);
+
+        // Synchronize with the source: only process when a new frame has arrived,
+        // instead of re-processing every compute tick (~50 Hz). The source frame
+        // timestamp (alivetime) paces the loop.
+        static long last_source_timestamp = -1;
+        if (depth_image.alivetime == last_source_timestamp)
+            return;   // no new frame from the source yet
+        last_source_timestamp = depth_image.alivetime;
+
+        RoboCompCameraRGBDSimple::TPoints points;   // NOT READING TPOINTS
         points.alivetime = depth_image.alivetime;
         points.period = depth_image.period;
         points.compressed = false;
@@ -349,43 +364,53 @@ void SpecificWorker::process_RGBD_data()
         std::vector<RoboCompCameraRGBDSimple::Point3D> cloud;
         const size_t N = width * height / step;
         cloud.resize(N);
-        colorCloudPoints.X.resize(N);
-        colorCloudPoints.Y.resize(N);
-        colorCloudPoints.Z.resize(N);
-        colorCloudPoints.R.resize(N);
-        colorCloudPoints.G.resize(N);
-        colorCloudPoints.B.resize(N);
+        if (compute_color_cloud)
+        {
+            colorCloudPoints.X.resize(N);
+            colorCloudPoints.Y.resize(N);
+            colorCloudPoints.Z.resize(N);
+            colorCloudPoints.R.resize(N);
+            colorCloudPoints.G.resize(N);
+            colorCloudPoints.B.resize(N);
+        }
 
         auto inicio = std::chrono::high_resolution_clock::now();
 
         // Procesar cada punto del depth
-        #pragma omp simd
-        for (int v = 0; v < height; v+=step) {
-            const float* depth_ptr = depthMat.ptr<float>(v);
-            const uint8_t* image_ptr = cv_image.ptr<uint8_t>(v);
-            for (int u = 0; u < width; u+=step) {
-                float d = depth_ptr[u];
-                const uint8_t* pixel_ptr = image_ptr + 3 * u;
+        if(compute_xyz)
+        {
+            #pragma omp simd
+            for (int v = 0; v < height; v+=step) 
+            {
+                const float* depth_ptr = depthMat.ptr<float>(v);
+                const uint8_t* image_ptr = cv_image.ptr<uint8_t>(v);
+                for (int u = 0; u < width; u+=step) {
+                    float d = depth_ptr[u];
+                    const uint8_t* pixel_ptr = image_ptr + 3 * u;
 
-                if (d <= 0.0f || d == INFINITY) continue;
-                d *=1000;
-                const float x = xTable[u] * d;
-                const float y = yTable[v] * d;
+                    if (d <= 0.0f || d == INFINITY) continue;
+                    d *=1000;
+                    const float x = xTable[u] * d;
+                    const float y = yTable[v] * d;
 
-                Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(x, d, -y) + extrinsic.translation();
+                    Eigen::Vector3f lidar_point = extrinsic.linear() * Eigen::Vector3f(x, d, -y) + extrinsic.translation();
 
-                cloud[index].x = lidar_point[0];
-                cloud[index].y = lidar_point[1];
-                cloud[index].z = lidar_point[2];
+                    cloud[index].x = lidar_point[0];
+                    cloud[index].y = lidar_point[1];
+                    cloud[index].z = lidar_point[2];
 
-                colorCloudPoints.X[index] = lidar_point[0];
-                colorCloudPoints.Y[index] = lidar_point[1];
-                colorCloudPoints.Z[index] = lidar_point[2];
-                
-                colorCloudPoints.R[index] = pixel_ptr[0];
-                colorCloudPoints.G[index] = pixel_ptr[1];
-                colorCloudPoints.B[index] = pixel_ptr[2];
-                ++index;
+                    if (compute_color_cloud)
+                    {
+                        colorCloudPoints.X[index] = lidar_point[0];
+                        colorCloudPoints.Y[index] = lidar_point[1];
+                        colorCloudPoints.Z[index] = lidar_point[2];
+
+                        colorCloudPoints.R[index] = pixel_ptr[0];
+                        colorCloudPoints.G[index] = pixel_ptr[1];
+                        colorCloudPoints.B[index] = pixel_ptr[2];
+                    }
+                    ++index;
+                }
             }
         }
 
@@ -405,6 +430,8 @@ void SpecificWorker::process_RGBD_data()
         buffer_rgbd = std::make_shared<RoboCompCameraRGBDSimple::TRGBD>(std::move(rgbd));
         
     }
+    if (compute_color_cloud)
+    {
     auto i = std::chrono::high_resolution_clock::now();
 
     colorCloudPoints.numberPoints = index;
@@ -452,14 +479,20 @@ void SpecificWorker::process_RGBD_data()
     }
 
     auto cloud_ptr = std::make_shared<RoboCompLidar3D::TColorCloudData>(std::move(colorCloudPoints));
-    { 
+    {
         std::lock_guard<std::shared_mutex> lock(color_point_cloud_mutex);
         buffer_color_point_cloud = std::move(cloud_ptr);
     }
     std::cout<< std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now()- i).count()<< std::endl;
+    }
 
     if (publish_rgbd)
-        camerargbdsimplepub_pubproxy->pushRGBD(rgbd);
+    {
+        // rgbd was moved into buffer_rgbd above; publish the buffered copy instead
+        std::shared_lock<std::shared_mutex> lock(rgbd_mutex);
+        if (buffer_rgbd)
+            camerargbdsimplepub_pubproxy->pushRGBD(*buffer_rgbd);
+    }
 
     if(display)
     {

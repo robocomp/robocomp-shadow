@@ -19,6 +19,7 @@ Period.Emergency = 500
 Config.Simulated = False
 Config.Display = False
 Config.Publish = False
+Config.ComputeColorCloud = False
 
 Component.Debug.Verbose = true
 

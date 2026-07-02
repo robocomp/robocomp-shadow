@@ -109,9 +109,11 @@ public:
 
     sl::CameraParameters cam_params;
 
-    bool simulated;
-    bool display;
+    bool simulated = true;
+    bool display = false;
     bool publish_rgbd = true;
+    bool compute_xyz = true;
+    bool compute_color_cloud = false;
     Eigen::Affine3f extrinsic;
 
     sl::Mat image, depth, point_cloud;
