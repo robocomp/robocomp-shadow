@@ -27,11 +27,12 @@ from rich.text import Text
 from genericworker import *
 import interfaces as ifaces
 import numpy as np
-
+from collections import deque
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 import SVD48V
+import os
 
 console = Console(highlight=False)
 
@@ -40,6 +41,10 @@ try:
     setproctitle.setproctitle(os.path.basename(os.getcwd()))
 except:
     pass
+
+ODOMETRY_WINDOW_SIZE=5
+LINEAR_VELOCITY_DEADBAND=2 #mm/s
+ANGULAR_VELOCITY_DEADBAND=0.01 #rad/s
 
 class SpecificWorker(GenericWorker):
     def __init__(self, proxy_map, configData, startup_check=False):
@@ -166,7 +171,69 @@ class SpecificWorker(GenericWorker):
         if abs(val)>self.maxRotSpeed:  
             print("AVISO SUPERADA LA VELOCIDAD MAXIMA", val,"CUANDO MAXIMA ES", self.maxRotSpeed)
         self.targetSpeed[2] = np.clip(val, -self.maxRotSpeed,  self.maxRotSpeed)
-        
+
+    def calcOdometry(self, vx, vy, vrz, timestamp):
+        if not (np.isfinite(vx) and np.isfinite(vy) and np.isfinite(vrz)):
+            print(f"[FullPoseEstimationPub_newFullPose] WARNING: invalid pose, skipping. {vx} {vy} {vrz}")
+            return np.array((0.0, 0.0, 0.0))
+
+        # Calcular dt a partir del timestamp de la pose (viene en ms)
+        if not hasattr(self, "last_timestamp"):
+            self.last_timestamp = timestamp
+            self.last_odometry = np.array([0.0, 0.0, 0.0])
+            return self.last_odometry
+
+        dt = (timestamp - self.last_timestamp) / 1000.0
+        self.last_timestamp = timestamp
+
+        if dt <= 0.0 or dt > 1.0:
+            print("WARNING: anomalous dt=", dt, "skipping")
+            return self.last_odometry
+
+        # Ventana deslizante de velocidades
+        if not hasattr(self, "velocity_window"):
+            self.velocity_window = deque(maxlen=ODOMETRY_WINDOW_SIZE)
+
+        self.velocity_window.append((vx, vy, vrz))
+
+        if len(self.velocity_window) < ODOMETRY_WINDOW_SIZE:
+            return self.last_odometry
+
+        avg_vx = avg_vy = avg_vrz = 0.0
+        for vx_i, vy_i, vrz_i in self.velocity_window:
+            avg_vx += vx_i
+            avg_vy += vy_i
+            avg_vrz += vrz_i
+
+        avg_vx /= ODOMETRY_WINDOW_SIZE
+        avg_vy /= ODOMETRY_WINDOW_SIZE
+        avg_vrz /= ODOMETRY_WINDOW_SIZE
+
+        if abs(avg_vy) < LINEAR_VELOCITY_DEADBAND:
+            avg_vy = 0.0
+        if abs(avg_vx) < LINEAR_VELOCITY_DEADBAND:
+            avg_vx = 0.0
+        if abs(avg_vrz) < ANGULAR_VELOCITY_DEADBAND:
+            avg_vrz = 0.0
+
+        last_x = self.last_odometry[0]
+        last_y = self.last_odometry[1]
+        last_theta = self.last_odometry[2]
+
+        theta = last_theta + avg_vrz * dt
+        x = last_x + (avg_vx * np.cos(last_theta) - avg_vy * np.sin(last_theta)) * dt
+        y = last_y + (avg_vx * np.sin(last_theta) + avg_vy * np.cos(last_theta)) * dt
+
+        self.last_odometry = np.array([x, y, theta])
+
+        # print("[FullPoseEstimationPub_newFullPose]")
+        # print(f"  Raw vel    -> vy: {vy} | vx: {vx} | vrz: {vrz}")
+        # print(f"  Avg vel    -> vy: {avg_vy} | vx: {avg_vx} | vrz: {avg_vrz}")
+        # print(f"  dt         -> {dt} s")
+        # print(f"  Last odom  -> x: {last_x} | y: {last_y} | theta: {last_theta}")
+        print(f"  New odom   -> x: {x} | y: {y} | theta: {theta}")
+
+        return self.last_odometry
     #######################################COMPUTE###########################################
     @QtCore.Slot()
     def compute(self):
@@ -246,13 +313,14 @@ class SpecificWorker(GenericWorker):
                 odometry.arx = 0
                 odometry.ary = 0
                 odometry.arz = 0
-                odometry.adv = 0
-                odometry.side = 0
-                odometry.rot = 0
+                odometry.adv = odometry.vy
+                odometry.side = odometry.vx
+                odometry.rot = odometry.vrz
                 odometry.confidence = 0
                 # print(velocity)
                 # print(odometry)
                 self.fullposeestimationpub_proxy.newFullPose(odometry)
+                self.calcOdometry(odometry.vy, odometry.vx, odometry.vrz, odometry.timestamp)
             except Exception as e:
                 console.print_exception(e)
                 console.print(Text("Fault reading odometry", style="yellow"))
@@ -291,34 +359,27 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getBasePose method from DifferentialRobot interface
     #
     def DifferentialRobot_getBasePose(self):
-        x=0
-        z=0
-        alpha=0
-        if not self.isOmni:
-            #
-            # write your CODE here
-            #
-            return [x, z, alpha]
+        if not hasattr(self, "last_odometry"):
+            return [0,0,0]
+        return self.last_odometry.tolist()
     #
     # IMPLEMENTATION of getBaseState method from DifferentialRobot interface
     #
     def DifferentialRobot_getBaseState(self):
-        #
-        # write your CODE here
-        #
         state = ifaces.RoboCompGenericBase.TBaseState()
-        if not self.isOmni:
-            pass
+        if hasattr(self, "last_odometry"):
+            state.x = self.last_odometry[0]
+            state.z = self.last_odometry[1]
+            state.alpha = self.last_odometry[2]
         return state
     #
     # IMPLEMENTATION of resetOdometer method from DifferentialRobot interface
     #
     def DifferentialRobot_resetOdometer(self):
-        if not self.isOmni:
-            #
-            # write your CODE here
-            #
-            pass
+        print("[resetOdometer]")
+        self.last_odometry = np.array([0.0, 0.0, 0.0])
+        self.last_timestamp = time() * 1000
+        self.velocity_window = deque(maxlen=ODOMETRY_WINDOW_SIZE)
 
 
     #
@@ -375,34 +436,17 @@ class SpecificWorker(GenericWorker):
     # IMPLEMENTATION of getBasePose method from OmniRobot interface
     #
     def OmniRobot_getBasePose(self):
-        x=0
-        z=0
-        alpha=0
-
-        if self.isOmni:
-            pass
-        return [x, z, alpha]
+        return self.DifferentialRobot_getBasePose()
     #
     # IMPLEMENTATION of getBaseState method from OmniRobot interface
     #
     def OmniRobot_getBaseState(self):
-        state = ifaces.RoboCompGenericBase.TBaseState()
-
-        #
-        # write your CODE here
-        #
-        if self.isOmni:
-            pass
-        return state
+        return self.DifferentialRobot_getBaseState()
     #
     # IMPLEMENTATION of resetOdometer method from OmniRobot interface
     #
     def OmniRobot_resetOdometer(self):
-        if self.isOmni:
-            #
-            # write your CODE here
-            #
-            pass
+        self.DifferentialRobot_resetOdometer()
 
 
     #

@@ -4,6 +4,7 @@ import numpy as np
 import serial
 import struct
 import signal
+from typing import List
 
 
 
@@ -104,13 +105,13 @@ class SVD48V:
         rpmMaxSpeed: The maximum speed in RPM.
     """
 
-    def __init__(self, port:str="/dev/ttyUSB0", IDs:list[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6, polePairs:int=10, noSafe=False):
+    def __init__(self, port:str="/dev/ttyUSB0", IDs:List[int]=[1,2], wheelRadius:int=6, maxSpeed:int=800, maxAcceleration:int=1000, maxDeceleration:int=1500, maxCurrent:int=6, polePairs:int=10, noSafe=False):
         """
         Initializes an instance of the class.
 
         Args:
             port (str): The port to be used. Defaults to "/dev/ttyUSB0".
-            IDs (list): A list containing the IDs. Defaults to [1,2].
+            IDs (List[int]): A list containing the IDs. Defaults to [1,2].
             ereased -> polePairs(int): The number of motor pole pairs 
             wheelRadius (int): The radius of the wheel. Defaults to 6.
             maxSpeed (int): The maximum speed mm/s. Defaults to 800.
@@ -336,8 +337,41 @@ class SVD48V:
                     t1 = time.time()            #get time for MSL
                     #Listening
                     while True:
-                        time.sleep(0)
-                        reply = bytearray (self.driver.readline())#get telegram of reply
+                        time.sleep(0.004)
+                        if action_code == "READ":
+                            # Lee cabecera: dirección + código + longitud (3 bytes)
+                            header = bytearray()
+                            while len(header) < 3:
+                                if time.time() - t1 > MSL:
+                                    break
+                                chunk = self.driver.read(3 - len(header))
+                                header.extend(chunk)
+
+                            if len(header) < 3:
+                                print(f"MSL FAILURE en cabecera. RE-{action_code}")
+                                self.accuracy_com["MSL"] += 1
+                                break
+
+                            # Calcula los bytes restantes: datos + 2 bytes de CRC
+                            data_len = header[2]
+                            remaining = 3 + data_len + 2  # datos + CRC_high + CRC_low
+
+                            body = header
+                            while len(body) < remaining:
+                                if time.time() - t1 > MSL:
+                                    break
+                                chunk = self.driver.read(remaining - len(body))
+                                body.extend(chunk)
+
+                            if len(body) < remaining:
+                                print(f"MSL FAILURE en body. RE-{action_code}")
+                                self.accuracy_com["MSL"] += 1
+                                break
+
+                            reply = body
+                        else:
+                            reply = bytearray (self.driver.readline())#get telegram of reply
+
                         #Have telegram of reply?
                         if len(reply) > 1:
                             # print(f"\033[36mReply telegram {list(reply)}\033[0m")
@@ -349,6 +383,12 @@ class SVD48V:
                                 print(f"UNSUITABLE TELEGRAM. RE-{action_code}")
                                 self.accuracy_com["CODE"] += 1
                                 break
+                            if action_code == "READ" and reply[2] != len(reply)-5:
+                                print(f"\033[34msend telegram {list(telegram)}\033[0m")
+                                print(f"\033[36mReply telegram {list(reply)}\033[0m")
+                                print(f"REPLY {reply[2]} bytes, expected {len(list(reply))-5} bytes. RE-{action_code}")
+                                # self.accuracy_com["CODE"] += 1
+                                continue
 
                             #Check CRC for telegram
                             crc_low, crc_high = reply.pop(), reply.pop()
@@ -363,7 +403,10 @@ class SVD48V:
                             #Get data from telegram response
                             if action_code == "READ":
                                 for i in range(0, reply[2], 2):
-                                    data.append(np.int16(int(reply[i+3] * 2**8) + reply[i+4]))
+                                    # data.append(np.int16(int(reply[i+3] * 2**8) + reply[i+4]))
+                                    value = (reply[i+3] << 8) | reply[i+4]
+                                    data.append(value - 65536 if value > 32767 else value)
+
                             
                             #Telegram OK
                             self.mutex.release()
@@ -381,6 +424,9 @@ class SVD48V:
         except serial.SerialException:
             sys.exit("FAUL IN PORT. Has the SVD48V possibly been disconnected?")
         except EXCEPTION_TELEGRAM:
+            raise
+        except Exception as e:
+            self.mutex.release()
             raise
         return None
 
@@ -612,7 +658,7 @@ class SVD48V:
         for i in range(len(self.ids)):
             self._write_register(self.ids[i], register_key, [value[i * 2], value[i * 2 + 1]])
 
-    def _get_error_codes(self, error:int)->list[str]:
+    def _get_error_codes(self, error:int)->List[str]:
         error_codes = []
         #print(error)
         for bit in ERROR_CODES:
@@ -684,7 +730,7 @@ class SVD48V:
         """
         return self.get_angle()*self.rad2mm
     
-    def get_error(self) -> list[str]:
+    def get_error(self) -> List[str]:
         """
         Get the error of the motors.
 
@@ -821,4 +867,3 @@ class SVD48V:
 
         self._set_motor_data(DRIVER_REGISTERS["MAX_DECELATION"], np.array([acc_stop]*(len(self.ids)*2),dtype=np.int16))
         self._set_motor_data(DRIVER_REGISTERS["SET_SPEED"], np.array([0]*(len(self.ids)*2),dtype=np.int16))
-                
