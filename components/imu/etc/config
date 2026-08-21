@@ -1,0 +1,55 @@
+# This property is used by the clients to connect to IceStorm.
+Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
+
+# Proxies for publishes interfaces -- topic propio, para no colisionar con el de
+# imu_fusion_dds si ambos llegan a correr en el mismo host.
+Proxies.IMUPubPrefix = "ImuRaw"
+
+# Proxies for required interfaces -- solo se usa si simulation=true (ver abajo): apunta
+# a webots-bridge (Webots2Robocomp.Endpoints.IMU), asumiendo que corre en este mismo host
+# durante desarrollo/pruebas de simulación. Si Webots2Robocomp está en otra máquina,
+# cambiar el host aquí.
+Proxies.IMU = "imu:tcp -h localhost -p 10007"
+
+# Endpoint for the MediaPlaneDDS server interface (implements) -- getMediaDescriptor(),
+# para que un agente con grafo (p.ej. robot_concept) relaye el descriptor del plano DDS.
+# Puerto distinto al 12500 de imu_fusion_dds para poder correr ambos a la vez.
+# Mismo puerto que webots-bridge (Webots2Robocomp.Endpoints.IMU = tcp -p 10007) -- un
+# cliente con Proxies.IMU puede apuntar a este componente o a la simulacion cambiando
+# solo el host, sin tocar el puerto.
+Endpoints.IMU = "tcp -p 10007"
+
+Endpoints.MediaPlaneDDS = "tcp -p 12501"
+
+Period.Compute = 10   # 100Hz, igual que IMU.interval_ms -- un ciclo de compute() por muestra
+Period.Emergency = 500
+
+Component.Debug.Verbose = false
+
+Ice.Warn.Connections = "0"
+Ice.Trace.Network = "0"
+Ice.Trace.Protocol = "0"
+Ice.MessageSizeMax = "20004800"
+
+# --- Modo: Phidget real (false) o proxy de webots-bridge vía Proxies.IMU (true) ---
+simulation = false
+
+# --- IMU Phidget driver (solo si simulation=false) ---
+IMU.interval_ms = 10          # periodo de muestreo (1000 / 100 Hz) -- ver justificación de
+                               # por qué 100Hz no degrada precisión en room_concept_rotation.md /
+                               # memoria del proyecto (integración por mapa exponencial SO(3),
+                               # exacta independientemente del tamaño de paso)
+IMU.timeout_s = 0.2            # sin datos del driver (o de webots-bridge, en simulation=true)
+                               # -> log de FAULT
+
+# --- Publicación: dos planos independientes, activables por separado ---
+ice_pub = true    # RoboCompIMUPub (IceStorm), RoboCompIMU.DataImu tal cual
+dds_pub = true    # zero-copy FastDDS (imu_dds_native, ImuFrame) -- no-op con aviso si el
+                   # módulo nativo no está compilado (ver src/CMakeLists.txt)
+
+# --- Publicación zero-copy DDS (FastDDS), solo si dds_pub=true ---
+DDS.Domain = 7
+DDS.Topic = "rc/imu/raw"
+DDS.HistoryDepth = 8
+DDS.SharedMemoryOnly = true
+DDS.DataSharing = false

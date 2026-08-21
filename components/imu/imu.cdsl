@@ -1,0 +1,14 @@
+import "IMU.idsl";
+import "IMUPub.idsl";
+import "MediaPlaneDDS.idsl";
+
+Component imu
+{
+    Communications
+    {
+	requires IMU;
+        implements MediaPlaneDDS, IMU;
+        publishes IMUPub;
+    };
+    language python;
+};
