@@ -6,9 +6,12 @@
 
 Agent.id = 0 # Change id
 Agent.name = "graph_launcher"
-Agent.configFile = "shadow_guide_test_charger.json"
+Agent.ddsDomain = 1
+Agent.ddsDomainLTSM = 10
+Agent.configFile1 = "dsr_dynamic.json"
+Agent.configFile2 = "dsr_ltsm.json"
 
-ViewAgent.tree = false
+ViewAgent.tree = true
 ViewAgent.graph = true
 ViewAgent.2d = true
 ViewAgent.3d = false

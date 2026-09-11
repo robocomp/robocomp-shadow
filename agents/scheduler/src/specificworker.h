@@ -70,6 +70,7 @@ private:
     //DSR params
     std::string agent_name;
     int agent_id;
+    int dds_domain;
 
     bool tree_view;
     bool graph_view;

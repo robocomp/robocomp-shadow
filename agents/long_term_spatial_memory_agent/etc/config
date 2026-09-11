@@ -9,9 +9,10 @@ Ice.MessageSizeMax=20004800
 
 
 # Change id
-Agent.id = 13
+Agent.id = 14
 Agent.name = "long_term_spatial_memory_agent"
 Agent.configFile = ""
+Agent.ddsDomain = 1
 
 
 Period.Compute = 100

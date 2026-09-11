@@ -1,15 +1,11 @@
 from pydsr import *
+from .mission_base import MissionBase  # Assuming MissionBase is in a separate file
 
-class GOTOMission:
-    def __init__(self, graph, mission, agent_id):
+
+class GOTOMission(MissionBase):
+    def __init__(self, graph, LTSM_graph, mission, agent_id):
+        super().__init__(graph, LTSM_graph, mission, agent_id)
         self.robot_resources = ["base"]
-
-        self.graph = graph
-        self.missions = mission["missions"]
-        self.target = mission["target"]
-        self.type = mission["mission"]
-        self.init_timestamp = mission["timestamp"]
-        self.agent_id = agent_id
 
         self.try_counter = 0
         self.trying_enabled = False
@@ -44,27 +40,27 @@ class GOTOMission:
         if not self.missions:
             print("No missions to monitor. Mision finished.")
             self.current_bt_state = None
-            return True
+            return True, None
         # 2 - Get the first mission from the list
         mission = self.missions[0]
         # print(f"Monitoring mission: {mission}")
         if self.current_bt_state is "completed":
             print(f"Mission {mission} already completed. Removing it from the list.")
             self.missions.popleft()
-            return False
+            return False, self.missions
         # 3 - Check if the mission is beign executed checking
         # Find required door node
         actual_target_node = self.graph.get_node(mission["target"])
         if actual_target_node is None:
             print(f"Node {mission['target']} not found in the graph.")
-            print(f"#################### Actual submission popped ####################")
-            self.missions.pop(0)
-            return False
+            # print(f"#################### Actual submission popped ####################")
+            # self.missions.pop(0)
+            return False, None
         # 4 - Check if the cross affordance node exists
         target_affordance_nodes = [node for node in self.graph.get_nodes_by_type("affordance") if node.attrs["parent"].value == actual_target_node.id]
         if not target_affordance_nodes:
             print(f"{mission['mission']} affordance node for {mission['target']} not found in the graph.")
-            return False
+            return False, None
         target_affordance_node = target_affordance_nodes[0]
         # 5 Check if TODO edge exists from the robot to the door cross affordance node
         todo_edge = self.graph.get_edge(self.robot_id, target_affordance_node.id, "TODO")
@@ -75,7 +71,7 @@ class GOTOMission:
             print(f"TODO edge from robot {self.robot_id} to door cross affordance node {target_affordance_node.id} not found in the graph. Inserting it.")
             TODO_edge = Edge(target_affordance_node.id, self.robot_id,  "TODO", self.agent_id)
             self.graph.insert_or_assign_edge(TODO_edge)
-            return False
+            return False, None
         else:
             # Check the status of the affordance node
             is_active_attr = target_affordance_node.attrs["active"].value
@@ -92,33 +88,33 @@ class GOTOMission:
                     except Exception as e:
                         print(f"Error deleting TODO edge: {e}")
                     # Remove the mission from the list
-                    self.missions.pop(0)
-
-    def abort(self, set_in_pending=False):
-        print("Aborting GOTOMission.")
-        # Remove TODO edge if exists
-        mission = self.missions[0]
-        actual_target_node = self.graph.get_node(mission["target"])
-        if actual_target_node is None:
-            print(f"Door node {mission['target']} not found in the graph.")
-            return False
-        # 4 - Check if the cross affordance node exists
-        target_affordance_nodes = [node for node in self.graph.get_nodes_by_type("affordance") if node.attrs["parent"].value == actual_target_node.id]
-        if not target_affordance_nodes:
-            print(f"{mission['mission']} affordance node for {mission['target']} not found in the graph.")
-            return False
-        target_affordance_node = target_affordance_nodes[0]
-        todo_edge = self.graph.get_edge(self.robot_id, target_affordance_node.id, "TODO")
-        if todo_edge:
-            try:
-                self.graph.delete_edge(self.robot_id, target_affordance_node.id, "TODO")
-                print("TODO edge deleted.")
-            except Exception as e:
-                print(f"Error deleting TODO edge: {e}")
-        else:
-            print("No TODO edge found to delete.")
-        self.current_bt_state = None
-        if set_in_pending:
-            # Clear missions
-            self.missions.clear()
-        print("GOTOMission aborted and cleared.")
+                    self.missions.popleft()
+        return False, None
+    # def abort(self, set_in_pending=False):
+    #     print("Aborting GOTOMission.")
+    #     # Remove TODO edge if exists
+    #     mission = self.missions[0]
+    #     actual_target_node = self.graph.get_node(mission["target"])
+    #     if actual_target_node is None:
+    #         print(f"Door node {mission['target']} not found in the graph.")
+    #         return False
+    #     # 4 - Check if the cross affordance node exists
+    #     target_affordance_nodes = [node for node in self.graph.get_nodes_by_type("affordance") if node.attrs["parent"].value == actual_target_node.id]
+    #     if not target_affordance_nodes:
+    #         print(f"{mission['mission']} affordance node for {mission['target']} not found in the graph.")
+    #         return False
+    #     target_affordance_node = target_affordance_nodes[0]
+    #     todo_edge = self.graph.get_edge(self.robot_id, target_affordance_node.id, "TODO")
+    #     if todo_edge:
+    #         try:
+    #             self.graph.delete_edge(self.robot_id, target_affordance_node.id, "TODO")
+    #             print("TODO edge deleted.")
+    #         except Exception as e:
+    #             print(f"Error deleting TODO edge: {e}")
+    #     else:
+    #         print("No TODO edge found to delete.")
+    #     self.current_bt_state = None
+    #     if set_in_pending:
+    #         # Clear missions
+    #         self.missions.clear()
+    #     print("GOTOMission aborted and cleared.")

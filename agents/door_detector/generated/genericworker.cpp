@@ -57,7 +57,8 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
     agent_id = this->configLoader.get<int>("Agent.id");
 
     // Create graph
-    G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile")); // Init nodes
+    G = std::make_shared<DSR::DSRGraph>( agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile"), true, this->configLoader.get<int>("Agent.ddsDomain")); // Init nodes
+
     std::cout<< "Graph loaded" << std::endl;  
     
     // Graph viewer

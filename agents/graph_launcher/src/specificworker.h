@@ -92,6 +92,7 @@ public slots:
 	void del_node_slot(std::uint64_t from){};     
 private:
     void save_json();
+	void clean_dsr();
 	/**
      * \brief Flag indicating whether startup checks are enabled.
      */

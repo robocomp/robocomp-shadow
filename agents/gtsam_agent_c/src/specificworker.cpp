@@ -379,7 +379,7 @@ std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_
     {
         auto corner_is_valid = G->get_attrib_by_name<valid_att>(corner); if (!corner_is_valid) return returned_corners;
         auto corner_id = G->get_attrib_by_name<corner_id_att>(corner); if (!corner_id) return returned_corners;
-//        qInfo() << "Processing corner with id: " << corner_id.value() << " and is valid: " << corner_is_valid.value();
+       qInfo() << "Processing corner with id: " << corner_id.value() << " and is valid: " << corner_is_valid.value();
         if(auto parent_node = G->get_parent_node(corner); parent_node.has_value())
         {
             auto parent_node_value = parent_node.value();
@@ -391,11 +391,11 @@ std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_
                 auto corner_pose_value = corner_pose.value();
                 auto chosen_corner_timestamp = corner_pose_value.first;
 
-//                std::cout << "Chosen corner timestamp: " << chosen_corner_timestamp << " Comparing: " << corners_last_update_timestamp[corner_id.value()] << std::endl;
+               std::cout << "Chosen corner timestamp: " << chosen_corner_timestamp << " Comparing: " << corners_last_update_timestamp[corner_id.value()] << std::endl;
 
                 if(corners_last_update_timestamp[corner_id.value()] == chosen_corner_timestamp)
                 {
-//                    qInfo() << "Corner " << corner_id.value() << " already updated at timestamp " << chosen_corner_timestamp << ". Skipping.";
+                   qInfo() << "Corner " << corner_id.value() << " already updated at timestamp " << chosen_corner_timestamp << ". Skipping.";
                     continue;
                 }
                 else corners_last_update_timestamp[corner_id.value()] = chosen_corner_timestamp;
@@ -403,7 +403,7 @@ std::vector<std::tuple<int, double, Eigen::Vector3d, bool>> SpecificWorker::get_
                 // Considering corner_pose_value is a Eigen::Transform<double, 3, Eigen::Affine>, get x and y pose
                 auto corner_pose_matrix = corner_pose_value.second.matrix();
 
-//                std::cout << "Corner " << corner_id.value() << " timestamp: " << corner_pose_value.first << " Ordered:" << (uint64_t)(timestamp * 1000) << " position: " << corner_pose_matrix(0, 3) << " " <<  corner_pose_matrix(1, 3) << std::endl;
+               std::cout << "Corner " << corner_id.value() << " timestamp: " << corner_pose_value.first << " Ordered:" << (uint64_t)(timestamp * 1000) << " position: " << corner_pose_matrix(0, 3) << " " <<  corner_pose_matrix(1, 3) << std::endl;
                 Eigen::Vector3f corner_pose_(corner_pose_matrix(0, 3) / 1000, corner_pose_matrix(1, 3) / 1000, 0.f);
                 auto corner_pose_double = corner_pose_.cast<double>();
                 returned_corners.push_back(std::make_tuple(corner_id.value(), corner_pose_value.first / 1000.0, corner_pose_double, corner_is_valid.value()));
@@ -907,18 +907,37 @@ void SpecificWorker::FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimatio
     #ifdef HIBERNATION_ENABLED
         hibernation = true;
     #endif
-
-    // Check if pose.vx, pose.vy, pose.vrz are not nan or inf
-    if(std::isnan(pose.vx) || std::isnan(pose.vy) || std::isnan(pose.vrz) ||
-       std::isinf(pose.vx) || std::isinf(pose.vy) || std::isinf(pose.vrz))
+    if (pose.source == "shadow") 
     {
-        qWarning() << "Received pose with NaN or Inf values. Ignoring.";
-        return;
+        // Check if pose.vx, pose.vy, pose.vrz are not nan or inf
+        if(std::isnan(pose.vx) || std::isnan(pose.vy) || std::isnan(pose.vrz) ||
+        std::isinf(pose.vx) || std::isinf(pose.vy) || std::isinf(pose.vrz))
+        {
+            qWarning() << "Received pose with NaN or Inf values. Ignoring.";
+            return;
+        }
+        
+        odom_buffer.put(std::make_tuple(
+                double(pose.timestamp), Eigen::Vector3d(pose.vx * params.scale, pose.vy * params.scale, 0),
+                Eigen::Vector3d(0, 0, pose.vrz)));
     }
-    
-    odom_buffer.put(std::make_tuple(
-            double(pose.timestamp), Eigen::Vector3d(pose.vx * params.scale, pose.vy * params.scale, 0),
-            Eigen::Vector3d(0, 0, pose.vrz)));
+}
+
+void SpecificWorker::FullPoseEstimationPub1_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose)
+{
+    #ifdef HIBERNATION_ENABLED
+        hibernation = true;
+    #endif
+	// Check if pose.vx, pose.vy, pose.vrz are not nan or inf
+	if(std::isnan(pose.vx) || std::isnan(pose.vy) || std::isnan(pose.vrz) ||
+	std::isinf(pose.vx) || std::isinf(pose.vy) || std::isinf(pose.vrz))
+	{
+		qWarning() << "Received pose with NaN or Inf values. Ignoring.";
+		return;
+	}
+	qInfo() << "Global pose" << pose.x << " " << pose.y << " " << pose.rz;
+   
+
 //    qInfo() << "odom value" << pose.vy << pose.vx << pose.vrz << double(pose.timestamp);
 }
 

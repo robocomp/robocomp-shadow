@@ -69,6 +69,8 @@ public:
 
 	virtual void FullPoseEstimationPub_newFullPose (RoboCompFullPoseEstimation::FullPoseEuler pose) = 0;
 
+	virtual void FullPoseEstimationPub1_newFullPose (RoboCompFullPoseEstimation::FullPoseEuler pose) = 0;
+
 
 protected:
 	std::unordered_map<std::string, std::unique_ptr<GRAFCETStep>> states;

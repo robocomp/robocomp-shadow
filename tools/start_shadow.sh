@@ -81,6 +81,15 @@ qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake 
 qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/bumper etc/config_wb"
 qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
+# bumper
+TAB_NAME="gridder"
+DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/agents/gridder_agent" # replace with your desired path
+session_id=$(qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.addSession)
+qdbus org.kde.yakuake /yakuake/tabs org.kde.yakuake.setTabTitle "$session_id" "$TAB_NAME"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cd $DIRECTORY_PATH"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "cmake . && make -j32"
+qdbus org.kde.yakuake /yakuake/sessions runCommandInTerminal $session_id "bin/gridder etc/config_wb"
+qdbus org.kde.yakuake /yakuake/sessions org.kde.yakuake.raiseSession $session_id
 
 TAB_NAME="segmented_lidar"
 DIRECTORY_PATH="~/robocomp/components/robocomp-shadow/components/segmented_lidar"

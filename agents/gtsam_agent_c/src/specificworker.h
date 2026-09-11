@@ -68,6 +68,7 @@ public:
 	~SpecificWorker();
 
 	void FullPoseEstimationPub_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose);
+	void FullPoseEstimationPub1_newFullPose(RoboCompFullPoseEstimation::FullPoseEuler pose);
 
 
 public slots:
@@ -115,7 +116,7 @@ private:
 
     struct Params
     {
-        std::string robot_name = "robot";
+        std::string robot_name = "Shadow";
         double scale = 1.0; // Scale factor for measurements
     };
     Params params;

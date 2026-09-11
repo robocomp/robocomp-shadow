@@ -145,6 +145,80 @@ void SpecificWorker::initialize()
     { qWarning() << __FUNCTION__ << " No room level in graph"; return; }
     auto room_node = room_node_.value();
     params.current_room = room_node.name();
+
+    // Initialize Elastic Band planner
+    ElasticBand::Params eband_params;
+    eband_params.k_internal = params.EBAND_K_INTERNAL;
+    eband_params.k_external = params.EBAND_K_EXTERNAL;
+    eband_params.obstacle_influence = params.EBAND_OBSTACLE_INFLUENCE;
+    eband_params.bubble_spacing = params.EBAND_BUBBLE_SPACING;
+    eband_params.safety_margin = params.EBAND_SAFETY_MARGIN;
+    eband_params.iterations = params.EBAND_ITERATIONS;
+    eband_params.robot_semi_width = params.ROBOT_SEMI_WIDTH;
+    eband_params.robot_semi_length = params.ROBOT_SEMI_LENGTH;
+    eband_params.max_adv = params.MAX_ADVANCE_VELOCITY;
+    eband_params.max_side = params.MAX_SIDE_VELOCITY;
+    eband_params.max_rot = params.MAX_ROTATION_VELOCITY;
+    eband_params.lookahead = params.EBAND_LOOKAHEAD;
+    elastic_band_ = ElasticBand(eband_params);
+    std::cout << __FUNCTION__ << " Elastic Band planner initialized" << std::endl;
+
+    // Connect UI sliders to elastic band parameter updates
+    room_widget->ui->slider_k_internal->setValue(static_cast<int>(params.EBAND_K_INTERNAL * 100));
+    room_widget->ui->slider_k_external->setValue(static_cast<int>(params.EBAND_K_EXTERNAL * 10));
+    room_widget->ui->slider_influence->setValue(static_cast<int>(params.EBAND_OBSTACLE_INFLUENCE));
+    room_widget->ui->slider_iterations->setValue(params.EBAND_ITERATIONS);
+    room_widget->ui->slider_lookahead->setValue(static_cast<int>(params.EBAND_LOOKAHEAD));
+    room_widget->ui->checkBox_eband_enabled->setChecked(params.USE_ELASTIC_BAND);
+
+    // Ensure labels show the current values
+    room_widget->ui->label_k_internal_val->setText(QString::number(params.EBAND_K_INTERNAL, 'f', 2));
+    room_widget->ui->label_k_external_val->setText(QString::number(params.EBAND_K_EXTERNAL, 'f', 2));
+    room_widget->ui->label_influence_val->setText(QString::number((int)params.EBAND_OBSTACLE_INFLUENCE));
+    room_widget->ui->label_iterations_val->setText(QString::number(params.EBAND_ITERATIONS));
+    room_widget->ui->label_lookahead_val->setText(QString::number((int)params.EBAND_LOOKAHEAD));
+
+    connect(room_widget->ui->slider_k_internal, &QSlider::valueChanged, this, [this](int v)
+    {
+        float val = static_cast<float>(v) / 100.f;
+        elastic_band_.params_.k_internal = val;
+        params.EBAND_K_INTERNAL = val; // keep agent params in sync
+        room_widget->ui->label_k_internal_val->setText(QString::number(elastic_band_.params_.k_internal, 'f', 2));
+    });
+    connect(room_widget->ui->slider_k_external, &QSlider::valueChanged, this, [this](int v)
+    {
+        float val = static_cast<float>(v) / 10.f;
+        elastic_band_.params_.k_external = val;
+        params.EBAND_K_EXTERNAL = val; // keep agent params in sync
+        room_widget->ui->label_k_external_val->setText(QString::number(elastic_band_.params_.k_external, 'f', 2));
+    });
+    connect(room_widget->ui->slider_influence, &QSlider::valueChanged, this, [this](int v)
+    {
+        float val = static_cast<float>(v);
+        elastic_band_.params_.obstacle_influence = val;
+        params.EBAND_OBSTACLE_INFLUENCE = val; // keep agent params in sync
+        room_widget->ui->label_influence_val->setText(QString::number((int)val));
+    });
+    connect(room_widget->ui->slider_iterations, &QSlider::valueChanged, this, [this](int v)
+    {
+        elastic_band_.params_.iterations = v;
+        params.EBAND_ITERATIONS = v; // keep agent params in sync
+        room_widget->ui->label_iterations_val->setText(QString::number(v));
+    });
+    connect(room_widget->ui->slider_lookahead, &QSlider::valueChanged, this, [this](int v)
+    {
+        float val = static_cast<float>(v);
+        elastic_band_.params_.lookahead = val;
+        params.EBAND_LOOKAHEAD = val; // keep agent params in sync
+        room_widget->ui->label_lookahead_val->setText(QString::number((int)val));
+    });
+    connect(room_widget->ui->checkBox_eband_enabled, &QCheckBox::toggled, this, [this](bool checked)
+    {
+        params.USE_ELASTIC_BAND = checked;
+        // if disabled, clear the current band to avoid stale drawings/commands
+        if(!checked)
+            elastic_band_.clear();
+    });
 }
 
 /// ProtoCODE
@@ -283,12 +357,23 @@ void SpecificWorker::compute()
 
     set_intention_edge_state(intention_edge, "in_progress");
 
-    auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
-    
-    // if(norm_at_target) adv = 0;
-    // if(angle_at_target) rot = 0;
-    qInfo() << "Robot speed" << adv << side << -rot;
-    move_robot(adv, side, -rot);
+    if(params.USE_ELASTIC_BAND)
+    {
+        auto [adv, side, rot] = compute_eband_velocities(vector_to_target, lidar_points, &widget_2d->scene);
+        qInfo() << "Robot speed (EBand)" << adv << side << -rot;
+        move_robot(adv, side, -rot);
+        // Also draw the elastic band path in the room widget
+        draw_eband_in_room(&room_widget->viewer->scene);
+        // Update clearance indicator in UI
+        float mc = elastic_band_.path_min_clearance(2);
+        room_widget->ui->progressBar_clearance->setValue(static_cast<int>(std::min(mc, 2000.f)));
+    }
+    else
+    {
+        auto [adv, side, rot] = compute_line_of_sight_target_velocities(vector_to_target);
+        qInfo() << "Robot speed" << adv << side << -rot;
+        move_robot(adv, side, -rot);
+    }
 
     /// Check if the target position is in line of sight
     // if( line_of_sight(vector_to_target, lidar_points, &widget_2d->scene) )
@@ -458,6 +543,7 @@ std::pair<bool, bool> SpecificWorker::robot_at_target(const Eigen::Vector3d &tar
 }
 void SpecificWorker::stop_robot()
 {
+    elastic_band_.clear();
     try
     {
         auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -561,6 +647,106 @@ void SpecificWorker::set_intention_edge_state(DSR::Edge &edge, const std::string
         std::cout << __FUNCTION__ << "Intention edge state set to " << string << std::endl;
     else
         std::cout << __FUNCTION__ << "Error setting intention edge state to " << string << std::endl;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+/// Elastic Band path planner: generates a deformable obstacle-avoiding path and computes velocities
+/////////////////////////////////////////////////////////////////////////////////////////////////
+std::tuple<float, float, float> SpecificWorker::compute_eband_velocities(
+    const Eigen::Vector3d &target,
+    const std::vector<Eigen::Vector3f> &lidar_data,
+    QGraphicsScene *scene)
+{
+    Eigen::Vector2f target_2d(target.x(), target.y());
+    Eigen::Vector2f robot_pos(0.f, 0.f); // Robot is at origin in its own frame
+
+    // Only (re)initialize when the band doesn't exist or target changed significantly
+    bool needs_init = !elastic_band_.is_active() ||
+                      elastic_band_.update_target(target_2d, params.EBAND_TARGET_CHANGE_THRESHOLD);
+
+    if (needs_init)
+    {
+        elastic_band_.initialize(robot_pos, target_2d);
+        std::cout << __FUNCTION__ << " Elastic band (re)initialized toward target ("
+                  << target_2d.x() << ", " << target_2d.y() << ")" << std::endl;
+    }
+    // Otherwise keep the deformed band — just pin the endpoints
+    // (start stays at robot origin, target tracks slowly via update_target)
+
+    // Optimize: apply internal smoothing + external obstacle repulsion
+    elastic_band_.optimize(lidar_data);
+
+    // Draw the elastic band path on the robot-frame scene
+    elastic_band_.draw(scene, params.PATH_COLOR, QColor(255, 165, 0, 60));
+
+    // Check path validity
+    if (!elastic_band_.is_valid())
+    {
+        std::cout << __FUNCTION__ << " Elastic band path near collision. Min clearance: "
+                  << elastic_band_.min_clearance() << " mm" << std::endl;
+    }
+
+    // Compute and return velocities using pure-pursuit on the deformed path
+    return elastic_band_.compute_velocities();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+/// Draw the elastic band path in the room-frame widget
+/////////////////////////////////////////////////////////////////////////////////////////////////
+void SpecificWorker::draw_eband_in_room(QGraphicsScene *scene)
+{
+    static std::vector<QGraphicsItem*> eband_room_items;
+    for (auto *item : eband_room_items) { scene->removeItem(item); delete item; }
+    eband_room_items.clear();
+
+    if (!elastic_band_.is_active()) return;
+
+    // Get the robot-to-room transformation
+    auto rt_room_robot = inner_api->get_transformation_matrix(params.current_room, params.robot_name);
+    if (!rt_room_robot.has_value()) return;
+    auto tf = rt_room_robot.value();
+
+    auto path = elastic_band_.get_path();
+    if (path.size() < 2) return;
+
+    // Transform path points to room frame and draw
+    std::vector<Eigen::Vector2f> room_path;
+    room_path.reserve(path.size());
+    for (const auto &p : path)
+    {
+        Eigen::Vector4d p_robot(p.x(), p.y(), 0.0, 1.0);
+        Eigen::Vector4d p_room = tf * p_robot;
+        room_path.emplace_back(p_room.x(), p_room.y());
+    }
+
+    // Draw path segments
+    for (size_t i = 0; i + 1 < room_path.size(); ++i)
+    {
+        auto *line = scene->addLine(
+            room_path[i].x(), room_path[i].y(),
+            room_path[i+1].x(), room_path[i+1].y(),
+            QPen(QColor("magenta"), 15));
+        eband_room_items.push_back(line);
+    }
+
+    // Draw waypoints
+    for (const auto &p : room_path)
+    {
+        auto *dot = scene->addEllipse(-15, -15, 30, 30,
+            QPen(QColor("magenta"), 5), QBrush(QColor(255, 0, 255, 80)));
+        dot->setPos(p.x(), p.y());
+        eband_room_items.push_back(dot);
+    }
+
+    // Draw target in room frame (last point)
+    if (!room_path.empty())
+    {
+        float r = 40.f;
+        auto *target_dot = scene->addEllipse(-r, -r, 2*r, 2*r,
+            QPen(QColor("red"), 6), QBrush(QColor(255, 0, 0, 120)));
+        target_dot->setPos(room_path.back().x(), room_path.back().y());
+        eband_room_items.push_back(target_dot);
+    }
 }
 
 void SpecificWorker::modify_edge_slot(std::uint64_t from, std::uint64_t to,  const std::string &type)

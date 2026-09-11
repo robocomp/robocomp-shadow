@@ -22,9 +22,9 @@ import time
 import sys
 import matplotlib.pyplot as plt
 from rich.console import Console
-from PySide2.QtGui import QPen
-from PySide2.QtCore import QTimer, QPointF
-from PySide2.QtWidgets import QApplication
+from PySide6.QtGui import QPen
+from PySide6.QtCore import QTimer, QPointF
+from PySide6.QtWidgets import QApplication
 
 from genericworker import *
 import pyqtgraph as pg
@@ -62,7 +62,7 @@ class SpecificWorker(GenericWorker):
 
         # YOU MUST SET AN UNIQUE ID FOR THIS AGENT IN YOUR DEPLOYMENT. "_CHANGE_THIS_ID_" for a valid unique integer
         self.agent_id = 404
-        self.g = DSRGraph(0, "pythonAgent", self.agent_id)
+        
 
         # --------------- ODOMETRY ----------------
         self.odometry_queue_len = 120
@@ -530,6 +530,17 @@ class SpecificWorker(GenericWorker):
                         # Iterate over room_corners and remove those which name include "measured". Then, order by corner_id
                         room_corners = sorted([corner for corner in room_corners if "measured" not in corner.name],
                                               key=lambda x: x.attrs["corner_id"].value)
+
+                        room_corners_measured = sorted([corner for corner in self.g.get_nodes_by_type("corner") if "measured" in corner.name],
+                                              key=lambda x: x.attrs["corner_id"].value)
+
+                        # Delete measured corners with corner_id > len(room_corners)
+                        for corner in room_corners_measured:
+                            if corner.attrs["corner_id"].value > (len(room_corners)-1):
+                                self.g.delete_edge(corner.id, self.robot_id, "RT")
+                                self.g.delete_node(corner.id)
+                        robot_node = self.g.get_node(self.robot_id)
+                        robot_pose_matrix = self.inner_api.get_transformation_matrix(room_node.name, robot_node.name)
                         corner_poses = []
                         for corner in room_corners:
                             # print("Corner")
@@ -537,6 +548,14 @@ class SpecificWorker(GenericWorker):
                                                                                 sys.maxsize)
 
                             corner_poses.append([corner_pose[0] / 1000, corner_pose[1] / 1000])
+                            equivalent_measured_corner_name = "corner_measured_" + str(corner.attrs["corner_id"].value+1)
+                            measured_corner_node = self.g.get_node(equivalent_measured_corner_name)
+                            if not measured_corner_node:
+                                corner_robot_pose = self.inner_api.get_translation_vector(self.robot_name, corner.name,
+                                                                                    sys.maxsize)
+                                self.create_corner_measured(corner.attrs["corner_id"].value + 1, corner_robot_pose, robot_node, robot_pose_matrix)
+
+
                         corner_poses.append(corner_poses[0])
                         corner_poses = np.array(corner_poses, dtype=np.float32)
                         # print("Room corners", corner_poses)
@@ -1186,7 +1205,7 @@ class SpecificWorker(GenericWorker):
         )
 
         if lines is None:
-            print("No lines detected")
+            print("snes detected")
             return []
 
         # Votes filter

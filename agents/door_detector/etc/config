@@ -12,6 +12,7 @@ Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 0"
 Agent.id = 55 # Change id
 Agent.name = "door_detector"
 Agent.configFile = ""
+Agent.ddsDomain = 1
 
 ViewAgent.tree = false
 ViewAgent.graph = true

@@ -214,6 +214,8 @@ int gtsam_agent_c::run(int argc, char* argv[])
 
 	std::shared_ptr<IceStorm::TopicPrx> fullposeestimationpub_topic;
 	Ice::ObjectPrxPtr fullposeestimationpub;
+	std::shared_ptr<IceStorm::TopicPrx> fullposeestimationpub_topic1;
+	Ice::ObjectPrxPtr fullposeestimationpub1;
 
 
 
@@ -248,6 +250,10 @@ int gtsam_agent_c::run(int argc, char* argv[])
 		                    topicManager, configLoader.get<std::string>("Endpoints.FullPoseEstimationPubTopic"),
 						    configLoader.get<std::string>("Endpoints.FullPoseEstimationPubPrefix"), "FullPoseEstimationPub", worker,  0,
 						    fullposeestimationpub_topic, fullposeestimationpub, PROGRAM_NAME);
+		subscribe<FullPoseEstimationPubI>(communicator(),
+		                    topicManager, configLoader.get<std::string>("Endpoints.FullPoseEstimationPubTopic1"),
+						    configLoader.get<std::string>("Endpoints.FullPoseEstimationPubPrefix1"), "FullPoseEstimationPub", worker,  1,
+						    fullposeestimationpub_topic, fullposeestimationpub, PROGRAM_NAME);
 
 		// Server adapter creation and publication
 		std::cout << SERVER_FULL_NAME " started" << std::endl;
@@ -265,6 +271,8 @@ int gtsam_agent_c::run(int argc, char* argv[])
 		{
 			std::cout << "Unsubscribing topic: fullposeestimationpub " <<std::endl;
 			fullposeestimationpub_topic->unsubscribe(fullposeestimationpub);
+			std::cout << "Unsubscribing topic: fullposeestimationpub1 " <<std::endl;
+			fullposeestimationpub_topic1->unsubscribe(fullposeestimationpub1);
 
 		}
 		catch(const Ice::Exception& ex)

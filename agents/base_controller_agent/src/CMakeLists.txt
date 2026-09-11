@@ -1,12 +1,14 @@
 # Sources set
 LIST(APPEND SOURCES
         ../src/specificworker.cpp
+        ../src/elastic_band.cpp
         ../src/custom_widget.h
 )
 
 # Headers set
 LIST(APPEND HEADERS
         ../src/specificworker.h
+        ../src/elastic_band.h
 )
 
 

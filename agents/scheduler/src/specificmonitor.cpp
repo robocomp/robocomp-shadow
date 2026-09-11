@@ -95,7 +95,8 @@ void SpecificMonitor::readConfig(RoboCompCommonBehavior::ParameterList &params )
 	params["agent_name"] = aux;
 	configGetString( "","agent_id", aux.value,"false");
 	params["agent_id"] = aux;
-
+	configGetString( "","dds_domain", aux.value,"false");
+	params["dds_domain"] = aux;
 	configGetString( "","tree_view", aux.value, "none");
 	params["tree_view"] = aux;
 	configGetString( "","graph_view", aux.value, "none");

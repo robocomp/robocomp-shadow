@@ -29,8 +29,9 @@ from collections import deque
 from src.follow_mission import FollowMission
 from src.interact_mission import InteractMission
 from src.idle_mission import IdleMission
+from src.guide_mission import GuideMission
 import json
-
+import queue      # <<< NEW: Import the thread-safe queue
 import cv2
 import numpy as np
 import mss
@@ -53,7 +54,7 @@ class SpecificWorker(GenericWorker):
             signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
-            # signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
+            signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
             # signals.connect(self.g, signals.UPDATE_EDGE_ATTR, self.update_edge_att)
             # signals.connect(self.g, signals.DELETE_EDGE, self.delete_edge)
             console.print("signals connected")
@@ -65,7 +66,8 @@ class SpecificWorker(GenericWorker):
         self.state = "idle"
 
         self.new_missions_deque = deque(maxlen=3)
-
+        self.graph_event_queue = deque()
+        self.new_event_found = False
         self.mission_active = None
         self.mission_id = None
         self.mission_stop_flag = False
@@ -126,29 +128,59 @@ class SpecificWorker(GenericWorker):
         # 1 - Check if any mission is active
         # 2 - Check if there is any pending mission
         match self.state:
-            case "idle":
-                self.idle_mission.monitor(self.last_active_mission_result)
+            # case "idle":
+            #     # print("Last active mission result:", self.last_active_mission_result)
+            #     self.idle_mission.monitor(self.last_active_mission_result)
             case "new_mission":
                 # 3 - Get the first mission from the deque
                 mission = self.new_missions_deque.popleft()
                 console.print(f"Processing new mission: {mission}", style='green')
+                try:
+                    with open("src/main_prompts.json", "r", encoding="utf-8") as f:
+                        main_prompts = json.load(f)
+                        developer_prompt = main_prompts[mission["mission"]]
+                except Exception as e:
+                    print(e)
+                    exit(0)
                 match mission["mission"]:
                     case "follow":
-                        self.mission_active = FollowMission(self.g, self.agent_id, mission, self.start_timestamp)
+                        self.mission_active = FollowMission(self.g, self.agent_id, mission, self.start_timestamp, developer_prompt)
                         self.state = "active_mission"
                     case "interact":
-                        self.mission_active = InteractMission(self.g, self.agent_id, mission, self.start_timestamp)
+                        self.mission_active = InteractMission(self.g, self.agent_id, mission, self.start_timestamp, developer_prompt)
+                        self.state = "active_mission"
+                    case "guide_to_next_target":
+                        self.mission_active = GuideMission(self.g, self.g_LTSM, self.agent_id, mission, self.start_timestamp, developer_prompt)
                         self.state = "active_mission"
                     case _:
                         console.print(f"Mission type not recognized. Ignoring it and cleaning last mission result.", style='red')
                         self.last_active_mission_result = {}
                         self.state = "idle"
             case "active_mission":
+                # <<< NEW: Drain event queue and send to active mission >>>
+                # pending_events_batch = []
+                # while self.graph_event_queue:
+                #     print("Draining event queue, events left:", len(self.graph_event_queue))
+                #     pending_events_batch.append(self.graph_event_queue.pop())
+                #
+                # if pending_events_batch:
+                #     if self.mission_active and hasattr(self.mission_active, 'handle_graph_event'):
+                #         try:
+                #             console.print(f"Sending {len(pending_events_batch)} events to active mission.",
+                #                           style='cyan')
+                #             self.mission_active.handle_graph_event(pending_events_batch)
+                #         except Exception as e:
+                #             console.print(f"Error calling handle_graph_event: {e}", style='red')
+
+                if self.new_event_found:
+                    console.print(f"New important event found. Notifying active mission.", style='cyan')
+                    self.mission_active.enable_sending_prompts()
+                    self.new_event_found = False
+
                 monitor_result = self.mission_active.monitor()
                 # Check if monitor result is different form empty dict
                 if monitor_result != {}:
                     self.last_active_mission_result = monitor_result
-                self.idle_mission.monitor(self.last_active_mission_result)
             case "stop_mission":
                 # self.recorder.stop()
                 console.print("Mission stop flag is set. Stopping the mission.", style='red')
@@ -176,6 +208,18 @@ class SpecificWorker(GenericWorker):
                     self.mission_active.set_ASR_words(words)
                     console.print(f"New ASR words received: {words}", style='green')
 
+        # if self.mission_active:
+        #     updated_node = self.g.get_node(id)
+        #     attributes = {}
+        #     for attr_name in attribute_names:
+        #         if attr_name in updated_node.attrs:
+        #             attributes[attr_name] = updated_node.attrs[attr_name].value
+        #
+        #     self.graph_event_queue.put({
+        #         "type": "node",
+        #         "id": id,
+        #         "attributes": attributes
+        #     })
     def update_node(self, id: int, type: str):
         if type == "mission":
             self.mission_id = id
@@ -198,7 +242,19 @@ class SpecificWorker(GenericWorker):
             self.state = "stop_mission"
 
     def update_edge(self, fr: int, to: int, type: str):
-        console.print(f"UPDATE EDGE: {fr} to {type}", type, style='green')
+        if type in ["in_FOV", "has_intention"]:
+            if any(graph_event["from"] == fr and graph_event["to"] == to and graph_event["edge_type"] == type for
+                   graph_event in self.graph_event_queue):
+                return
+            # console.print(f"Captured important edge creation: {type}", style='green')
+            if self.mission_active:
+                # self.new_event_found = True
+                self.graph_event_queue.append({
+                    "type": "edge",
+                    "from": fr,
+                    "to": to,
+                    "edge_type": type
+                })
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')

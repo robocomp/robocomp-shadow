@@ -4,7 +4,7 @@ Component gtsam_agent_c
 {
     Communications
     {
-        subscribesTo FullPoseEstimationPub;
+        subscribesTo FullPoseEstimationPub, FullPoseEstimationPub;
     };
     language Cpp11;
     gui Qt(QMainWindow);

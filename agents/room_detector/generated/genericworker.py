@@ -19,7 +19,7 @@
 #    along with RoboComp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, Ice, os
-from PySide2 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore
 from pydsr import DSRGraph
 
 
@@ -51,7 +51,7 @@ class GenericWorker(QtWidgets.QWidget):
         self.Period = 30
         self.timer = QtCore.QTimer(self)
         self.agent_id = configData["Agent"]["id"]
-        self.g = DSRGraph(0, configData["Agent"]["name"], self.agent_id, configData["Agent"]["configFile"])
+        self.g = DSRGraph(0, configData["Agent"]["name"], self.agent_id, "", domain_id=configData["Agent"]["ddsDomain"])
 
     @QtCore.Slot()
     def killYourSelf(self):

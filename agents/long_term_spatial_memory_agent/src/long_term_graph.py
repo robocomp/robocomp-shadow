@@ -110,6 +110,7 @@ class LongTermGraph:
         """ Computes the corners of origin room wrt a target room. Returns a QPolygon object"""
 
         transform = self.transform_room(target_room_name, origin_room_name)
+
         # corners = self.get_room_objects_coordinates(origin_room_name, "corner")
         corners_transf = self.get_room_objects_transform_matrices(origin_room_name, "corner")
         corners_in_room = [transform.A @ np.array(c_transf.A[:, -1]) for c_transf in corners_transf]
@@ -142,7 +143,7 @@ class LongTermGraph:
 
     def compute_element_pose(self, robot_pose, target_room_name, origin_room_name):
         """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
-
+        print("Computing element pose from", origin_room_name, "to", target_room_name)
         """ Computes the robot pose from origin room wrt a target room. Returns a QPoint object"""
         pose = sm.SE3(robot_pose[0], robot_pose[1], 0) * sm.SE3.Rz(robot_pose[2], unit='rad')
         transform = self.transform_room(target_room_name, origin_room_name)
@@ -164,6 +165,7 @@ class LongTermGraph:
         # get the transformation chain from the current room to the connected room
         path = self.g.get_shortest_path(target_room, source_room, weights=None, mode='all', output='vpath',
                                         algorithm='auto')
+        print("Transforming from", origin_room_name, "to", target_room_name, "via path", path)
         path = self.check_path(path)
 
         # compute the transformation matrices from the edges contents
@@ -193,6 +195,7 @@ class LongTermGraph:
             else:  # change to inverse
                 inverse = True
                 door = True
+        print("Computing room map from", origin_room_name, "to", target_room_name, "with transform", final)
         return final
 
     # Create a function that, given a path, check if sequence of (door, wall, door) exists

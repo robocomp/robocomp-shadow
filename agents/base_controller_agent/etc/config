@@ -9,6 +9,7 @@ Endpoints.FullPoseEstimationPubPrefix = ""
 Proxies.Lidar3D = "lidar3d:tcp -h localhost -p 11989"
 Proxies.GridPlanner = "gridplanner:tcp -h localhost -p 16804"
 
+Agent.ddsDomain = 1
 Agent.id = 666
 Agent.name = "base_controller_agent"
 Agent.configFile = ""

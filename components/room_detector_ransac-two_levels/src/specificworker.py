@@ -310,7 +310,7 @@ class SpecificWorker(GenericWorker):
             return False
 
         # Convert to open3d format filtering out those with z lower than 1.5m
-        points_list = [[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in lidar_data.points if p.z >= 1500.0]
+        points_list = [[p.x / 1000.0, p.y / 1000.0, p.z / 1000.0] for p in lidar_data.points if p.z >= 1000.0]
         return o3d.utility.Vector3dVector(points_list)
 
     def send_data_to_plotter(self):
@@ -458,17 +458,17 @@ class SpecificWorker(GenericWorker):
         all_points_cloud.paint_uniform_color(np.array([0.8, 0.8, 0.8], dtype=np.float64))
         geometries_to_draw.append(all_points_cloud)
 
-        # borrar
-        _, __, sim_points = self.visibility_checker.raycast_wall_visibility(self.current_best_particle)
-        # draw sim points in blue
-        if len(sim_points) > 0:
-            sim_points_cloud = o3d.geometry.PointCloud()
-            sim_points_cloud.points = o3d.utility.Vector3dVector(sim_points)
-            # Transform from world frame to room frame (same as pcd_room)
-            sim_points_cloud.translate(translation)  # ← ADD THIS LINE
-            sim_points_cloud.rotate(R_inv, center=(0, 0, 0))  # ← ADD THIS LINE
-            sim_points_cloud.paint_uniform_color(np.array([0.0, 0.0, 1.0], dtype=np.float64))
-            geometries_to_draw.append(sim_points_cloud)
+        # # borrar
+        # _, __, sim_points = self.visibility_checker.raycast_wall_visibility(self.current_best_particle)
+        # # draw sim points in blue
+        # if len(sim_points) > 0:
+        #     sim_points_cloud = o3d.geometry.PointCloud()
+        #     sim_points_cloud.points = o3d.utility.Vector3dVector(sim_points)
+        #     # Transform from world frame to room frame (same as pcd_room)
+        #     sim_points_cloud.translate(translation)  # ← ADD THIS LINE
+        #     sim_points_cloud.rotate(R_inv, center=(0, 0, 0))  # ← ADD THIS LINE
+        #     sim_points_cloud.paint_uniform_color(np.array([0.0, 0.0, 1.0], dtype=np.float64))
+        #     geometries_to_draw.append(sim_points_cloud)
 
         # Update visualizer
         self.vis.clear_geometries()

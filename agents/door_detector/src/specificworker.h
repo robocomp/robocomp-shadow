@@ -147,6 +147,9 @@ private:
     Path64 toClipperPath64(const std::vector<Eigen::Vector2d>& poly);
     bool is_point_in_polygon(const Point64& pt, const Path64& poly);
     std::pair<Path64, Path64> generate_inner_outer_polygons(const std::vector<Eigen::Vector2d>& polygon, double margin);
+    std::pair<Path64, Path64>  shrink_polygon_to_safe_zone(const std::vector<Eigen::Vector2d>& corners2D, double margin_meters = 0.9);
+    std::vector<Eigen::Vector2d> fromClipper2Path(const Path64& path);
+    Path64 toClipper2Path(const std::vector<Eigen::Vector2d>& poly);
 //    std::vector<Eigen::Vector2d> filter_points_between_polygons(const std::vector<Eigen::Vector3f>& lidar_points,
 //                                                                const Path64& outer, const Path64& inner);
 

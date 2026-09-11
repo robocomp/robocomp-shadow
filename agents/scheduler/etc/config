@@ -7,7 +7,7 @@ graph_view = true
 2d_view = false
 3d_view = false
 #Ice.MessageSizeMax=20004800
-
+dds_domain = 1
 InnerModelPath = innermodel.xml
 
 Ice.Warn.Connections=0

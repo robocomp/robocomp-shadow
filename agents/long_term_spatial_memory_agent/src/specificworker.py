@@ -104,9 +104,10 @@ class SpecificWorker(GenericWorker):
 
             self.last_save_time = time.time()
             home_dir = os.path.expanduser("~")
-            self.graph_path = os.path.join(home_dir, "igraph_LTSM", "graph.pkl")
-            # Global map variables
+            self.graph_path = os.path.join(home_dir, "igraph_LTSM_test", "graph.pkl")
+            # # Global map variables
             self.long_term_graph = LongTermGraph(self.graph_path)
+
             # Check if self.long_term_graph.g is empty
             if self.long_term_graph.g.vcount() != 0:
                 print("Graph loaded from file")
@@ -259,7 +260,7 @@ class SpecificWorker(GenericWorker):
         #     print(e)
 
         # Check igraph graph to check doors that are the same in the graph from different rooms
-        self.check_igraph_similar_doors()
+        # self.check_igraph_similar_doors()
 
         if self.store_graph_flag:
             # Store DSR graph in igraph
@@ -858,7 +859,7 @@ class SpecificWorker(GenericWorker):
             print("No door node found in igraph", door_1[0])
             self.pending_doors_to_stabilize.append((door_1, door_2))
             print("Pending doors to stabilize", self.pending_doors_to_stabilize)
-            return
+            retusrn
         try:
             door_2_node = self.long_term_graph.g.vs.find(name=door_2[0])
         except:
@@ -1312,7 +1313,6 @@ class SpecificWorker(GenericWorker):
                         print("Room node exists but no current edge. Setting as current")
 
     def update_node(self, id: int, type: str):
-
         if type == "door":
             # console.print(f"UPDATE NODE: {id} {type}", style='green')
             # Get door name
@@ -1383,10 +1383,15 @@ class SpecificWorker(GenericWorker):
     def delete_node(self, id: int):
         console.print(f"DELETE NODE:: {id} ", style='green')
 
-    def update_edge(self, fr: int, to: int, type: str):
-        # print("UPDATE EDGE: ", fr, "to", to, type)
-        # Insert current edge to the room
-        # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
+    def update_edge(self, fr: int, to: int, type: str): # TODO: BORRRRRRRRRRRRRRRAAAAAAAAAAAR
+        # if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
+        #     print(self.room_exit_door_id)
+        #     # if len(self.g.get_nodes_by_type("room")) == 1 and type == "room" and not "measured" in self.g.get_node(id).name:
+        #     self.insert_current_edge(fr)
+        #     print("Room node exists but no current edge. Setting as current")
+        # # print("UPDATE EDGE: ", fr, "to", to, type)
+        # # Insert current edge to the room
+        # # TODO: Posible problema si tocas el nodo room en la interfaz gráfica
         pass
         # if to == self.robot_id and fr != self.room_exit_door_id and type == "RT" and len(self.g.get_edges_by_type("current")) == 0:
         #     from_node = self.g.get_node(fr)

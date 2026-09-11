@@ -71,15 +71,20 @@ protected:
 	ConfigLoader configLoader;
 	// DSR graph
 	std::shared_ptr<DSR::DSRGraph> G;
+	std::shared_ptr<DSR::DSRGraph> G_LTSM;
 
 	//DSR params
 	std::string agent_name;
 	int agent_id;
 	int current_opts = 0;
+	int current_opts_LTSM = 0;
 	DSR::DSRViewer::view main = DSR::DSRViewer::view::none;
+	DSR::DSRViewer::view main_LTSM = DSR::DSRViewer::view::none;
 	// DSR graph viewer
 	std::unique_ptr<DSR::DSRViewer> graph_viewer;
+	std::unique_ptr<DSR::DSRViewer> graph_viewer_LTSM;
 	QHBoxLayout mainLayout;
+	QHBoxLayout mainLayout_LTSM;
 
 
 

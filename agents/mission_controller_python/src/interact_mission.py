@@ -3,15 +3,9 @@ from .mission_base import MissionBase  # Assuming MissionBase is in a separate f
 
 class InteractMission(MissionBase):
     def __init__(self, graph, mission, agent_id):
+        super().__init__(graph, mission, agent_id)
+
         self.robot_resources = ["speaker"]
-
-        self.graph = graph
-        self.missions = mission["missions"]
-        self.target = mission["target"]
-        self.type = mission["mission"]
-        self.init_timestamp = mission["timestamp"]
-        self.agent_id = agent_id
-
 
         self.inner_api = inner_api(self.graph)
 
@@ -102,24 +96,24 @@ class InteractMission(MissionBase):
                     # Remove the mission from the list
                     self.missions.pop(0)
 
-    def abort(self, set_in_pending=False):
-        print("Aborting FollowingMission.")
-        # Remove TODO edge if exists
-        todo_edge = self.graph.get_edge(self.robot_name, "aff_"+self.act_submission["mission"]+"_"+str(self.person_id), "TODO")
-        if todo_edge:
-            try:
-                self.graph.delete_edge(self.robot_name, "aff_"+self.act_submission["mission"]+"_"+str(self.person_id), "TODO")
-                self.graph.delete_edge("aff_"+self.act_submission["mission"]+"_"+str(self.person_id), self.robot_name,  "TODO")
-                print("TODO edge deleted.")
-            except Exception as e:
-                print(f"Error deleting TODO edge: {e}")
-        else:
-            print("No TODO edge found to delete.")
-        self.current_bt_state = None
-        if not set_in_pending:
-            # Clear missions
-            self.missions.clear()
-        print("FollowingMission aborted and cleared.")
+    # def abort(self, set_in_pending=False):
+    #     print("Aborting FollowingMission.")
+    #     # Remove TODO edge if exists
+    #     todo_edge = self.graph.get_edge(self.robot_name, "aff_"+self.act_submission["mission"]+"_"+str(self.person_id), "TODO")
+    #     if todo_edge:
+    #         try:
+    #             self.graph.delete_edge(self.robot_name, "aff_"+self.act_submission["mission"]+"_"+str(self.person_id), "TODO")
+    #             self.graph.delete_edge("aff_"+self.act_submission["mission"]+"_"+str(self.person_id), self.robot_name,  "TODO")
+    #             print("TODO edge deleted.")
+    #         except Exception as e:
+    #             print(f"Error deleting TODO edge: {e}")
+    #     else:
+    #         print("No TODO edge found to delete.")
+    #     self.current_bt_state = None
+    #     if not set_in_pending:
+    #         # Clear missions
+    #         self.missions.clear()
+    #     print("FollowingMission aborted and cleared.")
 
     def insert_new_submission(self, submission):
         # Insert submission in front of the list

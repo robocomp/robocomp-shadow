@@ -62,7 +62,10 @@ bool SpecificWorker::setParams(RoboCompCommonBehavior::ParameterList params)
     try
     {
         agent_name = params.at("agent_name").value;
+        dds_domain = stoi(params.at("dds_domain").value);
+        std::cout << "dds_domain: " << dds_domain << std::endl; 
         agent_id = stoi(params.at("agent_id").value);
+        std::cout << "Agent id: " << agent_id << std::endl; 
         tree_view = params.at("tree_view").value == "true";
         graph_view = params.at("graph_view").value == "true";
         qscene_2d_view = params.at("2d_view").value == "true";
@@ -85,7 +88,7 @@ void SpecificWorker::initialize(int period)
     else
     {
         // create graph
-        G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, ""); // Init nodes
+        G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, "", true, dds_domain); // Init nodes
         std::cout<< __FUNCTION__ << "Graph loaded" << std::endl;
 
         //dsr update signals
@@ -98,9 +101,9 @@ void SpecificWorker::initialize(int period)
 
         // Graph viewer
         using opts = DSR::DSRViewer::view;
-        qInfo() << "asdg";
+    
         int current_opts = 0;
-        qInfo() << "asdg";
+
         opts main = opts::none;
         if(tree_view)
         {
@@ -119,9 +122,9 @@ void SpecificWorker::initialize(int period)
         {
             current_opts = current_opts | opts::osg;
         }
-        qInfo() << "asdg";
+
         graph_viewer = std::make_unique<DSR::DSRViewer>(this, G, current_opts, main);
-        qInfo() << "asdg";
+   
         setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 
         /***

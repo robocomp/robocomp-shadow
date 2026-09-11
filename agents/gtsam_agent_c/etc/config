@@ -6,11 +6,14 @@ Proxies.TopicManager = "IceStorm/TopicManager:default -p 9999"
 # Endpoints for subscriptions interfaces
 Endpoints.FullPoseEstimationPubTopic = "tcp -p 9879"
 Endpoints.FullPoseEstimationPubPrefix = ""
+Endpoints.FullPoseEstimationPubTopic1 = "tcp -p 9880"
+Endpoints.FullPoseEstimationPubPrefix1 = "room_location"
 
 
 Agent.id = 22 # Change id
 Agent.name = "gtsam_agent_c"
 Agent.configFile = ""
+Agent.ddsDomain = 1
 
 ViewAgent.tree = false
 ViewAgent.graph = true

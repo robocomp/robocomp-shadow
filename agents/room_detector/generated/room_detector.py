@@ -84,7 +84,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.specificworker import *
 import interfaces
 
-from PySide2 import QtWidgets
+from PySide6 import QtWidgets
 
 #SIGNALS handler
 def sigint_handler(*args):

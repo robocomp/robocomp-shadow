@@ -8,7 +8,8 @@
 Agent.id = 133
 Agent.name = "LLM_agent"
 Agent.configFile = ""
-
+Agent.ddsDomain = 1
+Agent.ddsDomainLTSM = 10
 
 Period.Compute = 250
 Period.Emergency = 500

@@ -34,6 +34,7 @@
 #include <timer/timer.h>
 #include <Eigen/Dense>
 #include "custom_widget.h"
+#include "elastic_band.h"
 #include "ui_localUI.h"
 
 class SpecificWorker : public GenericWorker
@@ -102,6 +103,17 @@ class SpecificWorker : public GenericWorker
             size_t MAX_PATH_STEPS = 1000;
             float TRACKING_DISTANCE_TO_TARGET = 1000; // mm
 
+            // Elastic Band parameters
+            bool USE_ELASTIC_BAND = false;
+            float EBAND_K_INTERNAL = 0.3f;
+            float EBAND_K_EXTERNAL = 3.0f;
+            float EBAND_OBSTACLE_INFLUENCE = 800.f;    // mm
+            float EBAND_BUBBLE_SPACING = 150.f;        // mm
+            float EBAND_SAFETY_MARGIN = 100.f;         // mm
+            int   EBAND_ITERATIONS = 12;
+            float EBAND_LOOKAHEAD = 800.f;             // mm
+            float EBAND_TARGET_CHANGE_THRESHOLD = 300.f; // mm — reinitialize if target moves more than this
+
             // colors
             QColor TARGET_COLOR= {"orange"};
             QColor LIDAR_COLOR = {"green"};
@@ -147,6 +159,13 @@ class SpecificWorker : public GenericWorker
         void move_robot(float adv, float side, float rot);
 
         void set_intention_edge_state(DSR::Edge &edge, const std::string &string);
+
+        // Elastic Band local planner
+        ElasticBand elastic_band_;
+        std::tuple<float, float, float> compute_eband_velocities(const Eigen::Vector3d &target,
+                                                                   const std::vector<Eigen::Vector3f> &lidar_data,
+                                                                   QGraphicsScene *scene);
+        void draw_eband_in_room(QGraphicsScene *scene);
 
     Eigen::Vector3d
     computePathTarget(std::vector<Eigen::Vector3d> &current_path, float D = 300.0f,

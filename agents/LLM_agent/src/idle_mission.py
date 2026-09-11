@@ -94,22 +94,29 @@ class IdleMission:
         fusioned_content = f"""{temporal_series}"""
 
         if self.last_response:
-            for val in dict(self.last_response):  # self.last_response is dict_items
-                fusioned_content += f"\n    - {val} ---> {self.last_response[val]}"
+            last_response_dict = dict(self.last_response)
+            if "timestamp" in last_response_dict:
+                fusioned_content += f"\n[YOUR LAST RESPONSE] {((time.time()) - (last_response_dict['timestamp']))} seconds ago"
+                for val in last_response_dict:  # self.last_response is dict_items
+                    if val != "timestamp":
+                        fusioned_content += f"\n    - {val} ---> {self.last_response[val]}"
 
         if active_mission_result:
-            fusioned_content += f"\n[MISSION-SPECIFIC LLM LAST RESPONSE]"
-            for val in dict(active_mission_result):
-            #     fusioned_content += f"\n- Last supervisor LLM (yours) response {key} was: {value}"
-                fusioned_content += f"\n    - {val} ---> {active_mission_result[val]}"
-        console.print(f"Supervisor data: {fusioned_content}", style='yellow')
+            active_mission_response_dict = dict(active_mission_result)
+            if "timestamp" in active_mission_response_dict:
+                fusioned_content += f"\n[MISSION-SPECIFIC LLM LAST RESPONSE] {round(((time.time()) - (active_mission_response_dict['timestamp'])), 0)} seconds ago "
+                for val in active_mission_response_dict:
+                #     fusioned_content += f"\n- Last supervisor LLM (yours) response {key} was: {value}"
+                    if val != "timestamp":
+                        fusioned_content += f"\n    - {val} ---> {active_mission_response_dict[val]}"
+        # console.print(f"Supervisor data: {fusioned_content}", style='yellow')
         user_prompt = {"role": "user", "content": fusioned_content}
         prompt_to_send = [user_prompt]
         # print("prompt_to_send", prompt_to_send)
         start_time = time.time()
         valid, response = self.LLM.send_messages(prompt_to_send)
         end_time = time.time()
-        print(f"LLM response time: {end_time - start_time} seconds")
+        # print(f"LLM response time: {end_time - start_time} seconds")
         # console.print(f"Supervisor original response: {response}", style='yellow')
         if valid:
             llm_node = self.graph.get_node("LLM")
@@ -117,8 +124,8 @@ class IdleMission:
                 llm_node.attrs["LLM_response"] = Attribute(str(response), self.agent_id)
                 self.graph.update_node(llm_node)
             # print("Respuesta Idle:", response)
-            response["timestamp"] = round(time.time() - self.start_timestamp, 2)
-            console.print(f"Supervisor response: {response}", style='red')
+            response["timestamp"] = round(time.time(), 2)
+            # console.print(f"Supervisor response: {response}", style='red')
             self.last_response = response
         # else:
             # self.messages_history.append(
@@ -262,7 +269,6 @@ class IdleMission:
                         elements_data[rooms_data["current_room"]] .append(new_element)
         for known_room in rooms_data["known_rooms"]:
             if known_room != rooms_data["current_room"]:
-                print("Checking known room:", known_room)
                 elements_data[known_room] = []
                 elements_in_room = self.long_term_graph.get_igraph_elements_given_room_name(known_room)
                 for element in elements_in_room:
@@ -277,7 +283,7 @@ class IdleMission:
         current_room = rooms_data.get("current_room")
         known_rooms = rooms_data.get("known_rooms", [])
 
-        lines.append(f"[TIMESTAMP] {round(time.time() - self.start_timestamp, 0)}")
+        # lines.append(f"[TIMESTAMP] {round(time.time() - self.start_timestamp, 0)}")
         for room_name in known_rooms:
             room_marker = "[ROOM]"
             if room_name == current_room:
@@ -331,7 +337,7 @@ class IdleMission:
         lines.append("\n[MISSION HISTORY]")
         if missions_history:
             for mh in missions_history:
-                lines.append(f"    - Time: {round(mh['end_timestamp'] * 0.001-self.start_timestamp, 0)}, {mh['mission']} ---> {mh['target']}")
+                lines.append(f"    - {mh['mission']} ---> {mh['target']}, {round(((time.time()) - (mh['end_timestamp'] * 0.001)) / 60, 0)} minutes ago")
         else:
             lines.append("    - None (robot has no mission history)")
 
@@ -343,5 +349,5 @@ class IdleMission:
                 if child.get("relationship") in ["has_intention", "TODO"]:
                     lines.append(f"    - {elem_name} --{child.get('relationship')}--> {child.get('name')}")
 
-        lines.append("\n[YOUR LAST RESPONSE]")
+
         return "\n".join(lines)

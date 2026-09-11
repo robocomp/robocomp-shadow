@@ -55,7 +55,10 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
     agent_id = this->configLoader.get<int>("Agent.id");
 
     // Create graph
-    G = std::make_shared<DSR::DSRGraph>(0, agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile")); // Init nodes
+
+
+    G_LTSM = std::make_shared<DSR::DSRGraph>( agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile2"), true, this->configLoader.get<int>("Agent.ddsDomainLTSM")); // Init nodes
+    G = std::make_shared<DSR::DSRGraph>( agent_name, agent_id, this->configLoader.get<std::string>("Agent.configFile1"), true, this->configLoader.get<int>("Agent.ddsDomain")); // Init nodes
     std::cout<< "Graph loaded" << std::endl;  
     
     // Graph viewer
@@ -63,19 +66,24 @@ GenericWorker::GenericWorker(const ConfigLoader& configLoader, TuplePrx tprx) : 
     if(this->configLoader.get<bool>("ViewAgent.tree"))
     {
         current_opts = current_opts | opts::tree;
+        current_opts_LTSM = current_opts_LTSM | opts::tree;
     }
     if(this->configLoader.get<bool>("ViewAgent.graph"))
     {
         current_opts = current_opts | opts::graph;
         main = opts::graph;
+        current_opts_LTSM = current_opts_LTSM | opts::graph;
+        main_LTSM = opts::graph;
     }
     if(this->configLoader.get<bool>("ViewAgent.2d"))
     {
         current_opts = current_opts | opts::scene;
+        current_opts_LTSM = current_opts_LTSM | opts::scene;
     }
     if(this->configLoader.get<bool>("ViewAgent.3d"))
     {
         current_opts = current_opts | opts::osg;
+        current_opts_LTSM = current_opts_LTSM | opts::osg;
     }
     setWindowTitle(QString::fromStdString(agent_name + "-") + QString::number(agent_id));
 }

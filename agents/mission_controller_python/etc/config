@@ -8,7 +8,8 @@
 Agent.id = 11
 Agent.name = "mission_controller_python"
 Agent.configFile = ""
-
+Agent.ddsDomain = 1
+Agent.ddsDomainLTSM = 10
 
 Period.Compute = 100
 Period.Emergency = 500

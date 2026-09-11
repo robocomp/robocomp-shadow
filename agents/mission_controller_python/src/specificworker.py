@@ -30,7 +30,7 @@ import ast
 
 from collections import deque
 
-from src.long_term_graph import LongTermGraph
+from src.long_term_graph_dsr import LongTermGraphDSR
 
 sys.path.append('/opt/robocomp/lib')
 console = Console(highlight=False)
@@ -49,7 +49,7 @@ class SpecificWorker(GenericWorker):
         self.Period = configData["Period"]["Compute"]
 
         try:
-            signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
+            # signals.connect(self.g, signals.UPDATE_NODE_ATTR, self.update_node_att)
             # signals.connect(self.g, signals.UPDATE_NODE, self.update_node)
             # signals.connect(self.g, signals.DELETE_NODE, self.delete_node)
             signals.connect(self.g, signals.UPDATE_EDGE, self.update_edge)
@@ -74,7 +74,7 @@ class SpecificWorker(GenericWorker):
         home_dir = os.path.expanduser("~")
         self.graph_path = os.path.join(home_dir, "igraph_LTSM", "graph.pkl")
         # Global map variables
-        self.long_term_graph = LongTermGraph(self.graph_path)
+        self.long_term_graph = LongTermGraphDSR(self.g_LTSM, self.agent_id)
 
         self.missions_to_process = deque(maxlen=2)
         self.missions = deque(maxlen=2)
@@ -154,7 +154,7 @@ class SpecificWorker(GenericWorker):
         # else:
         #     new_destinations = []
 
-        new_destinations = igraph_rooms + igraph_elements + new_people
+        new_destinations = igraph_rooms + igraph_elements
 
         current_dest_model = self.ui.destinations_list.model()
         current_dest_list = current_dest_model.stringList() if isinstance(current_dest_model, QStringListModel) else []
@@ -165,22 +165,25 @@ class SpecificWorker(GenericWorker):
             self.ui.destinations_list.setModel(dest_model)
 
         # # --- Actualizar lista de personas ---
-        # if selected_action == "follow" or selected_action == "guide" or selected_action == "interact":
-        #     new_people = [node.name for node in self.g.get_nodes_by_type("person")]
-        # else:
-        #     new_people = []
-        #
-        # current_people_model = self.ui.people_list.model()
-        # current_people_list = current_people_model.stringList() if isinstance(current_people_model,
-        #                                                                       QStringListModel) else []
+        if selected_action == "follow" or selected_action == "guide" or selected_action == "interact":
+            new_people = [node.name for node in self.g.get_nodes_by_type("person")]
+        else:
+            new_people = []
 
-        # if new_people != current_people_list:
-        #     people_model = QStringListModel()
-        #     people_model.setStringList(new_destinations)
-        #     self.ui.people_list.setModel(people_model)
+        current_people_model = self.ui.people_list.model()
+        current_people_list = current_people_model.stringList() if isinstance(current_people_model,
+                                                                              QStringListModel) else []
+
+        if new_people != current_people_list:
+            people_model = QStringListModel()
+            people_model.setStringList(new_people)
+            self.ui.people_list.setModel(people_model)
 
     @QtCore.Slot()
     def compute(self):
+        # print("Pending missions:")
+        for pending in self.pending_missions:
+            print(f"{pending}")
         self.update_lists()
         # Checking missions comming from LLM or UI
         if self.missions_to_process:
@@ -245,8 +248,6 @@ class SpecificWorker(GenericWorker):
                 else:
                     print(f"New mission {new_mission} received, adding to pending missions.")
                     self.pending_missions.append(new_mission)
-                for pending in self.pending_missions:
-                    print(f"##### Pending mission: {pending}")
             else:
                 print(f"No active mission. Processing  {new_mission} as new high priority mission.")
                 self.insert_mission_node_in_dsr(new_mission)
@@ -254,7 +255,8 @@ class SpecificWorker(GenericWorker):
 
         # Monitor mission if any is active
         if self.active_mission:
-            if self.active_mission.monitor():
+            completed, mission_vector = self.active_mission.monitor()
+            if completed:
                 console.print("Mission completed successfully.", style='green')
                 # Delete mission node from the graph
                 mission_node = self.g.get_node("mission")
@@ -284,6 +286,11 @@ class SpecificWorker(GenericWorker):
                     mission_history_node.attrs['pending_missions'] = Attribute(str(list(self.pending_missions)), self.agent_id)
                     self.g.update_node(mission_history_node)
                 self.active_mission = None
+            if mission_vector is not None:
+                mission_node = self.g.get_node("mission")
+                if mission_node:
+                    mission_node.attrs['plan'] = Attribute(str(list(mission_vector)), self.agent_id)
+                    self.g.update_node(mission_node)
 
         elif self.pending_missions:
             print("Pending missions available, processing next one.")
@@ -291,9 +298,10 @@ class SpecificWorker(GenericWorker):
             self.insert_mission_node_in_dsr(active_mission)
             self.set_active_mission(active_mission)
 
-        if self.has_intentions_to_check:
-            destination_node = self.has_intentions_to_check.popleft()
-            self.check_intention_creation(destination_node)
+        # if self.has_intentions_to_check:
+        #     print("Intentions to check queue", self.has_intentions_to_check)
+        #     destination_node = self.has_intentions_to_check.popleft()
+        #     self.check_intention_creation(destination_node)
 
     def startup_check(self):
         QTimer.singleShot(200, QApplication.instance().quit)
@@ -306,7 +314,7 @@ class SpecificWorker(GenericWorker):
         person_index = self.ui.people_list.currentIndex()
         selected_person = person_index.data()
         if mission_index.isValid() and (destination_index.isValid() or person_index.isValid()):
-            selected_target = {"control_command" : "start", "mission" : selected_mission, "target": selected_destination, "priority" : self.ui.priority_check.isChecked(), "is_a_submission" : self.ui.submission_check.isChecked()}
+            selected_target = {"control_command" : "start", "mission" : selected_mission, "person": selected_person, "target": selected_destination, "priority" : self.ui.priority_check.isChecked(), "is_a_submission" : self.ui.submission_check.isChecked()}
             print(f"Misión seleccionada: {selected_target}")
             self.missions_to_process.append(selected_target)
 
@@ -376,13 +384,13 @@ class SpecificWorker(GenericWorker):
         mission_type = mission["mission"] if isinstance(mission, dict) else None
         match mission_type:
             case "goto":
-                self.active_mission = GOTOMission(self.g, mission, self.agent_id)
+                self.active_mission = GOTOMission(self.g, self.g_LTSM, mission, self.agent_id)
             case "follow":
-                self.active_mission = FollowMission(self.g, mission, self.agent_id)
+                self.active_mission = FollowMission(self.g, self.g_LTSM, mission, self.agent_id)
             case "guide":
-                self.active_mission = GuideMission(self.g, mission, self.agent_id)
+                self.active_mission = GuideMission(self.g, self.g_LTSM, mission, self.agent_id)
             case "interact":
-                self.active_mission = InteractMission(self.g, mission, self.agent_id)
+                self.active_mission = InteractMission(self.g, self.g_LTSM, mission, self.agent_id)
 
     def create_mission(self, mission_data):
         missions = []
@@ -395,67 +403,66 @@ class SpecificWorker(GenericWorker):
                 if current_edges:
                     actual_room = self.g.get_node(current_edges[0].origin)
                     print("El robot está en la habitación:", actual_room.name)
-                    try:
-                        # Get the path to the selected room
-                        path = self.long_term_graph.find_path_between_nodes(actual_room.name, mission_data["target"])
-                        print("Path to selected room:", path)
-                        # Structure as set of missions ("CROSS", "door_x_y_z")
+                    # try:
+                    # Get the path to the selected room
+                    path = self.long_term_graph.find_path_between_nodes(actual_room.name, mission_data["target"])
+                    # Structure as set of missions ("CROSS", "door_x_y_z")
 
-                        for node in path:
-                            # Considering node is "door_x_y_z", append to missions "("cross", "door", "x_y_z")"
-                            if node.startswith("door_"):
-                                # door_parts = node.split("_")
-                                # if len(door_parts) >= 3:
-                                #     door_name = "_".join(door_parts[1:])
-                                missions.append({"mission" : "cross", "target" : node, "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
-                                # else:
-                                #     print(f"Invalid door format: {node}")
-                            else:
-                                missions.append({"mission" : "goto", "target" : node, "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
-                    except:
-                        console.print(f"Target not found in LTSM memory. Check if target is available.", style='green')
+                    for node in path:
+                        # Considering node is "door_x_y_z", append to missions "("cross", "door", "x_y_z")"
+                        if node.startswith("door_"):
+                            # door_parts = node.split("_")
+                            # if len(door_parts) >= 3:
+                            #     door_name = "_".join(door_parts[1:])
+                            missions.append({"mission" : "cross", "target" : node, "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
+                            # else:
+                            #     print(f"Invalid door format: {node}")
+                        # else:
+                        #     missions.append({"mission" : "goto", "target" : node.name, "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
+                    # except:
+                    #     console.print(f"Target not found in LTSM memory. Check if target is available.", style='green')
                 else:
                     print("No hay ninguna habitación como current.")
             case "follow":
                 person_node = self.g.get_node(str(mission_data["target"]))
-                if person_node:
+                if person_node and person_node.type == "person":
                     missions.append({"mission" : "follow", "target" : mission_data["target"], "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
+                else:
+                    print("Person node doesn't exists or person not choosen to be followed")
+                    return
             case "interact":
                 person_node = self.g.get_node(str(mission_data["target"]))
-                if person_node:
+                if person_node and person_node.type == "person":
                     missions.append({"mission" : "interact", "target" : mission_data["target"], "timestamp" : robot_node.attrs["timestamp_alivetime"].value})
+            case "guide":
+                # Get current edges from graph
+                person_node = self.g.get_node(str(mission_data["person"]))
+                if person_node:
+                    current_edges = self.g.get_edges_by_type("current")
+                    if current_edges:
+                        actual_room = self.g.get_node(current_edges[0].origin)
+                        print("El robot está en la habitación:", actual_room.name)
+                        # Get the path to the selected room
+                        path = self.long_term_graph.find_path_between_nodes(actual_room.name, mission_data["target"])
+                        path_nodes_names = [node for node in path]
+                        print("Path to selected room:", path_nodes_names)
+                        # Structure as set of missions ("CROSS", "door_x_y_z")
+
+                        for node in path:
+                            # Considering node is "door_x_y_z", append to missions "("cross", "door", "x_y_z")"
+
+                                missions.append({"mission": "guide_to_next_target", "person" : mission_data["person"], "target": node,
+                                         "timestamp": robot_node.attrs["timestamp_alivetime"].value})
+
+                    else:
+                        print("No hay ninguna habitación como current.")
+
+                        # missions.append(("follow", mission_data["person"], robot_node.attrs["timestamp_alivetime"].value))
+                        # self.missions.append({"type": "guide", "target" : "room_2", "missions": missions})
         mission_data["missions"] = missions
+        print("Mission data", mission_data)
         self.missions.append(mission_data)
-            # case "guide":
-            #     # Get current edges from graph
-            #     person_node = self.g.get_node(str(target["person"]))
-            #     if person_node:
-            #         current_edges = self.g.get_edges_by_type("current")
-            #         if current_edges:
-            #             actual_room = self.g.get_node(current_edges[0].origin)
-            #             print("El robot está en la habitación:", actual_room.name)
-            #             # Get the path to the selected room
-            #             path = self.long_term_graph.find_path_between_rooms(actual_room.name, target["destination"])
-            #             print("Path to selected room:", path)
-            #             # Structure as set of missions ("CROSS", "door_x_y_z")
-            #
-            #             for node in path:
-            #                 # Considering node is "door_x_y_z", append to missions "("cross", "door", "x_y_z")"
-            #                 if node.startswith("door_"):
-            #                     door_parts = node.split("_")
-            #                     if len(door_parts) >= 3:
-            #                         door_name = "_".join(door_parts[1:])
-            #                         missions.append(("follow", target["person"], robot_node.attrs["timestamp_alivetime"].value))
-            #                         missions.append(("cross", "door", door_name, robot_node.attrs["timestamp_alivetime"].value))
-            #
-            #                     else:
-            #                         print(f"Invalid door format: {node}")
-            #             self.missions.append({"type": "guide", "target" : "room_2", "missions": missions})
-            #         else:
-            #             print("No hay ninguna habitación como current.")
-            #
-            #             missions.append(("follow", target["person"], robot_node.attrs["timestamp_alivetime"].value))
-            #             self.missions.append({"type": "guide", "target" : "room_2", "missions": missions})
+
 
     def setting_waiting_mission(self, mission_data):
         mission_nodes = self.g.get_nodes_by_type("mission")
@@ -467,33 +474,37 @@ class SpecificWorker(GenericWorker):
                     print("Setting current mission as waiting")
 
     def abort_mission(self, set_in_pending=False):
-        if self.active_mission:
-            # Remove the mission node from the graph
-            mission_node = self.g.get_node("mission")
-            if mission_node:
-                has_edge = self.g.get_edge(mission_node.id, self.robot_id, "has")
-                if has_edge:
-                    self.g.delete_edge(has_edge.origin, has_edge.destination, has_edge.type)
-                    print("Has edge deleted from the graph.")
-                self.g.delete_node(mission_node.id)
-                self.active_mission.abort_mission(set_in_pending)
-                print("Mission node deleted from the graph.")
-                robot_node = self.g.get_node(self.robot_id)
-                robot_timestamp = robot_node.attrs["timestamp_alivetime"].value if robot_node and "timestamp_alivetime" in robot_node.attrs else time.time()
-                self.missions_history.append(
-                        {"mission": self.active_mission.type, "target": self.active_mission.target, "init_timestamp" : self.active_mission.init_timestamp, "end_timestamp": robot_timestamp})
-                print("Mission history:", self.missions_history)
-                mission_history_node = self.g.get_node("mission_history")
-                if mission_history_node:
-                    mission_history_node.attrs['plan'] = Attribute(str(self.missions_history), self.agent_id)
-                    mission_history_node.attrs['pending_missions'] = Attribute(str(list(self.pending_missions)), self.agent_id)
-                    self.g.update_node(mission_history_node)
-                    print("Mission history node updated in the graph.")
-            else:
-                print("No active mission to abort in graph.")
-            self.active_mission = None
+        todo_edges = self.g.get_edges_by_type("TODO")
+        for edge in todo_edges:
+            self.g.delete_edge(edge.origin, edge.destination, edge.type)
+        has_intention_edges = self.g.get_edges_by_type("has_intention")
+        for edge in has_intention_edges:
+            self.g.delete_edge(edge.origin, edge.destination, edge.type)
+        # Remove the mission node from the graph
+        mission_node = self.g.get_node("mission")
+        if mission_node:
+            has_edge = self.g.get_edge(mission_node.id, self.robot_id, "has")
+            if has_edge:
+                self.g.delete_edge(has_edge.origin, has_edge.destination, has_edge.type)
+                print("Has edge deleted from the graph.")
+            self.g.delete_node(mission_node.id)
+            self.active_mission.abort_mission(set_in_pending)
+            print("Mission node deleted from the graph.")
+            robot_node = self.g.get_node(self.robot_id)
+            robot_timestamp = robot_node.attrs["timestamp_alivetime"].value if robot_node and "timestamp_alivetime" in robot_node.attrs else time.time()
+            self.missions_history.append(
+                    {"mission": self.active_mission.type, "target": self.active_mission.target, "init_timestamp" : self.active_mission.init_timestamp, "end_timestamp": robot_timestamp})
+            print("Mission history:", self.missions_history)
+            mission_history_node = self.g.get_node("mission_history")
+            if mission_history_node:
+                mission_history_node.attrs['plan'] = Attribute(str(self.missions_history), self.agent_id)
+                mission_history_node.attrs['pending_missions'] = Attribute(str(list(self.pending_missions)), self.agent_id)
+                self.g.update_node(mission_history_node)
+                print("Mission history node updated in the graph.")
         else:
-            print("No active mission to abort.")
+            print("No active mission to abort in graph.")
+        self.active_mission = None
+
 
     def check_intention_creation(self, destination_node):
         # TODO: probably check lambda counter
@@ -529,11 +540,12 @@ class SpecificWorker(GenericWorker):
                 # print(f"LLM response received: {llm_response}")
                 llm_response_parsed = ast.literal_eval(llm_response)
                 # Check if key "proposed_mission" exists in llm_response_parsed
-                if "proposed_mission" in llm_response_parsed and all(k in llm_response_parsed["proposed_mission"] for k in self.required_proposed_mission_keys):
-                    if llm_response_parsed["proposed_mission"]["mission"] in self.possible_missions:
-                        mission_data = llm_response_parsed["proposed_mission"]
-                        self.missions_to_process.append(mission_data)
-                        console.print(f"New mission from LLM received: {mission_data}", style='green')
+                if "proposed_missions" in llm_response_parsed:
+                    for mission in llm_response_parsed["proposed_missions"]:
+                        if all(k in mission for k in self.required_proposed_mission_keys):
+                            if mission["mission"] in self.possible_missions:
+                                self.missions_to_process.append(mission)
+                                console.print(f"New mission from LLM received: {mission}", style='green')
 
     def update_node(self, id: int, type: str):
         console.print(f"UPDATE NODE: {id} {type}", style='green')
@@ -542,13 +554,17 @@ class SpecificWorker(GenericWorker):
         console.print(f"DELETE NODE:: {id} ", style='green')
 
     def update_edge(self, fr: int, to: int, type: str):
-        if type == "has_intention" and isinstance(self.active_mission, FollowMission):
+        if type == "has_intention":
             origin_node = self.g.get_node(fr)
             if origin_node.type == "person":
-                if origin_node.attrs["person_id"].value == self.active_mission.person_id:
-                    destination_node = self.g.get_node(to)
-                    print("Followed person is interested in", destination_node.name, time.time())
-                    self.has_intentions_to_check.append(destination_node)
+                destination_node = self.g.get_node(to)
+                # Check if the intention already exists in the queue
+                if any(intention["origin"].id == origin_node.id and intention["destination"].id == destination_node.id for intention in self.has_intentions_to_check):
+                    print("Intention from", origin_node.name, "to", destination_node.name, "already in the queue.")
+                    return
+                print("Person is interested in", destination_node.name, time.time())
+                # Check if a similar inten
+                self.has_intentions_to_check.append({"origin" : origin_node, "destination" : destination_node})
 
     def update_edge_att(self, fr: int, to: int, type: str, attribute_names: [str]):
         console.print(f"UPDATE EDGE ATT: {fr} to {type} {attribute_names}", style='green')

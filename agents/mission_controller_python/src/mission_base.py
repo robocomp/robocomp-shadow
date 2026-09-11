@@ -8,8 +8,9 @@ class MissionBase(ABC):
     Clase base abstracta para la gestión de misiones de un robot social.
     Proporciona la estructura común y métodos utilitarios.
     """
-    def __init__(self, graph, mission, agent_id):
+    def __init__(self, graph, LTSM_graph, mission, agent_id):
         self.graph = graph
+        self.LSTM_graph = LTSM_graph
         self.agent_id = agent_id
         self.missions = deque(mission.get("missions", []))
         self.type = mission.get("mission", "")
@@ -118,7 +119,6 @@ class MissionBase(ABC):
         if not target_affordance_node:
             print(f"{current_affordance_target_name} affordance node not found in the graph.")
             return None
-        print("Current required affordance:", current_affordance_target_name)
         return target_affordance_node
 
 

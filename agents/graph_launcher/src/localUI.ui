@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>304</width>
-    <height>173</height>
+    <width>302</width>
+    <height>244</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -23,6 +23,9 @@
       <set>Qt::AlignCenter</set>
      </property>
     </widget>
+   </item>
+   <item>
+    <widget class="QListView" name="graph_list"/>
    </item>
    <item>
     <widget class="QTextEdit" name="json_name"/>

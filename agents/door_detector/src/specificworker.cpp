@@ -435,7 +435,7 @@ void SpecificWorker::affordance()
     {
         if (auto active = G->get_attrib_by_name<active_att>(aff.id()); active.has_value())
         {
-            std::cout << "Affordance node id: " << aff.id() << " active: " << active.value() << std::endl;
+            // std::cout << "Affordance node id: " << aff.id() << " active: " << active.value() << std::endl;
             if (active.value())
             {
                 //check if there is a thread for this affordance node
@@ -727,17 +727,17 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
         auto room_id = room_id_att_.value();
 
 //        qInfo() << "Door name: " << QString::fromStdString(n.name());
-        /// Get wall id knowing that is the 5 string element in the name
-        auto wall_id = std::stoi(n.name().substr(7, 1));
-        /// Get door id knowing that is the 7 string element in the name
-        auto door_id = std::stoi(n.name().substr(9, 1));
+        // /// Get wall id knowing that is the 5 string element in the name
+        // auto wall_id = std::stoi(n.name().substr(7, 1));
+        // /// Get door id knowing that is the 7 string element in the name
+        // auto door_id = std::stoi(n.name().substr(9, 1));
         // Check if door still exists in graph
-        // if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
-        // {
-        //     if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
-        //     {
-                // auto wall_id = wall_id_.value();
-                // auto door_id = door_id_.value();
+        if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
+        {
+            if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
+            {
+                auto wall_id = wall_id_.value();
+                auto door_id = door_id_.value();
                 if(not G->get_node(n.id()).has_value())
                 { qWarning() << __FUNCTION__ << " Door node does not exist in graph"; continue; }
         
@@ -773,7 +773,7 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
                                     door.id = door_id;
                                     door.wall_id = wall_id;
         //                            qInfo() << "Wall id: " << wall_id << " Door id: " << door_id;
-                                    qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
+                                    // qInfo() << "Door name: " << QString::fromStdString(n.name()) << " Width: " << door.width() << " Center: " << door.middle[0] << door.middle[1];
                                     if (n.name().find("_pre") != std::string::npos)
                                         measured_doors.push_back(door);
 
@@ -784,8 +784,8 @@ std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>> Spec
                         }
                     }
                 }
-        //     }
-        // }
+            }
+        }
     }
     return std::pair<std::vector<DoorDetector::Door>, std::vector<DoorDetector::Door>>{measured_doors, nominal_doors}; //Reference frame changed to wall
 }
@@ -811,15 +811,20 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const std::vector<Eige
     //     qInfo() << "Wall center:" << w.x() << w.y();
     // }
 
+        // Transform outer and inner polygons to QPolygonF
+    QPolygonF poly_room_out, poly_room_in, nominal_polygon;
     // Convert corners to Eigen vector double
     std::vector<Eigen::Vector2d> corners_eigen;
     corners_eigen.reserve(corners.size());
     for(const auto &c : corners)
+    {
+        nominal_polygon << QPointF(c.x(), c.y());
         corners_eigen.emplace_back(c.x(), c.y());
-    auto [outer_poly, inner_poly] = generate_inner_outer_polygons(corners_eigen, 150);
+    }
+    auto [outer_poly, inner_poly] = shrink_polygon_to_safe_zone(corners_eigen, 150);
+    std::cout << "Corners eigen size " << corners_eigen.size() << std::endl; 
+    std::cout << "Outer poly size " << outer_poly.size() << std::endl; 
 
-    // Transform outer and inner polygons to QPolygonF
-    QPolygonF poly_room_out, poly_room_in, nominal_polygon;
     poly_room_out.reserve(outer_poly.size());
     poly_room_in.reserve(inner_poly.size());
     nominal_polygon.reserve(corners.size());
@@ -827,13 +832,6 @@ std::vector<DoorDetector::Door> SpecificWorker::get_doors(const std::vector<Eige
         poly_room_out << QPointF(p.x, p.y);
     for(const auto &p : inner_poly)
         poly_room_in << QPointF(p.x, p.y);
-    for(const auto &c : corners)
-    {
-        qInfo() << c.x() << c.y();
-        nominal_polygon << QPointF(c.x(), c.y());
-    }
-
-
 
 
 //    std::vector<Eigen::Vector2d> wall_points = filter_points_between_polygons(ldata, outer_poly, inner_poly);
@@ -1054,6 +1052,43 @@ std::pair<Path64, Path64> SpecificWorker::generate_inner_outer_polygons(const st
         return {{}, {}};
 
     return {outer_solution[0], inner_solution[0]};
+}
+
+
+
+// Proyectar las esquinas y reducir el polígono
+std::pair<Path64, Path64>SpecificWorker::shrink_polygon_to_safe_zone(const std::vector<Eigen::Vector2d>& corners_2D, double margin_meters)
+{
+    ClipperOffset offsetter;
+    Path64 path = toClipper2Path(corners_2D);
+
+    offsetter.AddPath(path, JoinType::Miter, EndType::Polygon);
+    Paths64 outer_solution, inner_solution;
+    offsetter.Execute(margin_meters * SCALE, outer_solution);      // Hacia afuera
+    offsetter.Execute(-margin_meters * SCALE, inner_solution);     // Hacia adentro
+
+    if (outer_solution.empty() || inner_solution.empty())
+        return {{}, {}};
+
+    return {outer_solution[0], inner_solution[0]};
+}
+
+// Convierte de Eigen a Clipper2
+Path64 SpecificWorker::toClipper2Path(const std::vector<Eigen::Vector2d>& poly) {
+    Path64 path;
+    for (const auto& p : poly) {
+        path.emplace_back(static_cast<int64_t>(p.x() * SCALE), static_cast<int64_t>(p.y() * SCALE));
+    }
+    return path;
+}
+
+// Convierte de Clipper2 a Eigen
+std::vector<Eigen::Vector2d> SpecificWorker::fromClipper2Path(const Path64& path) {
+    std::vector<Eigen::Vector2d> poly;
+    for (const auto& pt : path) {
+        poly.emplace_back(pt.x / SCALE, pt.y / SCALE);
+    }
+    return poly;
 }
 
 //std::vector<Eigen::Vector2d> SpecificWorker::filter_points_between_polygons(const std::vector<RoboCompLidar3D::TPoint>& lidar_points,
@@ -1485,18 +1520,18 @@ void SpecificWorker::set_doors_to_stabilize(std::vector<DoorDetector::Door> door
         for(auto &n: door_nodes)
             if(n.name().find("door") != std::string::npos)
             {
-                // if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
-                // {
-                //     if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
-                //     {
-                //         auto wall_id_graph = wall_id_.value();
-                //         auto door_id_graph = door_id_.value();
-                        auto wall_id_graph = std::stoi(n.name().substr(7, 1));
-                        auto door_id_graph = std::stoi(n.name().substr(9, 1));
+                if(auto wall_id_ = G->get_attrib_by_name<wall_id_att>(n); wall_id_.has_value())
+                {
+                    if(auto door_id_ = G->get_attrib_by_name<door_id_att>(n); door_id_.has_value())
+                    {
+                        auto wall_id_graph = wall_id_.value();
+                        auto door_id_graph = door_id_.value();
+                        // auto wall_id_graph = std::stoi(n.name().substr(7, 1));
+                        // auto door_id_graph = std::stoi(n.name().substr(9, 1));
                         if(wall_id == wall_id_graph)
                             door_ids.push_back(door_id_graph);
-                //     }
-                // }
+                    }
+                }
 
             }
         int new_door_id;

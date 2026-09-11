@@ -3,7 +3,6 @@
 SET ( SOURCES
   specificworker.cpp
   specificmonitor.cpp
-  fastgicp.cpp
 )
 
 # Headers set
@@ -16,8 +15,7 @@ SET ( HEADERS
 INCLUDE( $ENV{ROBOCOMP}/cmake/modules/opencv4.cmake )
 
 add_definitions(-O3 -fmax-errors=1 -fno-char8_t -I/usr/include/x86_64-linux-gnu/qt6/QtOpenGLWidgets/
-                -I/usr/include/pcl-1.12 -I/home/robocomp/software/fast_gicp/include/)
-link_directories(/home/robocomp/software/fast_gicp/build)
+                -I/usr/include/pcl-1.12)
 set(PCL_DIR "/usr/lib/x86_64-linux-gnu/cmake/pcl")
 find_package(PCL REQUIRED)
 unset (Qt5 CACHE)
@@ -36,4 +34,4 @@ if( USE_QT6)
     LIST(APPEND LIBS QGLViewer-qt5)
 endif()
 
-LIST(APPEND LIBS pcl_common pcl_search pcl_filters pcl_kdtree fast_gicp)
+LIST(APPEND LIBS pcl_common pcl_search pcl_filters pcl_kdtree)

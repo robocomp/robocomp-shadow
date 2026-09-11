@@ -14,7 +14,7 @@ Endpoints.FullPoseEstimationPubPrefix = "zed"
 # Endpoints for implements interfaces
 Endpoints.Lidar3D = "tcp -p 12434"
 
-Period.Compute = 200
+Period.Compute = 500
 Period.Emergency = 200
 
 Ice.Warn.Connections = "0"
